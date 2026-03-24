@@ -268,13 +268,17 @@ async def test_scheduler_with_buffer_manager() -> None:
 
     checkpointed: list[int] = []
 
+    def finalize(rg_id: int) -> None:
+        buffer_mgr.checkpoint_row_group(rg_id)
+        checkpointed.append(rg_id)
+
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_row_group_complete=lambda rg: checkpointed.append(rg),
+        on_finalize_row_group=finalize,
     )
     await scheduler.run()
 
@@ -562,7 +566,7 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
     tracker = CompletionTracker.with_graph(graph, row_groups)
     buffer_mgr = RowGroupBufferManager(storage)
 
-    checkpointed: list[int] = []
+    finalized: list[int] = []
 
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -570,7 +574,7 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_row_group_complete=lambda rg: checkpointed.append(rg),
+        on_finalize_row_group=lambda rg: finalized.append(rg),
         trace=True,
     )
     await scheduler.run()
@@ -579,8 +583,8 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
     for ri in range(3):
         assert tracker.is_dropped(0, ri)
 
-    # Row group still completes (vacuously) and is checkpointed
-    assert 0 in checkpointed
+    # Row group is NOT finalized when all rows are dropped (freed instead)
+    assert 0 not in finalized
 
     # full_out was either never dispatched or silently skipped (no KeyError)
     full_out_errors = [t for t in scheduler.traces if t.column == "full_out" and t.status == "error"]
@@ -798,8 +802,8 @@ async def test_scheduler_on_before_checkpoint_callback() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_on_checkpoint_complete_callback_receives_final_path() -> None:
-    """on_checkpoint_complete is called with the written parquet file path."""
+async def test_scheduler_on_finalize_row_group_callback_fires() -> None:
+    """on_finalize_row_group is called for each completed row group."""
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
@@ -818,7 +822,11 @@ async def test_scheduler_on_checkpoint_complete_callback_receives_final_path() -
     storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
 
     buffer_mgr = RowGroupBufferManager(storage)
-    callback_log: list[str] = []
+    finalized: list[int] = []
+
+    def finalize_row_group(rg_id: int) -> None:
+        buffer_mgr.checkpoint_row_group(rg_id)
+        finalized.append(rg_id)
 
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -826,16 +834,17 @@ async def test_scheduler_on_checkpoint_complete_callback_receives_final_path() -
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_checkpoint_complete=lambda path: callback_log.append(path),
+        on_finalize_row_group=finalize_row_group,
     )
     await scheduler.run()
 
-    assert callback_log == ["/fake_final.parquet"]
+    assert finalized == [0]
+    assert storage.write_batch_to_parquet_file.call_count == 1
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_on_checkpoint_complete_skips_empty_row_group() -> None:
-    """on_checkpoint_complete is not called when a row group writes no file."""
+async def test_scheduler_on_finalize_skips_empty_row_group() -> None:
+    """on_finalize_row_group is not called when all rows are dropped."""
     provider = _mock_provider()
     storage = MagicMock()
     storage.dataset_name = "test"
@@ -861,7 +870,7 @@ async def test_scheduler_on_checkpoint_complete_skips_empty_row_group() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_checkpoint_complete=callback,
+        on_finalize_row_group=callback,
     )
     await scheduler.run()
 
@@ -979,7 +988,7 @@ async def test_scheduler_out_of_order_row_group_completion() -> None:
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
         max_concurrent_row_groups=2,
-        on_row_group_complete=lambda rg_id: checkpoint_order.append(rg_id),
+        on_finalize_row_group=lambda rg_id: checkpoint_order.append(rg_id),
     )
     await scheduler.run()
 

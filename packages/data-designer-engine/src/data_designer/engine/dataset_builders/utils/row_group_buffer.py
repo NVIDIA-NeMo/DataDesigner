@@ -91,6 +91,12 @@ class RowGroupBufferManager:
     def is_dropped(self, row_group: int, row_index: int) -> bool:
         return row_index in self._dropped.get(row_group, set())
 
+    def free_row_group(self, row_group: int) -> None:
+        """Release buffer memory for a row group without writing to disk."""
+        self._buffers.pop(row_group, None)
+        self._dropped.pop(row_group, None)
+        self._row_group_sizes.pop(row_group, None)
+
     def checkpoint_row_group(
         self,
         row_group: int,
@@ -117,10 +123,7 @@ class RowGroupBufferManager:
         if on_complete:
             on_complete(final_path)
 
-        # Free memory
-        del self._buffers[row_group]
-        self._dropped.pop(row_group, None)
-        self._row_group_sizes.pop(row_group, None)
+        self.free_row_group(row_group)
 
     def write_metadata(self, target_num_records: int, buffer_size: int) -> None:
         """Write final metadata after all row groups are checkpointed."""

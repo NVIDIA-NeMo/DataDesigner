@@ -80,7 +80,7 @@ if DATA_DESIGNER_ASYNC_ENGINE:
 _CLIENT_VERSION: str = get_library_version()
 
 
-class ColumnWiseDatasetBuilder:
+class DatasetBuilder:
     def __init__(
         self,
         data_designer_config: DataDesignerConfig,
@@ -200,15 +200,41 @@ class ColumnWiseDatasetBuilder:
             self.artifact_storage.set_media_storage_mode(StorageMode.DATAFRAME)
 
         generators = self._initialize_generators()
-        group_id = uuid.uuid4().hex
         start_time = time.perf_counter()
-        self.batch_manager.start(num_records=num_records, buffer_size=num_records)
-        self._run_batch(generators, batch_mode="preview", save_partial_results=False, group_id=group_id)
-        dataset = self.batch_manager.get_current_batch(as_dataframe=True)
-        self.batch_manager.reset()
+
+        if DATA_DESIGNER_ASYNC_ENGINE:
+            self._validate_async_compatibility()
+            dataset = self._build_async_preview(generators, num_records)
+        else:
+            group_id = uuid.uuid4().hex
+            self.batch_manager.start(num_records=num_records, buffer_size=num_records)
+            self._run_batch(generators, batch_mode="preview", save_partial_results=False, group_id=group_id)
+            dataset = self.batch_manager.get_current_batch(as_dataframe=True)
+            self.batch_manager.reset()
 
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
+        return dataset
+
+    def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
+        """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""
+        logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview")
+
+        scheduler, buffer_manager = self._prepare_async_run(
+            generators,
+            num_records,
+            buffer_size=num_records,
+            run_post_batch_in_scheduler=False,
+        )
+
+        loop = ensure_async_engine_loop()
+        future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
+        future.result()
+
+        self._task_traces = scheduler.traces
+
+        dataset = buffer_manager.get_dataframe(0)
+        buffer_manager.free_row_group(0)
         return dataset
 
     def _validate_async_compatibility(self) -> None:
@@ -228,92 +254,33 @@ class ColumnWiseDatasetBuilder:
         buffer_size: int,
         on_batch_complete: Callable[[Path], None] | None = None,
     ) -> None:
-        """Async task-queue builder path — dispatches tasks based on dependency readiness."""
+        """Async task-queue builder path - dispatches tasks based on dependency readiness."""
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
 
-        # Build strategy map from generators
-        strategies: dict[str, GenerationStrategy] = {}
-        gen_map: dict[str, ColumnGenerator] = {}
-        for gen in generators:
-            if isinstance(gen.config, MultiColumnConfig):
-                for sub in gen.config.columns:
-                    strategies[sub.name] = gen.get_generation_strategy()
-                    gen_map[sub.name] = gen
-            else:
-                strategies[gen.config.name] = gen.get_generation_strategy()
-                gen_map[gen.config.name] = gen
-
-        graph = ExecutionGraph.create(self._column_configs, strategies)
-
-        # Log pre-generation info for all generators
-        for gen in generators:
-            gen.log_pre_generation()
-
-        # Partition into row groups
-        row_groups: list[tuple[int, int]] = []
-        remaining = num_records
-        rg_id = 0
-        while remaining > 0:
-            size = min(buffer_size, remaining)
-            row_groups.append((rg_id, size))
-            remaining -= size
-            rg_id += 1
-
-        tracker = CompletionTracker.with_graph(graph, row_groups)
-        buffer_manager = RowGroupBufferManager(self.artifact_storage)
         settings = self._resource_provider.run_config
-
-        # Pre-batch processor callback: runs after seed tasks complete for a row group.
-        # If it raises, the scheduler drops all rows in the row group (skips it).
-        def on_seeds_complete(rg_id: int, rg_size: int) -> None:
-            if not self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH):
-                return
-            df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_pre_batch_on_df(df)
-            buffer_manager.replace_dataframe(rg_id, df)
-            # Sync newly-dropped rows to the tracker so downstream cell tasks are skipped
-            for ri in range(rg_size):
-                if buffer_manager.is_dropped(rg_id, ri) and not tracker.is_dropped(rg_id, ri):
-                    tracker.drop_row(rg_id, ri)
-
-        # Post-batch processor callback: runs after all columns, before checkpoint.
-        # rg_id is used as current_batch_number; both are 0-based sequential indices today.
-        def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
-            df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
-            buffer_manager.replace_dataframe(rg_id, df)
-
-        # Telemetry snapshot
-        group_id = uuid.uuid4().hex
-        pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
-
         trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
 
-        # Coarse upper bound: sums all registered aliases, not just those used
-        # in this build.  Oversizing is harmless — ThrottleManager enforces
-        # the real per-key limit; the semaphore is a memory-safety cap.
-        aggregate = self._resource_provider.model_registry.get_aggregate_max_parallel_requests()
+        def finalize_row_group(rg_id: int) -> None:
+            def on_complete(final_path: Path | str | None) -> None:
+                if final_path is not None and on_batch_complete:
+                    on_batch_complete(final_path)
 
-        scheduler = AsyncTaskScheduler(
-            generators=gen_map,
-            graph=graph,
-            tracker=tracker,
-            row_groups=row_groups,
-            buffer_manager=buffer_manager,
-            max_submitted_tasks=DEFAULT_TASK_POOL_SIZE,
-            max_llm_wait_tasks=max(DEFAULT_TASK_POOL_SIZE, LLM_WAIT_POOL_MULTIPLIER * aggregate),
-            on_checkpoint_complete=on_batch_complete,
-            on_seeds_complete=(
-                on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
-            ),
-            on_before_checkpoint=(
-                on_before_checkpoint if self._processor_runner.has_processors_for(ProcessorStage.POST_BATCH) else None
-            ),
+            buffer_manager.checkpoint_row_group(rg_id, on_complete=on_complete)
+
+        scheduler, buffer_manager = self._prepare_async_run(
+            generators,
+            num_records,
+            buffer_size,
+            on_finalize_row_group=finalize_row_group,
             shutdown_error_rate=settings.shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
             disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
         )
+
+        # Telemetry snapshot
+        group_id = uuid.uuid4().hex
+        pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
 
         # Run on background event loop
         loop = ensure_async_engine_loop()
@@ -331,6 +298,101 @@ class ColumnWiseDatasetBuilder:
 
         # Write metadata
         buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
+
+    def _prepare_async_run(
+        self,
+        generators: list[ColumnGenerator],
+        num_records: int,
+        buffer_size: int,
+        *,
+        on_finalize_row_group: Callable[[int], None] | None = None,
+        run_post_batch_in_scheduler: bool = True,
+        shutdown_error_rate: float = 0.5,
+        shutdown_error_window: int = 10,
+        disable_early_shutdown: bool = False,
+        trace: bool = False,
+    ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
+        """Build a fully-wired scheduler and buffer manager for async generation.
+
+        Shared setup for both build and preview paths. Processor hooks are always
+        wired when the config has processors, so callers cannot accidentally omit them.
+        """
+        strategies: dict[str, GenerationStrategy] = {}
+        gen_map: dict[str, ColumnGenerator] = {}
+        for gen in generators:
+            if isinstance(gen.config, MultiColumnConfig):
+                for sub in gen.config.columns:
+                    strategies[sub.name] = gen.get_generation_strategy()
+                    gen_map[sub.name] = gen
+            else:
+                strategies[gen.config.name] = gen.get_generation_strategy()
+                gen_map[gen.config.name] = gen
+
+        graph = ExecutionGraph.create(self._column_configs, strategies)
+
+        for gen in generators:
+            gen.log_pre_generation()
+
+        # Partition into row groups
+        row_groups: list[tuple[int, int]] = []
+        remaining = num_records
+        rg_id = 0
+        while remaining > 0:
+            size = min(buffer_size, remaining)
+            row_groups.append((rg_id, size))
+            remaining -= size
+            rg_id += 1
+
+        tracker = CompletionTracker.with_graph(graph, row_groups)
+        buffer_manager = RowGroupBufferManager(self.artifact_storage)
+
+        # Pre-batch processor callback: runs after seed tasks complete for a row group.
+        # If it raises, the scheduler drops all rows in the row group (skips it).
+        def on_seeds_complete(rg_id: int, rg_size: int) -> None:
+            df = buffer_manager.get_dataframe(rg_id)
+            df = self._processor_runner.run_pre_batch_on_df(df)
+            buffer_manager.replace_dataframe(rg_id, df)
+            for ri in range(rg_size):
+                if buffer_manager.is_dropped(rg_id, ri) and not tracker.is_dropped(rg_id, ri):
+                    tracker.drop_row(rg_id, ri)
+
+        # Post-batch processor callback: runs after all columns, before finalization.
+        def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
+            df = buffer_manager.get_dataframe(rg_id)
+            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
+            buffer_manager.replace_dataframe(rg_id, df)
+
+        # Coarse upper bound: sums all registered aliases, not just those used
+        # in this build. Oversizing is harmless - ThrottleManager enforces
+        # the real per-key limit; the semaphore is a memory-safety cap.
+        aggregate = self._resource_provider.model_registry.get_aggregate_max_parallel_requests()
+
+        scheduler = AsyncTaskScheduler(
+            generators=gen_map,
+            graph=graph,
+            tracker=tracker,
+            row_groups=row_groups,
+            buffer_manager=buffer_manager,
+            max_submitted_tasks=DEFAULT_TASK_POOL_SIZE,
+            max_llm_wait_tasks=max(DEFAULT_TASK_POOL_SIZE, LLM_WAIT_POOL_MULTIPLIER * aggregate),
+            on_finalize_row_group=on_finalize_row_group,
+            on_seeds_complete=(
+                on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
+            ),
+            on_before_checkpoint=(
+                on_before_checkpoint
+                if run_post_batch_in_scheduler and self._processor_runner.has_processors_for(ProcessorStage.POST_BATCH)
+                else None
+            ),
+            shutdown_error_rate=shutdown_error_rate,
+            shutdown_error_window=shutdown_error_window,
+            disable_early_shutdown=disable_early_shutdown,
+            trace=trace,
+            num_records=num_records,
+            buffer_size=buffer_size,
+            progress_interval=self._resource_provider.run_config.progress_interval,
+        )
+        return scheduler, buffer_manager
 
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
