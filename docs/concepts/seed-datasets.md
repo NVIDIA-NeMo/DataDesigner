@@ -54,7 +54,7 @@ Every column in your seed dataset becomes available as a Jinja2 variable in prom
 
 ## Seed Sources
 
-Data Designer supports three ways to provide seed data:
+Data Designer supports five ways to provide seed data:
 
 ### 📁 LocalFileSeedSource
 
@@ -99,6 +99,78 @@ seed_source = dd.DataFrameSeedSource(df=df)
 
 !!! warning "Serialization"
     `DataFrameSeedSource` can't be serialized to YAML/JSON configs. Use `LocalFileSeedSource` if you need to save and share configurations.
+
+### 🗂️ DirectorySeedSource
+
+Treat a directory tree as the seed dataset. Each matching file becomes one seed row, exposing file metadata you can reference in prompts and expressions.
+
+```python
+seed_source = dd.DirectorySeedSource(
+    path="docs/",
+    file_pattern="*.md",
+    recursive=True,
+)
+
+config_builder.with_seed_dataset(seed_source)
+config_builder.add_column(
+    dd.ExpressionColumnConfig(
+        name="doc_label",
+        expr="{{ source_kind }}::{{ relative_path }}",
+    )
+)
+```
+
+Directory-backed seed datasets expose these columns:
+
+- `source_kind` - always `"directory_file"`
+- `source_path` - full path to the matched file
+- `relative_path` - path relative to the configured directory
+- `file_name` - basename of the matched file
+
+!!! note "Filesystem matching"
+    `file_pattern` matches file names only, not relative paths. `recursive=True` is the default, so nested subdirectories are searched unless you turn it off.
+
+### 📄 FileContentsSeedSource
+
+Read matching text files into the seed dataset. Each file becomes one seed row with the same metadata as `DirectorySeedSource`, plus the decoded file contents in a `content` column.
+
+```python
+seed_source = dd.FileContentsSeedSource(
+    path="docs/",
+    file_pattern="*.md",
+    encoding="utf-8",
+)
+
+config_builder.with_seed_dataset(seed_source)
+config_builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="summary",
+        model_alias="my-model",
+        prompt="""\
+Summarize the following document.
+
+File: {{ file_name }}
+Path: {{ relative_path }}
+
+{{ content }}
+""",
+    )
+)
+```
+
+`FileContentsSeedSource` exposes these seeded columns:
+
+- `source_kind` - always `"file_contents"`
+- `source_path` - full path to the matched file
+- `relative_path` - path relative to the configured directory
+- `file_name` - basename of the matched file
+- `content` - decoded text contents of the matched file
+
+!!! note "Encoding"
+    `encoding="utf-8"` is the default. Set a different Python codec name if your files use another text encoding.
+
+!!! tip "Advanced Filesystem Readers"
+    If you need custom row construction, fan-out behavior, or expensive hydration logic, build a custom filesystem seed reader and pass it via `DataDesigner(seed_readers=[...])`. See the [plugin example](../plugins/example.md) for the extension pattern.
 
 ## Sampling Strategies
 
@@ -234,7 +306,7 @@ Write detailed clinical notes for this visit.
 )
 
 # Preview
-preview = designer.preview(config_builder, num_records=5)
+preview = data_designer.preview(config_builder, num_records=5)
 preview.display_sample_record()
 ```
 
