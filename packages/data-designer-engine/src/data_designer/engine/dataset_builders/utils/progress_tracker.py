@@ -31,7 +31,7 @@ class ProgressTracker:
         tracker.log_final()
     """
 
-    def __init__(self, total_records: int, label: str, log_interval_percent: int = 10):
+    def __init__(self, total_records: int, label: str, log_interval_percent: int = 10, *, quiet: bool = False):
         """
         Initialize the progress tracker.
 
@@ -39,9 +39,11 @@ class ProgressTracker:
             total_records: Total number of records to process.
             label: Human-readable label for log messages (e.g., "LLM_TEXT column 'response'").
             log_interval_percent: How often to log progress as a percentage (default 10%).
+            quiet: If True, suppress per-tracker logging (for use with AsyncProgressReporter).
         """
         self.total_records = total_records
         self.label = label
+        self.quiet = quiet
 
         self.completed = 0
         self.success = 0
@@ -62,6 +64,9 @@ class ProgressTracker:
             self.label,
             max_workers,
         )
+        self._log_interval_info()
+
+    def _log_interval_info(self) -> None:
         interval_str = "after each record" if self.log_interval == 1 else f"every {self.log_interval} records"
         logger.info(
             "⏱️ %s will report progress %s",
@@ -92,7 +97,7 @@ class ProgressTracker:
             else:
                 self.failed += 1
 
-            if self.completed >= self.next_log_at and self.completed < self.total_records:
+            if not self.quiet and self.completed >= self.next_log_at and self.completed < self.total_records:
                 should_log = True
                 while self.next_log_at <= self.completed:
                     self.next_log_at += self.log_interval

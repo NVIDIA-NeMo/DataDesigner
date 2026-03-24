@@ -105,6 +105,7 @@ class RunConfig(ConfigBase):
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
     async_trace: bool = False
+    progress_interval: float = Field(default=5.0, gt=0.0)
     throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
 
     @model_validator(mode="after")

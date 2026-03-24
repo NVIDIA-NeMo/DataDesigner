@@ -10,6 +10,7 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
 from data_designer.engine.column_generators.utils.errors import ExpressionTemplateRenderError
+from data_designer.engine.context import format_row_group_tag
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.utils import deserialize_json_values
 
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorFullColumn[ExpressionColumnConfig]):
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
-        logger.info(f"🧩 Generating column `{self.config.name}` from expression")
+        logger.info(f"🧩 {format_row_group_tag()}Generating column `{self.config.name}` from expression")
 
         missing_columns = list(set(self.config.required_columns) - set(data.columns))
         if len(missing_columns) > 0:
