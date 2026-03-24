@@ -12,8 +12,8 @@ Agents accelerate work; humans stay accountable. People make design decisions an
 
 1. **Open an issue** using the appropriate [issue template](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new/choose).
 2. **Include investigation output.** If you used an agent, paste its diagnostics. If you didn't, include the troubleshooting you tried.
-3. **For non-trivial changes, submit a plan** in the issue for review before building. Plans should describe the approach, trade-offs considered, and affected subsystems.
-4. **Once approved, implement** using agent-assisted development. See [DEVELOPMENT.md](DEVELOPMENT.md) for local setup and workflow.
+3. **For non-trivial changes, create a plan document** at `plans/<issue-number>/` before building. Have your agent draft the plan — it should describe the approach, trade-offs considered, affected subsystems, and a delivery strategy. See existing plans in [`plans/`](plans/) for reference. Submit the plan in a PR for review.
+4. **Once the plan is approved, implement** using agent-assisted development. See [DEVELOPMENT.md](DEVELOPMENT.md) for local setup and workflow.
 
 ## Before You Open an Issue
 
@@ -57,12 +57,14 @@ The repository includes skills for common development tasks. These are located i
   make check-all-fix
   make test
   ```
+- Run a self-review before opening the PR using the `review-code` skill. Address any critical or warning-level findings before requesting human review. If you have access to multiple models, run the review with different models across passes — different models surface different issues, and a single pass rarely catches everything.
 
 ### Pull Request Review Process
 
+- PRs receive an automated CI code review. You must address all critical and warning-level findings from the automated review before requesting human review.
 - Maintainers will review your PR and may request changes
 - Address feedback by pushing additional commits to your branch
-- Reply to the feedback comment with a link to the commit that addresses it
+- Reply to each comment before resolving it. If the comment resulted in a code change, include the commit hash that addresses it. Do not resolve comments without a response.
 - Once approved, a maintainer will merge your PR
 
 ---
