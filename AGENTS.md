@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This file is for agents **developing** DataDesigner — the codebase you are working in.
-If you are an agent helping a user **build a dataset**, see the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) and tutorials instead.
+If you are an agent helping a user **build a dataset**, use the [`data-designer` skill](skills/data-designer/SKILL.md) and the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) instead.
 
 **DataDesigner** is an NVIDIA NeMo framework for creating synthetic datasets from scratch. Users declare what their data should look like (columns, types, relationships, validation rules); the engine figures out how to generate it. Every change you make should preserve this "declare, don't orchestrate" contract.
 
@@ -15,7 +15,7 @@ The `data_designer` namespace is split across three installable packages that me
 | `data-designer-engine` | `packages/data-designer-engine/` | `data_designer.engine` — column generators, dataset builders, DAG execution, model facade, validators, sampling |
 | `data-designer` | `packages/data-designer/` | `data_designer.interface` — public `DataDesigner` class, results, errors; `data_designer.cli` — CLI entry point; `data_designer.integrations` |
 
-**Dependency direction:** config ← engine ← interface. Never import against this flow.
+**Dependency direction (left depends on right):** interface → engine → config. Never import against this flow.
 
 ## Core Concepts
 
@@ -34,7 +34,7 @@ The `data_designer` namespace is split across three installable packages that me
 
 ## Structural Invariants
 
-- **Import direction** — config ← engine ← interface. No reverse imports.
+- **Import direction** — interface → engine → config (left depends on right). No reverse imports.
 - **Fast imports** — heavy third-party libraries are lazy-loaded via `data_designer.lazy_heavy_imports`. See [STYLEGUIDE.md](STYLEGUIDE.md) for the pattern.
 - **No relative imports** — absolute imports only, enforced by ruff rule `TID`.
 - **Typed code** — all functions, methods, and class attributes require type annotations. Modern syntax: `list[str]`, `str | None`.

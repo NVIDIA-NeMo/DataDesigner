@@ -97,25 +97,38 @@ uv run ruff format --check       # Check formatting
 
 ### Running Tests
 
+`make test` runs all three package test suites in sequence (config, engine, interface). When iterating on a single package, run its tests directly:
+
 ```bash
-# Run all tests
+# Run all tests (config + engine + interface)
 make test
 
-# Run tests with verbose output
-uv run pytest -v
+# Run a single package's tests
+make test-config       # data-designer-config
+make test-engine       # data-designer-engine
+make test-interface    # data-designer (interface)
 
 # Run a specific test file
 uv run pytest tests/config/test_sampler_constraints.py
 
+# Run tests with verbose output
+uv run pytest -v
+
 # Run tests with coverage
 make coverage
 # View htmlcov/index.html in browser
+
+# E2E and example tests (slower, require API keys — see README.md for setup)
+make test-e2e              # end-to-end tests
+make test-run-tutorials    # run tutorial notebooks as tests
+make test-run-recipes      # run recipe scripts as tests
 ```
 
 ### Test Patterns
 
 The project uses `pytest` with the following patterns:
 
+- **Flat test functions**: Write standalone `test_*` functions, not `class`-based test suites. Use fixtures and parametrize for shared setup instead of class inheritance.
 - **Fixtures**: Shared fixtures are provided via `pytest_plugins` from `data_designer.config.testing.fixtures` and `data_designer.engine.testing.fixtures`, plus local `conftest.py` files in each test directory
 - **Stub configs**: YAML-based configuration stubs for testing (see `stub_data_designer_config_str` fixture)
 - **Mocking**: Use `unittest.mock.patch` for external services and dependencies
@@ -173,13 +186,15 @@ Hooks include:
 ## Common Tasks
 
 ```bash
-make clean                    # Clean up generated files
-make update-license-headers   # Add SPDX headers to new files
-make check-all-fix            # Format + lint before committing
-make test                     # Run all tests
-make coverage                 # Run tests with coverage report
-make perf-import              # Profile import time
-make perf-import CLEAN=1      # Clean cache first, then profile
+make clean                       # Clean up generated files
+make update-license-headers      # Add SPDX headers to new files
+make check-all-fix               # Format + lint before committing
+make test                        # Run all tests
+make coverage                    # Run tests with coverage report
+make perf-import                 # Profile import time
+make perf-import CLEAN=1         # Clean cache first, then profile
+make convert-execute-notebooks   # Regenerate .ipynb from docs/notebook_source/*.py
+make generate-colab-notebooks    # Generate Colab-compatible notebooks
 ```
 
 ---
@@ -192,4 +207,4 @@ After adding heavy third-party dependencies, verify import performance:
 make perf-import CLEAN=1
 ```
 
-If import time regresses, add the dependency to `lazy_heavy_imports.py` — see [STYLEGUIDE.md](STYLEGUIDE.md) for the lazy loading pattern.
+There is also a CI test (`test_import_performance` in `packages/data-designer/tests/test_import_perf.py`) that runs 5 import cycles (1 cold + 4 warm) and fails if the average exceeds **3 seconds**. If your dependency causes a regression, add it to `lazy_heavy_imports.py` — see [STYLEGUIDE.md](STYLEGUIDE.md) for the lazy loading pattern.

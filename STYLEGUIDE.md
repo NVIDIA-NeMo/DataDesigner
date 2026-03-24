@@ -12,6 +12,7 @@ For development workflow and testing, see [DEVELOPMENT.md](DEVELOPMENT.md).
 - **Line length**: Maximum 120 characters per line
 - **Quote style**: Always use double quotes (`"`) for strings
 - **Indentation**: Use 4 spaces (never tabs)
+- **String formatting**: Prefer f-strings. Avoid `.format()` and `%` formatting.
 - **Target version**: Python 3.10+
 
 ## License Headers
@@ -19,7 +20,7 @@ For development workflow and testing, see [DEVELOPMENT.md](DEVELOPMENT.md).
 All Python files must include the NVIDIA SPDX license header:
 
 ```python
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 ```
 
@@ -32,6 +33,43 @@ Include `from __future__ import annotations` at the top of every Python source f
 ## Comments
 
 Only insert comments when code is especially important to understand. For basic code blocks, comments aren't necessary. We want readable code without vacuous comments.
+
+## Docstrings
+
+Use **Google style** docstrings (`Args:`, `Returns:`, `Raises:`).
+
+- **Public API classes and functions** get docstrings. Use a one-liner for simple functions; add Google sections for anything with non-obvious parameters or behavior.
+- **Private helpers** (`_`-prefixed) don't need docstrings unless the logic is non-obvious.
+- **Don't restate the signature** — the docstring should explain *why* or *what*, not repeat the parameter names and types that are already in the annotation.
+- **Pydantic config classes** use `Attributes:` and `Inherited Attributes:` sections to document fields.
+- **Module docstrings** are optional — use a one-liner after the license header when the module's purpose isn't obvious from its name.
+
+```python
+# Good - Google style with sections
+def compile_config(config: DataDesignerConfig, provider: ResourceProvider) -> DataDesignerConfig:
+    """Compile a raw config into an executable form.
+
+    Resolves seed columns, adds internal IDs, and validates the result.
+
+    Args:
+        config: The user-provided configuration to compile.
+        provider: Resource provider for seed dataset resolution.
+
+    Returns:
+        The compiled configuration ready for execution.
+
+    Raises:
+        ConfigValidationError: If the configuration is invalid after compilation.
+    """
+
+# Good - one-liner for simple functions
+def get_column_names(config: DataDesignerConfig) -> list[str]:
+    """Return the names of all columns in the config."""
+
+# Bad - restates the signature
+def get_column_names(config: DataDesignerConfig) -> list[str]:
+    """Get column names from a DataDesignerConfig and return them as a list of strings."""
+```
 
 ---
 
@@ -242,7 +280,55 @@ class dataset_generator:  # Should be PascalCase
 - **Public before private**: Public functions/methods appear before private ones in modules and classes
 - **Class method order**: `__init__` and other dunder methods first, then properties, then public methods, then private helpers. Group related method types together (e.g., all `@staticmethod`s in one block, all `@classmethod`s in one block).
 - **Prefer public over private for testability**: Use public functions (no `_` prefix) for helpers that benefit from direct testing
+- **Avoid nested functions**: Define helpers at module level or as private methods on the class. Nested functions hide logic, make testing harder, and complicate stack traces. The only acceptable use is closures that genuinely need to capture local state.
 - **Section comments in larger modules**: Use `# ---` separators to delineate logical groups (e.g. image parsing, usage extraction, generic accessors)
+
+---
+
+## Pydantic Models and Dataclasses
+
+**Pydantic** for config, validation, serialization, and schema generation. **Dataclasses** for simple data containers that don't need any of that.
+
+### Pydantic Models
+
+- Config models inherit `ConfigBase` (from `data_designer.config.base`), which sets shared defaults: `extra="forbid"`, `use_enum_values=True`, `arbitrary_types_allowed=True`.
+- Use `Field()` when you need constraints (`ge`, `le`, `gt`), descriptions, `default_factory`, discriminators, or schema control (`exclude`, `SkipJsonSchema`). Use bare defaults for simple flags and strings.
+- Specify validator `mode` explicitly (`mode="before"` or `mode="after"`). Name validators with descriptive verbs: `validate_*` for checks, `normalize_*` for canonicalization, `inject_*` for pre-parse dict shaping.
+
+```python
+# Good - bare defaults for simple fields, Field() for constraints
+class RunConfig(ConfigBase):
+    disable_early_shutdown: bool = False
+    shutdown_error_rate: float = Field(default=0.5, ge=0.0, le=1.0)
+    buffer_size: int = Field(default=1000, gt=0)
+
+    @model_validator(mode="after")
+    def normalize_shutdown_settings(self) -> Self:
+        if self.disable_early_shutdown:
+            self.shutdown_error_rate = 1.0
+        return self
+```
+
+### Dataclasses
+
+Use `@dataclass` for runtime data containers in the engine, CLI, and internal tooling — DTOs, concurrency primitives, task metadata. Prefer `frozen=True, slots=True` for immutable value types.
+
+```python
+@dataclass(frozen=True, slots=True)
+class Usage:
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+```
+
+### When to Choose
+
+| Need | Use |
+|------|-----|
+| Validation, serialization, JSON schema | Pydantic (`ConfigBase` or `BaseModel`) |
+| Typed struct with no validation | `@dataclass` |
+| Immutable value object | `@dataclass(frozen=True, slots=True)` |
+| Dict-shaped data (e.g., trace JSON) | `TypedDict` |
 
 ---
 
@@ -264,6 +350,27 @@ class dataset_generator:  # Should be PascalCase
 - Wrap third-party exceptions at module boundaries — callers depend on canonical error types, not leaked internals
 - Use `Protocol` for contracts between layers
 - One function, one job — separate logic from I/O
+
+---
+
+## Error Handling
+
+- Prefer specific exception types over bare `except`. Never catch `Exception` or `BaseException` without re-raising.
+- Wrap third-party exceptions at module boundaries into canonical `data_designer` error types (see `data_designer.errors`, `data_designer.interface.errors`).
+- Don't use exceptions for control flow — check conditions explicitly instead.
+- Re-raise with context so the original traceback is preserved:
+
+```python
+# Good
+try:
+    response = client.chat(messages)
+except httpx.HTTPStatusError as exc:
+    raise ModelClientError(f"LLM request failed: {exc.response.status_code}") from exc
+
+# Bad - swallows the original traceback
+except httpx.HTTPStatusError as exc:
+    raise ModelClientError("LLM request failed")
+```
 
 ---
 
