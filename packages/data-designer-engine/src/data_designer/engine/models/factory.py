@@ -27,7 +27,7 @@ def create_model_registry(
 ) -> ModelRegistry:
     """Factory function for creating a ModelRegistry instance.
 
-    Heavy dependencies (litellm, httpx) are deferred until this function is called.
+    Heavy dependencies (httpx, etc.) are deferred until this function is called.
     This is a factory function pattern - imports inside factories are idiomatic Python
     for lazy initialization.
 
@@ -52,10 +52,7 @@ def create_model_registry(
     from data_designer.engine.models.clients.retry import RetryConfig
     from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
-    from data_designer.engine.models.litellm_overrides import apply_litellm_patches
     from data_designer.engine.models.registry import ModelRegistry
-
-    apply_litellm_patches()
 
     throttle_manager = ThrottleManager((run_config or RunConfig()).throttle)
 

@@ -32,7 +32,6 @@ _LAZY_IMPORTS = {
     "pq": "pyarrow.parquet",
     "pa": "pyarrow",
     "faker": "faker",
-    "litellm": "litellm",
     "sqlfluff": "sqlfluff",
     "httpx": "httpx",
     "duckdb": "duckdb",
