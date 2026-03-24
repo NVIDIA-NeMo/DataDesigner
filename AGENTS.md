@@ -53,3 +53,4 @@ make perf-import CLEAN=1  # profile import time (run after adding heavy deps)
 
 For full setup, testing, and workflow details see [DEVELOPMENT.md](DEVELOPMENT.md).
 For code style, naming, and import conventions see [STYLEGUIDE.md](STYLEGUIDE.md).
+For deeper dives into specific subsystems see [`architecture/`](architecture/).
