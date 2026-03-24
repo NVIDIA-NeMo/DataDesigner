@@ -418,14 +418,14 @@ def _patch_llm_responses(*, simulated_latency: bool = False) -> Iterator[None]:
 
     def fake_completion(self: Any, request: Any) -> FakeResponse:
         _ = self
-        response = _fake_response(request.model, request.messages)
+        response = _fake_response(request.model, request.messages, tools=request.tools)
         if simulated_latency and response.latency_ms > 0:
             time.sleep(response.latency_ms / 1000.0)
         return response
 
     async def fake_acompletion(self: Any, request: Any) -> FakeResponse:
         _ = self
-        response = _fake_response(request.model, request.messages)
+        response = _fake_response(request.model, request.messages, tools=request.tools)
         if simulated_latency and response.latency_ms > 0:
             await asyncio.sleep(response.latency_ms / 1000.0)
         return response
