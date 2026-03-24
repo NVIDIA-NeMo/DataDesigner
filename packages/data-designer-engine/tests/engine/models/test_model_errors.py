@@ -192,6 +192,25 @@ stub_purpose = "running generation for column 'test'"
         ),
         (DataDesignerError("Some NemoDataDesigner error"), DataDesignerError, "Some NemoDataDesigner error"),
     ],
+    ids=[
+        "bad_request",
+        "unsupported_params",
+        "quota_exceeded",
+        "unsupported_capability",
+        "permission_denied",
+        "rate_limit",
+        "authentication",
+        "api_connection",
+        "timeout",
+        "not_found",
+        "internal_server",
+        "unprocessable_entity",
+        "api_error",
+        "bad_request_multimodal",
+        "generation_validation_failure",
+        "unexpected_exception",
+        "data_designer_error_passthrough",
+    ],
 )
 def test_handle_llm_exceptions(
     exception: Exception, expected_exception: type[Exception], expected_error_msg: str

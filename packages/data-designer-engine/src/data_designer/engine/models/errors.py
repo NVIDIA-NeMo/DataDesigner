@@ -407,11 +407,10 @@ def _raise_from_provider_error(
 
 def _extract_context_window_detail(error_text: str) -> str | None:
     """Extract the specific token-count detail from an OpenAI-style context window error."""
-    try:
-        marker = "This model's maximum context length is "
-        if marker in error_text:
-            detail = error_text.split(marker, 1)[1].split("\n")[0].split(" Please reduce ")[0]
-            return f"{marker}{detail}"
-    except Exception:
-        pass
+    marker = "this model's maximum context length is "
+    lower_text = error_text.lower()
+    if marker in lower_text:
+        start = lower_text.index(marker)
+        detail = error_text[start + len(marker) :].split("\n")[0].split(" Please reduce ")[0]
+        return f"This model's maximum context length is {detail}"
     return None

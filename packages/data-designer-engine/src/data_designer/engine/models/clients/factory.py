@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from data_designer.config.models import ModelConfig
+from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
@@ -12,6 +13,7 @@ from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.retry import RetryConfig
 from data_designer.engine.models.clients.throttle_manager import ThrottleManager
 from data_designer.engine.models.clients.throttled import ThrottledModelClient
+from data_designer.engine.models.errors import FormattedLLMErrorMessage
 from data_designer.engine.secret_resolver import SecretResolver
 
 _SUPPORTED_PROVIDER_TYPES = ("openai", "anthropic")
@@ -54,13 +56,13 @@ def create_model_client(
         A ``ModelClient`` instance routed by provider type.
 
     Raises:
-        ValueError: If ``provider_type`` is not one of the supported types
-            (``"openai"``, ``"anthropic"``).
+        DataDesignerError: If ``provider_type`` is not one of the supported
+            types (``"openai"``, ``"anthropic"``).
 
     Routing logic:
     1. If ``provider_type == "openai"`` → ``OpenAICompatibleClient``.
     2. If ``provider_type == "anthropic"`` → ``AnthropicClient``.
-    3. Otherwise → ``ValueError``.
+    3. Otherwise → ``DataDesignerError``.
     """
     provider = model_provider_registry.get_provider(model_config.provider)
     api_key = _resolve_api_key(provider.api_key, secret_resolver)
@@ -89,9 +91,15 @@ def create_model_client(
             concurrency_mode=client_concurrency_mode,
         )
     else:
-        raise ValueError(
-            f"Unsupported provider_type {provider.provider_type!r} for provider {provider.name!r}. "
-            f"Supported types: {', '.join(repr(t) for t in _SUPPORTED_PROVIDER_TYPES)}."
+        raise DataDesignerError(
+            FormattedLLMErrorMessage(
+                cause=(f"Provider type {provider.provider_type!r} for provider {provider.name!r} is not supported."),
+                solution=(
+                    f"Change provider_type to one of {', '.join(repr(t) for t in _SUPPORTED_PROVIDER_TYPES)} "
+                    "in your model provider config. Most OpenAI-compatible endpoints "
+                    '(vLLM, TGI, NIM, etc.) work with provider_type="openai".'
+                ),
+            )
         )
 
     if throttle_manager is not None:

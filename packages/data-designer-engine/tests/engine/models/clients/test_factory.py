@@ -12,6 +12,7 @@ from data_designer.config.models import (
     ModelConfig,
     ModelProvider,
 )
+from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
@@ -112,7 +113,7 @@ def test_anthropic_provider_type_case_insensitive(
         assert isinstance(client, AnthropicClient), f"Failed for provider_type={variant!r}"
 
 
-def test_unknown_provider_type_raises_value_error(
+def test_unknown_provider_type_raises_data_designer_error(
     secret_resolver: SecretResolver,
 ) -> None:
     provider = ModelProvider(name="custom-provider", endpoint="https://custom.example.com", provider_type="custom")
@@ -123,7 +124,7 @@ def test_unknown_provider_type_raises_value_error(
         inference_parameters=ChatCompletionInferenceParams(),
         provider="custom-provider",
     )
-    with pytest.raises(ValueError, match="Unsupported provider_type 'custom'"):
+    with pytest.raises(DataDesignerError, match="Provider type 'custom'.*is not supported"):
         create_model_client(config, secret_resolver, registry)
 
 
