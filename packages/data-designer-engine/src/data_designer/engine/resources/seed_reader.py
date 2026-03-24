@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from typing_extensions import Self
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange
 from data_designer.config.seed_source import (
+    AgentRolloutSeedSource,
     DirectorySeedSource,
     FileContentsSeedSource,
     FileSystemSeedSource,
@@ -27,12 +29,21 @@ from data_designer.config.seed_source import (
     SeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.engine.resources.agent_rollout import (
+    AgentRolloutFormatHandler,
+    AgentRolloutParseContext,
+    AgentRolloutSeedParseError,
+    NormalizedAgentRolloutRecord,
+    get_format_handler,
+)
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
 
 if TYPE_CHECKING:
     import duckdb
     import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 class SeedReaderError(DataDesignerError): ...
@@ -444,7 +455,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         manifest = self.build_manifest(context=context)
         manifest_df = self._normalize_rows_to_dataframe(manifest)
         if manifest_df.empty:
-            raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
+            raise SeedReaderError(f"Seed source at {self.source.runtime_path} did not produce any rows")
 
         self._row_manifest_df = manifest_df
         return self._row_manifest_df
@@ -461,7 +472,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
             context=context,
         )
         if not hydrated_records:
-            raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
+            raise SeedReaderError(f"Seed source at {self.source.runtime_path} did not produce any rows")
 
         self._output_df = create_seed_reader_output_dataframe(
             records=hydrated_records,
@@ -485,7 +496,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         return f"seed_reader_{seed_type}_{suffix}"
 
     def _get_empty_selected_manifest_rows_error_message(self) -> str:
-        return f"Selected manifest rows for seed source at {self.source.path} did not produce any rows after hydration"
+        return f"Selected manifest rows for seed source at {self.source.runtime_path} did not produce any rows after hydration"
 
     def _normalize_rows_to_dataframe(self, rows: pd.DataFrame | list[dict[str, Any]]) -> pd.DataFrame:
         if isinstance(rows, lazy.pd.DataFrame):
@@ -565,6 +576,75 @@ class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
         hydrated_record = dict(manifest_row)
         hydrated_record["content"] = content
         return hydrated_record
+
+
+class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
+    output_columns = NormalizedAgentRolloutRecord.get_field_names()
+
+    _PARSE_CONTEXT_UNSET: AgentRolloutParseContext | None = object()  # type: ignore[assignment]
+
+    def _reset_attachment_state(self) -> None:
+        super()._reset_attachment_state()
+        self._parse_context: AgentRolloutParseContext | None = self._PARSE_CONTEXT_UNSET  # type: ignore[assignment]
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.resolved_file_pattern,
+            recursive=self.source.recursive,
+        )
+        handler = self.get_format_handler()
+        handled: list[str] = []
+        for p in matched_paths:
+            if handler.is_handled_file(p):
+                handled.append(p)
+            else:
+                logger.warning("Skipping unhandled %s file %s", self.source.format.value, p)
+        return [
+            _build_metadata_record(context=context, relative_path=p, source_kind=self.source.format.value)
+            for p in handled
+        ]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, Any],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        handler = self.get_format_handler()
+        relative_path = manifest_row["relative_path"]
+        try:
+            parse_ctx = self._get_parse_context(context)
+            records = handler.parse_file(
+                root_path=context.root_path,
+                relative_path=relative_path,
+                parse_context=parse_ctx,
+            )
+        except (AgentRolloutSeedParseError, UnicodeDecodeError) as error:
+            logger.warning("Skipping malformed file %s: %s", relative_path, error)
+            return []
+        except OSError as error:
+            raise SeedReaderError(
+                f"Failed to read agent rollout file {context.root_path / relative_path}: {error}"
+            ) from error
+        return [r.to_dict() for r in records]
+
+    def get_format_handler(self) -> AgentRolloutFormatHandler:
+        rollout_format = self.source.format
+        try:
+            return get_format_handler(rollout_format)
+        except KeyError as error:
+            raise SeedReaderError(
+                f"No AgentRollout format handler found for format {rollout_format.value!r}"
+            ) from error
+
+    def _get_parse_context(self, context: SeedReaderFileSystemContext) -> AgentRolloutParseContext | None:
+        if self._parse_context is not self._PARSE_CONTEXT_UNSET:
+            return self._parse_context
+
+        handler = self.get_format_handler()
+        self._parse_context = handler.build_parse_context(root_path=context.root_path, recursive=self.source.recursive)
+        return self._parse_context
 
 
 class SeedReaderRegistry:

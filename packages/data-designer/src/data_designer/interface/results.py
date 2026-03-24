@@ -17,6 +17,8 @@ from data_designer.integrations.huggingface.client import HuggingFaceHubClient
 if TYPE_CHECKING:
     import pandas as pd
 
+    from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
+
 
 class DatasetCreationResults(WithRecordSamplerMixin):
     """Results container for a Data Designer dataset creation run.
@@ -33,6 +35,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         analysis: DatasetProfilerResults,
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
+        task_traces: list[TaskTrace] | None = None,
     ):
         """Creates a new instance with results based on a dataset creation run.
 
@@ -41,11 +44,13 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             analysis: Profiling results for the generated dataset.
             config_builder: Configuration builder used to create the dataset.
             dataset_metadata: Metadata about the generated dataset (e.g., seed column names).
+            task_traces: Optional list of TaskTrace objects from the async scheduler.
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
         self.dataset_metadata = dataset_metadata
+        self.task_traces: list[TaskTrace] = task_traces or []
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.

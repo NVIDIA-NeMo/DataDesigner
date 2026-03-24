@@ -130,9 +130,9 @@ def map_http_error_to_provider_error(
 
 
 def extract_message_from_exception_string(raw: str) -> str:
-    """Extract a human-readable message from a stringified LiteLLM exception.
+    """Extract a human-readable message from a stringified provider exception.
 
-    LiteLLM often formats errors as ``"Error code: 400 - {json}"``.  This
+    Some providers format errors as ``"Error code: 400 - {json}"``.  This
     mirrors the structured-key lookup in ``_extract_structured_message`` but
     operates on a raw string instead of an ``HttpResponse``.
     """

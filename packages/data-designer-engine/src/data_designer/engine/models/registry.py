@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from data_designer.engine.models.clients.retry import RetryConfig
-    from data_designer.engine.models.clients.throttle import ThrottleManager
+    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
 
     ModelFacadeFactory = Callable[
@@ -172,6 +172,19 @@ class ModelRegistry:
                 )
         return deltas
 
+    def get_aggregate_max_parallel_requests(self) -> int:
+        """Sum of ``max_parallel_requests`` across all registered model configs.
+
+        This is a coarse upper bound: it sums over *all* registered aliases,
+        including those not referenced by the current generator set, and does
+        not deduplicate aliases sharing a ``(provider_name, model_id)`` key.
+        The result is used to size the scheduler's LLM-wait semaphore, which
+        is a memory-safety cap — oversizing wastes a few coroutine slots but
+        does not affect correctness because the ``ThrottleManager`` enforces
+        the real per-key limit.
+        """
+        return sum(mc.inference_parameters.max_parallel_requests for mc in self._model_configs.values())
+
     def get_model_provider(self, *, model_alias: str) -> ModelProvider:
         model_config = self.get_model_config(model_alias=model_alias)
         return self._model_provider_registry.get_provider(model_config.provider)
@@ -216,9 +229,54 @@ class ModelRegistry:
                 else:
                     raise ValueError(f"Unsupported generation type: {model.model_generation_type}")
                 logger.info(f"{LOG_INDENT}✅ Passed!")
-            except Exception as e:
+            except Exception:
                 logger.error(f"{LOG_INDENT}❌ Failed!")
-                raise e
+                raise
+
+    async def arun_health_check(self, model_aliases: list[str]) -> None:
+        """Async version of ``run_health_check`` for async-mode registries."""
+        logger.info("🩺 Running health checks for models...")
+        for model_alias in model_aliases:
+            model_config = self.get_model_config(model_alias=model_alias)
+            if model_config.skip_health_check:
+                logger.info(
+                    f"{LOG_INDENT}⏭️  Skipping health check for model alias {model_alias!r} (skip_health_check=True)"
+                )
+                continue
+
+            model = self.get_model(model_alias=model_alias)
+            logger.info(
+                f"{LOG_INDENT}👀 Checking {model.model_name!r} in provider named {model.model_provider_name!r} for model alias {model.model_alias!r}..."
+            )
+            try:
+                if model.model_generation_type == GenerationType.EMBEDDING:
+                    await model.agenerate_text_embeddings(
+                        input_texts=["Hello!"],
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                elif model.model_generation_type == GenerationType.CHAT_COMPLETION:
+                    await model.agenerate(
+                        prompt="Hello!",
+                        parser=lambda x: x,
+                        system_prompt="You are a helpful assistant.",
+                        max_correction_steps=0,
+                        max_conversation_restarts=0,
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                elif model.model_generation_type == GenerationType.IMAGE:
+                    await model.agenerate_image(
+                        prompt="Generate a simple illustration of a thumbs up sign.",
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                else:
+                    raise ValueError(f"Unsupported generation type: {model.model_generation_type}")
+                logger.info(f"{LOG_INDENT}✅ Passed!")
+            except Exception:
+                logger.error(f"{LOG_INDENT}❌ Failed!")
+                raise
 
     def close(self) -> None:
         """Release resources held by all model facades.

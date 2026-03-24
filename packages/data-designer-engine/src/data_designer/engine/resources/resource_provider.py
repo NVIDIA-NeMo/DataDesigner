@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+
 from data_designer.config.base import ConfigBase
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.mcp import MCPProviderT, ToolConfig
@@ -16,6 +18,7 @@ from data_designer.engine.model_provider import (
     ModelProviderRegistry,
     resolve_mcp_provider_registry,
 )
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.person_reader import PersonReader
@@ -90,7 +93,7 @@ def create_resource_provider(
 ) -> ResourceProvider:
     """Factory function for creating a ResourceProvider instance.
 
-    This function triggers lazy loading of heavy dependencies like litellm.
+    This function triggers lazy loading of heavy dependencies like httpx.
     The creation order is:
     1. MCPProviderRegistry (can be empty)
     2. MCPRegistry with tool_configs
@@ -131,6 +134,14 @@ def create_resource_provider(
             mcp_provider_registry=mcp_provider_registry,
         )
 
+    client_concurrency_mode = (
+        ClientConcurrencyMode.ASYNC
+        if os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
+        else ClientConcurrencyMode.SYNC
+    )
+
+    effective_run_config = run_config or RunConfig()
+
     return ResourceProvider(
         artifact_storage=artifact_storage,
         model_registry=create_model_registry(
@@ -138,9 +149,11 @@ def create_resource_provider(
             secret_resolver=secret_resolver,
             model_provider_registry=model_provider_registry,
             mcp_registry=mcp_registry,
+            client_concurrency_mode=client_concurrency_mode,
+            run_config=effective_run_config,
         ),
         person_reader=person_reader,
         mcp_registry=mcp_registry,
         seed_reader=seed_reader,
-        run_config=run_config or RunConfig(),
+        run_config=effective_run_config,
     )

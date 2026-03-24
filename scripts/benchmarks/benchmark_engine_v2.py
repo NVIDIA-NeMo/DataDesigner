@@ -31,6 +31,7 @@ from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import SamplerType, UniformSamplerParams
 from data_designer.config.validator_params import LocalCallableValidatorParams, ValidatorType
 from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
+from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
 from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
@@ -198,22 +199,10 @@ DEFAULT_PROFILE = ResponseProfile(
 
 
 @dataclass(frozen=True)
-class FakeMessage:
-    content: str
-    tool_calls: list[dict[str, Any]] | None = None
-    reasoning_content: str | None = None
+class FakeCompletionResponse:
+    """Wraps a ChatCompletionResponse with benchmark-specific latency metadata."""
 
-
-@dataclass(frozen=True)
-class FakeChoice:
-    message: FakeMessage
-
-
-@dataclass(frozen=True)
-class FakeResponse:
-    choices: list[FakeChoice]
-    usage: Any | None = None
-    model: str | None = None
+    response: ChatCompletionResponse
     latency_ms: float = 0.0
 
 
@@ -389,61 +378,62 @@ def _mock_tool_result(tool_name: str, arguments: dict[str, Any], provider_name: 
     return MCPToolResult(content=json.dumps(payload))
 
 
-def _fake_response(model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
+def _fake_response(model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeCompletionResponse:
     if kwargs.get("tools") and _should_request_tool(messages):
-        tool_call = _build_tool_call(model, messages)
-        # Compute latency for tool-call responses using the same profile/seed mechanism.
+        raw_call = _build_tool_call(model, messages)
         profile = _profile_for_model(model)
         rng = random.Random(_stable_seed(model, messages))
         latency_ms = float(int(rng.betavariate(profile.latency_alpha, profile.latency_beta) * 900.0))
-        return FakeResponse(
-            choices=[FakeChoice(message=FakeMessage(content="Using tool.", tool_calls=[tool_call]))],
-            model=model,
+        return FakeCompletionResponse(
+            response=ChatCompletionResponse(
+                message=AssistantMessage(
+                    content="Using tool.",
+                    tool_calls=[
+                        ToolCall(
+                            id=raw_call["id"],
+                            name=raw_call["function"]["name"],
+                            arguments_json=raw_call["function"]["arguments"],
+                        )
+                    ],
+                ),
+            ),
             latency_ms=latency_ms,
         )
     response_text, latency_ms = _mock_response_text(model, messages)
-    return FakeResponse(
-        choices=[FakeChoice(message=FakeMessage(content=response_text))],
-        model=model,
+    return FakeCompletionResponse(
+        response=ChatCompletionResponse(message=AssistantMessage(content=response_text)),
         latency_ms=latency_ms,
     )
 
 
 @contextlib.contextmanager
 def _patch_llm_responses(*, simulated_latency: bool = False) -> Iterator[None]:
-    # Imports are deferred so engine selection respects DATA_DESIGNER_ASYNC_ENGINE.
-    from data_designer.engine.models.litellm_overrides import CustomRouter
+    from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 
-    original_completion = CustomRouter.completion
-    original_acompletion = getattr(CustomRouter, "acompletion", None)
+    original_completion = OpenAICompatibleClient.completion
+    original_acompletion = OpenAICompatibleClient.acompletion
 
-    def fake_completion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
+    def fake_completion(self: Any, request: Any) -> ChatCompletionResponse:
         _ = self
-        response = _fake_response(model, messages, **kwargs)
-        if simulated_latency and response.latency_ms > 0:
-            time.sleep(response.latency_ms / 1000.0)
-        return response
+        fake = _fake_response(request.model, request.messages, tools=request.tools)
+        if simulated_latency and fake.latency_ms > 0:
+            time.sleep(fake.latency_ms / 1000.0)
+        return fake.response
 
-    async def fake_acompletion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
+    async def fake_acompletion(self: Any, request: Any) -> ChatCompletionResponse:
         _ = self
-        response = _fake_response(model, messages, **kwargs)
-        if simulated_latency and response.latency_ms > 0:
-            await asyncio.sleep(response.latency_ms / 1000.0)
-        return response
+        fake = _fake_response(request.model, request.messages, tools=request.tools)
+        if simulated_latency and fake.latency_ms > 0:
+            await asyncio.sleep(fake.latency_ms / 1000.0)
+        return fake.response
 
-    CustomRouter.completion = fake_completion
-    CustomRouter.acompletion = fake_acompletion
+    OpenAICompatibleClient.completion = fake_completion  # type: ignore[assignment]
+    OpenAICompatibleClient.acompletion = fake_acompletion  # type: ignore[assignment]
     try:
         yield
     finally:
-        CustomRouter.completion = original_completion
-        if original_acompletion is not None:
-            CustomRouter.acompletion = original_acompletion
-        else:
-            try:
-                delattr(CustomRouter, "acompletion")
-            except AttributeError:
-                pass
+        OpenAICompatibleClient.completion = original_completion  # type: ignore[assignment]
+        OpenAICompatibleClient.acompletion = original_acompletion  # type: ignore[assignment]
 
 
 @contextlib.contextmanager

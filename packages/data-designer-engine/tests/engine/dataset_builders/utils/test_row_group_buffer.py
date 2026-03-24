@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
 
@@ -122,6 +123,57 @@ def test_checkpoint_calls_on_complete() -> None:
     mgr.checkpoint_row_group(0, on_complete=callback)
 
     callback.assert_called_once_with("/fake/final.parquet")
+
+
+def test_replace_dataframe_same_size() -> None:
+    """replace_dataframe with same number of rows replaces data in-place."""
+    mgr = RowGroupBufferManager(_mock_artifact_storage())
+    mgr.init_row_group(0, 3)
+    mgr.update_batch(0, "col", ["a", "b", "c"])
+
+    df = lazy.pd.DataFrame({"col": ["x", "y", "z"]})
+    mgr.replace_dataframe(0, df)
+
+    assert mgr.get_row(0, 0) == {"col": "x"}
+    assert mgr.get_row(0, 1) == {"col": "y"}
+    assert mgr.get_row(0, 2) == {"col": "z"}
+
+
+def test_replace_dataframe_with_dropped_rows() -> None:
+    """replace_dataframe skips dropped rows and replaces only active slots."""
+    mgr = RowGroupBufferManager(_mock_artifact_storage())
+    mgr.init_row_group(0, 4)
+    mgr.update_batch(0, "col", ["a", "b", "c", "d"])
+    mgr.drop_row(0, 1)  # drop row 1
+
+    # 3 active rows: indices 0, 2, 3
+    df = lazy.pd.DataFrame({"col": ["x", "y", "z"]})
+    mgr.replace_dataframe(0, df)
+
+    assert mgr.get_row(0, 0) == {"col": "x"}
+    assert mgr.is_dropped(0, 1)
+    assert mgr.get_row(0, 2) == {"col": "y"}
+    assert mgr.get_row(0, 3) == {"col": "z"}
+
+
+def test_replace_dataframe_fewer_rows_marks_trailing_dropped() -> None:
+    """replace_dataframe with fewer rows marks trailing active slots as dropped."""
+    mgr = RowGroupBufferManager(_mock_artifact_storage())
+    mgr.init_row_group(0, 4)
+    mgr.update_batch(0, "col", ["a", "b", "c", "d"])
+
+    # Only 2 rows - should drop indices 2 and 3
+    df = lazy.pd.DataFrame({"col": ["x", "y"]})
+    mgr.replace_dataframe(0, df)
+
+    assert mgr.get_row(0, 0) == {"col": "x"}
+    assert mgr.get_row(0, 1) == {"col": "y"}
+    assert mgr.is_dropped(0, 2)
+    assert mgr.is_dropped(0, 3)
+
+    # get_dataframe should only return the 2 active rows
+    result_df = mgr.get_dataframe(0)
+    assert len(result_df) == 2
 
 
 def test_checkpoint_calls_on_complete_when_all_rows_dropped() -> None:
