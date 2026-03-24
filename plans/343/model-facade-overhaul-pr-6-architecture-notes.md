@@ -878,11 +878,11 @@ Key points:
   with a `get_effective_throttle_capacity()` method that deduplicates
   by `(provider_name, model_id)` and uses the real `min()` cap.
 
-PR-7 picks up the config/CLI auth schema rollout that was originally
+PR-7 removes the LiteLLM dependency and bridge path entirely — native
+adapters are the default for all predefined providers and no soak
+window is needed.
+
+PR-8 picks up the config/CLI auth schema rollout that was originally
 scoped for PR-6, adding typed provider-specific auth objects
 (`AnthropicAuth`, `OpenAIApiKeyAuth`) to `ModelProvider` with
 backward-compatible `api_key` fallback.
-
-PR-8 flips the default backend to native while retaining the bridge path.
-
-PR-9 removes the LiteLLM dependency after the soak window.
