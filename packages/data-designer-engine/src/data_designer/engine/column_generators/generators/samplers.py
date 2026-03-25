@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Callable
 
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
+from data_designer.engine.context import format_row_group_tag
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.processing.utils import concat_datasets
@@ -68,7 +69,8 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
 
     def _prepare_for_generation(self, num_records: int) -> SamplingDatasetGenerator:
         logger.info(
-            f"🎲 Preparing samplers to generate {num_records} records across {len(self.config.columns)} columns"
+            f"🎲 {format_row_group_tag()}Preparing samplers to generate"
+            f" {num_records} records across {len(self.config.columns)} columns"
         )
         self._log_person_generation_if_needed()
         return self._create_sampling_dataset_generator()
