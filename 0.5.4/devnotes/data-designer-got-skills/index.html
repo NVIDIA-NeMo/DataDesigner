@@ -4614,15 +4614,19 @@ Note: generation can take a long time for large record counts (50+), so choose `
 <hr />
 <h2 id="getting-started"><strong>Getting Started</strong></h2>
 <p>First, you will need to install Data Designer and set up your model providers. The <a href="https://github.com/NVIDIA-NeMo/DataDesigner#quick-start">quickstart guide</a> in our README walks through this. We recommend using a virtual environment to manage dependencies.</p>
-<p>Then install the skill. There are two ways:</p>
+<p>Next, install the skill. Note that while the skill should work with other coding agents that support skills, our development and testing has focused on Claude Code at this stage. There are two ways to install:</p>
 <p><strong>Via the Claude Code marketplace:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>/plugin marketplace add NVIDIA-NeMo/DataDesigner
-
-/install data-designer
+/plugin install data-designer@nemo-data-designer
+/reload-plugins
 </code></pre></div>
-<p><strong>Via npx:</strong></p>
+<p><strong>Via <a href="https://skills.sh">skills.sh</a>:</strong></p>
 <div class="language-bash highlight"><pre><span></span><code>npx<span class="w"> </span>skills<span class="w"> </span>add<span class="w"> </span>NVIDIA-NeMo/DataDesigner
 </code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>When prompted, make sure to select <strong>Claude Code</strong> as an additional agent.</p>
+</div>
 <p>After installation, open Claude Code and type <code>/data-designer</code>, or just tell it you want to generate a dataset along with a description of what you want and the skill will kick in.</p>
 <p>The skill has two modes. In interactive mode, the agent asks clarifying questions and has you make key design decisions (diversity axes, sampling strategies, model selection). You review sample records, give feedback, and iterate until it's right.</p>
 <p>Autopilot mode is the opposite. The agent reads your description, makes its own design decisions (and tells you what they are), then validates and generates without waiting. Good when you know what you want and just need it built.</p>
