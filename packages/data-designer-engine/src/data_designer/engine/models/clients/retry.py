@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from httpx_retries import Retry, RetryTransport
+
+if TYPE_CHECKING:
+    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,7 @@ def create_retry_transport(
     config: RetryConfig | None = None,
     *,
     strip_rate_limit_codes: bool = True,
+    transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None,
 ) -> RetryTransport:
     """Build an httpx ``RetryTransport`` from a :class:`RetryConfig`.
 
@@ -72,4 +77,4 @@ def create_retry_transport(
         respect_retry_after_header=True,
         allowed_methods=Retry.RETRYABLE_METHODS | frozenset(["POST"]),
     )
-    return RetryTransport(retry=retry)
+    return RetryTransport(transport=transport, retry=retry)
