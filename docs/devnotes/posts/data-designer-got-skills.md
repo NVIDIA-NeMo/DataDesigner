@@ -84,7 +84,7 @@ While the agent didn't exactly start from zero, we didn't give it much and it st
 - The main agent located the package and ran `config list`, then spawned a **subagent** to "Explore the Data Designer package thoroughly."
 - The subagent read **14 source files** (some two or three times), hit an error on `__init__.py`, recovered, and returned a detailed report. **25 tool calls** inside the subagent alone.
 - Back in the main agent, it re-read `column_configs.py`, `validator_params.py`, and `config/__init__.py` (files the subagent already covered), grepped for `CategorySamplerParams` and `add_column`, then wrote the config and validated.
-- Total: **35 tool calls**, **1 error**, **159 seconds**, **~1.4M tokens** between the main agent and the subagent.
+- Final tally: **35 tool calls**, **1 error**, **159 seconds**, **~1.4M tokens** between the main agent and the subagent.
 
 Review the full session below:
 
@@ -164,7 +164,7 @@ These are individual sessions, and there's variance in both directions. Sometime
 
 Evaluating agent skills is harder than it might seem. Behavior is non-deterministic, sensitive to context, and varies with prompt wording. Environment isolation is critical — coding agents explore their surroundings before they start working, so if a baseline session can discover the skill files on disk, it will use them. We observed this failure mode early on and had to ensure each session got a fully isolated environment. [LangChain's writeup](https://blog.langchain.com/evaluating-skills/) on evaluating skills is an excellent read that covers many of the same challenges.
 
-In our experiment setup, each session started from a clean slate (new directory, fresh git history, clean venv with no skill files present for baseline runs). We used the text-to-python use case across three prompt detail levels (low, medium, high), half at high reasoning effort and half at low. Claude Code was run in headless mode. Each session ends when the agent produces a validated configuration — we stop at `data-designer validate` rather than running full generation, both for easier automation and because once the config is valid, generation is just a simple `data-designer create` away. The full results are in the figure at the top of this post.
+In our experiment setup, each session started from a clean slate (new directory, fresh git history, clean venv with no skill files present for baseline runs). We used the text-to-python use case across three prompt detail levels (low, medium, high), half at high reasoning effort and half at low. Claude Code was run in headless mode. Each session ends when the agent produces a validated configuration — we stop at `data-designer validate` rather than running full generation, both for easier automation and because once the config is valid, generation is just a simple `data-designer create` away. The main results are shown in the figure above.
 
 - ⚡ **Our skill and agent CLI use ~80% fewer tokens (panel a).** The skill replaces source-code exploration with directed context. Output tokens fall **65%**, tool calls **72%**, errors **90%**, wall clock time **47%**. Every downstream metric improves.
 
