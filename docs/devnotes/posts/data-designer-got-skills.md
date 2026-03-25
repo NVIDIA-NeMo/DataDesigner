@@ -193,21 +193,24 @@ In our experiment setup, each session started from a clean slate (new directory,
 
 First, you will need to install Data Designer and set up your model providers. The [quickstart guide](https://github.com/NVIDIA-NeMo/DataDesigner#quick-start) in our README walks through this. We recommend using a virtual environment to manage dependencies.
 
-Then install the skill. There are two ways:
+Next, install the skill. Note that while the skill should work with other coding agents that support skills, our development and testing has focused on Claude Code at this stage. There are two ways to install:
 
 **Via the Claude Code marketplace:**
 
 ```
 /plugin marketplace add NVIDIA-NeMo/DataDesigner
-
-/install data-designer
+/plugin install data-designer@nemo-data-designer
+/reload-plugins
 ```
 
-**Via npx:**
+**Via [skills.sh](https://skills.sh):**
 
 ```bash
 npx skills add NVIDIA-NeMo/DataDesigner
 ```
+
+!!! tip
+    When prompted, make sure to select **Claude Code** as an additional agent.
 
 After installation, open Claude Code and type `/data-designer`, or just tell it you want to generate a dataset along with a description of what you want and the skill will kick in.
 
