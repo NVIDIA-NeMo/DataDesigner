@@ -309,21 +309,19 @@ class AsyncTaskScheduler:
 
             self._checkpoint_completed_row_groups(all_columns)
 
-            # Are we done?
-            all_done = self._all_rgs_admitted and not self._rg_states and not self._in_flight
-            if all_done:
-                break
+            # Eagerly salvage any row groups that have only deferred tasks,
+            # even if other row groups are still in-flight.  This frees
+            # semaphore slots so admission doesn't lose capacity.
+            if self._deferred:
+                await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
 
             # Are we done?
             all_done = self._all_rgs_admitted and not self._rg_states and not self._in_flight
             if all_done:
                 break
 
-            # No work in progress - salvage deferred tasks or exit.
             if not ready and not self._in_flight:
-                if self._deferred:
-                    await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
-                elif self._all_rgs_admitted:
+                if self._all_rgs_admitted:
                     break
 
             if not ready:
