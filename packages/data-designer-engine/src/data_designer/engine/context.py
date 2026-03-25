@@ -11,7 +11,7 @@ current_row_group: ContextVar[tuple[int, int] | None] = ContextVar("current_row_
 
 
 def format_row_group_tag() -> str:
-    """Return a '(Group x/X) ' prefix if a row group context is active, else ''."""
+    """Return a '(x/X) ' prefix if a row group context is active, else ''."""
     rg = current_row_group.get()
     if rg is None:
         return ""

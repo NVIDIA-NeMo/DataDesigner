@@ -436,18 +436,14 @@ class AsyncTaskScheduler:
         # Tasks still deferred after salvage are permanently failed - record
         # as failures (not skips) and drop their rows so the row groups can
         # checkpoint and free memory.
-        failed_cells: set[tuple[int, int, str]] = set()
         for task in self._deferred:
             if self._reporter:
                 self._reporter.record_failure(task.column)
-            failed_cells.add((task.row_group, task.row_index if task.row_index is not None else -1, task.column))
-        for task in self._deferred:
-            exclude = {col for rg, ri, col in failed_cells if rg == task.row_group}
             if task.row_index is not None:
-                self._drop_row(task.row_group, task.row_index, exclude_columns=exclude)
+                self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
             else:
                 rg_size = self._get_rg_size(task.row_group)
-                self._drop_row_group(task.row_group, rg_size, exclude_columns=exclude)
+                self._drop_row_group(task.row_group, rg_size, exclude_columns={task.column})
         self._checkpoint_completed_row_groups(all_columns)
         self._deferred = other_deferred
 
@@ -510,11 +506,6 @@ class AsyncTaskScheduler:
                                 exc_info=True,
                             )
                             self._drop_row_group(rg_id, state.size)
-
-    def _in_flight_for_rg(self, rg_id: int) -> bool:
-        """Check if any tasks are in-flight for a given row group."""
-        state = self._rg_states.get(rg_id)
-        return state is not None and state.in_flight_count > 0
 
     def _drop_row(self, row_group: int, row_index: int, *, exclude_columns: set[str] | None = None) -> None:
         if self._tracker.is_dropped(row_group, row_index):
@@ -711,7 +702,7 @@ class AsyncTaskScheduler:
                 else:
                     # Batch/from_scratch failure: drop all rows in the row group
                     rg_size = self._get_rg_size(task.row_group)
-                    self._drop_row_group(task.row_group, rg_size)
+                    self._drop_row_group(task.row_group, rg_size, exclude_columns={task.column})
                 logger.warning(
                     f"Non-retryable failure on {task.column}[rg={task.row_group}, row={task.row_index}]: {exc}"
                 )
