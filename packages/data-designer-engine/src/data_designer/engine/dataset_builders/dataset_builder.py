@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 import os
@@ -36,6 +37,7 @@ from data_designer.engine.dataset_builders.utils.config_compiler import compile_
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
+from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
@@ -395,6 +397,7 @@ class DatasetBuilder:
             num_records=num_records,
             buffer_size=buffer_size,
             progress_interval=self._resource_provider.run_config.progress_interval,
+            progress_bar=self._resource_provider.run_config.progress_bar,
         )
         return scheduler, buffer_manager
 
@@ -540,7 +543,10 @@ class DatasetBuilder:
         self._resource_provider.mcp_registry.run_health_check(tool_aliases)
 
     def _setup_fan_out(
-        self, generator: ColumnGeneratorWithModelRegistry, max_workers: int
+        self,
+        generator: ColumnGeneratorWithModelRegistry,
+        max_workers: int,
+        progress_bar: StickyProgressBar | None = None,
     ) -> tuple[ProgressTracker, dict[str, Any]]:
         if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
@@ -556,9 +562,12 @@ class DatasetBuilder:
         else:
             self._cell_resize_mode = False
 
+        label = f"{generator.config.column_type} column '{generator.config.name}'"
         progress_tracker = ProgressTracker(
             total_records=self.batch_manager.num_records_batch,
-            label=f"{generator.config.column_type} column '{generator.config.name}'",
+            label=label,
+            progress_bar=progress_bar,
+            progress_bar_key=generator.config.name,
         )
         progress_tracker.log_start(max_workers)
 
@@ -605,30 +614,34 @@ class DatasetBuilder:
     def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-        progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
-        executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
-        work_items = [
-            (
-                generator.agenerate(record),
-                {"index": i, "column_name": generator.config.name},
-            )
-            for i, record in self.batch_manager.iter_current_batch()
-        ]
-        executor.run(work_items)
-        self._finalize_fan_out(progress_tracker)
+        bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        with bar or contextlib.nullcontext():
+            progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
+            executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
+            work_items = [
+                (
+                    generator.agenerate(record),
+                    {"index": i, "column_name": generator.config.name},
+                )
+                for i, record in self.batch_manager.iter_current_batch()
+            ]
+            executor.run(work_items)
+            self._finalize_fan_out(progress_tracker)
 
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-        progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
-        with ConcurrentThreadExecutor(max_workers=max_workers, **executor_kwargs) as executor:
-            for i, record in self.batch_manager.iter_current_batch():
-                executor.submit(
-                    lambda record: generator.generate(record),
-                    record,
-                    context={"index": i, "column_name": generator.config.name},
-                )
-        self._finalize_fan_out(progress_tracker)
+        bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        with bar or contextlib.nullcontext():
+            progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
+            with ConcurrentThreadExecutor(max_workers=max_workers, **executor_kwargs) as executor:
+                for i, record in self.batch_manager.iter_current_batch():
+                    executor.submit(
+                        lambda record: generator.generate(record),
+                        record,
+                        context={"index": i, "column_name": generator.config.name},
+                    )
+            self._finalize_fan_out(progress_tracker)
 
     def _make_result_callback(self, progress_tracker: ProgressTracker) -> Callable[[dict], None]:
         def callback(result: dict, *, context: dict | None = None) -> None:

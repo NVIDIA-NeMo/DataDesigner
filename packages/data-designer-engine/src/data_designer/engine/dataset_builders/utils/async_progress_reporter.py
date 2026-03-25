@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.logging import LOG_INDENT
+
+if TYPE_CHECKING:
+    from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +30,17 @@ class AsyncProgressReporter:
         trackers: dict[str, ProgressTracker],
         *,
         report_interval: float = DEFAULT_REPORT_INTERVAL,
+        progress_bar: StickyProgressBar | None = None,
     ) -> None:
         self._trackers = trackers
         self._report_interval = report_interval
         self._start_time = time.perf_counter()
         self._last_report_time: float = self._start_time
         self._last_reported_total: int = -1
+        self._bar = progress_bar
+        if self._bar is not None:
+            for col, tracker in trackers.items():
+                self._bar.add_bar(col, f"column '{col}'", tracker.total_records)
 
     def log_start(self, num_row_groups: int) -> None:
         cols = ", ".join(self._trackers)
@@ -60,7 +69,11 @@ class AsyncProgressReporter:
             self._maybe_report()
 
     def log_final(self) -> None:
-        self._emit()
+        if self._bar is not None:
+            for col in self._trackers:
+                self._bar.remove_bar(col)
+        else:
+            self._emit()
         elapsed = time.perf_counter() - self._start_time
         snapshots = [tracker.get_snapshot(elapsed) for tracker in self._trackers.values()]
         total_ok = sum(snapshot[2] for snapshot in snapshots)
@@ -90,6 +103,12 @@ class AsyncProgressReporter:
         self._last_reported_total = current_total
 
         elapsed = time.perf_counter() - self._start_time
+
+        if self._bar is not None:
+            for col, tracker in self._trackers.items():
+                completed, _total, success, failed, _skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
+                self._bar.update(col, completed=completed, success=success, failed=failed)
+            return
         logger.info("📊 Progress [%.1fs]:", elapsed)
         for col, tracker in self._trackers.items():
             completed, total_records, _success, _failed, skipped, pct, rate, emoji = tracker.get_snapshot(elapsed)

@@ -6,8 +6,12 @@ from __future__ import annotations
 import logging
 import time
 from threading import Lock
+from typing import TYPE_CHECKING
 
 from data_designer.logging import LOG_INDENT, RandomEmoji
+
+if TYPE_CHECKING:
+    from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +35,16 @@ class ProgressTracker:
         tracker.log_final()
     """
 
-    def __init__(self, total_records: int, label: str, log_interval_percent: int = 10, *, quiet: bool = False):
-        """
-        Initialize the progress tracker.
-
-        Args:
-            total_records: Total number of records to process.
-            label: Human-readable label for log messages (e.g., "LLM_TEXT column 'response'").
-            log_interval_percent: How often to log progress as a percentage (default 10%).
-            quiet: If True, suppress per-tracker logging (for use with AsyncProgressReporter).
-        """
+    def __init__(
+        self,
+        total_records: int,
+        label: str,
+        log_interval_percent: int = 10,
+        *,
+        quiet: bool = False,
+        progress_bar: StickyProgressBar | None = None,
+        progress_bar_key: str | None = None,
+    ):
         self.total_records = total_records
         self.label = label
         self.quiet = quiet
@@ -57,6 +61,11 @@ class ProgressTracker:
         self.start_time = time.perf_counter()
         self.lock = Lock()
         self._random_emoji = RandomEmoji()
+
+        self._bar = progress_bar
+        self._bar_key = progress_bar_key or label
+        if self._bar is not None:
+            self._bar.add_bar(self._bar_key, label, total_records)
 
     def log_start(self, max_workers: int) -> None:
         """Log the start of processing with worker count and interval information."""
@@ -94,6 +103,8 @@ class ProgressTracker:
     def log_final(self) -> None:
         """Log final progress summary."""
         with self.lock:
+            if self._bar is not None:
+                self._bar.remove_bar(self._bar_key)
             if self.completed > 0:
                 self._log_progress_unlocked()
 
@@ -126,6 +137,15 @@ class ProgressTracker:
 
     def _log_progress_unlocked(self) -> None:
         """Log current progress. Must be called while holding the lock."""
+        if self._bar is not None and self._bar.is_active:
+            self._bar.update(
+                self._bar_key,
+                completed=self.completed,
+                success=self.success,
+                failed=self.failed,
+            )
+            return
+
         completed, total_records, success, failed, skipped, percent, rate, emoji = self._get_snapshot_unlocked()
         remaining = max(0, total_records - completed)
         eta = f"{(remaining / rate):.1f}s" if rate > 0 else "unknown"

@@ -21,6 +21,7 @@ from data_designer.engine.dataset_builders.utils.async_progress_reporter import 
 )
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
+from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task, TaskTrace
 from data_designer.engine.models.errors import (
     ModelAPIConnectionError,
@@ -94,6 +95,7 @@ class AsyncTaskScheduler:
         num_records: int = 0,
         buffer_size: int = 0,
         progress_interval: float | None = None,
+        progress_bar: bool = False,
     ) -> None:
         self._generators = generators
         self._graph = graph
@@ -155,6 +157,7 @@ class AsyncTaskScheduler:
         self._seed_cols: frozenset[str] = frozenset(c for c in graph.columns if not graph.get_upstream_columns(c))
 
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
+        self._progress_bar = StickyProgressBar() if progress_bar else None
         self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
 
     def _setup_async_progress_reporter(
@@ -181,7 +184,11 @@ class AsyncTaskScheduler:
             return None
 
         interval = progress_interval if progress_interval is not None else DEFAULT_REPORT_INTERVAL
-        return AsyncProgressReporter(trackers, report_interval=interval)
+        return AsyncProgressReporter(
+            trackers,
+            report_interval=interval,
+            progress_bar=self._progress_bar,
+        )
 
     def _spawn_worker(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task:
         """Create a tracked worker task that auto-removes itself on completion."""
@@ -224,45 +231,52 @@ class AsyncTaskScheduler:
         has_pre_batch = self._on_seeds_complete is not None
 
         num_rgs = len(self._row_groups)
-        if self._reporter:
-            self._reporter.log_start(num_row_groups=num_rgs)
 
-        # Launch admission as a background task so it interleaves with dispatch.
-        admission_task = asyncio.create_task(self._admit_row_groups())
-
+        if self._progress_bar is not None:
+            self._progress_bar.__enter__()
         try:
-            # Main dispatch loop
-            await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
-
-            # Cancel admission if still running
-            if not admission_task.done():
-                admission_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await admission_task
-
-            # Phase 3: Salvage rounds for retryable failures
-            await self._salvage_rounds(seed_cols, has_pre_batch, all_columns)
-
-            # Record failure for tasks that exhausted all salvage rounds
             if self._reporter:
-                for task in self._deferred:
-                    self._reporter.record_failure(task.column)
-                self._reporter.log_final()
+                self._reporter.log_start(num_row_groups=num_rgs)
 
-            if self._rg_states:
-                incomplete = list(self._rg_states)
-                logger.error(
-                    f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
-                    "These row groups were not checkpointed."
-                )
+            # Launch admission as a background task so it interleaves with dispatch.
+            admission_task = asyncio.create_task(self._admit_row_groups())
 
-        except asyncio.CancelledError:
-            if not admission_task.done():
-                admission_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await admission_task
-            await asyncio.shield(self._cancel_workers())
-            raise
+            try:
+                # Main dispatch loop
+                await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
+
+                # Cancel admission if still running
+                if not admission_task.done():
+                    admission_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await admission_task
+
+                # Phase 3: Salvage rounds for retryable failures
+                await self._salvage_rounds(seed_cols, has_pre_batch, all_columns)
+
+                # Record failure for tasks that exhausted all salvage rounds
+                if self._reporter:
+                    for task in self._deferred:
+                        self._reporter.record_failure(task.column)
+                    self._reporter.log_final()
+
+                if self._rg_states:
+                    incomplete = list(self._rg_states)
+                    logger.error(
+                        f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
+                        "These row groups were not checkpointed."
+                    )
+
+            except asyncio.CancelledError:
+                if not admission_task.done():
+                    admission_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await admission_task
+                await asyncio.shield(self._cancel_workers())
+                raise
+        finally:
+            if self._progress_bar is not None:
+                self._progress_bar.__exit__(None, None, None)
 
     async def _main_dispatch_loop(
         self,
