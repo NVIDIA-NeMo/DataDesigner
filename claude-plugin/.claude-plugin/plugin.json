@@ -1,5 +1,5 @@
 {
-  "name": "data-designer",
+  "name": "nemo-data-designer",
   "version": "0.1.0",
   "description": "Claude Code skill for generating high-quality synthetic data from scratch or based on seed data using NeMo Data Designer.",
   "author": {"name": "The NeMo Data Designer Team"},
