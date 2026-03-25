@@ -97,6 +97,8 @@ class RunConfig(ConfigBase):
         progress_bar: If True, display sticky ANSI progress bars instead of periodic log lines
             during generation. Requires a TTY; falls back to log lines in non-TTY environments.
             Default is False.
+        progress_interval: How often (in seconds) the async progress reporter emits a
+            consolidated log block. Must be > 0. Default is 5.0.
         throttle: AIMD throttle tuning parameters.  See ``ThrottleConfig`` for details.
     """
 
