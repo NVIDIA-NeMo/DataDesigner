@@ -8,7 +8,7 @@ authors:
 
 Picture this: you're generating a million-record dataset. Twenty concurrent requests per model, three models in the pipeline, two providers. Everything hums along for the first ten minutes — then one provider starts returning 429s, your retry logic kicks in, and suddenly you're in a feedback loop where retries *cause* more 429s. The run stalls. You restart with lower concurrency, waste throughput for hours, and wonder if there's a better way.
 
-There is. This post is about the native model client layer we built to replace LiteLLM in Data Designer, with adaptive throttling — a system that discovers provider capacity at runtime.
+There is. This post is about the native model client layer we built to replace LiteLLM in Data Designer, with adaptive throttling — a system that discovers provider capacity at runtime — as the centerpiece.
 
 <!-- more -->
 

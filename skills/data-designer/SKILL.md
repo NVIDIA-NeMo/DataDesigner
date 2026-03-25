@@ -8,6 +8,9 @@ argument-hint: [describe the dataset you want to generate]
 
 Do not explore the workspace first. The workflow's Learn step gives you everything you need.
 
+`data-designer` command: !`command -v data-designer 2>/dev/null || (test -x .venv/bin/data-designer && realpath .venv/bin/data-designer)`
+Use this path for all `data-designer` commands throughout this skill. If blank, see Troubleshooting.
+
 # Goal
 
 Build a synthetic dataset using the Data Designer library that matches this description:

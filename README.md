@@ -110,6 +110,26 @@ data-designer config models    # Set up your model configurations
 data-designer config list      # View current settings
 ```
 
+### 🤖 Agent Skill
+
+Data Designer has a [skill](https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/posts/data-designer-got-skills/) for coding agents. Just describe the dataset you want, and your agent handles schema design, validation, and generation.
+
+**Via the [Claude Code](https://code.claude.com) marketplace:**
+
+```
+/plugin marketplace add NVIDIA-NeMo/DataDesigner
+/plugin install data-designer@nemo-data-designer
+/reload-plugins
+```
+
+**Via [skills.sh](https://skills.sh):**
+
+```bash
+npx skills add NVIDIA-NeMo/DataDesigner
+```
+
+After installation, type `/data-designer` or describe the dataset you want and the skill will kick in.
+
 ### 🤝 Get involved
 
 - **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/latest/CONTRIBUTING)** – Help improve Data Designer
