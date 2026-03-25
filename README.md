@@ -114,7 +114,7 @@ data-designer config list      # View current settings
 
 Data Designer has a [skill](https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/data-designer-got-skills/) for coding agents. Just describe the dataset you want, and your agent handles schema design, validation, and generation. While the skill should work with other coding agents that support skills, our development and testing has focused on [Claude Code](https://code.claude.com) at this stage.
 
-**Install via [skills.sh](https://skills.sh)** (be sure to select *Claude Code as an additional agent):
+**Install via [skills.sh](https://skills.sh)** (be sure to select Claude Code as an additional agent):
 
 ```bash
 npx skills add NVIDIA-NeMo/DataDesigner
