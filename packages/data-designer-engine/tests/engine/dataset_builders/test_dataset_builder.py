@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -19,7 +20,7 @@ from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
-from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.models.errors import (
     FormattedLLMErrorMessage,
@@ -84,8 +85,8 @@ def stub_batch_manager():
 
 
 @pytest.fixture
-def stub_column_wise_builder(stub_resource_provider, stub_test_config_builder):
-    return ColumnWiseDatasetBuilder(
+def stub_dataset_builder(stub_resource_provider, stub_test_config_builder):
+    return DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -113,7 +114,7 @@ def builder_with_seed(stub_resource_provider, stub_model_configs, seed_data_setu
     config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
     config_builder.add_column(SamplerColumnConfig(name="extra", sampler_type="uuid", params=UUIDSamplerParams()))
 
-    return ColumnWiseDatasetBuilder(
+    return DatasetBuilder(
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -130,8 +131,8 @@ def create_mock_processor(name: str, stages: list[str]) -> Mock:
     return mock_processor
 
 
-def test_column_wise_dataset_builder_creation(stub_resource_provider, stub_test_config_builder):
-    builder = ColumnWiseDatasetBuilder(
+def test_dataset_builder_creation(stub_resource_provider, stub_test_config_builder):
+    builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -140,10 +141,10 @@ def test_column_wise_dataset_builder_creation(stub_resource_provider, stub_test_
     assert isinstance(builder._registry, DataDesignerRegistry)
 
 
-def test_column_wise_dataset_builder_creation_with_custom_registry(stub_resource_provider, stub_test_config_builder):
+def test_dataset_builder_creation_with_custom_registry(stub_resource_provider, stub_test_config_builder):
     custom_registry = Mock(spec=DataDesignerRegistry)
 
-    builder = ColumnWiseDatasetBuilder(
+    builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
         registry=custom_registry,
@@ -152,16 +153,16 @@ def test_column_wise_dataset_builder_creation_with_custom_registry(stub_resource
     assert builder._registry == custom_registry
 
 
-def test_column_wise_dataset_builder_artifact_storage_property(stub_column_wise_builder, stub_resource_provider):
-    assert stub_column_wise_builder.artifact_storage == stub_resource_provider.artifact_storage
+def test_dataset_builder_artifact_storage_property(stub_dataset_builder, stub_resource_provider):
+    assert stub_dataset_builder.artifact_storage == stub_resource_provider.artifact_storage
 
 
-def test_column_wise_dataset_builder_records_to_drop_initialization(stub_column_wise_builder):
-    assert stub_column_wise_builder._records_to_drop == set()
+def test_dataset_builder_records_to_drop_initialization(stub_dataset_builder):
+    assert stub_dataset_builder._records_to_drop == set()
 
 
 def test_worker_error_callback_logs_schema_validation_detail(
-    stub_column_wise_builder: ColumnWiseDatasetBuilder,
+    stub_dataset_builder: DatasetBuilder,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     exc = ModelGenerationValidationFailureError(
@@ -178,17 +179,17 @@ def test_worker_error_callback_logs_schema_validation_detail(
     )
 
     with caplog.at_level(logging.WARNING):
-        stub_column_wise_builder._worker_error_callback(exc, context={"index": 248, "column_name": "test_column"})
+        stub_dataset_builder._worker_error_callback(exc, context={"index": 248, "column_name": "test_column"})
 
     assert "record at index 248" in caplog.text
     assert "column 'test_column'" in caplog.text
     assert "(schema validation)" in caplog.text
     assert "Response doesn't match requested <response_schema> 'name' is a required property." in caplog.text
-    assert 248 in stub_column_wise_builder._records_to_drop
+    assert 248 in stub_dataset_builder._records_to_drop
 
 
 def test_worker_error_callback_logs_timeout_detail(
-    stub_column_wise_builder: ColumnWiseDatasetBuilder,
+    stub_dataset_builder: DatasetBuilder,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     exc = ModelTimeoutError(
@@ -199,7 +200,7 @@ def test_worker_error_callback_logs_timeout_detail(
     )
 
     with caplog.at_level(logging.WARNING):
-        stub_column_wise_builder._worker_error_callback(exc, context={"index": 17, "column_name": "test_column"})
+        stub_dataset_builder._worker_error_callback(exc, context={"index": 17, "column_name": "test_column"})
 
     assert "record at index 17" in caplog.text
     assert "column 'test_column'" in caplog.text
@@ -207,11 +208,11 @@ def test_worker_error_callback_logs_timeout_detail(
     assert (
         "The request to model 'test-model' timed out while running generation for column 'test_column'." in caplog.text
     )
-    assert 17 in stub_column_wise_builder._records_to_drop
+    assert 17 in stub_dataset_builder._records_to_drop
 
 
 def test_worker_error_callback_requires_context_index(
-    stub_column_wise_builder: ColumnWiseDatasetBuilder,
+    stub_dataset_builder: DatasetBuilder,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     exc = ModelTimeoutError(
@@ -225,15 +226,15 @@ def test_worker_error_callback_requires_context_index(
         caplog.at_level(logging.WARNING),
         pytest.raises(RuntimeError, match="Worker error callback called without a valid context index."),
     ):
-        stub_column_wise_builder._worker_error_callback(exc, context=None)
+        stub_dataset_builder._worker_error_callback(exc, context=None)
 
     assert "record at index unknown" in caplog.text
-    assert len(stub_column_wise_builder._records_to_drop) == 0
+    assert len(stub_dataset_builder._records_to_drop) == 0
 
 
-def test_column_wise_dataset_builder_batch_manager_initialization(stub_column_wise_builder, stub_resource_provider):
-    assert stub_column_wise_builder.batch_manager is not None
-    assert stub_column_wise_builder.batch_manager.artifact_storage == stub_resource_provider.artifact_storage
+def test_dataset_builder_batch_manager_initialization(stub_dataset_builder, stub_resource_provider):
+    assert stub_dataset_builder.batch_manager is not None
+    assert stub_dataset_builder.batch_manager.artifact_storage == stub_resource_provider.artifact_storage
 
 
 @pytest.mark.parametrize(
@@ -246,7 +247,7 @@ def test_column_wise_dataset_builder_batch_manager_initialization(stub_column_wi
         ),
     ],
 )
-def test_column_wise_dataset_builder_single_column_configs_property(
+def test_dataset_builder_single_column_configs_property(
     stub_resource_provider, stub_model_configs, config_type, expected_single_configs
 ):
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
@@ -256,7 +257,7 @@ def test_column_wise_dataset_builder_single_column_configs_property(
         single_config = expected_single_configs[0]
         config_builder.add_column(single_config)
 
-        builder = ColumnWiseDatasetBuilder(
+        builder = DatasetBuilder(
             data_designer_config=config_builder.build(),
             resource_provider=stub_resource_provider,
         )
@@ -271,15 +272,15 @@ def test_column_wise_dataset_builder_single_column_configs_property(
         sampler_config = expected_single_configs[0]
         config_builder.add_column(sampler_config)
 
-        builder = ColumnWiseDatasetBuilder(
+        builder = DatasetBuilder(
             data_designer_config=config_builder.build(),
             resource_provider=stub_resource_provider,
         )
         assert builder.single_column_configs == expected_single_configs
 
 
-def test_column_wise_dataset_builder_build_method_basic_flow(
-    stub_column_wise_builder,
+def test_dataset_builder_build_method_basic_flow(
+    stub_dataset_builder,
     stub_batch_manager,
     stub_resource_provider,
 ):
@@ -298,10 +299,10 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     # Mock the batch manager's iter_current_batch method
     stub_batch_manager.iter_current_batch.return_value = [(0, {"test": "data"})]
 
-    stub_column_wise_builder.batch_manager = stub_batch_manager
-    stub_column_wise_builder.set_processor_runner([])  # No processors for basic flow test
+    stub_dataset_builder.batch_manager = stub_batch_manager
+    stub_dataset_builder.set_processor_runner([])  # No processors for basic flow test
 
-    result_path = stub_column_wise_builder.build(num_records=100)
+    result_path = stub_dataset_builder.build(num_records=100)
 
     stub_resource_provider.model_registry.run_health_check.assert_called_once()
     stub_batch_manager.start.assert_called_once_with(num_records=100, buffer_size=50)
@@ -319,7 +320,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
         ),
     ],
 )
-def test_column_wise_dataset_builder_validate_column_configs(
+def test_dataset_builder_validate_column_configs(
     stub_model_configs, stub_resource_provider, column_configs, expected_error
 ):
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
@@ -334,7 +335,7 @@ def test_column_wise_dataset_builder_validate_column_configs(
         mock_registry.column_generators.get_for_config_type.return_value = mock_generator_class
 
         with pytest.raises(DatasetGenerationError, match=expected_error):
-            ColumnWiseDatasetBuilder(
+            DatasetBuilder(
                 data_designer_config=config_builder.build(),
                 resource_provider=stub_resource_provider,
                 registry=mock_registry,
@@ -342,7 +343,7 @@ def test_column_wise_dataset_builder_validate_column_configs(
     else:
         # Empty column_configs case - config_builder will fail at build() due to validation
         with pytest.raises((DatasetGenerationError, Exception)):
-            ColumnWiseDatasetBuilder(
+            DatasetBuilder(
                 config_builder=config_builder,
                 resource_provider=stub_resource_provider,
             )
@@ -353,7 +354,7 @@ def test_run_config_default_non_inference_max_parallel_workers() -> None:
     assert run_config.non_inference_max_parallel_workers == 4
 
 
-@patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
+@patch("data_designer.engine.dataset_builders.dataset_builder.TelemetryHandler")
 def test_emit_batch_inference_events_emits_from_deltas(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
@@ -361,7 +362,7 @@ def test_emit_batch_inference_events_emits_from_deltas(
 ) -> None:
     usage_deltas = {"test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=50, output_tokens=150))}
 
-    builder = ColumnWiseDatasetBuilder(
+    builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -390,7 +391,7 @@ def test_emit_batch_inference_events_emits_from_deltas(
     assert event.output_tokens == 150
 
 
-@patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
+@patch("data_designer.engine.dataset_builders.dataset_builder.TelemetryHandler")
 def test_emit_batch_inference_events_skips_when_no_deltas(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
@@ -398,7 +399,7 @@ def test_emit_batch_inference_events_skips_when_no_deltas(
 ) -> None:
     usage_deltas: dict[str, ModelUsageStats] = {}
 
-    builder = ColumnWiseDatasetBuilder(
+    builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -409,7 +410,7 @@ def test_emit_batch_inference_events_skips_when_no_deltas(
     mock_telemetry_handler_class.assert_not_called()
 
 
-@patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
+@patch("data_designer.engine.dataset_builders.dataset_builder.TelemetryHandler")
 def test_emit_batch_inference_events_handles_multiple_models(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
@@ -420,7 +421,7 @@ def test_emit_batch_inference_events_handles_multiple_models(
         "model-b": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=50, output_tokens=75)),
     }
 
-    builder = ColumnWiseDatasetBuilder(
+    builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -446,7 +447,7 @@ def test_emit_batch_inference_events_handles_multiple_models(
         (False, 0.5, 0.5, 10),  # defaults
     ],
 )
-@patch("data_designer.engine.dataset_builders.column_wise_builder.ConcurrentThreadExecutor")
+@patch("data_designer.engine.dataset_builders.dataset_builder.ConcurrentThreadExecutor")
 def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provider(
     mock_executor_class: Mock,
     stub_resource_provider: Mock,
@@ -470,7 +471,7 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     for processor_config in stub_test_processor_configs:
         config_builder.add_processor(processor_config)
 
-    builder = ColumnWiseDatasetBuilder(
+    builder = DatasetBuilder(
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -497,13 +498,13 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown
 
 
-@patch("data_designer.engine.dataset_builders.column_wise_builder.ConcurrentThreadExecutor")
+@patch("data_designer.engine.dataset_builders.dataset_builder.ConcurrentThreadExecutor")
 def test_fan_out_with_threads_passes_column_name_in_context(
     mock_executor_class: Mock,
     stub_resource_provider: Mock,
     stub_test_config_builder: DataDesignerConfigBuilder,
 ) -> None:
-    builder = ColumnWiseDatasetBuilder(
+    builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -532,13 +533,13 @@ def test_fan_out_with_threads_passes_column_name_in_context(
     ]
 
 
-@patch("data_designer.engine.dataset_builders.column_wise_builder.AsyncConcurrentExecutor", create=True)
+@patch("data_designer.engine.dataset_builders.dataset_builder.AsyncConcurrentExecutor", create=True)
 def test_fan_out_with_async_passes_column_name_in_context(
     mock_executor_class: Mock,
     stub_resource_provider: Mock,
     stub_test_config_builder: DataDesignerConfigBuilder,
 ) -> None:
-    builder = ColumnWiseDatasetBuilder(
+    builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
@@ -585,10 +586,54 @@ def test_full_column_custom_generator_error_is_descriptive(stub_resource_provide
     config = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config.add_column(SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
     config.add_column(CustomColumnConfig(name="col", generator_function=bad_fn, generation_strategy="full_column"))
-    builder = ColumnWiseDatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+    builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
     with pytest.raises(DatasetGenerationError, match=r"(?s)Failed to process column 'col'.*something broke"):
         builder.build_preview(num_records=3)
+
+
+def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_freed(
+    stub_resource_provider,
+    stub_test_config_builder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    class StubScheduler:
+        traces: list[object] = []
+
+        async def run(self) -> None:
+            return None
+
+    class MockFuture:
+        def result(self) -> None:
+            return None
+
+    def mock_run_coroutine_threadsafe(coro, loop):
+        coro.close()
+        return MockFuture()
+
+    scheduler = StubScheduler()
+    buffer_manager = Mock()
+    buffer_manager.has_row_group.return_value = False
+
+    monkeypatch.setattr(builder, "_prepare_async_run", Mock(return_value=(scheduler, buffer_manager)))
+    monkeypatch.setattr(builder_mod, "ensure_async_engine_loop", lambda: object(), raising=False)
+    monkeypatch.setattr(
+        builder_mod,
+        "asyncio",
+        Mock(run_coroutine_threadsafe=mock_run_coroutine_threadsafe),
+        raising=False,
+    )
+
+    result = builder._build_async_preview([], num_records=3)
+
+    assert result.empty
+    buffer_manager.get_dataframe.assert_not_called()
+    buffer_manager.free_row_group.assert_not_called()
 
 
 # Processor tests
@@ -599,14 +644,14 @@ def simple_builder(stub_resource_provider, stub_model_configs):
     """Minimal builder with a single UUID column and no batch files on disk."""
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
-    return ColumnWiseDatasetBuilder(
+    return DatasetBuilder(
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
 
 
-def test_initialize_processors(stub_column_wise_builder):
-    processors = stub_column_wise_builder.processors
+def test_initialize_processors(stub_dataset_builder):
+    processors = stub_dataset_builder.processors
     assert isinstance(processors, tuple)
     assert len(processors) == 1
     assert processors[0].config.column_names == ["column_to_drop"]
@@ -804,12 +849,12 @@ def _resize_columns(spec: str) -> list[CustomColumnConfig]:
 
 
 def _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns):
-    """Build a ColumnWiseDatasetBuilder with the given resize column configs."""
+    """Build a DatasetBuilder with the given resize column configs."""
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
     for col in columns:
         config_builder.add_column(col)
-    return ColumnWiseDatasetBuilder(
+    return DatasetBuilder(
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )

@@ -591,7 +591,7 @@ def _dataset_fingerprint(df: pd.DataFrame) -> str:
 def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> BenchmarkResult:
     # Imports are deferred so engine selection respects DATA_DESIGNER_ASYNC_ENGINE.
     from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
-    from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+    from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
     from data_designer.engine.model_provider import resolve_model_provider_registry
     from data_designer.engine.resources.resource_provider import create_resource_provider
     from data_designer.engine.resources.seed_reader import SeedReaderRegistry
@@ -636,7 +636,7 @@ def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> Benc
             mcp_providers=[mcp_provider],
             tool_configs=builder.tool_configs,
         )
-        dataset_builder = ColumnWiseDatasetBuilder(
+        dataset_builder = DatasetBuilder(
             data_designer_config=builder.build(),
             resource_provider=resource_provider,
         )

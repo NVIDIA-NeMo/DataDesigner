@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from data_designer.config.column_configs import GenerationStrategy
-from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.models.facade import ModelFacade
 
 
@@ -28,7 +28,7 @@ def test_model_facade_has_sync_methods() -> None:
 
 def test_async_engine_env_controls_builder_execution_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """When DATA_DESIGNER_ASYNC_ENGINE is set, _run_cell_by_cell_generator dispatches to async fan-out."""
-    import data_designer.engine.dataset_builders.column_wise_builder as cwb_module
+    import data_designer.engine.dataset_builders.dataset_builder as cwb_module
 
     mock_generator = MagicMock()
     mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
@@ -39,7 +39,7 @@ def test_async_engine_env_controls_builder_execution_path(monkeypatch: pytest.Mo
 
     # Test with async enabled — uses max_parallel_requests from generator (same as sync)
     with patch.object(cwb_module, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        ColumnWiseDatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
+        DatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
         builder._fan_out_with_async.assert_called_once_with(mock_generator, max_workers=4)
         builder._fan_out_with_threads.assert_not_called()
 
@@ -47,6 +47,6 @@ def test_async_engine_env_controls_builder_execution_path(monkeypatch: pytest.Mo
 
     # Test with async disabled — uses max_parallel_requests from generator
     with patch.object(cwb_module, "DATA_DESIGNER_ASYNC_ENGINE", False):
-        ColumnWiseDatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
+        DatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
         builder._fan_out_with_threads.assert_called_once_with(mock_generator, max_workers=4)
         builder._fan_out_with_async.assert_not_called()

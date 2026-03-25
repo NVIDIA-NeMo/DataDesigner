@@ -22,7 +22,7 @@ from data_designer.engine.column_generators.generators.base import (
     FromScratchColumnGenerator,
 )
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
-from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -91,13 +91,13 @@ class MockFullCol(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
 )
 def test_validate_async_compatibility(configs: list[Mock], should_raise: bool) -> None:
     """Validation rejects allow_resize=True with the async engine."""
-    builder = Mock(spec=ColumnWiseDatasetBuilder)
+    builder = Mock(spec=DatasetBuilder)
     builder.single_column_configs = configs
     if should_raise:
         with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
-            ColumnWiseDatasetBuilder._validate_async_compatibility(builder)
+            DatasetBuilder._validate_async_compatibility(builder)
     else:
-        ColumnWiseDatasetBuilder._validate_async_compatibility(builder)
+        DatasetBuilder._validate_async_compatibility(builder)
 
 
 # -- _build_async integration test with mock generators -----------------------
@@ -150,7 +150,11 @@ async def test_build_async_end_to_end() -> None:
 
     buffer_manager = RowGroupBufferManager(storage)
 
-    checkpointed: list[int] = []
+    finalized: list[int] = []
+
+    def finalize_row_group(rg_id: int) -> None:
+        buffer_manager.checkpoint_row_group(rg_id)
+        finalized.append(rg_id)
 
     scheduler = AsyncTaskScheduler(
         generators=gen_map,
@@ -158,12 +162,12 @@ async def test_build_async_end_to_end() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_manager,
-        on_row_group_complete=lambda rg: checkpointed.append(rg),
+        on_finalize_row_group=finalize_row_group,
     )
     await scheduler.run()
 
-    # Both row groups should be checkpointed
-    assert sorted(checkpointed) == [0, 1]
+    # Both row groups should be finalized
+    assert sorted(finalized) == [0, 1]
     assert buffer_manager.actual_num_records == 4
 
     # All columns should be complete
@@ -177,7 +181,7 @@ async def test_build_async_end_to_end() -> None:
 
 def test_sync_path_unaffected_by_async_engine_flag() -> None:
     """DATA_DESIGNER_ASYNC_ENGINE=0 keeps the sync path unchanged."""
-    import data_designer.engine.dataset_builders.column_wise_builder as builder_mod
+    import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 
     assert hasattr(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE")
     assert isinstance(builder_mod.DATA_DESIGNER_ASYNC_ENGINE, bool)
@@ -250,6 +254,7 @@ async def test_checkpoint_produces_correct_parquet_calls() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_manager,
+        on_finalize_row_group=lambda rg_id: buffer_manager.checkpoint_row_group(rg_id),
     )
     await scheduler.run()
 

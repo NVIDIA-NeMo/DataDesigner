@@ -26,6 +26,18 @@ def test_init_row_group() -> None:
     assert row == {}
 
 
+def test_has_row_group() -> None:
+    mgr = RowGroupBufferManager(_mock_artifact_storage())
+
+    assert not mgr.has_row_group(0)
+
+    mgr.init_row_group(0, 1)
+    assert mgr.has_row_group(0)
+
+    mgr.free_row_group(0)
+    assert not mgr.has_row_group(0)
+
+
 def test_update_cell() -> None:
     mgr = RowGroupBufferManager(_mock_artifact_storage())
     mgr.init_row_group(0, 2)
@@ -174,6 +186,28 @@ def test_replace_dataframe_fewer_rows_marks_trailing_dropped() -> None:
     # get_dataframe should only return the 2 active rows
     result_df = mgr.get_dataframe(0)
     assert len(result_df) == 2
+
+
+def test_free_row_group_releases_memory() -> None:
+    """free_row_group releases buffer memory without writing to disk."""
+    storage = _mock_artifact_storage()
+    mgr = RowGroupBufferManager(storage)
+    mgr.init_row_group(0, 3)
+    mgr.update_batch(0, "col", ["a", "b", "c"])
+    mgr.drop_row(0, 1)
+
+    mgr.free_row_group(0)
+
+    with pytest.raises(KeyError):
+        mgr.get_row(0, 0)
+    storage.write_batch_to_parquet_file.assert_not_called()
+    assert mgr.actual_num_records == 0
+
+
+def test_free_row_group_idempotent() -> None:
+    """free_row_group on a non-existent row group is a no-op."""
+    mgr = RowGroupBufferManager(_mock_artifact_storage())
+    mgr.free_row_group(99)  # should not raise
 
 
 def test_checkpoint_calls_on_complete_when_all_rows_dropped() -> None:
