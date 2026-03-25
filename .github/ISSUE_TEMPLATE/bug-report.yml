@@ -45,7 +45,27 @@ body:
     validations:
       required: true
   - type: textarea
+    id: agent-diagnostic
+    attributes:
+      label: Agent Diagnostic / Prior Investigation
+      description: |
+        If you used an agent, paste the output from its investigation (e.g., from the `search-docs` or `search-github` skills).
+        If you couldn't or didn't use an agent, briefly say why and include the troubleshooting you already tried.
+      placeholder: |
+        Paste agent output here, or describe the manual investigation you performed.
+  - type: textarea
     id: context
     attributes:
       label: Additional context
       placeholder: Add any other context about the problem here (e.g., screenshots, logs, browser version).
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I reproduced this issue or provided a minimal example
+          required: true
+        - label: I searched the docs/issues myself, or had my agent do so
+          required: true
+        - label: If I used an agent, I included its diagnostics above
+          required: false

@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Create a GitHub PR with a well-formatted description including summary, categorized changes, and attention areas
+description: Create a GitHub PR with a well-formatted description matching the repository PR template
 argument-hint: [special instructions]
 disable-model-invocation: true
 metadata:
@@ -9,7 +9,7 @@ metadata:
 
 # Create Pull Request
 
-Create a well-formatted GitHub pull request for the current branch.
+Create a well-formatted GitHub pull request for the current branch. The PR description must conform to the repository's PR template (`.github/PULL_REQUEST_TEMPLATE.md`).
 
 ## Arguments
 
@@ -75,35 +75,44 @@ If commits have mixed types, use the primary/most significant type.
    git push -u origin <branch-name>
    ```
 
-2. **Create PR** using this template:
+2. **Build the PR body** using the repository's template structure:
 
 ```markdown
 ## 📋 Summary
 
-[1-2 sentence overview of what this PR accomplishes]
+[1-3 sentences: what this PR does and why. Focus on the "why".]
+
+## 🔗 Related Issue
+
+[Fixes #NNN or Closes #NNN — link to the issue this addresses]
 
 ## 🔄 Changes
 
-### ✨ Added
-- [New features/files - link to key files when helpful]
+- [Bullet list of key changes, grouped logically]
+- [Link to key files when helpful for reviewers]
+- [Reference commits for specific changes in multi-commit PRs]
 
-### 🔧 Changed
-- [Modified functionality - reference commits for specific changes]
+## 🧪 Testing
 
-### 🗑️ Removed
-- [Deleted items]
+- [x] `make test` passes
+- [x] Unit tests added/updated (or: N/A — no testable logic)
+- [ ] E2E tests added/updated (if applicable)
 
-### 🐛 Fixed
-- [Bug fixes - if applicable]
+## ✅ Checklist
 
+- [x] Follows commit message conventions
+- [x] Commits are signed off (DCO)
+- [ ] Architecture docs updated (if applicable)
+```
+
+If there are genuinely important attention areas for reviewers, add an **Attention Areas** section after Changes:
+
+```markdown
 ## 🔍 Attention Areas
 
 > ⚠️ **Reviewers:** Please pay special attention to the following:
 
-- [`path/to/critical/file.py`](https://github.com/<owner>/<repo>/blob/<branch>/path/to/critical/file.py) - [Why this needs attention]
-
----
-🤖 *Generated with AI*
+- [`path/to/critical/file.py`](https://github.com/<owner>/<repo>/blob/<branch>/path/to/critical/file.py) — [Why this needs attention]
 ```
 
 3. **Execute**:
@@ -118,15 +127,18 @@ If commits have mixed types, use the primary/most significant type.
 
 ## Section Guidelines
 
-- **Summary**: Always include - be concise and focus on the "why"
-- **Changes**: Group by type, omit empty sections
+- **Summary**: Always include — be concise and focus on the "why", not just the "what"
+- **Related Issue**: Always include if an issue exists. Use `Fixes #NNN` for bugs, `Closes #NNN` for features/tasks
+- **Changes**: Bullet list grouped logically. Omit trivial changes (formatting, imports) unless they are the point of the PR
+- **Testing**: Check off items that apply. Mark N/A items explicitly rather than leaving them unchecked without explanation
+- **Checklist**: Check off items that are true. Leave unchecked with a note if something doesn't apply
 - **Attention Areas**: Only include if there are genuinely important items; omit for simple PRs
 - **Links**: Include links to code and commits where helpful for reviewers:
-  - **File links require full URLs** - relative paths don't work in PR descriptions
+  - **File links require full URLs** — relative paths don't work in PR descriptions
   - Link to a file: `[filename](https://github.com/<owner>/<repo>/blob/<branch>/path/to/file.py)`
   - Link to specific lines: `[description](https://github.com/<owner>/<repo>/blob/<branch>/path/to/file.py#L42-L50)`
   - Use the branch name (from Step 1) in the URL so links point to the PR's version of files
-  - Reference commits: `abc1234` - GitHub auto-links short commit SHAs in PR descriptions
+  - Reference commits: `abc1234` — GitHub auto-links short commit SHAs in PR descriptions
   - For multi-commit PRs, reference individual commits when describing specific changes
 
 ## Edge Cases
@@ -135,3 +147,4 @@ If commits have mixed types, use the primary/most significant type.
 - **Uncommitted work**: Warn and ask before proceeding
 - **Large PRs** (>20 files): Summarize by directory/module
 - **Single commit**: PR title can match commit message
+- **No related issue**: Note "N/A" in the Related Issue section rather than omitting it
