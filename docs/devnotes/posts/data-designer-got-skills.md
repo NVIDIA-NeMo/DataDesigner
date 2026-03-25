@@ -9,16 +9,15 @@ authors:
 
 *Lessons from building an agent-first CLI and skill for Data Designer*
 
-![Data Designer palette mascot](assets/data-designer-got-skills/palette_with_skills.png){ align=left width=120px style="margin-top:0;margin-bottom:0" }
 We just published the `data-designer` skill, which leverages agent-focused CLI commands in [Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) to efficiently generate datasets. Just describe the dataset you want and your agent will craft the Data Designer configuration for you — schema design, validation, preview, generation — interactively or on full autopilot (just tell the agent to "be opinionated" or "surprise me").
 
 <!-- more -->
 
+![Data Designer Got Skills](assets/data-designer-got-skills/hero_data_designer_got_skills.png){ width=100% }
+
 Instead of asking agents to explore the source code, a single CLI command (`data-designer agent context`) delivers curated, code-derived context in one read, and three more commands (`validate`, `preview`, `create`) handle the rest. The agent's only job is writing the configuration. Combined with the new skill, this reduces token usage by **~80%**, errors by **~90%**, and wall-clock time by **~47%** — all while improving output quality (mean judge score **4.0 → 4.7**). We benchmarked our approach across 228 sessions each for the skill and a baseline.
 
 In today's Dev Note, we'll walk through the challenges agents face when using new libraries, how we designed a CLI and skill to help them, and the benchmark results in detail.
-
-![Data Designer Skill Benchmark](assets/data-designer-got-skills/hero_benchmark_figure.png){ width=100% }
 
 ---
 
@@ -161,7 +160,9 @@ These are individual sessions, and there's variance in both directions. Sometime
 
 ## **Measuring the Difference**
 
-Evaluating agent skills is harder than it looks. Behavior is non-deterministic, sensitive to context, and varies with prompt wording. Environment isolation is critical — coding agents explore their surroundings before they start working, so if a baseline session can discover the skill files on disk, it will use them. We observed this failure mode early on and had to ensure each session got a fully isolated environment. [LangChain's writeup](https://blog.langchain.com/evaluating-skills/) on evaluating skills is an excellent read that covers many of the same challenges.
+![Data Designer Skill Benchmark](assets/data-designer-got-skills/hero_benchmark_figure.png){ width=100% }
+
+Evaluating agent skills is harder than it might seem. Behavior is non-deterministic, sensitive to context, and varies with prompt wording. Environment isolation is critical — coding agents explore their surroundings before they start working, so if a baseline session can discover the skill files on disk, it will use them. We observed this failure mode early on and had to ensure each session got a fully isolated environment. [LangChain's writeup](https://blog.langchain.com/evaluating-skills/) on evaluating skills is an excellent read that covers many of the same challenges.
 
 In our experiment setup, each session started from a clean slate (new directory, fresh git history, clean venv with no skill files present for baseline runs). We used the text-to-python use case across three prompt detail levels (low, medium, high), half at high reasoning effort and half at low. Claude Code was run in headless mode. Each session ends when the agent produces a validated configuration — we stop at `data-designer validate` rather than running full generation, both for easier automation and because once the config is valid, generation is just a simple `data-designer create` away. The full results are in the figure at the top of this post.
 
