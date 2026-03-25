@@ -277,6 +277,8 @@ class AsyncTaskScheduler:
         while True:
             if self._early_shutdown:
                 logger.warning("Early shutdown triggered - error rate exceeded threshold")
+                if self._deferred:
+                    await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
                 self._checkpoint_completed_row_groups(all_columns)
                 break
 
@@ -363,6 +365,16 @@ class AsyncTaskScheduler:
                     self._dispatched.add(
                         Task(column=task.column, row_group=task.row_group, row_index=None, task_type="batch")
                     )
+                    # Re-mark sibling columns as dispatched to mirror _dispatch_seeds
+                    # and prevent _drain_frontier from re-dispatching them.
+                    for sibling in self._instance_to_columns.get(gid, []):
+                        if sibling != task.column:
+                            self._dispatched.add(
+                                Task(column=sibling, row_group=task.row_group, row_index=None, task_type="from_scratch")
+                            )
+                            self._dispatched.add(
+                                Task(column=sibling, row_group=task.row_group, row_index=None, task_type="batch")
+                            )
                     self._in_flight.add(task)
                     if (s := self._rg_states.get(task.row_group)) is not None:
                         s.in_flight_count += 1
@@ -432,10 +444,11 @@ class AsyncTaskScheduler:
         other_deferred = [t for t in self._deferred if t.row_group not in stalled_rgs]
         self._deferred = stalled_deferred
         await self._salvage_rounds(seed_cols, has_pre_batch, all_columns)
-        # Tasks still deferred after salvage are permanently failed - record
-        # as failures (not skips) and drop their rows so the row groups can
-        # checkpoint and free memory.
-        for task in self._deferred:
+        # Separate stalled tasks that exhausted retries from any new failures
+        # that _drain_frontier may have appended for non-stalled row groups.
+        exhausted = [t for t in self._deferred if t.row_group in stalled_rgs]
+        newly_deferred = [t for t in self._deferred if t.row_group not in stalled_rgs]
+        for task in exhausted:
             if self._reporter:
                 self._reporter.record_failure(task.column)
             if task.row_index is not None:
@@ -444,7 +457,7 @@ class AsyncTaskScheduler:
                 rg_size = self._get_rg_size(task.row_group)
                 self._drop_row_group(task.row_group, rg_size, exclude_columns={task.column})
         self._checkpoint_completed_row_groups(all_columns)
-        self._deferred = other_deferred
+        self._deferred = other_deferred + newly_deferred
 
     def _checkpoint_completed_row_groups(self, all_columns: list[str]) -> None:
         """Checkpoint any row groups that reached completion."""
@@ -481,6 +494,11 @@ class AsyncTaskScheduler:
                 logger.error(f"Failed to checkpoint row group {rg_id}.", exc_info=True)
             finally:
                 self._rg_semaphore.release()
+
+        # Clean up deferred tasks for checkpointed row groups
+        if completed:
+            checkpointed = {rg_id for rg_id, _ in completed}
+            self._deferred = [t for t in self._deferred if t.row_group not in checkpointed]
 
     def _run_seeds_complete_check(self, seed_cols: frozenset[str]) -> None:
         """Run pre-batch callbacks for row groups whose seeds just completed."""
