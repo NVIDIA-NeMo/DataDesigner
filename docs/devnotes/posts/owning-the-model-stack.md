@@ -6,21 +6,21 @@ authors:
 
 # **Owning the Model Stack: Adaptive Concurrency FTW!**
 
-Picture this: you're generating a million-record dataset. Twenty concurrent requests per model, three models in the pipeline, two providers. Everything hums along for the first ten minutes — then one provider starts returning 429s, your retry logic kicks in, and suddenly you're in a feedback loop where retries *cause* more 429s. The run stalls. You restart with lower concurrency, waste throughput for hours, and wonder if there's a better way.
+Picture this: you're generating a million-record dataset. Thirty two concurrent requests per model, three models in the pipeline, two providers. Everything hums along for the first ten minutes — then one provider starts returning 429s, your retry logic kicks in, and suddenly you're in a feedback loop where retries *cause* more 429s. The run stalls. You restart with lower concurrency, waste throughput for hours, and wonder if there's a better way.
 
-There is. This post is about the native model client layer we built to replace LiteLLM in Data Designer, with adaptive throttling (a system that discovers provider capacity at runtime) as the centerpiece.
+There is. This post is about the native model client layer we built with adaptive throttling (a system that discovers provider capacity at runtime) replacing our dependency on LiteLLM along the way.
 
 <!-- more -->
 
-![Owning the Model Stack: from opaque dependency to transparent, controllable client layer](assets/owning-the-model-stack/native-model-client-hero.png)
+![From chaotic request flow to calibrated concurrency via adaptive throttling](assets/owning-the-model-stack/native-model-client-hero.png)
 
 ## **Why We Made the Move**
 
 LiteLLM gave us a fast path to multi-provider support early on: "just call any model" without writing HTTP adapters from scratch. As Data Designer's workloads scaled to millions of records across multiple models and providers, we wanted more control over what happens between our orchestrator and the provider API.
 
-The biggest opportunity was **adaptive concurrency**. When you start hitting rate limits at scale, you don't want to just retry. You want the system to *learn* the provider's actual capacity and adjust on the fly. That adaptation needs to be aware of your pipeline's topology. Which models share an endpoint? Which routes share a rate-limit budget? How do sync and async callers interact? Building that required owning the transport layer.
+The biggest opportunity was **adaptive concurrency**. When you start hitting rate limits at scale, you don't want to just retry. You want the system to *learn* the provider's actual capacity and adjust on the fly. That adaptation needs to be aware of your pipeline's topology. Which models share an endpoint? Which routes share a rate-limit budget? Building that required owning the transport layer.
 
-We also saw a chance to simplify. We were only using a slice of what LiteLLM provides (a general-purpose multi-provider gateway when we only target a couple of API formats). A purpose-built stack meant less surface area, faster startup, and a transport lifecycle we could reason about end to end.
+We also saw a chance to simplify. We were only using a slice of what LiteLLM provides. A purpose-built stack meant less surface area, faster startup, and a transport lifecycle we could reason about end to end.
 
 So we built a native client layer. Thin HTTP adapters with adaptive rate-limit handling, deterministic retry policy, and canonical error normalization. The rest of this post walks through how it works.
 
@@ -28,17 +28,17 @@ So we built a native client layer. Thin HTTP adapters with adaptive rate-limit h
 
 The replacement is a layered stack where each layer does one thing. `ModelFacade`, the public orchestration surface that column generators call, didn't change at all. Everything below it is new.
 
-![Native model client architecture: five layers from ModelFacade down to provider HTTP APIs](assets/owning-the-model-stack/native-model-client-layers.png){ style="max-width:100%; height:auto" }
+![Native model client architecture: five layers from ModelFacade down to provider HTTP APIs](assets/owning-the-model-stack/native-model-client-layers.png){ style="max-width:75%; height:auto" }
 
 From top to bottom:
 
 1. **ModelFacade**: orchestrates correction loops, MCP tool-calling, and usage tracking. This is the public API. Column generators talk to this layer, and it was untouched during the migration. If you've written a Data Designer pipeline, nothing about your code changes.
 
-2. **ThrottledModelClient**: the new layer. Wraps every outbound HTTP call with a throttle permit: acquire a concurrency slot before the call, release it after, and feed the outcome (success, 429, or error) back to the AIMD controller. This is where adaptive throttling lives, and it's the reason we did all of this.
+2. **ThrottledModelClient**: the new layer. It's a decorator around `HttpModelClient` — same `ModelClient` protocol, but every outbound call is wrapped with a throttle permit: acquire a concurrency slot before the call, release it after, and feed the outcome (success, 429, or error) back to `ThrottleManager`, the AIMD controller. This is where adaptive throttling lives.
 
-3. **HttpModelClient**: shared `httpx` transport with retry logic. Connection pooling, timeouts, and transport-level retries for transient failures (502, 503, 504). Boring but important.
+3. **HttpModelClient**: an abstract base class that defines the interface for all provider adapters. It owns the shared `httpx` transport lifecycle — connection pooling, timeouts, and transport-level retries for transient failures (502, 503, 504). Boring but important.
 
-4. **Provider Adapters**: `OpenAICompatibleClient` and `AnthropicClient`. Each adapter translates between our canonical request/response types and the provider's wire format. Provider-specific shapes are contained here and never leak upward.
+4. **Provider Adapters**: `OpenAICompatibleClient` and `AnthropicClient`, both extending `HttpModelClient`. Each adapter translates between our canonical request/response types and the provider's wire format. Provider-specific shapes are contained here and never leak upward.
 
 5. **Provider HTTP APIs**: the actual endpoints (OpenAI, NVIDIA NIM, vLLM, Anthropic Messages API).
 
@@ -56,7 +56,7 @@ What you actually want is a system that *discovers* the provider's capacity at r
 
 ### **AIMD: Additive Increase / Multiplicative Decrease**
 
-If you've studied networking, this will sound familiar. AIMD is the algorithm behind TCP congestion control. We apply the same idea to LLM API concurrency:
+If you've studied networking, this will sound familiar. [AIMD](https://en.wikipedia.org/wiki/Additive_increase/multiplicative_decrease) is the algorithm behind TCP congestion control. We apply the same idea to LLM API concurrency:
 
 - **On success**: after a window of consecutive successful requests (default: 25), increase the concurrency limit by 1. Slow, cautious growth.
 - **On 429**: multiply the current limit by a reduce factor (default: 0.75, a 25% cut). Fast, decisive pullback. Then apply a cooldown using the provider's `Retry-After` header when available, or a default of 2 seconds.
@@ -65,7 +65,7 @@ The asymmetry is deliberate. You probe upward slowly because overshooting wastes
 
 The result is that the system converges on the provider's actual capacity without you setting it. It starts at your configured `max_parallel_requests`, discovers the real limit through 429 signals, and settles into a steady state that tracks the provider's capacity as it changes.
 
-![AIMD concurrency control over time: initial phase, 429 drop, recovery, ceiling stabilization, steady state](assets/owning-the-model-stack/aimd-concurrency-over-time.png){ style="max-width:100%; height:auto" }
+![AIMD concurrency control over time: initial phase, 429 drop, recovery, ceiling stabilization, steady state](assets/owning-the-model-stack/aimd-concurrency-over-time.png){ style="max-width:75%; height:auto" }
 
 This is especially useful when you're self-hosting your inference stack (running vLLM or NVIDIA NIM on your own hardware) as long as the serving framework returns 429s when it's at capacity. The capacity of a self-hosted endpoint depends on your GPU count, model size, quantization, batch settings, and whatever else is sharing the cluster. That capacity might change between runs, or even mid-run if other workloads spin up. If your serving layer signals overload with 429s, you don't need to figure any of that out. Point Data Designer at your endpoint, set `max_parallel_requests` to a generous upper bound, and the system self-adjusts to whatever your infrastructure can actually handle.
 
@@ -81,21 +81,13 @@ Here's a subtlety that bit us during testing. When the system is running at capa
 
 **Cascade dampening** fixes this. Only the first 429 in a burst triggers a decrease. Subsequent 429s in the same cascade are counted (for observability) but don't further reduce the limit. The cascade resets on the next successful request. Simple, but it makes the difference between a graceful pullback and a collapse.
 
-### **Per-request lifecycle**
-
-Every outbound HTTP call (chat completion, embedding, image generation) follows the same lifecycle through the throttle system:
-
-![AIMD per-request lifecycle: acquire, call, branch on success/429/error, release](assets/owning-the-model-stack/aimd-lifecycle.png){ style="max-width:100%; height:auto" }
-
-`ThrottledModelClient` wraps the inner `ModelClient` and implements this as a context manager. `acquire` before the call, then `release_success`, `release_rate_limited`, or `release_failure` in the `finally` block. No throttle permits leak, even on unexpected exceptions. The pattern is simple enough that there's really only one way to get it wrong (forgetting the `finally`), and the wrapper makes that impossible.
-
 ### **Two-level keying**
 
 Real pipelines aren't simple. A single provider+model combination might serve chat completions, embeddings, and image generation, potentially on different rate-limit budgets. And multiple model aliases in your pipeline might point to the same underlying provider and model (say, one alias for generation and another for judging, both hitting the same NVIDIA endpoint).
 
 The throttle manager handles this with two-level keying:
 
-![Two-level throttle keying: global cap per provider+model, independent domain states for chat, embedding, image](assets/owning-the-model-stack/throttle-keying.png){ style="max-width:100%; height:auto" }
+![Two-level throttle keying: global cap per provider+model, independent domain states for chat, embedding, image](assets/owning-the-model-stack/throttle-keying.png){ style="max-width:75%; height:auto" }
 
 - **Global cap**: keyed by `(provider_name, model_id)`. When multiple model aliases target the same provider and model, the effective max is `min()` of their configured `max_parallel_requests`. This enforces the most conservative limit for shared upstream capacity, because the provider doesn't care what you *call* the model, it sees the same API key.
 
@@ -111,11 +103,13 @@ The transport layer (via `httpx` with `RetryTransport`) handles transient server
 
 But **429 is explicitly excluded from transport retries**.
 
-![Retry boundary: 502/503/504 retried at transport, 429 passed through to ThrottledModelClient for AIMD feedback](assets/owning-the-model-stack/retry-boundary.png){ style="max-width:100%; height:auto" }
+![Retry boundary: 502/503/504 retried at transport, 429 passed through to ThrottledModelClient for AIMD feedback](assets/owning-the-model-stack/retry-boundary.png){ style="max-width:75%; height:auto" }
 
 Why? Because if the retry layer swallows 429s, the throttle manager never learns the provider is overloaded. The whole AIMD feedback loop depends on seeing raw rate-limit signals. A 429 must bubble up to `ThrottledModelClient` so it can call `release_rate_limited()`, cut the concurrency limit, apply the cooldown, and record the ceiling. The next attempt then re-enters the throttle acquire path, waiting for a permit, before making another HTTP call.
 
-The split is clean and worth remembering. Transport retries handle *server problems* (the provider is temporarily broken). Throttle adaptation handles *capacity problems* (the provider is working fine, you're just sending too much). Conflating the two is how you get retry storms.
+The split is clean and worth remembering. Transport retries handle *server problems*. Throttle adaptation handles *capacity problems*. The provider is working fine, you're just sending too many. Conflating the two is how you get retry storms.
+
+One caveat: this boundary behaves differently depending on the execution mode. In async mode (currently experimental, enabled with `DATA_DESIGNER_ASYNC_ENGINE=1`), 429s bypass transport retries entirely and flow straight to `ThrottledModelClient` for AIMD feedback — this is the full adaptive loop described above. In sync mode, 429s are retried at the transport layer since there's no salvage queue to re-attempt failed rows. AIMD is still wired up but only fires if all transport retries are exhausted. This is temporary — once the async engine graduates from experimental, it will become the default path and the sync codepath will be retired. Stay tuned for a dedicated dev note on the async engine.
 
 ## **Configuration**
 
@@ -128,7 +122,17 @@ import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 data_designer = DataDesigner()
-config = dd.DataDesignerConfigBuilder(
+data_designer.set_run_config(
+    dd.RunConfig(
+        throttle=dd.ThrottleConfig(
+            reduce_factor=0.75,
+            success_window=25,
+            cooldown_seconds=2.0,
+            ceiling_overshoot=0.10,
+        )
+    )
+)
+config_builder = dd.DataDesignerConfigBuilder(
     model_configs=[
         dd.ModelConfig(
             alias="reasoning-model",
@@ -140,16 +144,8 @@ config = dd.DataDesignerConfigBuilder(
 )
 
 result = data_designer.create(
-    config=config.build(),
-    run_config=dd.RunConfig(
-        throttle=dd.ThrottleConfig(
-            reduce_factor=0.75,
-            success_window=25,
-            cooldown_seconds=2.0,
-            ceiling_overshoot=0.10,
-        ),
-    ),
-    n=10_000,
+    config_builder,
+    num_records=10_000,
 )
 ```
 
@@ -165,13 +161,36 @@ In practice, the parameter most worth adjusting is `success_window`. A smaller w
 
 Most users will never need to touch any of these. The system adapts automatically.
 
+## **What It Looks Like in the Logs**
+
+`ThrottleManager` logs every state transition at `INFO` level, so the adaptation story is visible in your terminal as the run progresses.
+
+```
+# When the system hits a 429 and cuts concurrency:
+🪫📉 'nvidia/nemotron-3-super-120b-a12b' [chat] server rate-limited — concurrency reduced from 20 → 15 (retrying in 2s)
+
+# If the provider's capacity is lower than a previously observed ceiling, the log includes the estimated server limit:
+🪫📉 'nvidia/nemotron-3-super-120b-a12b' [chat] server rate-limited at 15 (server limit ~12) — concurrency reduced to 11 (retrying in 2s)
+
+# As successes accumulate and the limit climbs back:
+🪫📈🔥 'nvidia/nemotron-3-super-120b-a12b' [chat] concurrency increased from 11 → 12
+
+# When the limit reaches the ceiling band:
+🔋✅ 'nemotron-3-super-120b-a12b' [chat] concurrency recovered to 13 parallel requests
+
+# And if no 429s have been observed and the limit reaches the configured max:
+🔋✅ 'nemotron-3-super-120b-a12b' [chat] concurrency fully recovered (20 parallel requests)
+```
+
+Reading these lines in sequence tells you exactly what happened: where the system started, when it hit the wall, how far it pulled back, and how it recovered. No guessing, no metrics pipeline required.
+
 ## **Where This Leaves Us**
 
-This shipped in Data Designer v0.5.4. If you're using Data Designer today, nothing changes in your pipeline code. `ModelFacade` is the same API it's always been. What changes is what happens underneath. The system now discovers provider capacity at runtime, isolates throttle state per route, and separates retry logic from rate-limit adaptation. Adaptive throttling is enabled by default for all providers. You don't opt in or configure anything; it just starts learning.
+This shipped in Data Designer v0.5.4. If you're using Data Designer today, nothing changes in your pipeline code. `ModelFacade` is the same API it's always been. What changes is what happens underneath. The system now discovers provider capacity at runtime, isolates throttle state per route, and separates retry logic from rate-limit adaptation. Adaptive throttling is enabled by default for all providers. You don't opt in or configure anything; it just starts learning. If you want to see this fully in action, turn on async mode — it's experimental today, but soon to be stable.
 
 For most workloads, the defaults are all you need. Set `max_parallel_requests` to a generous upper bound and let AIMD find the right level. If you're running against a self-hosted stack that returns 429s, the system adapts to your hardware without any tuning. If you want finer control, `ThrottleConfig` is there, but the goal is that you shouldn't have to think about it.
 
-The broader takeaway is about when to own versus when to depend. LiteLLM is a good tool. It solves the general problem of calling many providers through one interface. We replaced it not because it was broken, but because our workload needed something it wasn't designed for: adaptive, topology-aware concurrency control at the transport level. Once that became the bottleneck, owning the stack was the simpler path.
+The goal is that you spend your time designing datasets, not tuning concurrency knobs. The system handles the transport-level complexity so you don't have to think about it.
 
 Key Resources:
 
