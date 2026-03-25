@@ -232,9 +232,7 @@ class AsyncTaskScheduler:
 
         num_rgs = len(self._row_groups)
 
-        if self._progress_bar is not None:
-            self._progress_bar.__enter__()
-        try:
+        with self._progress_bar or contextlib.nullcontext():
             if self._reporter:
                 self._reporter.log_start(num_row_groups=num_rgs)
 
@@ -268,9 +266,6 @@ class AsyncTaskScheduler:
                         await admission_task
                 await asyncio.shield(self._cancel_workers())
                 raise
-        finally:
-            if self._progress_bar is not None:
-                self._progress_bar.__exit__(None, None, None)
 
     async def _main_dispatch_loop(
         self,
@@ -438,9 +433,12 @@ class AsyncTaskScheduler:
         other_deferred = [t for t in self._deferred if t.row_group not in stalled_rgs]
         self._deferred = stalled_deferred
         await self._salvage_rounds(seed_cols, has_pre_batch, all_columns)
-        # Tasks still deferred after salvage are permanently failed - drop
-        # their rows so the row groups can checkpoint and free memory.
+        # Tasks still deferred after salvage are permanently failed - record
+        # as failures (not skips) and drop their rows so the row groups can
+        # checkpoint and free memory.
         for task in self._deferred:
+            if self._reporter:
+                self._reporter.record_failure(task.column)
             if task.row_index is not None:
                 self._drop_row(task.row_group, task.row_index)
             else:
@@ -495,6 +493,13 @@ class AsyncTaskScheduler:
                     if self._on_seeds_complete:
                         try:
                             self._on_seeds_complete(rg_id, state.size)
+                            # The callback may drop rows (e.g. pre-batch filtering).
+                            # Record skipped tasks for any newly-dropped rows so
+                            # progress reporting stays accurate.
+                            if self._reporter:
+                                for ri in range(state.size):
+                                    if self._tracker.is_dropped(rg_id, ri):
+                                        self._record_skipped_tasks_for_row(rg_id, ri)
                         except Exception:
                             logger.warning(
                                 f"Pre-batch processor failed for row group {rg_id}, skipping.",

@@ -69,7 +69,7 @@ class AsyncProgressReporter:
             self._maybe_report()
 
     def log_final(self) -> None:
-        if self._bar is not None:
+        if self._bar is not None and self._bar.is_active:
             for col in self._trackers:
                 self._bar.remove_bar(col)
         else:
@@ -90,7 +90,7 @@ class AsyncProgressReporter:
         )
 
     def _maybe_report(self) -> None:
-        if self._bar is not None:
+        if self._bar is not None and self._bar.is_active:
             self._update_bar()
             return
         now = time.perf_counter()
