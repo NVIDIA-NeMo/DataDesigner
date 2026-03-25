@@ -176,10 +176,10 @@ Most users will never need to touch any of these. The system adapts automaticall
 🪫📈🔥 'nvidia/nemotron-3-super-120b-a12b' [chat] concurrency increased from 11 → 12
 
 # When the limit reaches the ceiling band:
-🔋✅ 'nemotron-3-super-120b-a12b' [chat] concurrency recovered to 13 parallel requests
+🔋✅ 'nvidia/nemotron-3-super-120b-a12b' [chat] concurrency recovered to 13 parallel requests
 
 # And if no 429s have been observed and the limit reaches the configured max:
-🔋✅ 'nemotron-3-super-120b-a12b' [chat] concurrency fully recovered (20 parallel requests)
+🔋✅ 'nvidia/nemotron-3-super-120b-a12b' [chat] concurrency fully recovered (20 parallel requests)
 ```
 
 Reading these lines in sequence tells you exactly what happened: where the system started, when it hit the wall, how far it pulled back, and how it recovered. No guessing, no metrics pipeline required.
@@ -190,7 +190,7 @@ This shipped in Data Designer v0.5.4. If you're using Data Designer today, nothi
 
 For most workloads, the defaults are all you need. Set `max_parallel_requests` to a generous upper bound and let AIMD find the right level. If you're running against a self-hosted stack that returns 429s, the system adapts to your hardware without any tuning. If you want finer control, `ThrottleConfig` is there, but the goal is that you shouldn't have to think about it.
 
-The goal is that you spend your time designing datasets, not tuning concurrency knobs. The system handles the transport-level complexity so you don't have to think about it.
+The goal is that you spend your time designing datasets, not tuning concurrency knobs. The system handles the transport-level complexity automatically.
 
 Key Resources:
 
