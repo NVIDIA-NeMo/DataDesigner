@@ -10,6 +10,7 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
+from data_designer.engine.context import format_row_group_tag
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.logging import LOG_INDENT
@@ -89,7 +90,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         )
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
-        logger.info(f"🌱 Sampling {num_records} records from seed dataset")
+        logger.info(f"🌱 {format_row_group_tag()}Sampling {num_records} records from seed dataset")
         logger.info(f"{LOG_INDENT}seed dataset size: {self._seed_dataset_size} records")
         logger.info(f"{LOG_INDENT}sampling strategy: {self.config.sampling_strategy}")
         if self._index_range is not None:

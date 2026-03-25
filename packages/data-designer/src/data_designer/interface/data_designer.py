@@ -35,7 +35,7 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.person_reader import (
@@ -430,8 +430,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self,
         data_designer_config: DataDesignerConfig,
         resource_provider: ResourceProvider,
-    ) -> ColumnWiseDatasetBuilder:
-        return ColumnWiseDatasetBuilder(
+    ) -> DatasetBuilder:
+        return DatasetBuilder(
             data_designer_config=data_designer_config,
             resource_provider=resource_provider,
         )
