@@ -436,14 +436,18 @@ class AsyncTaskScheduler:
         # Tasks still deferred after salvage are permanently failed - record
         # as failures (not skips) and drop their rows so the row groups can
         # checkpoint and free memory.
+        failed_cells: set[tuple[int, int, str]] = set()
         for task in self._deferred:
             if self._reporter:
                 self._reporter.record_failure(task.column)
+            failed_cells.add((task.row_group, task.row_index if task.row_index is not None else -1, task.column))
+        for task in self._deferred:
+            exclude = {col for rg, ri, col in failed_cells if rg == task.row_group}
             if task.row_index is not None:
-                self._drop_row(task.row_group, task.row_index)
+                self._drop_row(task.row_group, task.row_index, exclude_columns=exclude)
             else:
                 rg_size = self._get_rg_size(task.row_group)
-                self._drop_row_group(task.row_group, rg_size)
+                self._drop_row_group(task.row_group, rg_size, exclude_columns=exclude)
         self._checkpoint_completed_row_groups(all_columns)
         self._deferred = other_deferred
 

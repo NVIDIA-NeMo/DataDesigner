@@ -15,6 +15,14 @@ BAR_FILLED = "█"
 BAR_EMPTY = "░"
 
 
+def _compute_stats_width(total: int) -> int:
+    """Compute the fixed width of the stats portion based on total records."""
+    total_w = len(str(total))
+    # " 100% | xxx/xxx |  9999.9 rec/s | eta 999s | xxx failed"
+    sample = f" 100% | {'9' * total_w}/{total} | 9999.9 rec/s | eta 999s | {'9' * total_w} failed"
+    return len(sample)
+
+
 @dataclass
 class _BarState:
     label: str
@@ -23,6 +31,10 @@ class _BarState:
     success: int = 0
     failed: int = 0
     start_time: float = field(default_factory=time.perf_counter)
+    stats_width: int = 0
+
+    def __post_init__(self) -> None:
+        self.stats_width = _compute_stats_width(self.total)
 
 
 class StickyProgressBar:
@@ -154,20 +166,20 @@ class StickyProgressBar:
             self._drawn_lines += 1
 
     def _format_bar(self, bar: _BarState, width: int, label_width: int) -> str:
-        pct = (bar.completed / bar.total * 100) if bar.total > 0 else 100.0
+        completed = min(bar.completed, bar.total)
+        pct = (completed / bar.total * 100) if bar.total > 0 else 100.0
         elapsed = time.perf_counter() - bar.start_time
         rate = bar.completed / elapsed if elapsed > 0 else 0.0
-        remaining = max(0, bar.total - bar.completed)
+        remaining = max(0, bar.total - completed)
         eta = f"{remaining / rate:.0f}s" if rate > 0 else "?"
 
         label = bar.label.ljust(label_width)
         total_w = len(str(bar.total))
-        count_str = f"{bar.completed:>{total_w}}/{bar.total}"
-        stats = f" {pct:3.0f}% | {count_str} | {rate:6.1f} rec/s | eta {eta:>4s}"
-        if bar.failed > 0:
-            stats += f" | {bar.failed} failed"
+        count_str = f"{completed:>{total_w}}/{bar.total}"
+        stats = f" {pct:3.0f}% | {count_str} | {rate:6.1f} rec/s | eta {eta:>4s} | {bar.failed:>{total_w}} failed"
+        stats = stats.ljust(bar.stats_width)
 
-        bar_width = max(10, width - len(label) - len(stats) - 4)
+        bar_width = max(10, width - len(label) - bar.stats_width - 4)
         filled = int(bar_width * pct / 100)
         empty = bar_width - filled
 
