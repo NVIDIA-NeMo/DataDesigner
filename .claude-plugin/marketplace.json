@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "nvidia-data-designer",
+  "owner": {
+    "name": "NVIDIA-NeMo",
+    "email": "data-designer@nvidia.com"
+  },
+  "description": "NeMo Data Designer skills for synthetic data generation",
+  "plugins": [
+    {
+      "name": "data-designer",
+      "source": "./skills/data-designer",
+      "description": "Claude Code skill for generating high-quality synthetic data from scratch or based on seed data using NeMo Data Designer.",
+      "keywords": ["synthetic-data", "nvidia", "nemo", "data-generation", "sdg", "data-designer"],
+      "category": "development"
+    }
+  ]
+}
