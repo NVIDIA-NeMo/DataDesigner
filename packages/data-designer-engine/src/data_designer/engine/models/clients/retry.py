@@ -56,6 +56,12 @@ def create_retry_transport(
             AIMD feedback loop.  When ``False`` (used by the sync engine, which has
             no salvage queue), 429 is kept in the retry list so the transport layer
             retries it transparently.
+        transport: Optional pre-configured inner transport to pass directly to
+            ``RetryTransport``.  Pass ``httpx.HTTPTransport`` for sync clients or
+            ``httpx.AsyncHTTPTransport`` for async clients — typically with a custom
+            ``limits=`` — so that the connection pool is sized correctly.  When
+            ``None`` (default), ``RetryTransport`` creates its own default pools for
+            both sync and async requests.
     """
     cfg = config or RetryConfig()
     status_codes = cfg.retryable_status_codes

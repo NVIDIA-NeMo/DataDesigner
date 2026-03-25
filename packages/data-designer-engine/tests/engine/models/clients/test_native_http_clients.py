@@ -308,6 +308,10 @@ def test_sync_client_pool_size_respects_max_parallel_requests() -> None:
     with patch(_SYNC_CLIENT_PATCH):
         client._get_sync_client()
 
+    # Attribute chain explained:
+    #   RetryTransport._sync_transport  → the httpx.HTTPTransport we injected
+    #   HTTPTransport._pool             → the underlying httpcore.ConnectionPool
+    #   ConnectionPool._max_connections → the hard cap configured via Limits
     # pool_max = max(32, 2 * 300) = 600
     assert client._transport._sync_transport._pool._max_connections == 600
 
@@ -325,5 +329,9 @@ async def test_async_client_pool_size_respects_max_parallel_requests() -> None:
     with patch(_ASYNC_CLIENT_PATCH):
         client._get_async_client()
 
+    # Attribute chain explained:
+    #   RetryTransport._async_transport → the httpx.AsyncHTTPTransport we injected
+    #   AsyncHTTPTransport._pool        → the underlying httpcore.AsyncConnectionPool
+    #   AsyncConnectionPool._max_connections → the hard cap configured via Limits
     # pool_max = max(32, 2 * 300) = 600
     assert client._transport._async_transport._pool._max_connections == 600
