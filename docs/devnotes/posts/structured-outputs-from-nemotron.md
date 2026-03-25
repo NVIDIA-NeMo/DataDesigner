@@ -211,7 +211,7 @@ In our pipeline, however, schemas are *dynamic*: each record has a unique, per-r
 
 Here's what one complete record looks like after running `display_sample_record()` (topic: "Daily Life / Discussing home security", format: JSON, strict schema):
 
-![Sample record output from display_sample_record()](images/structured-outputs-sample-record.png)
+![Sample record output from display_sample_record()](assets/structured-outputs-from-nemotron/structured-outputs-sample-record.png)
 *Screenshot of Data Designer's `display_sample_record()` output showing seed columns, generated samplers, JSON schema, conversation, structured JSON, and both LLM-as-a-Judge scores.*
 
 ---
