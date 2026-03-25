@@ -449,7 +449,10 @@ class AsyncTaskScheduler:
         exhausted = [t for t in self._deferred if t.row_group in stalled_rgs]
         newly_deferred = [t for t in self._deferred if t.row_group not in stalled_rgs]
         for task in exhausted:
-            if self._reporter:
+            # If the row was already dropped by an earlier task in this loop,
+            # the skip was already counted; don't also record a failure.
+            already_dropped = task.row_index is not None and self._tracker.is_dropped(task.row_group, task.row_index)
+            if not already_dropped and self._reporter:
                 self._reporter.record_failure(task.column)
             if task.row_index is not None:
                 self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
