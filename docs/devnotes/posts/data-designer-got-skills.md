@@ -19,6 +19,16 @@ Instead of asking agents to explore the source code, a single CLI command (`data
 
 In today's Dev Note, we'll walk through the challenges agents face when using new libraries, how we designed a CLI and skill to help them, and the benchmark results in detail.
 
+!!! tip "TL;DR – Tips for building agent skills for your library"
+
+    1. **Consolidate your public API surface.** Keep your user-facing API in a small, well-documented set of files, separate from execution internals. This can significantly reduce the number of files agents need to read in the usage context.
+
+    2. **Build CLI commands that surface this context.** Agents love CLIs! Build one that exposes code-derived API context, config validation, and workflow execution as commands — agents shouldn't have to crawl your source code or learn standard execution patterns.
+
+    3. **Always review your session histories.** This has become the "always look at your data" of 2026. Reviewing sessions was one of the most important steps in our skill development process, showing us exactly where and how agents get stuck and waste tokens.
+
+    4. **Benchmark your skill against a baseline.** We saw large gains in efficiency, error rates, and output quality, but only because we ran hundreds of controlled sessions to verify. Benchmarking along the way helped guide our design decisions and gave us confidence that we were moving in the right direction.
+
 ---
 
 ## **Agents as First-Class Users**
@@ -118,7 +128,7 @@ The other three commands standardize config validation and dataset generation. `
 
 ### Coding best practices still matter
 
-Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability and maintainability, turns out to be exactly what agents need. A small, predictable set of files that fully describes the API surface. `agent context` exploits this boundary. It dumps the config layer and nothing else. If your library has a similar separation, you're already most of the way there. You just need to surface it.
+Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability and maintainability, turns out to be exactly what agents need – a small, predictable set of files that fully describes the API surface. `agent context` exploits this boundary. It dumps the config layer and nothing else. If your library has a similar separation, you're already most of the way there. You just need to surface it.
 
 ### The Skill in action
 
@@ -193,17 +203,9 @@ In our experiment setup, each session started from a clean slate (new directory,
 
 First, you will need to install Data Designer and set up your model providers. The [quickstart guide](https://github.com/NVIDIA-NeMo/DataDesigner#quick-start) in our README walks through this. We recommend using a virtual environment to manage dependencies.
 
-Next, install the skill. Note that while the skill should work with other coding agents that support skills, our development and testing has focused on Claude Code at this stage. There are two ways to install:
+Next, install the skill. Note that while the skill should work with other coding agents that support skills, our development and testing has focused on Claude Code at this stage.
 
-**Via the Claude Code marketplace:**
-
-```
-/plugin marketplace add NVIDIA-NeMo/DataDesigner
-/plugin install data-designer@nemo-data-designer
-/reload-plugins
-```
-
-**Via [skills.sh](https://skills.sh):**
+**Install via [skills.sh](https://skills.sh):**
 
 ```bash
 npx skills add NVIDIA-NeMo/DataDesigner
@@ -214,9 +216,9 @@ npx skills add NVIDIA-NeMo/DataDesigner
 
 After installation, open Claude Code and type `/data-designer`, or just tell it you want to generate a dataset along with a description of what you want and the skill will kick in.
 
-The skill has two modes. In interactive mode, the agent asks clarifying questions and has you make key design decisions (diversity axes, sampling strategies, model selection). You review sample records, give feedback, and iterate until it's right.
+The skill has two modes. In interactive mode (the default), the agent asks clarifying questions and has you make key design decisions (diversity axes, sampling strategies, model selection). You review sample records, give feedback, and iterate until it's right.
 
-Autopilot mode is the opposite. The agent reads your description, makes its own design decisions (and tells you what they are), then validates and generates without waiting. Good when you know what you want and just need it built.
+Autopilot mode is the opposite. The agent reads your description, makes its own design decisions (and tells you what they are), then validates and generates without waiting. To enter this mode, just tell the agent to "be opinionated", "surprise me", or imply that you don't want to be involved in the design process.
 
 Both produce the same artifact. A standalone Python script calling Data Designer's public API. Re-runnable, modifiable, version-controllable.
 
