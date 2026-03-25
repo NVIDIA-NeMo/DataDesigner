@@ -164,11 +164,11 @@ Of course, these are individual sessions, and there's variance in both direction
 
 Evaluating agent skills is harder than it might seem. Behavior is non-deterministic, sensitive to context, and varies with prompt wording. Environment isolation is critical — coding agents explore their surroundings before they start working, so if a baseline session can discover the skill files on disk, it will use them. We observed this failure mode early on and had to ensure each session got a fully isolated environment. [LangChain's writeup](https://blog.langchain.com/evaluating-skills/) on evaluating skills is an excellent read that covers many of the same challenges.
 
-In our experiment setup, each session started from a clean slate (new directory, fresh git history, clean venv with no skill files present for baseline runs). We used the text-to-python use case across three prompt detail levels (low, medium, high), half at high reasoning effort and half at low. Claude Code was run in headless mode. Each session ends when the agent produces a validated configuration — we stop at `data-designer validate` rather than running full generation, both for easier automation and because once the config is valid, generation is just a simple `data-designer create` away. The main results are shown in the figure above.
+In our experiment setup, each session started from a clean slate (new directory, fresh git history, clean venv with no skill files present for baseline runs). We used the text-to-python use case across three prompt detail levels (low, medium, high), half at high reasoning effort and half at low. Claude Code was run in headless mode (i.e., `claude -p <prompt>`). Each session ends when the agent produces a validated configuration — we stop at `data-designer validate` rather than running full generation, both for easier automation and because once the config is valid, generation is just a simple `data-designer create` away. The main results are shown in the figure above and are summarized below.
 
 - ⚡ **Our skill and agent CLI use ~80% fewer tokens (panel a).** The skill replaces source-code exploration with directed context. Output tokens fall **65%**, tool calls **72%**, errors **90%**, wall clock time **47%**. Every downstream metric improves.
 
-- 📈 **Constraining the agent produces better output — and the quality gains surprised us (panel b).** We used an LLM judge (GPT-5.3 Codex) on a 1–5 scale. Mean quality score went from **4.0 → 4.7**. The standout is feature utilization — how well the agent uses the library's capabilities — which jumped **3.1 → 4.6**. The skill surfaces capabilities like diversity axes, sampler types, and validators directly in the context.
+- 📈 **In addition to being much more efficient, the skill also produces higher-quality results (panel b).** We used an LLM judge (GPT-5.3 Codex) on a 1–5 scale. Mean quality score went from **4.0 → 4.7**. The standout is feature utilization — how well the agent uses the library's capabilities — which jumped **3.1 → 4.6**. The skill surfaces capabilities like diversity axes, sampler types, and validators directly in the context.
 
 - 🛡️ **Errors are nearly eliminated at high reasoning effort (panel c).** Mean errors per session drop from **1.18 → 0.04** when reasoning effort is high, and **1.67 → 0.25** when it's low. Fewer errors mean fewer recovery loops, fewer tokens burned on retries, less chance of the agent going down a dead end. The table below breaks down where the errors come from. The skill nearly wipes out file/path and import errors, and cuts config validation failures by more than two-thirds.
 
@@ -211,7 +211,7 @@ npx skills add NVIDIA-NeMo/DataDesigner
 
 After installation, open Claude Code and type `/data-designer`, or just tell it you want to generate a dataset along with a description of what you want and the skill will kick in.
 
-The skill has two modes. In interactive mode, the agent walks you through it. It asks about your use case, helps pick diversity axes and sampling strategies, writes a config, validates, previews. You look at sample records, give feedback, iterate until it's right. Then full run.
+The skill has two modes. In interactive mode, the agent asks clarifying questions and has you make key design decisions (diversity axes, sampling strategies, model selection). You review sample records, give feedback, and iterate until it's right.
 
 Autopilot mode is the opposite. The agent reads your description, makes its own design decisions (and tells you what they are), then validates and generates without waiting. Good when you know what you want and just need it built.
 
@@ -228,5 +228,7 @@ On the automation side, the agent already asks if you want it to review the gene
 We also plan to add domain-specific SDG references that the agent can draw on for specialized use cases (healthcare, finance, legal, etc.). The goal is for the agent to bring domain expertise to dataset design alongside library knowledge.
 
 Stay tuned.
+
+👋 Thanks for reading and happy dataset building!
 
 ---
