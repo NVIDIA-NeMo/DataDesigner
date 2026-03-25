@@ -3227,11 +3227,28 @@
 <p><img alt="Data Designer Got Skills" src="../assets/data-designer-got-skills/hero_data_designer_got_skills.png" width="100%" /></p>
 <p>Instead of asking agents to explore the source code, a single CLI command (<code>data-designer agent context</code>) delivers curated, code-derived context in one read, and three more commands (<code>validate</code>, <code>preview</code>, <code>create</code>) handle the rest. The agent's only job is writing the configuration. Combined with the new skill, this reduces token usage by <strong>~80%</strong>, errors by <strong>~90%</strong>, and wall-clock time by <strong>~47%</strong> — all while improving output quality (mean judge score <strong>4.0 → 4.7</strong>). We benchmarked our approach across 228 sessions each for the skill and a baseline.</p>
 <p>In today's Dev Note, we'll walk through the challenges agents face when using new libraries, how we designed a CLI and skill to help them, and the benchmark results in detail.</p>
+<div class="admonition tip">
+<p class="admonition-title">TL;DR – Tips for building agent skills for your library</p>
+<ol>
+<li>
+<p><strong>Consolidate your public API surface.</strong> Keep your user-facing API in a small, well-documented set of files, separate from execution internals. This can significantly reduce the number of files agents need to read in the usage context.</p>
+</li>
+<li>
+<p><strong>Build CLI commands that surface this context.</strong> Agents love CLIs! Build one that exposes code-derived API context, config validation, and workflow execution as commands — agents shouldn't have to crawl your source code or learn standard execution patterns.</p>
+</li>
+<li>
+<p><strong>Always review your session histories.</strong> This has become the "always look at your data" of 2026. Reviewing sessions was one of the most important steps in our skill development process, showing us exactly where and how agents get stuck and waste tokens.</p>
+</li>
+<li>
+<p><strong>Benchmark your skill against a baseline.</strong> We saw large gains in efficiency, error rates, and output quality, but only because we ran hundreds of controlled sessions to verify. Benchmarking along the way helped guide our design decisions and gave us confidence that we were moving in the right direction.</p>
+</li>
+</ol>
+</div>
 <hr />
 <h2 id="agents-as-first-class-users"><strong>Agents as First-Class Users</strong></h2>
 <p>Agents have become first-class users of basically all software. Somewhere in the last few months, we crossed a threshold. Models like <a href="https://www.anthropic.com/news/claude-opus-4-5">Opus 4.5</a> and <a href="https://openai.com/index/gpt-5-1-for-developers/">Codex 5.1</a>, paired with maturing harnesses like <a href="https://code.claude.com/docs/en/overview">Claude Code</a>, <a href="https://chatgpt.com/codex">Codex</a>, and <a href="https://opencode.ai/">OpenCode</a>, have become <em>really</em> good. They're real users of your library, and their experience with your API matters.</p>
 <p>We use agents to both build Data Designer and use it to generate datasets. When we started watching how they actually interact with the tool, a pattern emerged. They spend most of their tokens in the wrong place. Crawling engine internals, reading DAG resolution logic, reconstructing the API after reading most of the source code. They get there eventually, which is impressive, but the path they take is wasteful.</p>
-<p>The problem isn't the agent. Data Designer has a small config API — three or four files that contain nearly all the context you need for the typical use case. But nothing was pointing the agent at those files instead of the backend engine. If your library has a CLI, it's worth asking: does it serve your agent users as well as it serves your human ones?</p>
+<p>The problem isn't the agent. Data Designer has a small config API — three or four files that contain nearly all the context you need for the typical use case. But nothing was pointing the agent at those files instead of the backend engine. If your library has a CLI, it's worth asking: does it serve your agent users as well as it serves your human ones? A single CLI command that delivers curated API context can replace dozens of tool calls spent on source-code exploration.</p>
 <hr />
 <h2 id="the-baseline-let-the-agent-figure-it-out"><strong>The Baseline: Let the Agent Figure It Out</strong></h2>
 <p>To see what this looks like in practice, let's walk through a simple example. We prompted Claude Code to build a text-to-python dataset with Data Designer, providing a relatively detailed dataset description, instructions to locate the library source, and a CLI command to discover valid <a href="https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/">model aliases</a> in the user's environment.</p>
@@ -4049,7 +4066,7 @@ data-designer<span class="w"> </span>create<span class="w"> </span>&lt;file-path
 <p><code>agent context</code> dynamically generates a structured reference from the library's source code. Column types, sampler parameters, validator configs, constraints, processors, available model aliases with their providers, installed persona datasets, and the exact files to read for needed context — everything the subagent spent 25 tool calls piecing together, delivered in one read. Because the output is derived from the code at runtime, it stays in sync as the API evolves.</p>
 <p>The other three commands standardize config validation and dataset generation. <code>validate</code> catches config errors before any generation tokens are spent. <code>preview</code> generates a small sample to inspect and iterate on (the agent can enter this self-improvement loop on its own). <code>create</code> runs the full generation. Everything downstream of the configuration is Data Designer's domain. DAG construction, batching, execution. The agent never touches it.</p>
 <h3 id="coding-best-practices-still-matter">Coding best practices still matter</h3>
-<p>Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability and maintainability, turns out to be exactly what agents need. A small, predictable set of files that fully describes the API surface. <code>agent context</code> exploits this boundary. It dumps the config layer and nothing else. If your library has a similar separation, you're already most of the way there. You just need to surface it.</p>
+<p>Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability and maintainability, turns out to be exactly what agents need – a small, predictable set of files that fully describes the API surface. <code>agent context</code> exploits this boundary. It dumps the config layer and nothing else. If your library has a similar separation, you're already most of the way there. You just need to surface it.</p>
 <h3 id="the-skill-in-action">The Skill in action</h3>
 <p>Let's see the <a href="https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/skills/data-designer">skill</a> in action. Same dataset task as before, but this time the prompt is just the dataset description. No package path, no <code>config list</code>, no validate command. The skill provides all of that.</p>
 <details open="open">
@@ -4614,13 +4631,8 @@ Note: generation can take a long time for large record counts (50+), so choose `
 <hr />
 <h2 id="getting-started"><strong>Getting Started</strong></h2>
 <p>First, you will need to install Data Designer and set up your model providers. The <a href="https://github.com/NVIDIA-NeMo/DataDesigner#quick-start">quickstart guide</a> in our README walks through this. We recommend using a virtual environment to manage dependencies.</p>
-<p>Next, install the skill. Note that while the skill should work with other coding agents that support skills, our development and testing has focused on Claude Code at this stage. There are two ways to install:</p>
-<p><strong>Via the Claude Code marketplace:</strong></p>
-<div class="language-text highlight"><pre><span></span><code>/plugin marketplace add NVIDIA-NeMo/DataDesigner
-/plugin install data-designer@nemo-data-designer
-/reload-plugins
-</code></pre></div>
-<p><strong>Via <a href="https://skills.sh">skills.sh</a>:</strong></p>
+<p>Next, install the skill. Note that while the skill should work with other coding agents that support skills, our development and testing has focused on Claude Code at this stage.</p>
+<p><strong>Install via <a href="https://skills.sh">skills.sh</a>:</strong></p>
 <div class="language-bash highlight"><pre><span></span><code>npx<span class="w"> </span>skills<span class="w"> </span>add<span class="w"> </span>NVIDIA-NeMo/DataDesigner
 </code></pre></div>
 <div class="admonition tip">
@@ -4628,8 +4640,8 @@ Note: generation can take a long time for large record counts (50+), so choose `
 <p>When prompted, make sure to select <strong>Claude Code</strong> as an additional agent.</p>
 </div>
 <p>After installation, open Claude Code and type <code>/data-designer</code>, or just tell it you want to generate a dataset along with a description of what you want and the skill will kick in.</p>
-<p>The skill has two modes. In interactive mode, the agent asks clarifying questions and has you make key design decisions (diversity axes, sampling strategies, model selection). You review sample records, give feedback, and iterate until it's right.</p>
-<p>Autopilot mode is the opposite. The agent reads your description, makes its own design decisions (and tells you what they are), then validates and generates without waiting. Good when you know what you want and just need it built.</p>
+<p>The skill has two modes. In interactive mode (the default), the agent asks clarifying questions and has you make key design decisions (diversity axes, sampling strategies, model selection). You review sample records, give feedback, and iterate until it's right.</p>
+<p>Autopilot mode is the opposite. The agent reads your description, makes its own design decisions (and tells you what they are), then validates and generates without waiting. To enter this mode, just tell the agent to "be opinionated", "surprise me", or imply that you don't want to be involved in the design process.</p>
 <p>Both produce the same artifact. A standalone Python script calling Data Designer's public API. Re-runnable, modifiable, version-controllable.</p>
 <hr />
 <h2 id="whats-next"><strong>What's Next</strong></h2>
