@@ -90,11 +90,20 @@ class AsyncProgressReporter:
         )
 
     def _maybe_report(self) -> None:
+        if self._bar is not None:
+            self._update_bar()
+            return
         now = time.perf_counter()
         if now - self._last_report_time < self._report_interval:
             return
         self._last_report_time = now
         self._emit()
+
+    def _update_bar(self) -> None:
+        elapsed = time.perf_counter() - self._start_time
+        for col, tracker in self._trackers.items():
+            completed, _total, success, failed, _skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
+            self._bar.update(col, completed=completed, success=success, failed=failed)
 
     def _emit(self) -> None:
         current_total = sum(tracker.get_snapshot(0.0)[0] for tracker in self._trackers.values())
@@ -103,12 +112,6 @@ class AsyncProgressReporter:
         self._last_reported_total = current_total
 
         elapsed = time.perf_counter() - self._start_time
-
-        if self._bar is not None:
-            for col, tracker in self._trackers.items():
-                completed, _total, success, failed, _skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
-                self._bar.update(col, completed=completed, success=success, failed=failed)
-            return
         logger.info("📊 Progress [%.1fs]:", elapsed)
         for col, tracker in self._trackers.items():
             completed, total_records, _success, _failed, skipped, pct, rate, emoji = tracker.get_snapshot(elapsed)
