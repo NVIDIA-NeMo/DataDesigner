@@ -15,6 +15,7 @@ from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
     DEFAULT_AGE_RANGE,
     LOCALES_WITH_MANAGED_DATASETS,
+    LOCALES_WITH_MANAGED_DATASETS_STR,
     MAX_AGE,
     MIN_AGE,
 )
@@ -446,7 +447,7 @@ class PersonSamplerParams(ConfigBase):
             "Locale that determines the language and geographic location "
             "that a synthetic person will be sampled from. Must be a locale supported by "
             "a managed Nemotron Personas dataset. Managed datasets exist for the following locales: "
-            f"{', '.join(LOCALES_WITH_MANAGED_DATASETS)}."
+            f"{LOCALES_WITH_MANAGED_DATASETS_STR}."
         ),
     )
     sex: SexT | None = Field(
@@ -518,7 +519,7 @@ class PersonSamplerParams(ConfigBase):
         if self.locale not in LOCALES_WITH_MANAGED_DATASETS:
             raise ValueError(
                 "Person sampling from managed datasets is only supported for the following "
-                f"locales: {', '.join(LOCALES_WITH_MANAGED_DATASETS)}."
+                f"locales: {LOCALES_WITH_MANAGED_DATASETS_STR}."
             )
         return self
 
