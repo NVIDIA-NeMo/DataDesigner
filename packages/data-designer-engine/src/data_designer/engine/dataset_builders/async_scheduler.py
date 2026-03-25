@@ -394,8 +394,10 @@ class AsyncTaskScheduler:
                 if (s := self._rg_states.get(task.row_group)) is not None:
                     s.in_flight_count += 1
                 self._spawn_worker(self._execute_task(task))
-            if not self._in_flight:
+            if not ready and not self._in_flight:
                 break
+            if not self._in_flight:
+                continue
             self._wake_event.clear()
             await self._wake_event.wait()
 
@@ -423,10 +425,7 @@ class AsyncTaskScheduler:
         width = len(str(num_rgs))
         for rg_id in sorted(stalled_rgs):
             rg_deferred = [t for t in self._deferred if t.row_group == rg_id]
-            logger.info(
-                f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) "
-                f"Salvaging {len(rg_deferred)} deferred task(s) to unblock admission"
-            )
+            logger.info(f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Salvaging {len(rg_deferred)} deferred task(s)")
 
         # Partition deferred into stalled (retry now) and other (keep for later).
         stalled_deferred = [t for t in self._deferred if t.row_group in stalled_rgs]
