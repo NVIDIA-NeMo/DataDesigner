@@ -40,6 +40,14 @@ PII_FIELDS = [
     "state",
     "email_address",
     "phone_number",
+    # France-specific fields
+    "first_name_heritage",
+    "name_heritage",
+    "is_first_gen_immigrant",
+    "household_type",
+    "monthly_income_eur",
+    "commune",
+    "departement",
     # Brazil-specific fields
     "race",
     # Japan-specific fields
