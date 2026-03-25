@@ -152,9 +152,9 @@ and required operations to match the difficulty level.
 
 --8<-- "docs/devnotes/posts/assets/data-designer-got-skills/trace-skill.html"
 
-`agent context` → read 6 config files → write config → validate. **9 tools, 0 errors, 92 seconds, ~210k tokens.** Compare that to the baseline: **35 tools, 1 error, 159 seconds, ~1.4M tokens.**
+The skill session followed a direct, linear path: `agent context` → read 6 config files → write config → validate. **9 tools, 0 errors, 92 seconds, ~210k tokens.** Compare that to the baseline: **35 tools, 1 error, 159 seconds, ~1.4M tokens.**
 
-These are individual sessions, and there's variance in both directions. Sometimes the baseline finds a lucky path and performs closer to the skill. Sometimes the skill takes a wrong turn. The examples above are representative of the typical (median) outcomes we observed. To see whether the pattern holds, we ran **228 sessions each** for the skill and baseline, as described in the next section.
+Of course, these are individual sessions, and there's variance in both directions. Sometimes the baseline finds a lucky path and performs closer to the skill. Sometimes the skill takes a wrong turn. That said, the examples above are representative of the typical (median) outcomes we observed. To see whether the pattern holds, we ran **228 sessions each** for the skill and baseline, as described in the next section.
 
 ---
 
@@ -199,6 +199,7 @@ Then install the skill. There are two ways:
 
 ```
 /plugin marketplace add NVIDIA-NeMo/DataDesigner
+
 /install data-designer
 ```
 
