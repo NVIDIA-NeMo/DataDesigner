@@ -136,14 +136,14 @@ config_builder = dd.DataDesignerConfigBuilder(
     model_configs=[
         dd.ModelConfig(
             alias="reasoning-model",
-            model="nvidia/llama-3.3-nemotron-super-49b-v1",
+            model="nvidia/nemotron-3-super-120b-a12b",
             provider="nvidia",
-            max_parallel_requests=20,
+            max_parallel_requests=32,
         ),
     ],
 )
 
-result = data_designer.create(
+create_result = data_designer.create(
     config_builder,
     num_records=10_000,
 )
