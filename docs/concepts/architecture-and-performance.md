@@ -47,8 +47,8 @@ This guide explains the architecture, execution model, and how to tune performan
 
 ## Execution Model
 
-!!! note "Column-Wise Generator"
-    This describes Data Designer's current **column-wise dataset generator**. Other dataset generation strategies are in development.
+!!! note "Dataset Builder"
+    This describes Data Designer's current **`DatasetBuilder`**, which generates columns sequentially within batches. Other dataset generation strategies are in development.
 
 Data Designer processes datasets in **batches**, with **parallel** operations within each batch.
 
