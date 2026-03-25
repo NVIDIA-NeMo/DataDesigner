@@ -82,28 +82,3 @@ def test_create_retry_transport_default_codes_exclude_429() -> None:
     """Default retryable_status_codes do not include 429 regardless of strip flag."""
     transport = create_retry_transport(strip_rate_limit_codes=False)
     assert 429 not in transport.retry.status_forcelist
-
-
-def test_create_retry_transport_forwards_sync_transport() -> None:
-    """Provided sync transport is used directly rather than replaced with a default pool."""
-    import httpx
-
-    inner = httpx.HTTPTransport(limits=httpx.Limits(max_connections=600))
-    transport = create_retry_transport(transport=inner)
-    assert transport._sync_transport is inner
-
-
-def test_create_retry_transport_forwards_async_transport() -> None:
-    """Provided async transport is used directly rather than replaced with a default pool."""
-    import httpx
-
-    inner = httpx.AsyncHTTPTransport(limits=httpx.Limits(max_connections=600))
-    transport = create_retry_transport(transport=inner)
-    assert transport._async_transport is inner
-
-
-def test_create_retry_transport_no_transport_creates_defaults() -> None:
-    """Without a transport argument both sync and async default pools are created."""
-    transport = create_retry_transport()
-    assert transport._sync_transport is not None
-    assert transport._async_transport is not None

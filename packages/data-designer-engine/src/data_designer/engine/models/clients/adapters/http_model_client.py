@@ -83,6 +83,11 @@ class HttpModelClient(ABC):
     def concurrency_mode(self) -> ClientConcurrencyMode:
         return self._mode
 
+    @property
+    def limits(self) -> httpx.Limits:
+        """Connection pool limits derived from ``max_parallel_requests`` at construction time."""
+        return self._limits
+
     @abstractmethod
     def _build_headers(self, extra_headers: dict[str, str]) -> dict[str, str]:
         """Build provider-specific request headers."""

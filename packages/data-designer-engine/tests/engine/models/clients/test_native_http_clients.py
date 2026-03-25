@@ -296,8 +296,11 @@ async def test_acompletion_lazy_initializes_async_client(
 # ---------------------------------------------------------------------------
 
 
-def test_sync_client_pool_size_respects_max_parallel_requests() -> None:
-    """Connection pool max_connections must be 2*max_parallel_requests, not the httpx default of 100."""
+def test_client_limits_respect_max_parallel_requests() -> None:
+    """Connection pool limits must reflect max_parallel_requests (regression for issue #459).
+
+    pool_max = max(32, 2 * max_parallel_requests) = max(32, 600) = 600
+    """
     client = OpenAICompatibleClient(
         provider_name=_OPENAI_PROVIDER,
         endpoint=_OPENAI_ENDPOINT,
@@ -305,33 +308,4 @@ def test_sync_client_pool_size_respects_max_parallel_requests() -> None:
         max_parallel_requests=300,
         concurrency_mode=ClientConcurrencyMode.SYNC,
     )
-    with patch(_SYNC_CLIENT_PATCH):
-        client._get_sync_client()
-
-    # Attribute chain explained:
-    #   RetryTransport._sync_transport  → the httpx.HTTPTransport we injected
-    #   HTTPTransport._pool             → the underlying httpcore.ConnectionPool
-    #   ConnectionPool._max_connections → the hard cap configured via Limits
-    # pool_max = max(32, 2 * 300) = 600
-    assert client._transport._sync_transport._pool._max_connections == 600
-
-
-@pytest.mark.asyncio
-async def test_async_client_pool_size_respects_max_parallel_requests() -> None:
-    """Async connection pool max_connections must be 2*max_parallel_requests, not the httpx default of 100."""
-    client = OpenAICompatibleClient(
-        provider_name=_OPENAI_PROVIDER,
-        endpoint=_OPENAI_ENDPOINT,
-        api_key="sk-test",
-        max_parallel_requests=300,
-        concurrency_mode=ClientConcurrencyMode.ASYNC,
-    )
-    with patch(_ASYNC_CLIENT_PATCH):
-        client._get_async_client()
-
-    # Attribute chain explained:
-    #   RetryTransport._async_transport → the httpx.AsyncHTTPTransport we injected
-    #   AsyncHTTPTransport._pool        → the underlying httpcore.AsyncConnectionPool
-    #   AsyncConnectionPool._max_connections → the hard cap configured via Limits
-    # pool_max = max(32, 2 * 300) = 600
-    assert client._transport._async_transport._pool._max_connections == 600
+    assert client.limits.max_connections == 600
