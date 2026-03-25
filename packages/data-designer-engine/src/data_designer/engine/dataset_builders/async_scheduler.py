@@ -251,13 +251,7 @@ class AsyncTaskScheduler:
                     with contextlib.suppress(asyncio.CancelledError):
                         await admission_task
 
-                # Phase 3: Salvage rounds for retryable failures
-                await self._salvage_rounds(seed_cols, has_pre_batch, all_columns)
-
-                # Record failure for tasks that exhausted all salvage rounds
                 if self._reporter:
-                    for task in self._deferred:
-                        self._reporter.record_failure(task.column)
                     self._reporter.log_final()
 
                 if self._rg_states:
@@ -320,11 +314,17 @@ class AsyncTaskScheduler:
             if all_done:
                 break
 
-            # All admitted RGs finished their non-deferred work but may not be
-            # "complete" yet (deferred tasks remain for salvage). Exit the main
-            # loop so salvage rounds can handle them.
-            if self._all_rgs_admitted and not ready and not self._in_flight:
+            # Are we done?
+            all_done = self._all_rgs_admitted and not self._rg_states and not self._in_flight
+            if all_done:
                 break
+
+            # No work in progress - salvage deferred tasks or exit.
+            if not ready and not self._in_flight:
+                if self._deferred:
+                    await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
+                elif self._all_rgs_admitted:
+                    break
 
             if not ready:
                 await self._wake_event.wait()
@@ -339,7 +339,7 @@ class AsyncTaskScheduler:
         for round_num in range(self._salvage_max_rounds):
             if not self._deferred:
                 break
-            logger.info(f"Salvage round {round_num + 1}/{self._salvage_max_rounds}: {len(self._deferred)} tasks")
+            logger.debug(f"Salvage round {round_num + 1}/{self._salvage_max_rounds}: {len(self._deferred)} tasks")
             to_retry = self._deferred
             self._deferred = []
             for task in to_retry:
@@ -405,6 +405,51 @@ class AsyncTaskScheduler:
                 break
             self._wake_event.clear()
             await self._wake_event.wait()
+
+    async def _salvage_stalled_row_groups(
+        self,
+        seed_cols: frozenset[str],
+        has_pre_batch: bool,
+        all_columns: list[str],
+    ) -> None:
+        """Salvage row groups whose tasks are all deferred (0 in-flight).
+
+        Retries deferred tasks inline so the row groups can be checkpointed
+        and their semaphore slots freed, preventing deadlock when admission
+        is blocked.
+        """
+        stalled_rgs = {
+            t.row_group
+            for t in self._deferred
+            if (s := self._rg_states.get(t.row_group)) is not None and s.in_flight_count == 0
+        }
+        if not stalled_rgs:
+            return
+
+        num_rgs = len(self._row_groups)
+        width = len(str(num_rgs))
+        for rg_id in sorted(stalled_rgs):
+            rg_deferred = [t for t in self._deferred if t.row_group == rg_id]
+            logger.info(
+                f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) "
+                f"Salvaging {len(rg_deferred)} deferred task(s) to unblock admission"
+            )
+
+        # Partition deferred into stalled (retry now) and other (keep for later).
+        stalled_deferred = [t for t in self._deferred if t.row_group in stalled_rgs]
+        other_deferred = [t for t in self._deferred if t.row_group not in stalled_rgs]
+        self._deferred = stalled_deferred
+        await self._salvage_rounds(seed_cols, has_pre_batch, all_columns)
+        # Tasks still deferred after salvage are permanently failed - drop
+        # their rows so the row groups can checkpoint and free memory.
+        for task in self._deferred:
+            if task.row_index is not None:
+                self._drop_row(task.row_group, task.row_index)
+            else:
+                rg_size = self._get_rg_size(task.row_group)
+                self._drop_row_group(task.row_group, rg_size)
+        self._checkpoint_completed_row_groups(all_columns)
+        self._deferred = other_deferred
 
     def _checkpoint_completed_row_groups(self, all_columns: list[str]) -> None:
         """Checkpoint any row groups that reached completion."""
@@ -519,7 +564,8 @@ class AsyncTaskScheduler:
         if not seed_cols:
             return
         num_rgs = len(self._rg_size_map)
-        logger.info(f"🚀 Dispatching row group {rg_id + 1}/{num_rgs} ({rg_size} records)")
+        width = len(str(num_rgs))
+        logger.info(f"🚀 ({rg_id + 1:0{width}d}/{num_rgs}) Dispatching with {rg_size} records")
         seen_instances: set[int] = set()
 
         for col in seed_cols:

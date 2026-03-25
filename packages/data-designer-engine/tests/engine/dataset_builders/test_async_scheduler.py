@@ -1389,3 +1389,44 @@ async def test_scheduler_cancellation_releases_semaphores() -> None:
     assert llm_available == max_llm_wait, (
         f"LLM-wait semaphore leaked: available={llm_available}, expected={max_llm_wait}"
     )
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_rg_semaphore_deadlock_with_transient_failures() -> None:
+    """Row groups stalled by transient failures don't block admission of new row groups.
+
+    Regression test: with max_concurrent_row_groups=1 and 2 row groups, if all
+    tasks in RG0 fail transiently, the semaphore must still be released so RG1
+    can be admitted.  The scheduler salvages RG0 inline and continues.
+    """
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "col": GenerationStrategy.CELL_BY_CELL,
+    }
+    # Fail the first 2 calls (all of RG0), then succeed for everything after.
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": MockFailingGenerator(config=_expr_config("col"), resource_provider=provider, transient_failures=2),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 2), (1, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=1,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    assert tracker.is_row_group_complete(0, 2, ["seed", "col"])
+    assert tracker.is_row_group_complete(1, 2, ["seed", "col"])
