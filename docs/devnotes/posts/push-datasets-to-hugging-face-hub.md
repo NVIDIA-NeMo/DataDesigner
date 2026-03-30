@@ -133,6 +133,8 @@ Once pushed, your dataset is live in the Hugging Face ecosystem:
 - **Streaming** — parquet means consumers can stream without downloading:
 
     ```python
+    from datasets import load_dataset
+
     ds = load_dataset("my-org/multilingual-greetings", "conversations", split="train", streaming=True)
     ```
 
