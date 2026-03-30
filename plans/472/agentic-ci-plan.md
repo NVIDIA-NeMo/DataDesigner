@@ -195,22 +195,36 @@ requires both sets of credentials on the runner but provides resilience.
 ```yaml
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, synchronize, ready_for_review, labeled]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
 ```
 
+Three trigger modes:
+- **Automatic**: runs on PR open, push, or ready-for-review.
+- **Label**: adding a `re-review` label triggers a new review. The workflow
+  removes the label after running so it can be re-added next time.
+- **Manual**: `workflow_dispatch` with a PR number input, for ad-hoc reviews
+  or debugging from the CLI (`gh workflow run ... -f pr_number=123`).
+
 Steps:
-1. Checkout the PR branch
-2. Pre-flight checks (API reachable, `claude` in PATH, required permissions)
-3. Install dependencies (minimal - just enough for code reading)
-4. Gather PR context (diff, changed files, PR description)
-5. Substitute template variables into the recipe
-6. Invoke Claude Code / Codex with the rendered prompt
-7. Write output to a temp file, then post via `gh --body-file` (avoid shell
+1. Determine PR number (from event or `workflow_dispatch` input)
+2. Checkout the PR branch
+3. Pre-flight checks (API reachable, `claude` in PATH, required permissions)
+4. Install dependencies (minimal - just enough for code reading)
+5. Gather PR context (diff, changed files, PR description)
+6. Substitute template variables into the recipe
+7. Invoke Claude Code / Codex with the rendered prompt
+8. Write output to a temp file, then post via `gh --body-file` (avoid shell
    quoting issues with agent output containing backticks, quotes, or special chars)
+9. If triggered by label, remove the `re-review` label
 
 Constraints:
-- Only runs on non-draft PRs
+- Only runs on non-draft PRs (automatic mode)
 - Skips if the PR only touches docs/markdown (configurable per recipe)
 - Posts as a comment, not an approval/rejection
 - Rate-limited: one review per `synchronize` event, debounced
