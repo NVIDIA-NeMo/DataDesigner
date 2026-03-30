@@ -191,38 +191,21 @@ If the branch isn't checked out locally (e.g., external fork in PR mode), skip t
 
 ## Step 6: Produce the Review
 
-Output a structured review using the format below. Use the **PR template** or **Branch template** for the overview depending on the mode.
+Write the review as **GitHub-flavored Markdown** ready to post as a PR comment. Save it to a temporary file outside the repository (e.g. `/tmp/review-<pr-or-branch>.md`) so it doesn't pollute `git status`. Do not commit this file; treat it as ephemeral.
 
-Write the review to a **temporary markdown file outside the repository** (e.g. `/tmp/review-<pr-or-branch>.md`) so other agents or tools can consume it without polluting `git status`. Do not commit this file; treat it as ephemeral.
+Use the template below exactly — omit a severity section if it has no findings, but keep all other sections.
 
 ---
 
-### Overview (PR mode)
+Open with a brief, genuine thank-you to the author (e.g. "Thanks for putting this together, @author!" or "Nice work on this one, @author — here are my thoughts."). Keep it to one sentence; don't over-do it. Do NOT add a top-level title like "## Code Review" — the comment speaks for itself.
 
-| | |
-|---|---|
-| **PR** | [#\<number\> \<title\>](\<url\>) |
-| **Author** | `<author>` |
-| **Base** | `<base-branch>` |
-| **Files changed** | `<count>` |
-| **Insertions/Deletions** | `+<ins> / -<del>` |
+### Summary
 
-### Overview (Branch mode)
-
-| | |
-|---|---|
-| **Branch** | `<branch-name>` |
-| **Commits** | `<count>` commits ahead of `<base>` |
-| **Files changed** | `<count>` |
-| **Insertions/Deletions** | `+<ins> / -<del>` |
-
-### (Both modes)
-
-**Summary**: 1-2 sentence description of what the changes accomplish. In PR mode, note whether the implementation matches the stated intent in the PR description.
+1-2 sentence description of what the changes accomplish. In PR mode, note whether the implementation matches the stated intent in the PR description.
 
 ### Findings
 
-Group findings by severity. Format each finding as a heading + bullet list — do NOT use numbered lists:
+Group findings by severity. Omit any severity section that has no findings. Format each finding as a heading + bullet list — do NOT use numbered lists:
 
 ```
 **`path/to/file.py:42` — Short title**
@@ -231,38 +214,53 @@ Group findings by severity. Format each finding as a heading + bullet list — d
 - **Suggestion**: Concrete fix or improvement (with code snippet when helpful).
 ```
 
-Separate each finding with a blank line. Use bold file-and-title as a heading line, then bullet points for What/Why/Suggestion. Never use numbered lists (`1.`, `2.`) for findings or their sub-items — they render poorly in terminals.
+Separate each finding with a blank line. Use bold file-and-title as a heading line, then bullet points for What/Why/Suggestion. Never use numbered lists (`1.`, `2.`) for findings or their sub-items.
 
-#### Critical — Must fix before merge
+#### Critical — Let's fix these before merge
 > Issues that would cause bugs, data loss, security vulnerabilities, or broken functionality.
 
-#### Warnings — Strongly recommend fixing
+#### Warnings — Worth addressing
 > Design issues, missing error handling, test gaps, or violations of project standards that could cause problems later.
 
-#### Suggestions — Consider improving
+#### Suggestions — Take it or leave it
 > Style improvements, minor simplifications, or optional enhancements that would improve code quality.
 
 ### What Looks Good
 
-Call out 2-3 things done well (good abstractions, thorough tests, clean refactoring, etc.). Positive feedback is part of a good review.
+Call out 2-3 things done well (good abstractions, thorough tests, clean refactoring, etc.). Be genuine — positive feedback is part of a good review and helps the author know what to keep doing.
 
 ### Verdict
 
-One of:
-- **Ship it** — No critical issues, ready to merge
-- **Ship it (with nits)** — Minor suggestions but nothing blocking
-- **Needs changes** — Has issues that should be addressed before merge
-- **Needs discussion** — Architectural or design questions that need team input
+Choose the verdict that matches the **highest severity** finding in the review:
 
-### Next steps (optional)
-
-After the summary, you may suggest follow-ups when useful:
-
-- Deep dive into a specific file or finding
-- Check a specific concern in more detail
-- Install dev deps and add smoke tests (e.g. `uv sync --all-extras`, then run tests or suggest minimal smoke tests)
+- **Ship it** — No findings. Ready to merge as-is.
+- **Ship it (with nits)** — Only Suggestions (minor stylistic preferences that may vary between developers while still conforming to the style guide). Nothing blocking.
+- **Needs changes** — Any Critical or Warning findings. List the items that must be addressed before merge.
+- **Needs discussion** — Architectural or design questions that need team input before a decision can be made.
 
 ---
+
+## Step 7: Post the Review (PR mode only)
+
+In PR mode, post the review as a comment on the pull request:
+
+```bash
+gh pr comment <number> --body-file /tmp/review-<number>.md
+```
+
+In branch mode, skip this step — display the review to the user and note the temp file path.
+
+---
+
+## Tone
+
+Write as a supportive teammate, not a gatekeeper. The goal is to help the author ship great code, not to prove you found problems.
+
+- **Be cordial and collaborative.** Use "we" language and frame findings as questions or suggestions ("Could we …?", "What do you think about …?", "Nice approach — one thought: …").
+- **Assume good intent.** If something looks off, ask before assuming it's wrong — the author may have context you don't.
+- **Lead with what's good.** Acknowledge effort and smart decisions before raising concerns.
+- **Keep it conversational.** Avoid stiff, formal phrasing. Write the way you'd talk to a colleague at a whiteboard.
+- **Be direct, not blunt.** Clearly state what needs to change and why, but without harsh or commanding language ("This must be fixed" → "This could bite us in production — worth addressing before merge").
 
 ## Review Principles
 
