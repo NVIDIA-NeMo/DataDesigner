@@ -226,6 +226,31 @@ In `generate()` (line 24), inside the per-record loop: if any `required_columns`
 
 ---
 
+## Open Questions
+
+### 1. What value should skipped cells contain?
+
+The current plan sets skipped cells to `None` (which becomes `NaN`/`pd.NA` in the DataFrame). Alternatives:
+
+- **`None`** — simple, standard pandas null. Downside: indistinguishable from a legitimate `None` produced by a generator (e.g., an LLM that returns no output).
+- **Sentinel value** (e.g., `SKIPPED = "__SKIPPED__"` or a dedicated `SkippedValue` type) — distinguishable from real nulls. Downside: leaks into user-facing DataFrames unless stripped at output time; complicates type handling.
+- **`pd.NA` with metadata** — store skip status in a sidecar structure (the `_skipped_cells` / `CompletionTracker._skipped` dicts already track this) and write `None` to the cell. Users who need to distinguish skip-null from real-null can inspect the metadata.
+
+Recommendation: Use `None` in the cell, track skip provenance in engine-internal state. If users need to distinguish, expose a `results.load_skip_mask()` or similar accessor.
+
+### 2. Should there be an option to auto-remove skipped rows from the final output?
+
+Many pipelines want to discard rows where a gate column failed — they don't need the skipped rows in the output at all. Options:
+
+- **Post-hoc filtering by the user** — `df = df.dropna(subset=["categories"])`. Simple but manual.
+- **`drop_skipped_rows` option on `DataDesigner.create()`** — automatically remove any row where at least one column was skipped before writing to disk. Clean UX but may surprise users who want to inspect skipped rows.
+- **A built-in `DropSkippedRowsProcessorConfig` processor** — runs as a post-generation processor that removes rows with any skipped cells. Fits the existing processor model and is opt-in.
+- **`drop_when_skipped=True` on individual column configs** — drop the row if *this specific column* was skipped. More granular than a global flag.
+
+Recommendation: Start with a `DropSkippedRowsProcessorConfig` processor — it's opt-in, composable with other processors, and doesn't require new parameters on `create()` or column configs.
+
+---
+
 ## Verification
 
 1. **Unit tests:** Config field defaults, Jinja2 validation, `skip_when_columns` extraction, DAG edge creation, skip evaluator truthiness, CompletionTracker skip tracking
