@@ -132,6 +132,18 @@ The self-hosted runner needs:
 The runner configuration itself is outside this repo (infrastructure concern), but the
 workflow files document what's expected.
 
+**Runner targeting:** not all self-hosted runners will have Claude Code installed.
+Agentic CI workflows use a custom label to target only capable runners:
+
+```yaml
+runs-on: [self-hosted, claude-ready]
+```
+
+The `claude-ready` label must be added manually to each runner that has the
+required tooling (Claude Code CLI, API access, etc.). This prevents agentic CI
+jobs from landing on runners that can't execute them, and lets the team scale
+by labeling new runners as they're provisioned.
+
 ### API Configuration and Authentication
 
 **Principle: no internal infrastructure details appear in repo contents.** Recipes,
