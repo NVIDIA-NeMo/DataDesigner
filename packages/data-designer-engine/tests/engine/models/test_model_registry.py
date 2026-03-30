@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
-from data_designer.engine.models import litellm_overrides
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
@@ -42,9 +41,7 @@ def stub_no_usage_config():
     )
 
 
-@patch.object(litellm_overrides, "apply_litellm_patches", autospec=True)
 def test_create_model_registry(
-    mock_apply_litellm_patches: object,
     stub_model_configs: list[ModelConfig],
     stub_secrets_resolver: object,
     stub_model_provider_registry: object,
@@ -55,7 +52,6 @@ def test_create_model_registry(
         model_provider_registry=stub_model_provider_registry,
     )
     assert isinstance(model_registry, ModelRegistry)
-    mock_apply_litellm_patches.assert_called_once()
 
 
 def test_public_props(stub_model_configs, stub_model_registry):
@@ -414,6 +410,18 @@ async def test_arun_health_check_authentication_error(
 
     mock_agenerate.assert_awaited_once()
     mock_agenerate_text_embeddings.assert_not_awaited()
+
+
+def test_get_aggregate_max_parallel_requests(stub_model_registry: ModelRegistry) -> None:
+    """get_aggregate_max_parallel_requests returns the sum across all model configs."""
+    total = stub_model_registry.get_aggregate_max_parallel_requests()
+    expected = sum(mc.inference_parameters.max_parallel_requests for mc in stub_model_registry.model_configs.values())
+    assert total == expected
+    assert total > 0
+
+
+def test_get_aggregate_max_parallel_requests_empty(stub_empty_model_registry: ModelRegistry) -> None:
+    assert stub_empty_model_registry.get_aggregate_max_parallel_requests() == 0
 
 
 @pytest.mark.parametrize(

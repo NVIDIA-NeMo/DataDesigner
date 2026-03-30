@@ -562,7 +562,7 @@ def test_preview_raises_generation_error_when_dataset_is_empty(
     )
 
     with patch(
-        "data_designer.engine.dataset_builders.column_wise_builder.ColumnWiseDatasetBuilder.process_preview",
+        "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.process_preview",
         return_value=lazy.pd.DataFrame(),
     ):
         with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):

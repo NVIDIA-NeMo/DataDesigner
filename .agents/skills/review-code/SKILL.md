@@ -88,16 +88,13 @@ Where `<base>` is `main` unless overridden in arguments.
 
 ## Step 2: Load Project Guidelines
 
-Read `AGENTS.md` at the repository root to load the project's coding standards, design principles, and conventions. This is the authoritative source for:
+Read the following files at the repository root to load the project's standards and conventions:
 
-- Code style rules (formatting, naming, imports, type annotations)
-- Design principles (DRY, KISS, YAGNI, SOLID)
-- Testing patterns and expectations
-- Architecture and layering conventions
-- Common pitfalls to watch for
-- Lazy loading and `TYPE_CHECKING` patterns
+- **`AGENTS.md`** — architecture, layering, core design principles, structural invariants
+- **`STYLEGUIDE.md`** — code style rules (formatting, naming, imports, type annotations), design principles (DRY, KISS, YAGNI, SOLID), common pitfalls, lazy loading and `TYPE_CHECKING` patterns
+- **`DEVELOPMENT.md`** — testing patterns and expectations
 
-Use these guidelines as the baseline for the entire review. Any project-specific rules in `AGENTS.md` take precedence over general best practices.
+Use these guidelines as the baseline for the entire review. Project-specific rules take precedence over general best practices.
 
 ## Step 3: Understand the Scope
 
@@ -163,9 +160,9 @@ Final pass focused on **project conventions and test quality for new/modified co
 - Are mocks/stubs used appropriately (at boundaries, not deep internals)?
 - Do new test names clearly describe what they verify?
 
-**Project Standards (from AGENTS.md) — apply to new/modified code only:**
+**Project Standards (from AGENTS.md and STYLEGUIDE.md) — apply to new/modified code only:**
 
-Verify the items below on lines introduced or changed by this branch. Refer to the full `AGENTS.md` loaded in Step 2 for details and examples.
+Verify the items below on lines introduced or changed by this branch. Refer to `AGENTS.md` and `STYLEGUIDE.md` loaded in Step 2 for details and examples.
 
 - License headers: if present, they should be correct (wrong year or format → suggest `make update-license-headers`; don't treat as critical if CI enforces this)
 - `from __future__ import annotations` in new files

@@ -115,7 +115,7 @@ class SamplerColumnConfig(SingleColumnConfig):
 class LLMTextColumnConfig(SingleColumnConfig):
     """Configuration for text generation columns using Large Language Models.
 
-    LLM text columns generate free-form text content using language models via LiteLLM.
+    LLM text columns generate free-form text content using language models.
     Prompts support Jinja2 templating to reference values from other columns, enabling
     context-aware generation. The generated text can optionally include message traces
     capturing the full conversation history.

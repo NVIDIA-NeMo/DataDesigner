@@ -22,6 +22,7 @@ def test_initializes_with_correct_values() -> None:
     assert tracker.completed == 0
     assert tracker.success == 0
     assert tracker.failed == 0
+    assert tracker.skipped == 0
 
 
 def test_calculates_log_interval_from_percentage() -> None:
@@ -80,6 +81,15 @@ def test_record_failure_multiple_times(tracker: ProgressTracker) -> None:
     assert tracker.failed == 5
 
 
+def test_record_skipped_increments_completed_and_skipped(tracker: ProgressTracker) -> None:
+    tracker.record_skipped()
+
+    assert tracker.completed == 1
+    assert tracker.success == 0
+    assert tracker.failed == 0
+    assert tracker.skipped == 1
+
+
 def test_tracks_mixed_successes_and_failures(tracker: ProgressTracker) -> None:
     tracker.record_success()
     tracker.record_success()
@@ -90,6 +100,24 @@ def test_tracks_mixed_successes_and_failures(tracker: ProgressTracker) -> None:
     assert tracker.completed == 5
     assert tracker.success == 3
     assert tracker.failed == 2
+
+
+def test_get_snapshot_includes_skipped_counts() -> None:
+    tracker = ProgressTracker(total_records=10, label="test")
+    tracker.record_success()
+    tracker.record_failure()
+    tracker.record_skipped()
+
+    completed, total_records, success, failed, skipped, percent, rate, emoji = tracker.get_snapshot(elapsed=2.0)
+
+    assert completed == 3
+    assert total_records == 10
+    assert success == 1
+    assert failed == 1
+    assert skipped == 1
+    assert percent == 30.0
+    assert rate == 1.5
+    assert emoji
 
 
 def test_log_start_logs_worker_info(tracker: ProgressTracker, caplog: pytest.LogCaptureFixture) -> None:

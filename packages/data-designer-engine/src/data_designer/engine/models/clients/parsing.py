@@ -236,8 +236,8 @@ def extract_reasoning_content(message: Any) -> str | None:
     """Extract reasoning content from a provider response message.
 
     vLLM >= 0.16.0 uses ``message.reasoning`` as the canonical field;
-    ``message.reasoning_content`` is the legacy / LiteLLM-normalized fallback.
-    Check the canonical field first so reasoning traces survive LiteLLM removal.
+    ``message.reasoning_content`` is a legacy fallback used by some providers.
+    Check the canonical field first.
 
     Ref: https://github.com/NVIDIA-NeMo/DataDesigner/issues/374
     """

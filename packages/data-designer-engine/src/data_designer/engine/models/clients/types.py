@@ -118,9 +118,8 @@ class TransportKwargs:
     Adapters call ``TransportKwargs.from_request(request)`` instead of
     manually handling ``extra_body`` / ``extra_headers`` on every request type.
 
-    - ``body``: API-level keyword arguments. By default ``extra_body`` keys are
-      merged into the top level; pass ``flatten_extra_body=False`` to preserve
-      ``extra_body`` as a nested dict (needed by LiteLLM).
+    - ``body``: API-level keyword arguments. ``extra_body`` keys are merged
+      into the top level.
     - ``headers``: Extra HTTP headers to attach to the outgoing request.
     """
 
@@ -136,16 +135,11 @@ class TransportKwargs:
         request: Any,
         *,
         exclude: frozenset[str] = frozenset(),
-        # TODO: remove flatten_extra_body after LiteLLMBridgeClient is retired
-        flatten_extra_body: bool = True,
     ) -> TransportKwargs:
         """Build transport-ready kwargs from a canonical request dataclass.
 
         1. Collects all non-None optional fields (respecting *exclude*).
-        2. Handles ``extra_body`` based on *flatten_extra_body*:
-           - ``True`` (default): merges its keys into the top-level body dict.
-           - ``False``: preserves it as ``extra_body`` in the body dict so
-             that callers like LiteLLM can forward it without param validation.
+        2. Merges ``extra_body`` keys into the top-level body dict.
         3. Pops ``extra_headers`` into a separate headers dict.
         4. Extracts ``timeout`` as a per-request HTTP timeout override
            (not forwarded to the API body).
@@ -156,12 +150,7 @@ class TransportKwargs:
         extra_headers = getattr(request, "extra_headers", None) or {}
         timeout = getattr(request, "timeout", None)
 
-        if flatten_extra_body:
-            body = {**optional_fields, **extra_body}
-        else:
-            body = {**optional_fields}
-            if extra_body:
-                body["extra_body"] = extra_body
+        body = {**optional_fields, **extra_body}
 
         return cls(body=body, headers=dict(extra_headers), timeout=timeout)
 
