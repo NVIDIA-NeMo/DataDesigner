@@ -106,7 +106,6 @@ Before diving into details, build a mental model:
 4. **Identify the primary goal** (feature, refactor, bugfix, etc.)
 5. **Note cross-cutting concerns** (e.g., a rename that touches many files vs. substantive logic changes)
 6. **Check existing feedback** (PR mode): inspect both inline comments (Step 1, item 5) and PR-level review bodies (Step 1, item 5b) so you don't duplicate feedback already given
-7. **Check PR template conformance** (PR mode): verify the PR description includes the required template sections (📋 Summary, 🔗 Related Issue, 🔄 Changes, 🧪 Testing, ✅ Checklist). Flag missing or empty sections as a warning in the review. The template lives at `.github/PULL_REQUEST_TEMPLATE.md`
 
 ## Step 4: Review Each Changed File (Multi-Pass)
 
@@ -242,18 +241,6 @@ Separate each finding with a blank line. Use bold file-and-title as a heading li
 
 #### Suggestions — Consider improving
 > Style improvements, minor simplifications, or optional enhancements that would improve code quality.
-
-### PR Template Conformance (PR mode only)
-
-Check that the PR description follows the repository template (`.github/PULL_REQUEST_TEMPLATE.md`):
-
-- **📋 Summary** — present and describes the "why", not just the "what"
-- **🔗 Related Issue** — links to an issue (`Fixes #NNN` or `Closes #NNN`), or explicitly states N/A
-- **🔄 Changes** — bullet list of key changes
-- **🧪 Testing** — checklist items checked or marked N/A with explanation
-- **✅ Checklist** — all items addressed
-
-Flag missing or empty sections as a warning. This check is skipped in branch mode.
 
 ### What Looks Good
 
