@@ -189,6 +189,16 @@ Run the linter on all changed files (requires local checkout). Use the venv dire
 
 If the branch isn't checked out locally (e.g., external fork in PR mode), skip this step and note it in the review.
 
+## Tone
+
+Write as a supportive teammate, not a gatekeeper. The goal is to help the author ship great code, not to prove you found problems.
+
+- **Be cordial and collaborative.** Use "we" language and frame findings as questions or suggestions ("Could we …?", "What do you think about …?", "Nice approach — one thought: …").
+- **Assume good intent.** If something looks off, ask before assuming it's wrong — the author may have context you don't.
+- **Lead with what's good.** Acknowledge effort and smart decisions before raising concerns.
+- **Keep it conversational.** Avoid stiff, formal phrasing. Write the way you'd talk to a colleague at a whiteboard.
+- **Be direct, not blunt.** Clearly state what needs to change and why, but without harsh or commanding language ("This must be fixed" → "This could bite us in production — worth addressing before merge").
+
 ## Step 6: Produce the Review
 
 Write the review as **GitHub-flavored Markdown** ready to post as a PR comment. Save it to a temporary file outside the repository (e.g. `/tmp/review-<pr-or-branch>.md`) so it doesn't pollute `git status`. Do not commit this file; treat it as ephemeral.
@@ -242,7 +252,7 @@ Choose the verdict that matches the **highest severity** finding in the review:
 
 ## Step 7: Post the Review (PR mode only)
 
-In PR mode, post the review as a comment on the pull request:
+In PR mode, display the review to the user and note the temp file path (`/tmp/review-<number>.md`). Then ask if they'd like you to post it as a PR comment. Only run the command after the user confirms:
 
 ```bash
 gh pr comment <number> --body-file /tmp/review-<number>.md
@@ -251,16 +261,6 @@ gh pr comment <number> --body-file /tmp/review-<number>.md
 In branch mode, skip this step — display the review to the user and note the temp file path.
 
 ---
-
-## Tone
-
-Write as a supportive teammate, not a gatekeeper. The goal is to help the author ship great code, not to prove you found problems.
-
-- **Be cordial and collaborative.** Use "we" language and frame findings as questions or suggestions ("Could we …?", "What do you think about …?", "Nice approach — one thought: …").
-- **Assume good intent.** If something looks off, ask before assuming it's wrong — the author may have context you don't.
-- **Lead with what's good.** Acknowledge effort and smart decisions before raising concerns.
-- **Keep it conversational.** Avoid stiff, formal phrasing. Write the way you'd talk to a colleague at a whiteboard.
-- **Be direct, not blunt.** Clearly state what needs to change and why, but without harsh or commanding language ("This must be fixed" → "This could bite us in production — worth addressing before merge").
 
 ## Review Principles
 
