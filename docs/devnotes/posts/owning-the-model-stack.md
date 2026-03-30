@@ -34,13 +34,15 @@ From top to bottom:
 
 1. **ModelFacade**: orchestrates correction loops, MCP tool-calling, and usage tracking. This is the public API. Column generators talk to this layer, and it was untouched during the migration. If you've written a Data Designer pipeline, nothing about your code changes.
 
-2. **ThrottledModelClient**: the new layer. It's a decorator around `HttpModelClient` — same `ModelClient` protocol, but every outbound call is wrapped with a throttle permit: acquire a concurrency slot before the call, release it after, and feed the outcome (success, 429, or error) back to `ThrottleManager`, the AIMD controller. This is where adaptive throttling lives.
+2. **ThrottledModelClient**: the new layer. It's a decorator around `HttpModelClient` — same `ModelClient` protocol, but every outbound call is wrapped with a throttle permit: acquire a concurrency slot before the call, release it after, and feed the outcome (success, 429, or error) back to `ThrottleManager`. This is where adaptive throttling lives.
 
-3. **HttpModelClient**: an abstract base class that defines the interface for all provider adapters. It owns the shared `httpx` transport lifecycle — connection pooling, timeouts, and transport-level retries for transient failures (502, 503, 504). Boring but important.
+3. **ThrottleManager**: the AIMD controller that `ThrottledModelClient` delegates to. A single instance is created at pipeline startup and shared across all model clients. It owns all the mutable concurrency state — per-domain AIMD counters, global caps, cascade dampening, and cooldown timers.
 
-4. **Provider Adapters**: `OpenAICompatibleClient` and `AnthropicClient`, both extending `HttpModelClient`. Each adapter translates between our canonical request/response types and the provider's wire format. Provider-specific shapes are contained here and never leak upward.
+4. **HttpModelClient**: an abstract base class that defines the interface for all provider adapters. It owns the shared `httpx` transport lifecycle — connection pooling, timeouts, and transport-level retries for transient failures (502, 503, 504). Boring but important.
 
-5. **Provider HTTP APIs**: the actual endpoints (OpenAI, NVIDIA NIM, vLLM, Anthropic Messages API).
+5. **Provider Adapters**: `OpenAICompatibleClient` and `AnthropicClient`, both extending `HttpModelClient`. Each adapter translates between our canonical request/response types and the provider's wire format. Provider-specific shapes are contained here and never leak upward.
+
+6. **Provider HTTP APIs**: the actual endpoints (OpenAI, NVIDIA NIM, vLLM, Anthropic Messages API).
 
 The boundary between `ModelFacade` and the client layer is defined by canonical types. `ChatCompletionRequest`, `ChatCompletionResponse`, `EmbeddingRequest`, `EmbeddingResponse`, `ImageGenerationRequest`, `ImageGenerationResponse`, and `ProviderError`. These are plain dataclasses. No provider SDK objects cross this line. A `ModelClient` protocol defines the contract that all adapters implement, and that's the only interface the rest of the system sees.
 
