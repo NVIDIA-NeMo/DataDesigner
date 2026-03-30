@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import functools
 import logging
 from typing import TYPE_CHECKING
 
@@ -11,12 +10,12 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
+from data_designer.engine.context import format_row_group_tag
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
-    import duckdb
     import pandas as pd
 
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
@@ -30,12 +29,12 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         return GenerationStrategy.FULL_COLUMN
 
     @property
+    def is_order_dependent(self) -> bool:
+        return True
+
+    @property
     def num_records_sampled(self) -> int:
         return self._num_records_sampled
-
-    @functools.cached_property
-    def duckdb_conn(self) -> duckdb.DuckDBPyConnection:
-        return self.resource_provider.seed_reader.create_duckdb_connection()
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         return concat_datasets([self.generate_from_scratch(len(data)), data])
@@ -53,8 +52,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         self._num_records_sampled = 0
         self._batch_reader = None
         self._df_remaining = None
-        self._dataset_uri = self.resource_provider.seed_reader.get_dataset_uri()
-        self._seed_dataset_size = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{self._dataset_uri}'").fetchone()[0]
+        self._seed_dataset_size = self.resource_provider.seed_reader.get_seed_dataset_size()
         self._index_range = self._resolve_index_range()
 
     def _validate_selection_strategy(self) -> None:
@@ -85,27 +83,14 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
 
     def _reset_batch_reader(self, num_records: int) -> None:
         shuffle = self.config.sampling_strategy == SamplingStrategy.SHUFFLE
-        shuffle_query = " ORDER BY RANDOM()" if shuffle else ""
-
-        if self._index_range is not None:
-            # Use LIMIT and OFFSET for efficient index range filtering
-            # IndexRange uses 0-based indexing [start, end] inclusive
-            # OFFSET skips the first 'start' rows (0-based)
-            # LIMIT takes 'end - start + 1' rows to include both start and end (inclusive)
-            offset_value = self._index_range.start
-            limit_value = self._index_range.end - self._index_range.start + 1
-            read_query = f"""
-                SELECT * FROM '{self._dataset_uri}'
-                LIMIT {limit_value} OFFSET {offset_value}
-            """
-
-            read_query = f"SELECT * FROM ({read_query}){shuffle_query}"
-        else:
-            read_query = f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}"
-        self._batch_reader = self.duckdb_conn.query(read_query).to_arrow_reader(batch_size=num_records)
+        self._batch_reader = self.resource_provider.seed_reader.create_batch_reader(
+            batch_size=num_records,
+            index_range=self._index_range,
+            shuffle=shuffle,
+        )
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
-        logger.info(f"🌱 Sampling {num_records} records from seed dataset")
+        logger.info(f"🌱 {format_row_group_tag()}Sampling {num_records} records from seed dataset")
         logger.info(f"{LOG_INDENT}seed dataset size: {self._seed_dataset_size} records")
         logger.info(f"{LOG_INDENT}sampling strategy: {self.config.sampling_strategy}")
         if self._index_range is not None:

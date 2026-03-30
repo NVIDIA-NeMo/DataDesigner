@@ -10,6 +10,7 @@ import pytest
 from data_designer.engine.models.clients.errors import (
     ProviderError,
     ProviderErrorKind,
+    extract_message_from_exception_string,
     map_http_error_to_provider_error,
     map_http_status_to_provider_error_kind,
 )
@@ -45,6 +46,16 @@ class StubHttpResponse:
         (413, "", ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED),
         (422, "", ProviderErrorKind.UNPROCESSABLE_ENTITY),
         (429, "", ProviderErrorKind.RATE_LIMIT),
+        (
+            400,
+            "Your credit balance is too low to access the Anthropic API. Please purchase credits.",
+            ProviderErrorKind.QUOTA_EXCEEDED,
+        ),
+        (
+            400,
+            "`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
+            ProviderErrorKind.UNSUPPORTED_PARAMS,
+        ),
         (400, "", ProviderErrorKind.BAD_REQUEST),
         (400, "maximum context length exceeded", ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED),
         (500, "", ProviderErrorKind.INTERNAL_SERVER),
@@ -92,6 +103,30 @@ def test_map_http_status_to_provider_error_kind(
             "The request payload is invalid.",
         ),
         (
+            400,
+            "",
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
+                }
+            },
+            ProviderErrorKind.UNSUPPORTED_PARAMS,
+            "`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
+        ),
+        (
+            400,
+            "",
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "Your credit balance is too low to access the Anthropic API.",
+                }
+            },
+            ProviderErrorKind.QUOTA_EXCEEDED,
+            "Your credit balance is too low to access the Anthropic API.",
+        ),
+        (
             422,
             "",
             {
@@ -109,6 +144,8 @@ def test_map_http_status_to_provider_error_kind(
         "json-over-raw-text",
         "json-when-text-missing",
         "nested-error-message",
+        "mutually-exclusive-params",
+        "quota-exceeded-message",
         "fastapi-list-detail",
     ],
 )
@@ -207,3 +244,46 @@ def test_map_http_error_retry_after_returns_none_for_garbage() -> None:
     )
     error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
     assert error.retry_after is None
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (
+            "Error code: 400 - {'error': {'message': 'Context length exceeded', 'type': 'invalid_request_error'}}".replace(
+                "'", '"'
+            ),
+            "Context length exceeded",
+        ),
+        (
+            'Error code: 403 - {"error": "Insufficient permissions"}',
+            "Insufficient permissions",
+        ),
+        (
+            'Error code: 500 - {"message": "Internal failure"}',
+            "Internal failure",
+        ),
+        (
+            'Error code: 422 - {"detail": "Unprocessable entity"}',
+            "Unprocessable entity",
+        ),
+        (
+            "Connection timed out",
+            "Connection timed out",
+        ),
+        (
+            "Error code: 400 - {not valid json",
+            "Error code: 400 - {not valid json",
+        ),
+    ],
+    ids=[
+        "nested-error-message",
+        "top-level-error-string",
+        "top-level-message-string",
+        "top-level-detail-string",
+        "no-json-passthrough",
+        "malformed-json-passthrough",
+    ],
+)
+def test_extract_message_from_exception_string(raw: str, expected: str) -> None:
+    assert extract_message_from_exception_string(raw) == expected

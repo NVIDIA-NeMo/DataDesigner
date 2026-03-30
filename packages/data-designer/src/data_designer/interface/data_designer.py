@@ -35,13 +35,19 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import resolve_model_provider_registry
-from data_designer.engine.resources.managed_storage import init_managed_blob_storage
+from data_designer.engine.resources.person_reader import (
+    PersonReader,
+    create_person_reader,
+)
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
+    AgentRolloutSeedReader,
     DataFrameSeedReader,
+    DirectorySeedReader,
+    FileContentsSeedReader,
     HuggingFaceSeedReader,
     LocalFileSeedReader,
     SeedReader,
@@ -88,6 +94,9 @@ DEFAULT_SEED_READERS = [
     HuggingFaceSeedReader(),
     LocalFileSeedReader(),
     DataFrameSeedReader(),
+    DirectorySeedReader(),
+    FileContentsSeedReader(),
+    AgentRolloutSeedReader(),
 ]
 for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())
@@ -114,6 +123,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             If not provided, will check for an environment variable called DATA_DESIGNER_MANAGED_ASSETS_PATH.
             If the environment variable is not set, will use the default managed assets directory, which
             is defined in `data_designer.config.utils.constants`.
+        person_reader: Optional custom reader for person datasets.
+            If provided, this reader will be used instead of the default local reader.
+            This allows clients to customize how managed datasets are accessed (e.g.,
+            using custom fsspec clients for S3 or other remote storage).
         mcp_providers: Optional list of MCP provider configurations to enable tool-calling for
             LLM generation columns. Supports both MCPProvider (remote/SSE) and
             LocalStdioMCPProvider (local subprocess).
@@ -127,6 +140,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         secret_resolver: SecretResolver | None = None,
         seed_readers: list[SeedReader] | None = None,
         managed_assets_path: Path | str | None = None,
+        person_reader: PersonReader | None = None,
         mcp_providers: list[MCPProviderT] | None = None,
     ):
         _initialize_interface_runtime()
@@ -134,6 +148,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
+        self._person_reader = person_reader
         self._model_providers = self._resolve_model_providers(model_providers)
         self._mcp_providers = mcp_providers or []
         self._model_provider_registry = resolve_model_provider_registry(
@@ -205,21 +220,36 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder)
 
-        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
-
         try:
+            builder = self._create_dataset_builder(config_builder.build(), resource_provider)
             builder.build(num_records=num_records)
         except Exception as e:
-            raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}")
+            raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
+
+        task_traces = builder.task_traces
+
+        try:
+            dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
+        except Exception as e:
+            raise DataDesignerGenerationError(
+                f"🛑 Failed to load generated dataset — all records may have been dropped "
+                f"due to generation failures. Check the warnings above for details. Original error: {e}"
+            ) from e
+
+        # Defensive: the batch manager skips writing when the buffer is empty, so in
+        # practice load_dataset_with_dropped_columns() would raise before returning a
+        # zero-row DataFrame. This guard protects against future changes to that contract.
+        if len(dataset_for_profiler) == 0:
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation failures. "
+                "Check the warnings above for details on which columns failed."
+            )
 
         try:
             profiler = self._create_dataset_profiler(config_builder, resource_provider)
-            analysis = profiler.profile_dataset(
-                num_records,
-                builder.artifact_storage.load_dataset_with_dropped_columns(),
-            )
+            analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
-            raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}")
+            raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
 
         dataset_metadata = resource_provider.get_dataset_metadata()
 
@@ -234,6 +264,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             analysis=analysis,
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
+            task_traces=task_traces,
         )
 
     def preview(
@@ -259,13 +290,18 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
 
         resource_provider = self._create_resource_provider("preview-dataset", config_builder)
-        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
-
         try:
+            builder = self._create_dataset_builder(config_builder.build(), resource_provider)
             raw_dataset = builder.build_preview(num_records=num_records)
             processed_dataset = builder.process_preview(raw_dataset)
         except Exception as e:
-            raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}")
+            raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}") from e
+
+        if len(processed_dataset) == 0:
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
+                "Check the warnings above for details on which columns failed."
+            )
 
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
         if len(dropped_columns) > 0:
@@ -277,17 +313,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             profiler = self._create_dataset_profiler(config_builder, resource_provider)
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
-            raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
+            raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}") from e
 
         processor_artifacts: dict[str, list[dict]] = {}
         for name in builder.artifact_storage.list_processor_names():
             processor_artifacts[name] = builder.artifact_storage.load_processor_dataset(name).to_dict(orient="records")
 
-        if (
-            len(processed_dataset) > 0
-            and isinstance(analysis, DatasetProfilerResults)
-            and len(analysis.column_statistics) > 0
-        ):
+        if isinstance(analysis, DatasetProfilerResults) and len(analysis.column_statistics) > 0:
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
         # Create dataset metadata from the resource provider
@@ -398,8 +430,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self,
         data_designer_config: DataDesignerConfig,
         resource_provider: ResourceProvider,
-    ) -> ColumnWiseDatasetBuilder:
-        return ColumnWiseDatasetBuilder(
+    ) -> DatasetBuilder:
+        return DatasetBuilder(
             data_designer_config=data_designer_config,
             resource_provider=resource_provider,
         )
@@ -429,7 +461,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,
             model_provider_registry=self._model_provider_registry,
-            blob_storage=init_managed_blob_storage(str(self._managed_assets_path)),
+            person_reader=self._person_reader or create_person_reader(str(self._managed_assets_path)),
             seed_dataset_source=seed_dataset_source,
             seed_reader_registry=self._seed_reader_registry,
             run_config=self._run_config,

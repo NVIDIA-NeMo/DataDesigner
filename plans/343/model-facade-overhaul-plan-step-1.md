@@ -138,11 +138,11 @@ Callers
 
 ```text
 1) Provider returns 429 / throttling error
-2) Retry engine classifies RATE_LIMIT and extracts Retry-After (if present)
+2) Transport-level retries do not consume the 429; the rate-limit classifier extracts Retry-After (if present)
 3) Throttle release_rate_limited:
    - multiplicative decrease on domain current_limit
    - set blocked_until cooldown
-4) Retry re-enters throttle acquire before next attempt
+4) Any retry after the rate-limit signal re-enters throttle acquire before the next attempt
 5) On recovery, additive increase restores capacity up to effective max
 ```
 
@@ -192,26 +192,33 @@ Updated files (Step 1):
 
 ### PR slicing (recommended)
 
-1. PR-1: canonical types/interfaces/errors + bridge adapter + no behavior change.
+1. PR-1 ([#359](https://github.com/NVIDIA-NeMo/DataDesigner/pull/359) — merged): canonical types/interfaces/errors + bridge adapter + no behavior change.
    - files: `clients/base.py`, `clients/types.py`, `clients/errors.py`, `clients/adapters/litellm_bridge.py`
-   - docs: add architecture notes for canonical adapter boundary and bridge purpose.
-2. PR-2: `ModelFacade` switched to `ModelClient` + lifecycle wiring + parity tests on bridge.
+   - docs: `plans/343/model-facade-overhaul-pr-1-architecture-notes.md`
+2. PR-2 ([#373](https://github.com/NVIDIA-NeMo/DataDesigner/pull/373) — merged): `ModelFacade` switched to `ModelClient` + lifecycle wiring + parity tests on bridge.
    - files: `models/facade.py`, `models/errors.py`, `models/factory.py`, `clients/factory.py`, `models/registry.py`, `resources/resource_provider.py`, `interface/data_designer.py`
-   - docs: update internal lifecycle/ownership docs for adapter teardown and resource shutdown behavior.
-3. PR-3: OpenAI-compatible adapter + shared retry/throttle + auth integration.
+   - docs: `plans/343/model-facade-overhaul-pr-2-architecture-notes.md`
+3. PR-3 ([#402](https://github.com/NVIDIA-NeMo/DataDesigner/pull/402) — merged): OpenAI-compatible adapter + shared retry/throttle + auth integration.
    - files: `clients/retry.py`, `clients/throttle.py`, `clients/adapters/openai_compatible.py`
-   - docs: add provider docs for openai-compatible routing, endpoint expectations, and retry/throttle semantics.
-4. PR-4: Anthropic adapter + auth integration + capability gating.
-   - files: `clients/adapters/anthropic.py`
-   - docs: add Anthropic capability/limitations documentation for Step 1 scope.
-5. PR-5: Config/CLI auth schema rollout + migration guards + docs.
+   - docs: `plans/343/model-facade-overhaul-pr-3-architecture-notes.md`
+4. PR-4 ([#426](https://github.com/NVIDIA-NeMo/DataDesigner/pull/426) — merged): Anthropic adapter + shared HTTP client infrastructure + auth integration + capability gating.
+   - files: `clients/adapters/anthropic.py`, `clients/adapters/anthropic_translation.py`, `clients/adapters/http_model_client.py`, `clients/adapters/http_helpers.py`
+   - docs: `plans/343/model-facade-overhaul-pr-4-architecture-notes.md`
+5. PR-5 ([#439](https://github.com/NVIDIA-NeMo/DataDesigner/pull/439) — merged): Single-mode `HttpModelClient` lifecycle fix + async health checks.
+   - Repurposed from original "Config/CLI auth schema rollout" scope. PR #426 review revealed that the dual-mode sync/async `HttpModelClient` creates intractable lifecycle bugs (transport leaks, cross-mode teardown). This PR constrains each `HttpModelClient` instance to a single mode (`sync` or `async`) via a constructor flag, simplifies `close()`/`aclose()` to single-mode teardown, and adds `ModelRegistry.arun_health_check()` so async-engine health checks use the async path consistently.
+   - files: `clients/adapters/http_model_client.py`, `clients/factory.py`, `models/factory.py`, `models/registry.py`, `dataset_builders/column_wise_builder.py`
+   - docs: `plans/343/model-facade-overhaul-pr-5-architecture-notes.md`
+6. PR-6 (merged): Dual-layer ThrottleManager integration (client wrapper + scheduler submission slot management).
+   - Repurposed from original "Config/CLI auth schema rollout" scope. The ThrottleManager (PR-3) is instantiated and models register into it (PR-4), but no execution path acquires or releases throttle permits. This PR adds a `ThrottledModelClient` wrapper that acquires/releases throttle permits around every HTTP call (per-request AIMD accuracy), and updates the `AsyncTaskScheduler` to release submission slots for LLM-bound tasks (cross-key starvation prevention). The `ModelFacade` is untouched — throttling is a transport concern below it. PR-6 also narrows the HTTP-layer retry boundary: `429` is removed from transport-level retryable statuses so raw rate-limit responses reach `ThrottleManager.release_rate_limited()` on the first throttled attempt, while non-rate-limit transient failures (`502`/`503`/`504`, transport errors) remain retried in the shared HTTP layer. AIMD tuning parameters are exposed on `RunConfig` (`throttle_reduce_factor`, `throttle_additive_increase`, `throttle_success_window`, `throttle_block_seconds`) and forwarded through the factory chain to `ThrottleManager`. The submission pool is sized dynamically from aggregate `max_parallel_requests` via `ModelRegistry.get_aggregate_max_parallel_requests()`. Design rationale in `plans/343/dual-layer-throttle-exploration.md`.
+   - files: `models/clients/throttled.py` (new), `models/clients/retry.py`, `models/clients/factory.py`, `models/factory.py`, `models/registry.py`, `config/run_config.py`, `resources/resource_provider.py`, `dataset_builders/async_scheduler.py`, `dataset_builders/column_wise_builder.py`
+   - docs: `plans/343/model-facade-overhaul-pr-6-architecture-notes.md`, `plans/343/dual-layer-throttle-exploration.md`
+7. PR-7: Remove LiteLLM dependency and bridge path.
+   - Native adapters are now the default for all predefined providers (PR-6). No soak window needed — drop the bridge entirely.
+   - files: remove `clients/adapters/litellm_bridge.py`, `models/litellm_overrides.py`; remove `apply_litellm_patches()` call from `models/factory.py`; remove LiteLLM fallback branch and `_create_bridge_client` from `clients/factory.py`; remove `DATA_DESIGNER_MODEL_BACKEND` env-var support; remove LiteLLM match arms from `models/errors.py`; remove `litellm` from `lazy_heavy_imports.py` and `pyproject.toml` runtime deps.
+   - docs: remove LiteLLM references and close out migration notes.
+8. PR-8: Config/CLI auth schema rollout + migration guards + docs.
    - files: `config/models.py`, `cli/forms/provider_builder.py`
    - docs: publish auth schema migration guide (legacy `api_key` fallback + typed `auth` objects) and CLI examples.
-6. PR-6: Cutover flag default flip to native while retaining bridge path.
-   - docs: update rollout runbook and env-flag guidance (`DATA_DESIGNER_MODEL_BACKEND`) for operators.
-7. PR-7: Remove LiteLLM dependency/path after soak window.
-   - files: `lazy_heavy_imports.py` and removal of legacy LiteLLM runtime path
-   - docs: remove LiteLLM references and close out migration notes.
 
 ### PR coverage check (Step 1)
 
@@ -224,7 +231,7 @@ Every file listed in `File-level change map` must map to exactly one PR above. I
 3. Are sync and async paths symmetric in behavior?
 4. Does adaptive throttling honor global cap and domain key rules?
 5. Is any secret material exposed in logs or reprs?
-6. Is rollback possible via feature flag with bridge path retained during soak?
+6. Is the LiteLLM bridge path fully removed with no residual imports or runtime references?
 7. Are adapter lifecycle teardown hooks wired (`ModelRegistry`/`ResourceProvider`) with no leaked clients in tests?
 
 ## Why This Plan
@@ -1008,8 +1015,8 @@ During mixed bridge/native rollout:
 
 1. `apply_litellm_patches()` must run if any configured model resolves to `LiteLLMBridgeClient`.
 2. Patch application must be idempotent and safe when called multiple times.
-3. `ThreadSafeCache` + LiteLLM patch behavior remains in place until PR-7 removes bridge/LiteLLM path.
-4. PR-7 is the cleanup point for removing `litellm_overrides.py` patch side effects.
+3. `ThreadSafeCache` + LiteLLM patch behavior is removed in PR-7 along with the bridge/LiteLLM path.
+4. PR-7 is the cleanup point for removing `litellm_overrides.py` and all patch side effects.
 
 ## Error Model and Mapping
 
@@ -1058,10 +1065,11 @@ Replicate current semantics from `LiteLLMRouterDefaultKwargs` and `CustomRouter`
 
 1. `initial_retry_after_s = 2.0`
 2. `jitter_pct = 0.2`
-3. retries at least for `rate_limit` and `timeout` (currently 3)
-4. respect provider `Retry-After` when present and reasonable
+3. transport-level retries for transient non-rate-limit failures (`502`, `503`, `504`, connection/transport errors)
+4. `429` / rate-limit responses must surface immediately to adaptive throttling instead of being retried inside the shared HTTP transport
+5. respect provider `Retry-After` when present and reasonable
 
-Implement this in one shared module used by all adapters.
+Implement this split in one shared module used by all adapters.
 
 ## Adaptive Throttling (429-Aware, Sync + Async)
 
@@ -1158,9 +1166,10 @@ Use additive-increase / multiplicative-decrease (AIMD):
 
 1. Acquire throttle slot immediately before outbound request attempt.
 2. Release slot on completion in `finally`.
-3. Apply `release_rate_limited(...)` in retry classifier when error kind is `RATE_LIMIT`.
-4. Re-enter acquire path for each retry attempt (so retries also obey adaptive limits).
-5. Register each `ModelFacade` limit contribution into `GlobalCapState` during initialization.
+3. Transport-level retries must not retry `429`; a raw throttling response must surface as `RATE_LIMIT` on the first throttled attempt.
+4. Apply `release_rate_limited(...)` when error kind is `RATE_LIMIT`.
+5. Any retry after a rate-limit response must re-enter the throttle acquire path before the next attempt.
+6. Register each `ModelFacade` limit contribution into `GlobalCapState` during initialization.
 
 ### Timeout and cancellation semantics
 
@@ -1355,6 +1364,9 @@ Per adapter:
    - response with only `message.reasoning` (no `reasoning_content`) populates canonical `reasoning_content`
    - response with only `message.reasoning_content` still works (backward compat)
    - response with both fields uses `reasoning` (precedence rule)
+9. transport retry-boundary tests:
+   - `429` is excluded from transport retryable statuses
+   - `502` / `503` / `504` remain retryable
 
 Tools:
 

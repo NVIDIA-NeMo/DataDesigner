@@ -39,8 +39,7 @@ class CompletionTracker:
         """Create a frontier-enabled tracker backed by an execution graph."""
         tracker = cls()
         tracker._graph = graph
-        tracker._row_group_sizes = {rg_id: size for rg_id, size in row_groups}
-        tracker._seed_frontier()
+        tracker._row_group_sizes = dict(row_groups)
         return tracker
 
     def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> None:
@@ -79,6 +78,17 @@ class CompletionTracker:
                 return False
         return True
 
+    def is_column_complete_for_rg(self, column: str, row_group_index: int) -> bool:
+        """Check if *column* has been fully completed for *row_group_index*."""
+        if column in self._batch_complete.get(row_group_index, set()):
+            return True
+        rg_size = self._row_group_sizes.get(row_group_index, 0)
+        if rg_size == 0:
+            return False
+        completed = self._completed.get(row_group_index, {}).get(column, set())
+        dropped = self._dropped.get(row_group_index, set())
+        return all(ri in completed or ri in dropped for ri in range(rg_size))
+
     def drop_row(self, row_group: int, row_index: int) -> None:
         self._validate_row_group(row_group)
         self._dropped[row_group].add(row_index)
@@ -109,15 +119,23 @@ class CompletionTracker:
                     return False
         return True
 
-    def get_ready_tasks(self, dispatched: set[Task]) -> list[Task]:
+    def get_ready_tasks(self, dispatched: set[Task], admitted_rgs: set[int] | None = None) -> list[Task]:
         """Return all currently dispatchable tasks from the frontier.
 
-        Excludes already-dispatched/in-flight tasks.
+        Excludes already-dispatched/in-flight tasks and tasks for row groups
+        not yet admitted (if ``admitted_rgs`` is provided).
         """
-        return [t for t in self._frontier if t not in dispatched]
+        return [
+            t for t in self._frontier if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
+        ]
 
-    def _seed_frontier(self) -> None:
-        """Populate the frontier with root tasks (columns with no upstream deps)."""
+    def seed_frontier(self) -> None:
+        """Populate the frontier with root tasks (columns with no upstream deps).
+
+        Not called automatically - the scheduler manages root dispatch directly
+        to handle stateful locks and multi-column dedup. Call this explicitly
+        for static introspection (e.g., capacity planning, task enumeration).
+        """
         if self._graph is None:
             raise RuntimeError("This method requires a graph to be set.")
         for col in self._graph.get_root_columns():

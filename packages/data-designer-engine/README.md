@@ -2,7 +2,7 @@
 
 Generation engine for NeMo Data Designer synthetic data generation framework.
 
-This package contains the execution engine that powers Data Designer. It depends on `data-designer-config` and includes heavy dependencies like pandas, numpy, and LLM integration via litellm.
+This package contains the execution engine that powers Data Designer. It depends on `data-designer-config` and includes heavy dependencies like pandas, numpy, and native HTTP-based LLM integration.
 
 ## Installation
 

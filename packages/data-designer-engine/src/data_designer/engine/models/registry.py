@@ -4,8 +4,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
@@ -14,7 +13,16 @@ from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from data_designer.engine.models.clients.retry import RetryConfig
+    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
+
+    ModelFacadeFactory = Callable[
+        [ModelConfig, SecretResolver, ModelProviderRegistry, RetryConfig | None],
+        ModelFacade,
+    ]
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +34,15 @@ class ModelRegistry:
         secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
         model_configs: list[ModelConfig] | None = None,
-        model_facade_factory: Callable[[ModelConfig, SecretResolver, ModelProviderRegistry], ModelFacade] | None = None,
-    ):
+        model_facade_factory: ModelFacadeFactory | None = None,
+        throttle_manager: ThrottleManager | None = None,
+        retry_config: RetryConfig | None = None,
+    ) -> None:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_facade_factory = model_facade_factory
+        self._throttle_manager = throttle_manager
+        self._retry_config = retry_config
         self._model_configs: dict[str, ModelConfig] = {}
         self._models: dict[str, ModelFacade] = {}
         self._set_model_configs(model_configs)
@@ -42,6 +54,14 @@ class ModelRegistry:
     @property
     def models(self) -> dict[str, ModelFacade]:
         return self._models
+
+    @property
+    def throttle_manager(self) -> ThrottleManager | None:
+        return self._throttle_manager
+
+    @property
+    def retry_config(self) -> RetryConfig | None:
+        return self._retry_config
 
     def register_model_configs(self, model_configs: list[ModelConfig]) -> None:
         """Register a new Model configuration at runtime.
@@ -69,7 +89,7 @@ class ModelRegistry:
             raise ValueError(f"No model config with alias {model_alias!r} found!")
         return self._model_configs[model_alias]
 
-    def get_model_usage_stats(self, total_time_elapsed: float) -> dict[str, dict]:
+    def get_model_usage_stats(self, total_time_elapsed: float) -> dict[str, dict[str, Any]]:
         return {
             model.model_name: model.usage_stats.get_usage_stats(total_time_elapsed=total_time_elapsed)
             for model in self._models.values()
@@ -152,6 +172,19 @@ class ModelRegistry:
                 )
         return deltas
 
+    def get_aggregate_max_parallel_requests(self) -> int:
+        """Sum of ``max_parallel_requests`` across all registered model configs.
+
+        This is a coarse upper bound: it sums over *all* registered aliases,
+        including those not referenced by the current generator set, and does
+        not deduplicate aliases sharing a ``(provider_name, model_id)`` key.
+        The result is used to size the scheduler's LLM-wait semaphore, which
+        is a memory-safety cap — oversizing wastes a few coroutine slots but
+        does not affect correctness because the ``ThrottleManager`` enforces
+        the real per-key limit.
+        """
+        return sum(mc.inference_parameters.max_parallel_requests for mc in self._model_configs.values())
+
     def get_model_provider(self, *, model_alias: str) -> ModelProvider:
         model_config = self.get_model_config(model_alias=model_alias)
         return self._model_provider_registry.get_provider(model_config.provider)
@@ -196,16 +229,96 @@ class ModelRegistry:
                 else:
                     raise ValueError(f"Unsupported generation type: {model.model_generation_type}")
                 logger.info(f"{LOG_INDENT}✅ Passed!")
-            except Exception as e:
+            except Exception:
                 logger.error(f"{LOG_INDENT}❌ Failed!")
-                raise e
+                raise
 
-    def _set_model_configs(self, model_configs: list[ModelConfig]) -> None:
-        model_configs = model_configs or []
-        self._model_configs = {mc.alias: mc for mc in model_configs}
-        # Models are now lazily initialized in get_model() when first requested
+    async def arun_health_check(self, model_aliases: list[str]) -> None:
+        """Async version of ``run_health_check`` for async-mode registries."""
+        logger.info("🩺 Running health checks for models...")
+        for model_alias in model_aliases:
+            model_config = self.get_model_config(model_alias=model_alias)
+            if model_config.skip_health_check:
+                logger.info(
+                    f"{LOG_INDENT}⏭️  Skipping health check for model alias {model_alias!r} (skip_health_check=True)"
+                )
+                continue
+
+            model = self.get_model(model_alias=model_alias)
+            logger.info(
+                f"{LOG_INDENT}👀 Checking {model.model_name!r} in provider named {model.model_provider_name!r} for model alias {model.model_alias!r}..."
+            )
+            try:
+                if model.model_generation_type == GenerationType.EMBEDDING:
+                    await model.agenerate_text_embeddings(
+                        input_texts=["Hello!"],
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                elif model.model_generation_type == GenerationType.CHAT_COMPLETION:
+                    await model.agenerate(
+                        prompt="Hello!",
+                        parser=lambda x: x,
+                        system_prompt="You are a helpful assistant.",
+                        max_correction_steps=0,
+                        max_conversation_restarts=0,
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                elif model.model_generation_type == GenerationType.IMAGE:
+                    await model.agenerate_image(
+                        prompt="Generate a simple illustration of a thumbs up sign.",
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                else:
+                    raise ValueError(f"Unsupported generation type: {model.model_generation_type}")
+                logger.info(f"{LOG_INDENT}✅ Passed!")
+            except Exception:
+                logger.error(f"{LOG_INDENT}❌ Failed!")
+                raise
+
+    def close(self) -> None:
+        """Release resources held by all model facades.
+
+        NOTE: Not yet wired into ResourceProvider / DataDesigner teardown.
+        Callers that create a ModelRegistry directly should call this when done.
+        Full lifecycle integration is tracked for a follow-up PR.
+        """
+        for facade in self._models.values():
+            try:
+                facade.close()
+            except Exception:
+                logger.exception("Error closing facade for %s", facade.model_alias)
+
+    async def aclose(self) -> None:
+        """Async release resources held by all model facades.
+
+        See `close()` for lifecycle notes.
+        """
+        for facade in self._models.values():
+            try:
+                await facade.aclose()
+            except Exception:
+                logger.exception("Error closing facade for %s", facade.model_alias)
+
+    def _set_model_configs(self, model_configs: list[ModelConfig] | None) -> None:
+        self._model_configs = {mc.alias: mc for mc in (model_configs or [])}
 
     def _get_model(self, model_config: ModelConfig) -> ModelFacade:
         if self._model_facade_factory is None:
             raise RuntimeError("ModelRegistry was not initialized with a model_facade_factory")
-        return self._model_facade_factory(model_config, self._secret_resolver, self._model_provider_registry)
+        facade = self._model_facade_factory(
+            model_config,
+            self._secret_resolver,
+            self._model_provider_registry,
+            self._retry_config,
+        )
+        if self._throttle_manager is not None:
+            self._throttle_manager.register(
+                provider_name=facade.model_provider_name,
+                model_id=model_config.model,
+                alias=model_config.alias,
+                max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
+            )
+        return facade

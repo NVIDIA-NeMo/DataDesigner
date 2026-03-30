@@ -36,17 +36,20 @@ class SamplerColumnConfig(SingleColumnConfig):
     and various statistical distributions (uniform, gaussian, binomial, poisson, scipy).
 
     Attributes:
-        sampler_type: Type of sampler to use. Available types include:
+        sampler_type (required): Type of sampler to use. Available types include:
             "uuid", "category", "subcategory", "uniform", "gaussian", "bernoulli",
             "bernoulli_mixture", "binomial", "poisson", "scipy", "person", "datetime", "timedelta".
-        params: Parameters specific to the chosen sampler type. Type varies based on the `sampler_type`
+        params (required): Parameters specific to the chosen sampler type. Type varies based on the `sampler_type`
             (e.g., `CategorySamplerParams`, `UniformSamplerParams`, `PersonSamplerParams`).
         conditional_params: Optional dictionary for conditional parameters. The dict keys
             are the conditions that must be met (e.g., "age > 21") for the conditional parameters
             to be used. The values of dict are the parameters to use when the condition is met.
         convert_to: Optional type conversion to apply after sampling. Must be one of "float", "int", or "str".
             Useful for converting numerical samples to strings or other types.
-        column_type: Discriminator field, always "sampler" for this configuration type.
+
+    Inherited Attributes:
+        name (required): Unique name of the column to be generated.
+        drop: If True, generate this column but remove it from the final dataset.
 
     !!! tip "Displaying available samplers and their parameters"
         The config builder has an `info` attribute that can be used to display the
@@ -56,10 +59,19 @@ class SamplerColumnConfig(SingleColumnConfig):
         ```
     """
 
-    sampler_type: SamplerType
-    params: Annotated[SamplerParamsT, Discriminator("sampler_type")]
-    conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = {}
-    convert_to: str | None = None
+    sampler_type: SamplerType = Field(
+        description="Type of sampler to use (e.g., uuid, category, uniform, gaussian, person, datetime)"
+    )
+    params: Annotated[SamplerParamsT, Discriminator("sampler_type")] = Field(
+        description="Parameters specific to the chosen sampler type"
+    )
+    conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = Field(
+        default_factory=dict,
+        description="Optional dictionary for conditional parameters; keys are conditions, values are params to use when met",
+    )
+    convert_to: str | None = Field(
+        default=None, description="Optional type conversion after sampling: 'float', 'int', or 'str'"
+    )
     column_type: Literal["sampler"] = "sampler"
 
     @staticmethod
@@ -103,16 +115,16 @@ class SamplerColumnConfig(SingleColumnConfig):
 class LLMTextColumnConfig(SingleColumnConfig):
     """Configuration for text generation columns using Large Language Models.
 
-    LLM text columns generate free-form text content using language models via LiteLLM.
+    LLM text columns generate free-form text content using language models.
     Prompts support Jinja2 templating to reference values from other columns, enabling
     context-aware generation. The generated text can optionally include message traces
     capturing the full conversation history.
 
     Attributes:
-        prompt: Prompt template for text generation. Supports Jinja2 syntax to
+        prompt (required): Prompt template for text generation. Supports Jinja2 syntax to
             reference other columns (e.g., "Write a story about {{ character_name }}").
             Must be a valid Jinja2 template.
-        model_alias: Alias of the model configuration to use for generation.
+        model_alias (required): Alias of the model configuration to use for generation.
             Must match a model alias defined when initializing the DataDesignerConfigBuilder.
         system_prompt: Optional system prompt to set model behavior and constraints.
             Also supports Jinja2 templating. If provided, must be a valid Jinja2 template.
@@ -133,16 +145,31 @@ class LLMTextColumnConfig(SingleColumnConfig):
             containing only the reasoning_content from the final assistant response. This is
             useful for models that expose chain-of-thought reasoning separately from the main
             response. Defaults to False.
-        column_type: Discriminator field, always "llm-text" for this configuration type.
+
+    Inherited Attributes:
+        name (required): Unique name of the column to be generated.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
-    prompt: str
-    model_alias: str
-    system_prompt: str | None = None
-    multi_modal_context: list[ImageContext] | None = None
-    tool_alias: str | None = None
-    with_trace: TraceType = TraceType.NONE
-    extract_reasoning_content: bool = False
+    prompt: str = Field(
+        description="Jinja2 template for the LLM prompt; can reference other columns via {{ column_name }}"
+    )
+    model_alias: str = Field(description="Alias of the model configuration to use for generation")
+    system_prompt: str | None = Field(
+        default=None, description="Optional system prompt to set model behavior and constraints"
+    )
+    multi_modal_context: list[ImageContext] | None = Field(
+        default=None, description="Optional list of ImageContext for vision model inputs"
+    )
+    tool_alias: str | None = Field(
+        default=None, description="Optional alias of the tool configuration to use for MCP tool calls"
+    )
+    with_trace: TraceType = Field(
+        default=TraceType.NONE, description="Trace capture mode: NONE, LAST_MESSAGE, or ALL_MESSAGES"
+    )
+    extract_reasoning_content: bool = Field(
+        default=False, description="If True, capture chain-of-thought in {name}__reasoning_content column"
+    )
     column_type: Literal["llm-text"] = "llm-text"
 
     @staticmethod
@@ -202,24 +229,29 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
     for the specified language. Inherits all prompt templating capabilities from LLMTextColumnConfig.
 
     Attributes:
-        code_lang: Programming language or SQL dialect for code generation. Supported
+        code_lang (required): Programming language or SQL dialect for code generation. Supported
             values include: "python", "javascript", "typescript", "java", "kotlin", "go",
             "rust", "ruby", "scala", "swift", "sql:sqlite", "sql:postgres", "sql:mysql",
             "sql:tsql", "sql:bigquery", "sql:ansi". See CodeLang enum for complete list.
-        column_type: Discriminator field, always "llm-code" for this configuration type.
 
     Inherited Attributes:
-        prompt: Prompt template for code generation (supports Jinja2).
-        model_alias: Alias of the model configuration to use.
+        name (required): Unique name of the column to be generated.
+        prompt (required): Prompt template for code generation (supports Jinja2).
+        model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
         multi_modal_context: Optional image contexts for multi-modal generation.
         tool_alias: Optional tool configuration alias for MCP tool calls.
-        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        with_trace: Specifies what trace information to capture in a `{column_name}__trace`
+            column. Options are `TraceType.NONE` (default), `TraceType.LAST_MESSAGE`, or
+            `TraceType.ALL_MESSAGES`.
         extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
             column containing the reasoning content from the final assistant response.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
-    code_lang: CodeLang
+    code_lang: CodeLang = Field(
+        description="Target programming language or SQL dialect for code extraction from LLM response"
+    )
     column_type: Literal["llm-code"] = "llm-code"
 
     @staticmethod
@@ -236,23 +268,28 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
     from LLMTextColumnConfig.
 
     Attributes:
-        output_format: The schema defining the expected output structure. Can be either:
+        output_format (required): The schema defining the expected output structure. Can be either:
             - A Pydantic BaseModel class (recommended)
             - A JSON schema dictionary
-        column_type: Discriminator field, always "llm-structured" for this configuration type.
 
     Inherited Attributes:
-        prompt: Prompt template for structured generation (supports Jinja2).
-        model_alias: Alias of the model configuration to use.
+        name (required): Unique name of the column to be generated.
+        prompt (required): Prompt template for structured generation (supports Jinja2).
+        model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
         multi_modal_context: Optional image contexts for multi-modal generation.
         tool_alias: Optional tool configuration alias for MCP tool calls.
-        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        with_trace: Specifies what trace information to capture in a `{column_name}__trace`
+            column. Options are `TraceType.NONE` (default), `TraceType.LAST_MESSAGE`, or
+            `TraceType.ALL_MESSAGES`.
         extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
             column containing the reasoning content from the final assistant response.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
-    output_format: dict | type[BaseModel]
+    output_format: dict | type[BaseModel] = Field(
+        description="Pydantic model or JSON schema dict defining the expected structured output shape"
+    )
     column_type: Literal["llm-structured"] = "llm-structured"
 
     @staticmethod
@@ -279,10 +316,10 @@ class Score(ConfigBase):
     quality assessments.
 
     Attributes:
-        name: A clear, concise name for this scoring dimension (e.g., "Relevance", "Fluency").
-        description: An informative and detailed assessment guide explaining how to evaluate
+        name (required): A clear, concise name for this scoring dimension (e.g., "Relevance", "Fluency").
+        description (required): An informative and detailed assessment guide explaining how to evaluate
             this dimension. Should provide clear criteria for scoring.
-        options: Dictionary mapping score values to their descriptions. Keys can be integers
+        options (required): Dictionary mapping score values to their descriptions. Keys can be integers
             (e.g., 1-5 scale) or strings (e.g., "Poor", "Good", "Excellent"). Values are
             descriptions explaining what each score level means.
     """
@@ -301,23 +338,28 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
     capabilities from LLMTextColumnConfig.
 
     Attributes:
-        scores: List of Score objects defining the evaluation dimensions. Each score
+        scores (required): List of Score objects defining the evaluation dimensions. Each score
             represents a different aspect to evaluate (e.g., accuracy, relevance, fluency).
             Must contain at least one score.
-        column_type: Discriminator field, always "llm-judge" for this configuration type.
 
     Inherited Attributes:
-        prompt: Prompt template for the judge evaluation (supports Jinja2).
-        model_alias: Alias of the model configuration to use.
+        name (required): Unique name of the column to be generated.
+        prompt (required): Prompt template for the judge evaluation (supports Jinja2).
+        model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
         multi_modal_context: Optional image contexts for multi-modal generation.
         tool_alias: Optional tool configuration alias for MCP tool calls.
-        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        with_trace: Specifies what trace information to capture in a `{column_name}__trace`
+            column. Options are `TraceType.NONE` (default), `TraceType.LAST_MESSAGE`, or
+            `TraceType.ALL_MESSAGES`.
         extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
             column containing the reasoning content from the final assistant response.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
-    scores: list[Score] = Field(..., min_length=1)
+    scores: list[Score] = Field(
+        ..., min_length=1, description="List of Score objects defining rubric criteria for LLM judge evaluation"
+    )
     column_type: Literal["llm-judge"] = "llm-judge"
 
     @staticmethod
@@ -333,17 +375,21 @@ class ExpressionColumnConfig(SingleColumnConfig):
     features without requiring LLM generation. The expression is evaluated row-by-row.
 
     Attributes:
-        expr: Jinja2 expression to evaluate. Can reference other column values using
+        expr (required): Jinja2 expression to evaluate. Can reference other column values using
             {{ column_name }} syntax. Supports filters, conditionals, and arithmetic.
             Must be a valid, non-empty Jinja2 template.
         dtype: Data type to cast the result to. Must be one of "int", "float", "str", or "bool".
             Defaults to "str". Type conversion is applied after expression evaluation.
-        column_type: Discriminator field, always "expression" for this configuration type.
+
+    Inherited Attributes:
+        name (required): Unique name of the column to be generated.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
-    name: str
-    expr: str
-    dtype: Literal["int", "float", "str", "bool"] = "str"
+    expr: str = Field(description="Jinja2 expression to compute the column value from other columns")
+    dtype: Literal["int", "float", "str", "bool"] = Field(
+        default="str", description="Data type for expression result: 'int', 'float', 'str', or 'bool'"
+    )
     column_type: Literal["expression"] = "expression"
 
     @staticmethod
@@ -388,16 +434,16 @@ class ValidationColumnConfig(SingleColumnConfig):
     and remote HTTP endpoints.
 
     Attributes:
-        target_columns: List of column names to validate. These columns are passed to the
+        target_columns (required): List of column names to validate. These columns are passed to the
             validator for validation. All target columns must exist in the dataset
             before validation runs.
-        validator_type: The type of validator to use. Options:
+        validator_type (required): The type of validator to use. Options:
             - "code": Execute code (Python or SQL) for validation. The code receives a
               DataFrame with target columns and must return a DataFrame with validation results.
             - "local_callable": Call a local Python function with the data. Only supported
               when running DataDesigner locally.
             - "remote": Send data to a remote HTTP endpoint for validation. Useful for
-        validator_params: Parameters specific to the validator type. Type varies by validator:
+        validator_params (required): Parameters specific to the validator type. Type varies by validator:
             - CodeValidatorParams: Specifies code language (python or SQL dialect like
               "sql:postgres", "sql:mysql").
             - LocalCallableValidatorParams: Provides validation function (Callable[[pd.DataFrame],
@@ -407,12 +453,17 @@ class ValidationColumnConfig(SingleColumnConfig):
         batch_size: Number of records to process in each validation batch. Defaults to 10.
             Larger batches are more efficient but use more memory. Adjust based on validator
             complexity and available resources.
-        column_type: Discriminator field, always "validation" for this configuration type.
+
+    Inherited Attributes:
+        name (required): Unique name of the column to be generated.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
-    target_columns: list[str]
-    validator_type: ValidatorType
-    validator_params: ValidatorParamsT
+    target_columns: list[str] = Field(description="List of column names to validate")
+    validator_type: ValidatorType = Field(description="Validation method: 'code', 'local_callable', or 'remote'")
+    validator_params: Annotated[ValidatorParamsT, Discriminator("validator_type")] = Field(
+        description="Validator-specific parameters (e.g., CodeValidatorParams)"
+    )
     batch_size: int = Field(default=10, ge=1, description="Number of records to process in each batch")
     column_type: Literal["validation"] = "validation"
 
@@ -429,6 +480,17 @@ class ValidationColumnConfig(SingleColumnConfig):
     def side_effect_columns(self) -> list[str]:
         return []
 
+    @model_validator(mode="before")
+    @classmethod
+    def inject_validator_type_into_params(cls, data: dict) -> dict:
+        """Inject validator_type into validator_params for discriminated union resolution."""
+        if isinstance(data, dict):
+            validator_type = data.get("validator_type")
+            validator_params = data.get("validator_params")
+            if validator_type and isinstance(validator_params, dict) and "validator_type" not in validator_params:
+                data["validator_params"] = {"validator_type": validator_type, **validator_params}
+        return data
+
 
 class SeedDatasetColumnConfig(SingleColumnConfig):
     """Configuration for columns sourced from seed datasets.
@@ -437,8 +499,9 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
     automatically when calling `with_seed_dataset()` on the builder, rather than
     being instantiated directly by users.
 
-    Attributes:
-        column_type: Discriminator field, always "seed-dataset" for this configuration type.
+    Inherited Attributes:
+        name (required): Unique name of the column to be generated.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
     column_type: Literal["seed-dataset"] = "seed-dataset"
@@ -462,14 +525,17 @@ class EmbeddingColumnConfig(SingleColumnConfig):
     Embedding columns generate embeddings for text input using a specified model.
 
     Attributes:
-        target_column: The column to generate embeddings for. The column could be a single text string or a list of text strings in stringified JSON format.
+        target_column (required): The column to generate embeddings for. The column could be a single text string or a list of text strings in stringified JSON format.
             If it is a list of text strings in stringified JSON format, the embeddings will be generated for each text string.
-        model_alias: The model to use for embedding generation.
-        column_type: Discriminator field, always "embedding" for this configuration type.
+        model_alias (required): The model to use for embedding generation.
+
+    Inherited Attributes:
+        name (required): Unique name of the column to be generated.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
-    target_column: str
-    model_alias: str
+    target_column: str = Field(description="Name of the text column to generate embeddings for")
+    model_alias: str = Field(description="Alias of the model to use for embedding generation")
     column_type: Literal["embedding"] = "embedding"
 
     @staticmethod
@@ -492,19 +558,26 @@ class ImageColumnConfig(SingleColumnConfig):
     The API used is automatically determined based on the model name:
 
     Attributes:
-        prompt: Prompt template for image generation. Supports Jinja2 templating to
+        prompt (required): Prompt template for image generation. Supports Jinja2 templating to
             reference other columns (e.g., "Generate an image of a {{ character_name }}").
             Must be a valid Jinja2 template.
-        model_alias: The model to use for image generation.
+        model_alias (required): The model to use for image generation.
         multi_modal_context: Optional list of image contexts for multi-modal generation.
             Enables autoregressive multi-modal models to generate images based on image inputs.
             Only works with autoregressive models that support image-to-image generation.
-        column_type: Discriminator field, always "image" for this configuration type.
+
+    Inherited Attributes:
+        name (required): Unique name of the column to be generated.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
-    prompt: str
-    model_alias: str
-    multi_modal_context: list[ImageContext] | None = None
+    prompt: str = Field(
+        description="Jinja2 template for the image generation prompt; can reference other columns via {{ column_name }}"
+    )
+    model_alias: str = Field(description="Alias of the model to use for image generation")
+    multi_modal_context: list[ImageContext] | None = Field(
+        default=None, description="Optional list of ImageContext for multi-modal image-to-image generation"
+    )
     column_type: Literal["image"] = "image"
 
     @staticmethod
@@ -546,11 +619,14 @@ class CustomColumnConfig(SingleColumnConfig):
     (default, row-based) and full_column (batch-based with DataFrame access).
 
     Attributes:
-        generator_function: A callable decorated with @custom_column_generator.
+        generator_function (required): A callable decorated with @custom_column_generator.
         generation_strategy: "cell_by_cell" (row-based) or "full_column" (batch-based).
         generator_params: Optional typed configuration object (Pydantic BaseModel) passed
             as the second argument to the generator function.
-        column_type: Discriminator field, always "custom" for this configuration type.
+
+    Inherited Attributes:
+        name (required): Unique name of the column to be generated.
+        drop: If True, generate this column but remove it from the final dataset.
     """
 
     generator_function: Any = Field(description="Function decorated with @custom_column_generator")

@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+from dataclasses import dataclass, field, fields
+from typing import Any, ClassVar, Protocol
 
 
 class HttpResponse(Protocol):
@@ -54,10 +54,14 @@ class ChatCompletionRequest:
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int | None = None
+    stop: str | list[str] | None = None
+    seed: int | None = None
+    response_format: dict[str, Any] | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
     timeout: float | None = None
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None
-    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -90,7 +94,6 @@ class ImageGenerationRequest:
     model: str
     prompt: str
     messages: list[dict[str, Any]] | None = None
-    n: int | None = None
     timeout: float | None = None
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None
@@ -101,3 +104,66 @@ class ImageGenerationResponse:
     images: list[ImagePayload]
     usage: Usage | None = None
     raw: Any | None = None
+
+
+# ---------------------------------------------------------------------------
+# Transport preparation
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TransportKwargs:
+    """Pre-processed kwargs ready for an HTTP client call.
+
+    Adapters call ``TransportKwargs.from_request(request)`` instead of
+    manually handling ``extra_body`` / ``extra_headers`` on every request type.
+
+    - ``body``: API-level keyword arguments. ``extra_body`` keys are merged
+      into the top level.
+    - ``headers``: Extra HTTP headers to attach to the outgoing request.
+    """
+
+    _META_FIELDS: ClassVar[frozenset[str]] = frozenset({"extra_body", "extra_headers", "timeout"})
+
+    body: dict[str, Any]
+    headers: dict[str, str]
+    timeout: float | None = None
+
+    @classmethod
+    def from_request(
+        cls,
+        request: Any,
+        *,
+        exclude: frozenset[str] = frozenset(),
+    ) -> TransportKwargs:
+        """Build transport-ready kwargs from a canonical request dataclass.
+
+        1. Collects all non-None optional fields (respecting *exclude*).
+        2. Merges ``extra_body`` keys into the top-level body dict.
+        3. Pops ``extra_headers`` into a separate headers dict.
+        4. Extracts ``timeout`` as a per-request HTTP timeout override
+           (not forwarded to the API body).
+        """
+        optional_fields = cls._collect_optional_fields(request, exclude=exclude | cls._META_FIELDS)
+
+        extra_body = getattr(request, "extra_body", None) or {}
+        extra_headers = getattr(request, "extra_headers", None) or {}
+        timeout = getattr(request, "timeout", None)
+
+        body = {**optional_fields, **extra_body}
+
+        return cls(body=body, headers=dict(extra_headers), timeout=timeout)
+
+    @staticmethod
+    def _collect_optional_fields(request: Any, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:
+        """Extract non-None optional fields from a request dataclass, skipping *exclude*.
+
+        Targets fields whose default is ``None`` — i.e. truly optional kwargs
+        the caller may or may not set.  Fields with non-``None`` defaults are
+        not "optional" in this forwarding sense and are excluded.
+        """
+        return {
+            f.name: v
+            for f in fields(request)
+            if f.name not in exclude and f.default is None and (v := getattr(request, f.name)) is not None
+        }

@@ -34,6 +34,15 @@ class ImageGenerationClient(Protocol):
 
 
 class ModelClient(ChatCompletionClient, EmbeddingClient, ImageGenerationClient, Protocol):
+    """Unified protocol for model provider adapters.
+
+    The ``supports_*`` methods indicate whether this **adapter implementation**
+    is capable of handling a given modality (i.e. it has the code paths and
+    route mappings to make the call).  They do **not** reflect whether a
+    specific model or endpoint actually supports that modality — that is a
+    configuration concern handled by ``ModelConfig.generation_type``.
+    """
+
     provider_name: str
 
     def supports_chat_completion(self) -> bool: ...

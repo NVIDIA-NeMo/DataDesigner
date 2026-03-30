@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
+import uuid
 from typing import Any
 
 from data_designer.config.utils.image_helpers import (
@@ -33,32 +33,32 @@ logger = logging.getLogger(__name__)
 
 
 def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
-    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
     message = get_value_from(first_choice, "message")
     tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
     images = extract_images_from_chat_message(message)
     assistant_message = AssistantMessage(
         content=coerce_message_content(get_value_from(message, "content")),
-        reasoning_content=get_value_from(message, "reasoning_content"),
+        reasoning_content=extract_reasoning_content(message),
         tool_calls=tool_calls,
         images=images,
     )
-    usage = extract_usage(getattr(response, "usage", None), generated_images=len(images) if images else None)
+    usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
 async def aparse_chat_completion_response(response: Any) -> ChatCompletionResponse:
-    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
     message = get_value_from(first_choice, "message")
     tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
     images = await aextract_images_from_chat_message(message)
     assistant_message = AssistantMessage(
         content=coerce_message_content(get_value_from(message, "content")),
-        reasoning_content=get_value_from(message, "reasoning_content"),
+        reasoning_content=extract_reasoning_content(message),
         tool_calls=tool_calls,
         images=images,
     )
-    usage = extract_usage(getattr(response, "usage", None), generated_images=len(images) if images else None)
+    usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
@@ -68,13 +68,13 @@ async def aparse_chat_completion_response(response: Any) -> ChatCompletionRespon
 
 
 def extract_images_from_chat_response(response: Any) -> list[ImagePayload]:
-    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
     message = get_value_from(first_choice, "message")
     return extract_images_from_chat_message(message)
 
 
 async def aextract_images_from_chat_response(response: Any) -> list[ImagePayload]:
-    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
     message = get_value_from(first_choice, "message")
     return await aextract_images_from_chat_message(message)
 
@@ -92,11 +92,11 @@ async def aextract_images_from_chat_message(message: Any) -> list[ImagePayload]:
 
 
 def extract_images_from_image_response(response: Any) -> list[ImagePayload]:
-    return parse_image_list(getattr(response, "data", []))
+    return parse_image_list(get_value_from(response, "data") or [])
 
 
 async def aextract_images_from_image_response(response: Any) -> list[ImagePayload]:
-    return await aparse_image_list(getattr(response, "data", []))
+    return await aparse_image_list(get_value_from(response, "data") or [])
 
 
 def collect_raw_image_candidates(message: Any) -> tuple[list[Any], list[Any]]:
@@ -206,7 +206,7 @@ def extract_tool_calls(raw_tool_calls: Any) -> list[ToolCall]:
 
     normalized_tool_calls: list[ToolCall] = []
     for raw_tool_call in raw_tool_calls:
-        tool_call_id = get_value_from(raw_tool_call, "id") or ""
+        tool_call_id = get_value_from(raw_tool_call, "id") or uuid.uuid4().hex
         function = get_value_from(raw_tool_call, "function")
         name = get_value_from(function, "name") or ""
         arguments_value = get_value_from(function, "arguments")
@@ -225,6 +225,27 @@ def serialize_tool_arguments(arguments_value: Any) -> str:
         return json.dumps(arguments_value)
     except Exception:
         return str(arguments_value)
+
+
+# ---------------------------------------------------------------------------
+# Reasoning content extraction
+# ---------------------------------------------------------------------------
+
+
+def extract_reasoning_content(message: Any) -> str | None:
+    """Extract reasoning content from a provider response message.
+
+    vLLM >= 0.16.0 uses ``message.reasoning`` as the canonical field;
+    ``message.reasoning_content`` is a legacy fallback used by some providers.
+    Check the canonical field first.
+
+    Ref: https://github.com/NVIDIA-NeMo/DataDesigner/issues/374
+    """
+    value = get_value_from(message, "reasoning")
+    if isinstance(value, str) and value:
+        return value
+    fallback = get_value_from(message, "reasoning_content")
+    return fallback if isinstance(fallback, str) and fallback else None
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +319,7 @@ def coerce_message_content(content: Any) -> str | None:
                 text_value = block.get("text")
                 if isinstance(text_value, str):
                     text_parts.append(text_value)
-        if text_parts:
-            return "\n".join(text_parts)
+        return "\n".join(text_parts) if text_parts else None
     return str(content)
 
 
@@ -333,17 +353,3 @@ def get_first_value_or_none(values: Any) -> Any | None:
     if isinstance(values, list) and values:
         return values[0]
     return None
-
-
-def collect_non_none_optional_fields(request: Any, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:
-    """Extract non-None optional fields from a request dataclass, skipping *exclude*.
-
-    The ``f.default is None`` check intentionally targets fields whose default is
-    ``None`` — i.e. truly optional kwargs the caller may or may not set.  Fields with
-    non-``None`` defaults are not "optional" in this forwarding sense and are excluded.
-    """
-    return {
-        f.name: v
-        for f in dataclasses.fields(request)
-        if f.name not in exclude and f.default is None and (v := getattr(request, f.name)) is not None
-    }

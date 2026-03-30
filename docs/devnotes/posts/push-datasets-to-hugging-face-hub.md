@@ -7,7 +7,7 @@ authors:
 
 # **Push Datasets to Hugging Face Hub**
 
-![Push to Hub Hero](images/push-to-hub-hero.png)
+![Push to Hub Hero](assets/push-datasets-to-hugging-face-hub/push-to-hub-hero.png)
 
 You just generated 10k multilingual greetings (or some other cool dataset). Now what — email a parquet file?
 Nah. Call `.push_to_hub()` and you've got a live dataset page on Hugging Face. Done and dusted 🚢.
@@ -94,9 +94,29 @@ url = HuggingFaceHubClient.push_to_hub_from_folder(
 ```
 
 ---
+## What You Get on the Hub
+
+Once pushed, your dataset is live in the Hugging Face ecosystem:
+
+- **Dataset Viewer** — browsable in the browser immediately. Each processor
+  config shows up as a separate subset tab (more on this in
+  [Processors Get First-Class Treatment](#processors-get-first-class-treatment)).
+- **Streaming** — parquet means consumers can stream without downloading:
+
+    ```python
+    from datasets import load_dataset
+
+    ds = load_dataset("my-org/multilingual-greetings", "conversations", split="train", streaming=True)
+    ```
+
+- **[Dataset Viewer API](https://huggingface.co/docs/dataset-viewer/)** — row
+  pagination, text search, column statistics, and parquet shard URLs with no
+  extra setup.
+
+---
 ## What Gets Uploaded
 
-![Push to Hub Pipeline](images/push-to-hub-pipeline.png)
+![Push to Hub Pipeline](assets/push-datasets-to-hugging-face-hub/push-to-hub-pipeline.png)
 
 Everything. The upload pipeline runs in this order:
 
@@ -124,28 +144,9 @@ Re-pushing to the same `repo_id` updates the existing repo — no need to delete
 and recreate.
 
 ---
-## What You Get on the Hub
-
-Once pushed, your dataset is live in the Hugging Face ecosystem:
-
-- **Dataset Viewer** — browsable in the browser immediately. Each processor
-  config shows up as a separate subset tab.
-- **Streaming** — parquet means consumers can stream without downloading:
-
-    ```python
-    from datasets import load_dataset
-
-    ds = load_dataset("my-org/multilingual-greetings", "conversations", split="train", streaming=True)
-    ```
-
-- **[Dataset Viewer API](https://huggingface.co/docs/dataset-viewer/)** — row
-  pagination, text search, column statistics, and parquet shard URLs with no
-  extra setup.
-
----
 ## Processors Get First-Class Treatment
 
-![Schema Transform for Conversation Training](images/push-to-hub-schema-transform.png)
+![Schema Transform for Conversation Training](assets/push-datasets-to-hugging-face-hub/push-to-hub-schema-transform.png)
 
 Notice the `SchemaTransformProcessorConfig` in the example above. That's doing
 the heavy lifting — it takes the raw `greeting` and `response` columns and
@@ -265,7 +266,7 @@ If none of those work, you get a clear error telling you what to do.
 ---
 ## Reproducible Pipelines — The Round-Trip
 
-![Round-Trip Reproducibility](images/push-to-hub-round-trip.png){ width="800" }
+![Round-Trip Reproducibility](assets/push-datasets-to-hugging-face-hub/push-to-hub-round-trip.png){ width="800" }
 
 Here's the payoff: every dataset you push includes `builder_config.json` — the
 full SDG pipeline definition. Anyone (including future-you) can recreate the

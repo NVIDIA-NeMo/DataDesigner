@@ -1,12 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
-from data_designer.engine.models import litellm_overrides
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
@@ -42,9 +41,7 @@ def stub_no_usage_config():
     )
 
 
-@patch.object(litellm_overrides, "apply_litellm_patches", autospec=True)
 def test_create_model_registry(
-    mock_apply_litellm_patches: object,
     stub_model_configs: list[ModelConfig],
     stub_secrets_resolver: object,
     stub_model_provider_registry: object,
@@ -55,7 +52,6 @@ def test_create_model_registry(
         model_provider_registry=stub_model_provider_registry,
     )
     assert isinstance(model_registry, ModelRegistry)
-    mock_apply_litellm_patches.assert_called_once()
 
 
 def test_public_props(stub_model_configs, stub_model_registry):
@@ -77,15 +73,16 @@ def test_register_model_configs(stub_model_registry, stub_new_model_config):
     stub_model_registry.register_model_configs([stub_new_model_config])
 
     # Verify configs are registered
-    assert len(stub_model_registry.model_configs) == 4
+    assert len(stub_model_registry.model_configs) == 5
 
     # Trigger lazy initialization by requesting models
     assert stub_model_registry.get_model(model_alias="stub-text").model_name == "stub-model-text"
     assert stub_model_registry.get_model(model_alias="stub-reasoning").model_name == "stub-model-reasoning"
     assert stub_model_registry.get_model(model_alias="stub-vision").model_name == "stub-model-vision"
     assert stub_model_registry.get_model(model_alias="stub-embedding").model_name == "stub-model-embedding"
+    assert stub_model_registry.get_model(model_alias="stub-image").model_name == "stub-model-image"
 
-    assert len(stub_model_registry.models) == 4
+    assert len(stub_model_registry.models) == 5
     assert all(isinstance(model, ModelFacade) for model in stub_model_registry.models.values())
 
 
@@ -277,17 +274,20 @@ def test_get_usage_deltas(
         assert deltas == {}
 
 
+@patch.object(ModelFacade, "generate_image", autospec=True)
 @patch.object(ModelFacade, "generate_text_embeddings", autospec=True)
 @patch.object(ModelFacade, "completion", autospec=True)
 def test_run_health_check_success(
     mock_completion: object,
     mock_generate_text_embeddings: object,
+    mock_generate_image: object,
     stub_model_registry: ModelRegistry,
 ) -> None:
-    model_aliases = {"stub-text", "stub-reasoning", "stub-embedding"}
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding", "stub-image"]
     stub_model_registry.run_health_check(model_aliases)
     assert mock_completion.call_count == 2
     assert mock_generate_text_embeddings.call_count == 1
+    assert mock_generate_image.call_count == 1
 
 
 @patch.object(ModelFacade, "generate_text_embeddings", autospec=True)
@@ -372,6 +372,56 @@ def test_run_health_check_skip_health_check_flag(
     # Verify the correct models were called
     called_model_aliases = {call[0][0].model_alias for call in mock_completion.call_args_list}
     assert called_model_aliases == {"check-model", "default-model"}
+
+
+# --- Async health check tests ---
+
+
+@patch.object(ModelFacade, "agenerate_image", new_callable=AsyncMock)
+@patch.object(ModelFacade, "agenerate_text_embeddings", new_callable=AsyncMock)
+@patch.object(ModelFacade, "agenerate", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_arun_health_check_success(
+    mock_agenerate: AsyncMock,
+    mock_agenerate_text_embeddings: AsyncMock,
+    mock_agenerate_image: AsyncMock,
+    stub_model_registry: ModelRegistry,
+) -> None:
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding", "stub-image"]
+    await stub_model_registry.arun_health_check(model_aliases)
+    assert mock_agenerate.call_count == 2
+    assert mock_agenerate_text_embeddings.call_count == 1
+    assert mock_agenerate_image.call_count == 1
+
+
+@patch.object(ModelFacade, "agenerate_text_embeddings", new_callable=AsyncMock)
+@patch.object(ModelFacade, "agenerate", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_arun_health_check_authentication_error(
+    mock_agenerate: AsyncMock,
+    mock_agenerate_text_embeddings: AsyncMock,
+    stub_model_registry: ModelRegistry,
+) -> None:
+    mock_agenerate.side_effect = ModelAuthenticationError("Invalid API key")
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
+
+    with pytest.raises(ModelAuthenticationError):
+        await stub_model_registry.arun_health_check(model_aliases)
+
+    mock_agenerate.assert_awaited_once()
+    mock_agenerate_text_embeddings.assert_not_awaited()
+
+
+def test_get_aggregate_max_parallel_requests(stub_model_registry: ModelRegistry) -> None:
+    """get_aggregate_max_parallel_requests returns the sum across all model configs."""
+    total = stub_model_registry.get_aggregate_max_parallel_requests()
+    expected = sum(mc.inference_parameters.max_parallel_requests for mc in stub_model_registry.model_configs.values())
+    assert total == expected
+    assert total > 0
+
+
+def test_get_aggregate_max_parallel_requests_empty(stub_empty_model_registry: ModelRegistry) -> None:
+    assert stub_empty_model_registry.get_aggregate_max_parallel_requests() == 0
 
 
 @pytest.mark.parametrize(

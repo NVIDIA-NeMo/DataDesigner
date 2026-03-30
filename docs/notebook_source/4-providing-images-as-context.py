@@ -63,65 +63,36 @@ from data_designer.interface import DataDesigner
 data_designer = DataDesigner()
 
 # %% [markdown]
-# ### 🎛️ Define model configurations
-#
-# - Each `ModelConfig` defines a model that can be used during the generation process.
-#
-# - The "model alias" is used to reference the model in the Data Designer config (as we will see below).
-#
-# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).
-#
-# - By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.
-#
-
-# %%
-# This name is set in the model provider configuration.
-MODEL_PROVIDER = "nvidia"
-
-model_configs = [
-    dd.ModelConfig(
-        alias="vision",
-        model="nvidia/nemotron-nano-12b-v2-vl",
-        provider=MODEL_PROVIDER,
-        inference_parameters=dd.ChatCompletionInferenceParams(
-            temperature=0.60,
-            top_p=0.95,
-            max_tokens=2048,
-        ),
-    ),
-]
-
-# %% [markdown]
 # ### 🏗️ Initialize the Data Designer Config Builder
 #
 # - The Data Designer config defines the dataset schema and generation process.
 #
 # - The config builder provides an intuitive interface for building this configuration.
 #
-# - The list of model configs is provided to the builder at initialization.
+# - When initialized without arguments, the [default model configurations](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #
 
 # %%
-config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
+config_builder = dd.DataDesignerConfigBuilder()
 
 # %% [markdown]
 # ### 🌱 Seed Dataset Creation
 #
 # In this section, we'll prepare our visual documents as a seed dataset for summarization:
 #
-# - **Loading Visual Documents**: We use the ColPali dataset containing document images
+# - **Loading Visual Documents**: We use a small pets image dataset containing labeled images
 # - **Image Processing**: Convert images to base64 format for vision model consumption
-# - **Metadata Extraction**: Preserve relevant document information (filename, page number, source, etc.)
+# - **Metadata Extraction**: Preserve relevant image information (label, etc.)
 #
-# The seed dataset will be used to generate detailed text summaries of each document image.
+# The seed dataset will be used to generate detailed text descriptions of each image.
 
 # %%
 # Dataset processing configuration
 IMG_COUNT = 512  # Number of images to process
 BASE64_IMAGE_HEIGHT = 512  # Standardized height for model input
 
-# Load ColPali dataset for visual documents
-img_dataset_cfg = {"path": "vidore/colpali_train_set", "split": "train", "streaming": True}
+# Load the pets dataset (train split, ~23 MB total)
+img_dataset_cfg = {"path": "rokmr/pets", "split": "train"}
 
 
 # %%
@@ -152,28 +123,25 @@ def convert_image_to_chat_format(record, height: int) -> dict:
     Returns:
         Updated record with base64_image and uuid fields
     """
-    # Resize image for consistent processing
     image = resize_image(record["image"], height)
 
-    # Convert to base64 string
     img_buffer = io.BytesIO()
     image.save(img_buffer, format="PNG")
     byte_data = img_buffer.getvalue()
     base64_encoded_data = base64.b64encode(byte_data)
     base64_string = base64_encoded_data.decode("utf-8")
 
-    # Return updated record
     return record | {"base64_image": base64_string, "uuid": str(uuid.uuid4())}
 
 
 # %%
-# Load and process the visual document dataset
-print("📥 Loading and processing document images...")
+# Load and process the image dataset
+print("📥 Loading and processing images...")
 
-img_dataset_iter = iter(
-    load_dataset(**img_dataset_cfg).map(convert_image_to_chat_format, fn_kwargs={"height": BASE64_IMAGE_HEIGHT})
+img_dataset = load_dataset(**img_dataset_cfg).map(
+    convert_image_to_chat_format, fn_kwargs={"height": BASE64_IMAGE_HEIGHT}
 )
-img_dataset = pd.DataFrame([next(img_dataset_iter) for _ in range(IMG_COUNT)])
+img_dataset = pd.DataFrame(img_dataset[:IMG_COUNT])
 
 print(f"✅ Loaded {len(img_dataset)} images with columns: {list(img_dataset.columns)}")
 
@@ -182,19 +150,18 @@ img_dataset.head()
 
 # %%
 # Add the seed dataset containing our processed images
-df_seed = pd.DataFrame(img_dataset)[["uuid", "image_filename", "base64_image", "page", "options", "source"]]
+df_seed = pd.DataFrame(img_dataset)[["uuid", "label", "base64_image"]]
 config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=df_seed))
 
 # %%
-# Add a column to generate detailed document summaries
+# Add a column to generate detailed image descriptions
 config_builder.add_column(
     dd.LLMTextColumnConfig(
-        name="summary",
-        model_alias="vision",
+        name="description",
+        model_alias="nvidia-vision",
         prompt=(
-            "Provide a detailed summary of the content in this image in Markdown format. "
-            "Start from the top of the image and then describe it from top to bottom. "
-            "Place a summary at the bottom."
+            "Provide a detailed description of the content in this image in Markdown format. "
+            "Describe the main subject, background, colors, and any notable details."
         ),
         multi_modal_context=[dd.ImageContext(column_name="base64_image")],
     )
@@ -240,11 +207,11 @@ preview.analysis.to_report()
 # %% [markdown]
 # ### 🔎 Visual Inspection
 #
-# Let's compare the original document image with the generated summary to validate quality:
+# Let's compare the original image with the generated description to validate quality:
 #
 
 # %%
-# Compare original document with generated summary
+# Compare original image with generated description
 index = 0  # Change this to view different examples
 
 # Merge preview data with original images for comparison
@@ -253,11 +220,11 @@ comparison_dataset = preview.dataset.merge(pd.DataFrame(img_dataset)[["uuid", "i
 # Extract the record for display
 record = comparison_dataset.iloc[index]
 
-print("📄 Original Document Image:")
+print("📄 Original Image:")
 display(resize_image(record.image, BASE64_IMAGE_HEIGHT))
 
-print("\n📝 Generated Summary:")
-rich.print(Panel(record.summary, title="Document Summary", title_align="left"))
+print("\n📝 Generated Description:")
+rich.print(Panel(record.description, title="Image Description", title_align="left"))
 
 
 # %% [markdown]
@@ -288,9 +255,9 @@ analysis.to_report()
 #
 # Now that you've learned how to use visual context for image summarization in Data Designer, explore more:
 #
-# - Experiment with different vision models for specific document types
+# - Experiment with different vision models for specific image types
 # - Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)
-# - Combine vision-based summaries with other column types for multi-modal workflows
+# - Combine vision-based descriptions with other column types for multi-modal workflows
 # - Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering
 #
 # - [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) with Data Designer
