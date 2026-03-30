@@ -2,6 +2,7 @@
 date: 2026-02-26
 authors:
   - nmulepati
+  - davanstrien
 ---
 
 # **Push Datasets to Hugging Face Hub**
@@ -123,6 +124,23 @@ Re-pushing to the same `repo_id` updates the existing repo — no need to delete
 and recreate.
 
 ---
+## What You Get on the Hub
+
+Once pushed, your dataset is live in the Hugging Face ecosystem:
+
+- **Dataset Viewer** — browsable in the browser immediately. Each processor
+  config shows up as a separate subset tab.
+- **Streaming** — parquet means consumers can stream without downloading:
+
+    ```python
+    ds = load_dataset("my-org/multilingual-greetings", "conversations", split="train", streaming=True)
+    ```
+
+- **[Dataset Viewer API](https://huggingface.co/docs/dataset-viewer/)** — row
+  pagination, text search, column statistics, and parquet shard URLs with no
+  extra setup.
+
+---
 ## Processors Get First-Class Treatment
 
 ![Schema Transform for Conversation Training](images/push-to-hub-schema-transform.png)
@@ -224,7 +242,9 @@ build:
 - A **Citation** block so people can cite your dataset
 
 Tags default to `["synthetic", "datadesigner"]` plus whatever you pass in.
-Size category (`n<1K`, `1K<n<10K`, etc.) is auto-computed.
+Size category (`n<1K`, `1K<n<10K`, etc.) is auto-computed. These tags make your
+dataset discoverable in [Hub search](https://huggingface.co/datasets?library=library:datadesigner&sort=trending)
+— you can browse all Data Designer datasets in one place.
 
 The template lives at `packages/data-designer/src/data_designer/integrations/huggingface/dataset_card_template.md` if you
 want to see the Jinja2 source.
@@ -288,7 +308,8 @@ The `builder_config.json` on HuggingFace *is* the reproducibility artifact.
   validates this before hitting the network.
 - **`description` is required** — it's the prose that appears right under the
   title on the dataset card. Make it good.
-- **`private=True`** if you don't want the world to see your dataset yet.
+- **`private=True`** if you don't want the world to see your dataset yet. You
+  can flip it to public later from the dataset settings page.
 - **Metadata paths get rewritten** — local paths like `parquet-files/batch_00000.parquet`
   become `data/batch_00000.parquet` in the uploaded `metadata.json` so references
   stay valid on HF.
