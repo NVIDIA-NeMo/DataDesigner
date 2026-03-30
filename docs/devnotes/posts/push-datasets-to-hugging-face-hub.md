@@ -245,7 +245,7 @@ build:
 
 Tags default to `["synthetic", "datadesigner"]` plus whatever you pass in.
 Size category (`n<1K`, `1K<n<10K`, etc.) is auto-computed. These tags make your
-dataset discoverable in [Hub search](https://huggingface.co/datasets?library=library:datadesigner&sort=trending)
+dataset discoverable in [Hub search](https://huggingface.co/datasets?library=datadesigner&sort=trending)
 — you can browse all Data Designer datasets in one place.
 
 The template lives at `packages/data-designer/src/data_designer/integrations/huggingface/dataset_card_template.md` if you
