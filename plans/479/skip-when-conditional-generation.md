@@ -20,19 +20,26 @@ Today the only workarounds are:
 
 Add a `skip_when` field to `SingleColumnConfig`. When its Jinja2 expression evaluates truthy for a row, the cell is set to `None` and the generator is never called. Skips auto-propagate through the DAG: downstream columns whose `required_columns` include a skipped cell also skip automatically.
 
+Example: a pipeline that generates product reviews only for items in stock. The `sentiment_analysis` and `review` columns are expensive LLM calls that should be skipped for out-of-stock items:
+
 ```python
 config_builder.add_column(
-    name="complexity_score", column_type="llm-structured", ...
+    name="in_stock", column_type="sampler",
+    sampler_type="bernoulli", params=BernoulliSamplerParams(p=0.7),
 )
 config_builder.add_column(
-    name="categories",
+    name="sentiment_analysis",
     column_type="llm-structured",
-    skip_when="{{ complexity_score.overall_complexity_score < 6 }}",
+    skip_when="{{ in_stock == 0 }}",
+    prompt="Analyze the sentiment of reviews for {{ product_name }}...",
     ...
 )
-# Everything downstream of categories auto-skips — no extra config needed
-config_builder.add_column(name="instances", column_type="segmentation", ...)
-config_builder.add_column(name="multi_hop_query", column_type="llm-structured", ...)
+# review depends on sentiment_analysis — auto-skips when sentiment_analysis is skipped
+config_builder.add_column(
+    name="review",
+    column_type="llm-text",
+    prompt="Write a {{ sentiment_analysis.tone }} review for {{ product_name }}...",
+)
 ```
 
 Skipped rows stay in the output (row count is preserved). Skipped cells contain `None`.
