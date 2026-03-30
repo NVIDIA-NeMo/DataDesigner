@@ -223,6 +223,24 @@ Steps:
    quoting issues with agent output containing backticks, quotes, or special chars)
 9. If triggered by label, remove the `re-review` label
 
+The workflow registers a **check run** on the PR. The check itself carries no
+review text - it just acts as the gate and status indicator:
+- **Pending** for external contributors until a collaborator approves the run
+  (GitHub's built-in fork PR approval flow)
+- **In progress** while Claude is working
+- **Success** once the review comment is posted
+
+The actual review is posted as a regular PR comment, where it's easy to read
+and discuss inline. This separates the authorization concern (check run) from
+the output (comment).
+
+```yaml
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+```
+
 Constraints:
 - Only runs on non-draft PRs (automatic mode)
 - Skips if the PR only touches docs/markdown (configurable per recipe)
