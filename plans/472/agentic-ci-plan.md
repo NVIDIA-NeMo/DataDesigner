@@ -116,14 +116,54 @@ Key design decisions:
 ### Runner Setup
 
 The self-hosted runner needs:
-- Claude Code CLI installed and authenticated (API key in GitHub secrets)
-- Codex CLI installed and authenticated (API key in GitHub secrets)
+- Claude Code CLI installed
+- Codex CLI installed (optional, for future use)
 - `uv` for Python dependency management
 - Bypass-permissions / YOLO mode enabled via CLI flags or env vars
-- Network access to Anthropic/OpenAI APIs
+- Network access to the configured model API endpoint
 
 The runner configuration itself is outside this repo (infrastructure concern), but the
 workflow files document what's expected.
+
+### API Configuration and Authentication
+
+**Principle: no internal infrastructure details appear in repo contents.** Recipes,
+`_runner.md`, workflows, and documentation reference only generic environment variable
+names. Actual endpoints and credentials live in GitHub Actions secrets or runner-level
+environment configuration.
+
+Two auth modes are supported. The runner script auto-detects which is active:
+
+1. **Custom endpoint** (service token): environment provides
+   `$AGENTIC_CI_API_BASE_URL` and `$AGENTIC_CI_API_KEY`. The runner script
+   configures Claude Code to use this endpoint (e.g., via `ANTHROPIC_BASE_URL`).
+   Best for CI - the token is not tied to any user account, can be rotated and
+   revoked independently, and is auditable.
+
+2. **OAuth session** (Enterprise subscription): Claude Code is already
+   authenticated on the runner via an active OAuth session. No API key needed -
+   the CLI uses the existing session. Simpler setup but tied to a user account
+   (no service accounts available yet), which creates lifecycle and ownership
+   concerns.
+
+The runner script checks in order:
+1. If `AGENTIC_CI_API_BASE_URL` + `AGENTIC_CI_API_KEY` are set, use custom endpoint
+2. Otherwise, assume OAuth session is active (Enterprise mode)
+3. If neither works, fail with a clear error and open an issue
+
+**Fallback**: optionally, both can be configured. If the custom endpoint fails
+(gateway down, timeout), the runner script falls back to the OAuth session. This
+requires both sets of credentials on the runner but provides resilience.
+
+**What goes where:**
+
+| Item | Location | In repo? |
+|------|----------|----------|
+| Variable names (`AGENTIC_CI_API_BASE_URL`, etc.) | Workflow YAML, runner script | Yes |
+| Actual endpoint URLs | GitHub Actions secrets / runner env | No |
+| API keys / tokens | GitHub Actions secrets | No |
+| OAuth session | Runner-level auth (pre-configured) | No |
+| Auth mode preference | Workflow env or `_runner.md` hint | Yes (generic) |
 
 ### Workflow Design
 
