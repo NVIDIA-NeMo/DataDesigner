@@ -54,7 +54,7 @@ Every column in your seed dataset becomes available as a Jinja2 variable in prom
 
 ## Seed Sources
 
-Data Designer supports five ways to provide seed data:
+Data Designer supports multiple ways to provide seed data, including:
 
 ### 📁 LocalFileSeedSource
 
