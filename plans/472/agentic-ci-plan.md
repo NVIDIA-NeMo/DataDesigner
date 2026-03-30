@@ -78,6 +78,7 @@ description: Review a pull request using the existing review-code skill
 trigger: pull_request
 tool: claude-code          # or "codex" or "any"
 timeout_minutes: 15
+max_turns: 20              # tool calls consume turns; too low = agent can't work
 permissions:
   contents: read
   pull-requests: write
@@ -103,6 +104,12 @@ process improves, both interactive and CI usage benefit automatically.
 
 Key design decisions:
 - **Frontmatter for machine-readable config**, body for the prompt.
+- **`max_turns` is required** - Claude Code's `--max-turns` controls how many
+  tool-use rounds the agent gets. Each tool call (Read, Glob, Grep, Bash) consumes
+  a turn. Setting it too low (e.g., 1) means the agent can't use any tools. Too
+  high and a confused agent burns tokens. Each recipe should declare a sensible
+  default based on expected complexity. PR review needs ~20; a simple health check
+  might need 5.
 - **Recipes compose skills** - a recipe can invoke any existing skill by name. The
   recipe adds CI-specific concerns (output routing, template variables, constraints)
   while the skill owns the domain logic. This avoids prompt duplication and keeps
@@ -146,6 +153,10 @@ Two auth modes are supported. The runner script auto-detects which is active:
    (no service accounts available yet), which creates lifecycle and ownership
    concerns.
 
+A third variable, `$AGENTIC_CI_MODEL`, specifies the model name to pass to
+`claude --model`. Model names are gateway-specific (e.g., the gateway may remap
+model identifiers) and must not be hardcoded in workflow files or recipes.
+
 The runner script checks in order:
 1. If `AGENTIC_CI_API_BASE_URL` + `AGENTIC_CI_API_KEY` are set, use custom endpoint
 2. Otherwise, assume OAuth session is active (Enterprise mode)
@@ -159,7 +170,7 @@ requires both sets of credentials on the runner but provides resilience.
 
 | Item | Location | In repo? |
 |------|----------|----------|
-| Variable names (`AGENTIC_CI_API_BASE_URL`, etc.) | Workflow YAML, runner script | Yes |
+| Variable names (`AGENTIC_CI_API_BASE_URL`, `AGENTIC_CI_MODEL`, etc.) | Workflow YAML, runner script | Yes |
 | Actual endpoint URLs | GitHub Actions secrets / runner env | No |
 | API keys / tokens | GitHub Actions secrets | No |
 | OAuth session | Runner-level auth (pre-configured) | No |
@@ -178,11 +189,13 @@ on:
 
 Steps:
 1. Checkout the PR branch
-2. Install dependencies (minimal - just enough for code reading)
-3. Gather PR context (diff, changed files, PR description)
-4. Substitute template variables into the recipe
-5. Invoke Claude Code / Codex with the rendered prompt
-6. Post the output as a PR review comment
+2. Pre-flight checks (API reachable, `claude` in PATH, required permissions)
+3. Install dependencies (minimal - just enough for code reading)
+4. Gather PR context (diff, changed files, PR description)
+5. Substitute template variables into the recipe
+6. Invoke Claude Code / Codex with the rendered prompt
+7. Write output to a temp file, then post via `gh --body-file` (avoid shell
+   quoting issues with agent output containing backticks, quotes, or special chars)
 
 Constraints:
 - Only runs on non-draft PRs
@@ -244,13 +257,14 @@ each finding proper attention.
 
 Steps:
 1. Checkout main
-2. Restore runner memory (see below)
-3. Install dependencies
-4. Determine today's suite (day-of-week or manual override)
-5. Run the suite's recipe
-6. If a recipe produces changes, open a PR with the diff
-7. If a recipe produces a report, open or update a tracking issue
-8. Persist updated runner memory
+2. Pre-flight checks (API reachable, `claude` in PATH, required permissions)
+3. Restore runner memory (see below)
+4. Install dependencies
+5. Determine today's suite (day-of-week or manual override)
+6. Run the suite's recipe
+7. If a recipe produces changes, open a PR with the diff
+8. If a recipe produces a report, write to temp file, post via `gh --body-file`
+9. Persist updated runner memory
 
 ---
 
@@ -473,10 +487,14 @@ is clear:
 - [ ] `.agents/recipes/` directory with `_runner.md` and recipe format spec
 - [ ] First recipe: `pr-review/recipe.md`
 - [ ] GitHub workflow: `agentic-ci-pr-review.yml` (self-hosted runner)
+- [ ] API health probe workflow (`agentic-ci-health-probe.yml`) - pings the API
+      on a schedule, opens/closes issues on failure/recovery. Needed before relying
+      on the API for real work.
 - [ ] Documentation in CONTRIBUTING.md or a dedicated `docs/devnotes/agentic-ci.md`
 
 **Validation:**
-- Manually trigger the workflow on a test PR
+- Run health probe for at least a few days to establish API reliability baseline
+- Manually trigger the PR review workflow on a test PR
 - Verify the review comment is useful and non-disruptive
 - Iterate on the prompt based on real output
 
@@ -562,6 +580,39 @@ The workflow can select the tool based on availability, cost, or capability.
 
 Initial rollout will use Claude Code (`claude -p` or equivalent headless mode).
 Codex support can be added later by extending the runner script.
+
+---
+
+## Lessons from PoC
+
+A proof-of-concept was run on a fork with a self-hosted runner and a custom
+API endpoint. Key findings:
+
+1. **`--max-turns` must match task complexity.** Claude Code's `--max-turns` flag
+   limits tool-use rounds. Setting it to 1 means the agent cannot use any tools
+   (Read, Glob, Grep) at all - it exhausts its single turn trying and returns
+   "Reached max turns". Each recipe needs a value calibrated to its expected
+   workflow. PR review needs ~20; a simple prompt-only task might need 3-5.
+
+2. **Shell quoting breaks with agent output.** Agent responses contain markdown,
+   backticks, quotes, and special characters. Piping stdout through shell
+   variables into `gh issue create --body "$VAR"` or heredocs is fragile. The
+   reliable pattern is: write output to a temp file, then use `gh --body-file`.
+   All recipes that post output should follow this pattern.
+
+3. **Pre-flight checks prevent silent failures.** The first run failed silently
+   because GitHub Issues were disabled on the fork - `gh issue create` returned
+   an error but the workflow step gave no useful diagnostic. Workflows should
+   validate prerequisites (API reachable, CLI available, required repo features
+   enabled) in a dedicated step before running the real work.
+
+4. **Model name is endpoint-specific.** Custom API endpoints may use different
+   model identifiers than the direct Anthropic API. This must be a secret/env
+   var (`$AGENTIC_CI_MODEL`), not hardcoded in workflows or recipes.
+
+5. **API health probe is a Phase 1 requirement.** You need confidence in the
+   API's reliability before relying on it for PR reviews. A lightweight cron
+   probe (curl + issue open/close) costs almost nothing and builds a track record.
 
 ---
 
