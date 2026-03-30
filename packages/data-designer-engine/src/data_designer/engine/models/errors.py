@@ -6,16 +6,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import Any, NoReturn
 
 from pydantic import BaseModel
 
-import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
-
-if TYPE_CHECKING:
-    import litellm
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +67,9 @@ class GenerationValidationFailureError(Exception):
 class ModelRateLimitError(DataDesignerError): ...
 
 
+class ModelQuotaExceededError(DataDesignerError): ...
+
+
 class ModelTimeoutError(DataDesignerError): ...
 
 
@@ -93,6 +92,9 @@ class ModelBadRequestError(DataDesignerError): ...
 
 
 class ModelInternalServerError(DataDesignerError): ...
+
+
+class ModelUnsupportedCapabilityError(DataDesignerError): ...
 
 
 class ModelAPIError(DataDesignerError): ...
@@ -132,16 +134,32 @@ class ImageGenerationError(DataDesignerError): ...
 class FormattedLLMErrorMessage(BaseModel):
     cause: str
     solution: str
+    provider_message: str | None = None
 
     def __str__(self) -> str:
-        return "\n".join(
+        lines = ["  |----------"]
+        if self.provider_message is not None:
+            lines.append(f"  | Provider message: {self.provider_message}")
+        lines.append(f"  | Cause: {self.cause}")
+        lines.extend(
             [
-                "  |----------",
-                f"  | Cause: {self.cause}",
                 f"  | Solution: {self.solution}",
                 "  |----------",
             ]
         )
+        return "\n".join(lines)
+
+
+def _attach_provider_message(
+    formatted_message: FormattedLLMErrorMessage,
+    exception: ProviderError,
+) -> FormattedLLMErrorMessage:
+    if exception.status_code != 400:
+        return formatted_message
+    normalized = _normalize_error_detail(exception.message)
+    if normalized is None:
+        return formatted_message
+    return formatted_message.model_copy(update={"provider_message": normalized})
 
 
 def handle_llm_exceptions(
@@ -165,7 +183,6 @@ def handle_llm_exceptions(
         cause=f"The API key provided for model {model_name!r} was found to be invalid or expired while {purpose}.",
         solution=f"Verify your API key for model provider and update it in your settings for model provider {model_provider_name!r}.",
     )
-    err_msg_parser = DownstreamLLMExceptionMessageParser(model_name, model_provider_name, purpose)
     match exception:
         # Canonical ProviderError from the client adapter layer
         case ProviderError():
@@ -178,84 +195,6 @@ def handle_llm_exceptions(
                 authentication_error,
             )
 
-        # LiteLLM-specific errors (safety net during bridge period)
-        case lazy.litellm.exceptions.APIError():
-            raise err_msg_parser.parse_api_error(exception, authentication_error) from None
-
-        case lazy.litellm.exceptions.APIConnectionError():
-            raise ModelAPIConnectionError(
-                FormattedLLMErrorMessage(
-                    cause=f"Connection to model {model_name!r} hosted on model provider {model_provider_name!r} failed while {purpose}.",
-                    solution="Check your network/proxy/firewall settings.",
-                )
-            ) from None
-
-        case lazy.litellm.exceptions.AuthenticationError():
-            raise ModelAuthenticationError(authentication_error) from None
-
-        case lazy.litellm.exceptions.ContextWindowExceededError():
-            raise err_msg_parser.parse_context_window_exceeded_error(exception) from None
-
-        case lazy.litellm.exceptions.UnsupportedParamsError():
-            raise ModelUnsupportedParamsError(
-                FormattedLLMErrorMessage(
-                    cause=f"One or more of the parameters you provided were found to be unsupported by model {model_name!r} while {purpose}.",
-                    solution=f"Review the documentation for model provider {model_provider_name!r} and adjust your request.",
-                )
-            ) from None
-
-        case lazy.litellm.exceptions.BadRequestError():
-            raise err_msg_parser.parse_bad_request_error(exception) from None
-
-        case lazy.litellm.exceptions.InternalServerError():
-            raise ModelInternalServerError(
-                FormattedLLMErrorMessage(
-                    cause=f"Model {model_name!r} is currently experiencing internal server issues while {purpose}.",
-                    solution=f"Try again in a few moments. Check with your model provider {model_provider_name!r} if the issue persists.",
-                )
-            ) from None
-
-        case lazy.litellm.exceptions.NotFoundError():
-            raise ModelNotFoundError(
-                FormattedLLMErrorMessage(
-                    cause=f"The specified model {model_name!r} could not be found while {purpose}.",
-                    solution=f"Check that the model name is correct and supported by your model provider {model_provider_name!r} and try again.",
-                )
-            ) from None
-
-        case lazy.litellm.exceptions.PermissionDeniedError():
-            raise ModelPermissionDeniedError(
-                FormattedLLMErrorMessage(
-                    cause=f"Your API key was found to lack the necessary permissions to use model {model_name!r} while {purpose}.",
-                    solution=f"Use an API key that has the right permissions for the model or use a model the API key in use has access to in model provider {model_provider_name!r}.",
-                )
-            ) from None
-
-        case lazy.litellm.exceptions.RateLimitError():
-            raise ModelRateLimitError(
-                FormattedLLMErrorMessage(
-                    cause=f"You have exceeded the rate limit for model {model_name!r} while {purpose}.",
-                    solution="Wait and try again in a few moments.",
-                )
-            ) from None
-
-        case lazy.litellm.exceptions.Timeout():
-            raise ModelTimeoutError(
-                FormattedLLMErrorMessage(
-                    cause=f"The request to model {model_name!r} timed out while {purpose}.",
-                    solution="Check your connection and try again. You may need to increase the timeout setting for the model.",
-                )
-            ) from None
-
-        case lazy.litellm.exceptions.UnprocessableEntityError():
-            raise ModelUnprocessableEntityError(
-                FormattedLLMErrorMessage(
-                    cause=f"The request to model {model_name!r} failed despite correct request format while {purpose}.",
-                    solution="This is most likely temporary. Try again in a few moments.",
-                )
-            ) from None
-
-        # Parsing and validation errors
         case GenerationValidationFailureError():
             detail_text = exception.detail.rstrip(".") if exception.detail is not None else None
             validation_detail = f" Validation detail: {detail_text}." if detail_text is not None else ""
@@ -337,58 +276,6 @@ def acatch_llm_exceptions(func: Callable) -> Callable:
     return wrapper
 
 
-class DownstreamLLMExceptionMessageParser:
-    def __init__(self, model_name: str, model_provider_name: str, purpose: str):
-        self.model_name = model_name
-        self.model_provider_name = model_provider_name
-        self.purpose = purpose
-
-    def parse_bad_request_error(self, exception: litellm.exceptions.BadRequestError) -> DataDesignerError:
-        err_msg = FormattedLLMErrorMessage(
-            cause=f"The request for model {self.model_name!r} was found to be malformed or missing required parameters while {self.purpose}.",
-            solution="Check your request parameters and try again.",
-        )
-        if "is not a multimodal model" in str(exception):
-            err_msg = FormattedLLMErrorMessage(
-                cause=f"Model {self.model_name!r} is not a multimodal model, but it looks like you are trying to provide multimodal context while {self.purpose}.",
-                solution="Check your request parameters and try again.",
-            )
-        return ModelBadRequestError(err_msg)
-
-    def parse_context_window_exceeded_error(
-        self, exception: litellm.exceptions.ContextWindowExceededError
-    ) -> DataDesignerError:
-        cause = f"The input data for model '{self.model_name}' was found to exceed its supported context width while {self.purpose}."
-        try:
-            if "OpenAIException - This model's maximum context length is " in str(exception):
-                openai_exception_cause = (
-                    str(exception).split("OpenAIException - ")[1].split("\n")[0].split(" Please reduce ")[0]
-                )
-                cause = f"{cause} {openai_exception_cause}"
-        except Exception:
-            pass
-        finally:
-            return ModelContextWindowExceededError(
-                FormattedLLMErrorMessage(
-                    cause=cause,
-                    solution="Check the model's supported max context width. Adjust the length of your input along with completions and try again.",
-                )
-            )
-
-    def parse_api_error(
-        self, exception: litellm.exceptions.APIError, auth_error_msg: FormattedLLMErrorMessage
-    ) -> DataDesignerError:
-        if "Error code: 403" in str(exception):
-            return ModelAuthenticationError(auth_error_msg)
-
-        return ModelAPIError(
-            FormattedLLMErrorMessage(
-                cause=f"An unexpected API error occurred with model {self.model_name!r} while {self.purpose}.",
-                solution=f"Try again in a few moments. Check with your model provider {self.model_provider_name!r} if the issue persists.",
-            )
-        )
-
-
 def _raise_from_provider_error(
     exception: ProviderError,
     kind: ProviderErrorKind,
@@ -400,6 +287,7 @@ def _raise_from_provider_error(
     """Map a canonical ProviderError to the appropriate DataDesignerError subclass."""
     _KIND_MAP: dict[ProviderErrorKind, type[DataDesignerError]] = {
         ProviderErrorKind.RATE_LIMIT: ModelRateLimitError,
+        ProviderErrorKind.QUOTA_EXCEEDED: ModelQuotaExceededError,
         ProviderErrorKind.TIMEOUT: ModelTimeoutError,
         ProviderErrorKind.NOT_FOUND: ModelNotFoundError,
         ProviderErrorKind.PERMISSION_DENIED: ModelPermissionDeniedError,
@@ -448,10 +336,27 @@ def _raise_from_provider_error(
         raise ModelAuthenticationError(authentication_error) from None
 
     if kind == ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED:
+        cause = (
+            f"The input data for model '{model_name}' was found to exceed its supported context width while {purpose}."
+        )
+        context_detail = _extract_context_window_detail(str(exception))
+        if context_detail:
+            cause = f"{cause} {context_detail}"
         raise ModelContextWindowExceededError(
             FormattedLLMErrorMessage(
-                cause=f"The input data for model '{model_name}' was found to exceed its supported context width while {purpose}.",
+                cause=cause,
                 solution="Check the model's supported max context width. Adjust the length of your input along with completions and try again.",
+            )
+        ) from None
+
+    if kind == ProviderErrorKind.QUOTA_EXCEEDED:
+        raise ModelQuotaExceededError(
+            FormattedLLMErrorMessage(
+                cause=(
+                    f"Model provider {model_provider_name!r} reported insufficient credits or quota for model "
+                    f"{model_name!r} while {purpose}."
+                ),
+                solution=f"Add credits or increase quota/billing for model provider {model_provider_name!r} and try again.",
             )
         ) from None
 
@@ -465,17 +370,47 @@ def _raise_from_provider_error(
                 cause=f"Model {model_name!r} is not a multimodal model, but it looks like you are trying to provide multimodal context while {purpose}.",
                 solution="Check your request parameters and try again.",
             )
-        raise ModelBadRequestError(err_msg) from None
+        raise ModelBadRequestError(_attach_provider_message(err_msg, exception)) from None
 
     if kind in _KIND_MAP and kind in _MESSAGES:
         error_cls = _KIND_MAP[kind]
         cause_str, solution_str = _MESSAGES[kind]
-        raise error_cls(FormattedLLMErrorMessage(cause=cause_str, solution=solution_str)) from None
+        raise error_cls(
+            _attach_provider_message(
+                FormattedLLMErrorMessage(cause=cause_str, solution=solution_str),
+                exception,
+            )
+        ) from None
 
-    # Fallback for API_ERROR and UNSUPPORTED_CAPABILITY
+    if kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY:
+        raise ModelUnsupportedCapabilityError(
+            FormattedLLMErrorMessage(
+                cause=f"{exception.message.rstrip('.')} while {purpose}.",
+                solution=(
+                    f"Use a model provider that supports this operation, or switch to a different model on "
+                    f"{model_provider_name!r} that supports it."
+                ),
+            )
+        ) from None
+
+    # Fallback for API_ERROR and other unhandled kinds
     raise ModelAPIError(
-        FormattedLLMErrorMessage(
-            cause=f"An unexpected API error occurred with model {model_name!r} while {purpose}.",
-            solution=f"Try again in a few moments. Check with your model provider {model_provider_name!r} if the issue persists.",
+        _attach_provider_message(
+            FormattedLLMErrorMessage(
+                cause=f"An unexpected API error occurred with model {model_name!r} while {purpose}.",
+                solution=f"Try again in a few moments. Check with your model provider {model_provider_name!r} if the issue persists.",
+            ),
+            exception,
         )
     ) from None
+
+
+def _extract_context_window_detail(error_text: str) -> str | None:
+    """Extract the specific token-count detail from an OpenAI-style context window error."""
+    marker = "this model's maximum context length is "
+    lower_text = error_text.lower()
+    if marker in lower_text:
+        start = lower_text.index(marker)
+        detail = error_text[start + len(marker) :].split("\n")[0].split(" Please reduce ")[0]
+        return f"This model's maximum context length is {detail}"
+    return None

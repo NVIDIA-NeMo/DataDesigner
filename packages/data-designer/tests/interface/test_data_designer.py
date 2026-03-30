@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -20,13 +22,20 @@ from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
-from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource, HuggingFaceSeedSource
+from data_designer.config.seed_source import (
+    AgentRolloutFormat,
+    AgentRolloutSeedSource,
+    DirectorySeedSource,
+    FileContentsSeedSource,
+    HuggingFaceSeedSource,
+)
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
     SeedReaderError,
     SeedReaderFileSystemContext,
 )
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
+from data_designer.engine.testing.seed_readers import LineFanoutDirectorySeedReader
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerGenerationError, DataDesignerProfilingError
@@ -71,6 +80,140 @@ def _add_irrelevant_sampler_column(builder: DataDesignerConfigBuilder) -> None:
             params=CategorySamplerParams(values=["irrelevant"]),
         )
     )
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        for row in rows:
+            file.write(f"{json.dumps(row)}\n")
+
+
+def _write_empty_jsonl(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+
+
+def _write_claude_trace_directory(root_path: Path) -> None:
+    session_dir = root_path / "project-a"
+    subagents_dir = session_dir / "subagents"
+    subagents_dir.mkdir(parents=True)
+
+    _write_jsonl(
+        session_dir / "session-1.jsonl",
+        [
+            {"type": "user", "sessionId": "session-1", "message": {"content": "Inspect the repo"}},
+            {
+                "type": "assistant",
+                "sessionId": "session-1",
+                "message": {
+                    "content": [
+                        {"type": "thinking", "thinking": "Need to inspect"},
+                        {"type": "tool_use", "id": "toolu_1", "name": "ReadFile", "input": {"path": "README.md"}},
+                    ],
+                },
+            },
+            {
+                "type": "user",
+                "sessionId": "session-1",
+                "message": {
+                    "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "README contents"}],
+                },
+            },
+            {
+                "type": "assistant",
+                "sessionId": "session-1",
+                "message": {"content": [{"type": "text", "text": "Repo inspected"}]},
+            },
+        ],
+    )
+    _write_jsonl(
+        subagents_dir / "agent-a.jsonl",
+        [
+            {
+                "type": "user",
+                "sessionId": "session-1",
+                "agentId": "agent-a",
+                "isSidechain": True,
+                "message": {"content": "Check tests"},
+            },
+            {
+                "type": "assistant",
+                "sessionId": "session-1",
+                "agentId": "agent-a",
+                "isSidechain": True,
+                "message": {"content": [{"type": "text", "text": "Tests checked"}]},
+            },
+        ],
+    )
+    (session_dir / "sessions-index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "sessionId": "session-1",
+                        "projectPath": "/repo-from-index",
+                        "summary": "Investigate repository",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_codex_trace_directory(root_path: Path) -> None:
+    codex_dir = root_path / "sessions" / "2026" / "03" / "10"
+    codex_dir.mkdir(parents=True)
+    _write_jsonl(
+        codex_dir / "rollout-2026-03-10T00-00-00-session.jsonl",
+        [
+            {
+                "type": "session_meta",
+                "payload": {"id": "codex-session", "cwd": "/workspace"},
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "List files"}],
+                },
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "name": "exec_command",
+                    "arguments": '{"cmd":"ls"}',
+                    "call_id": "call_1",
+                },
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "README.md\nsrc",
+                },
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Listed files"}],
+                },
+            },
+        ],
+    )
+
+
+def _write_claude_trace_directory_with_unhandled_files(root_path: Path) -> None:
+    _write_claude_trace_directory(root_path)
+    _write_jsonl(root_path / "project-a" / "history.jsonl", [{"type": "system"}])
+    _write_jsonl(root_path / "project-a" / "tool-results" / "ignored.jsonl", [{"type": "system"}])
 
 
 @pytest.fixture
@@ -419,7 +562,7 @@ def test_preview_raises_generation_error_when_dataset_is_empty(
     )
 
     with patch(
-        "data_designer.engine.dataset_builders.column_wise_builder.ColumnWiseDatasetBuilder.process_preview",
+        "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.process_preview",
         return_value=lazy.pd.DataFrame(),
     ):
         with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
@@ -804,6 +947,76 @@ def test_preview_dataset_e2e_with_custom_filesystem_seed_reader_via_seed_readers
     ]
 
 
+def test_create_dataset_e2e_with_custom_filesystem_seed_reader_fanout_partition_block_selection(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "custom-fanout-directory-reader"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha-0\nalpha-1", encoding="utf-8")
+    (seed_dir / "beta.txt").write_text("beta-0\nbeta-1", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"),
+        selection_strategy=PartitionBlock(index=1, num_partitions=2),
+    )
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+        seed_readers=[LineFanoutDirectorySeedReader()],
+    )
+
+    results = data_designer.create(builder, num_records=3, dataset_name="custom-fanout-directory-reader-test")
+    df = results.load_dataset().reset_index(drop=True)
+
+    assert list(df["relative_path"]) == ["beta.txt", "beta.txt", "beta.txt"]
+    assert list(df["line_index"]) == [0, 1, 0]
+    assert list(df["line"]) == ["beta-0", "beta-1", "beta-0"]
+
+
+def test_create_dataset_e2e_with_custom_filesystem_seed_reader_selected_empty_fanout_raises_generation_error(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "custom-fanout-empty-selection-directory-reader"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha-0", encoding="utf-8")
+    (seed_dir / "beta.txt").write_text("", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"),
+        selection_strategy=PartitionBlock(index=1, num_partitions=2),
+    )
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+        seed_readers=[LineFanoutDirectorySeedReader()],
+    )
+
+    with pytest.raises(
+        DataDesignerGenerationError,
+        match="Selected manifest rows for seed source at .* did not produce any rows after hydration",
+    ) as exc_info:
+        data_designer.create(builder, num_records=1, dataset_name="custom-fanout-empty-selection-directory-reader")
+
+    assert exc_info.value.__cause__ is not None
+    assert "Selected manifest rows for seed source at" in str(exc_info.value.__cause__)
+
+
 def test_create_dataset_e2e_with_directory_seed_source_no_matches_raises_generation_error(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -909,3 +1122,143 @@ def test_create_dataset_e2e_with_file_contents_seed_source_unreadable_file_raise
             data_designer.create(builder, num_records=1, dataset_name="file-contents-permissions-test")
     finally:
         unreadable_path.chmod(0o644)
+
+
+@pytest.mark.parametrize(
+    ("dir_name", "seed_source_factory", "writer", "expected_trace_ids", "expected_messages", "expected_tool_counts"),
+    [
+        (
+            "claude-code",
+            lambda path: AgentRolloutSeedSource(
+                path=str(path),
+                format=AgentRolloutFormat.CLAUDE_CODE,
+            ),
+            _write_claude_trace_directory,
+            ["session-1", "session-1:agent-a"],
+            ["Repo inspected", "Tests checked"],
+            [1, 0],
+        ),
+        (
+            "codex",
+            lambda path: AgentRolloutSeedSource(path=str(path), format=AgentRolloutFormat.CODEX),
+            _write_codex_trace_directory,
+            ["codex-session"],
+            ["Listed files"],
+            [1],
+        ),
+    ],
+    ids=["claude-code", "codex"],
+)
+def test_create_dataset_e2e_with_trace_seed_sources(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+    dir_name: str,
+    seed_source_factory: Any,
+    writer: Any,
+    expected_trace_ids: list[str],
+    expected_messages: list[str],
+    expected_tool_counts: list[int],
+) -> None:
+    trace_dir = tmp_path / dir_name
+    writer(trace_dir)
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(seed_source_factory(trace_dir))
+    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
+    builder.add_column(ExpressionColumnConfig(name="trace_label", expr="{{ source_kind }}::{{ trace_id }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(
+        builder,
+        num_records=len(expected_trace_ids),
+        dataset_name=f"trace-{dir_name}",
+    )
+    df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(df["trace_id"]) == expected_trace_ids
+    assert list(df["assistant_copy"]) == expected_messages
+    assert list(df["tool_call_count"]) == expected_tool_counts
+    assert list(df["trace_label"]) == [
+        f"{source_kind}::{trace_id}"
+        for source_kind, trace_id in df[["source_kind", "trace_id"]].itertuples(index=False)
+    ]
+    assert "messages" in df.columns
+    assert "_internal_row_id" not in df.columns
+
+    if dir_name == "claude-code":
+        assert list(df["source_kind"]) == ["claude_code", "claude_code"]
+        assert lazy.pd.isna(df.iloc[0]["agent_id"])
+        assert df.iloc[1]["agent_id"] == "agent-a"
+        assert list(df["project_path"]) == ["/repo-from-index", "/repo-from-index"]
+        assert list(df["is_sidechain"]) == [False, True]
+    elif dir_name == "codex":
+        assert list(df["source_kind"]) == ["codex"]
+        assert list(df["cwd"]) == ["/workspace"]
+
+
+def test_create_dataset_warns_for_unhandled_transform_files(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    trace_dir = tmp_path / "claude-code-with-unhandled"
+    _write_claude_trace_directory_with_unhandled_files(trace_dir)
+    caplog.set_level(logging.WARNING)
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(AgentRolloutSeedSource(path=str(trace_dir), format=AgentRolloutFormat.CLAUDE_CODE))
+    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=2, dataset_name="trace-unhandled-test")
+    df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(df["trace_id"]) == ["session-1", "session-1:agent-a"]
+    assert "Skipping unhandled claude_code file" in caplog.text
+
+
+def test_create_raises_error_when_all_trace_files_are_skipped(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    trace_dir = tmp_path / "invalid-traces"
+    session_dir = trace_dir / "project-a"
+    _write_empty_jsonl(session_dir / "empty-1.jsonl")
+    _write_empty_jsonl(session_dir / "empty-2.jsonl")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        AgentRolloutSeedSource(
+            path=str(trace_dir),
+            format=AgentRolloutFormat.CLAUDE_CODE,
+        )
+    )
+    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with pytest.raises(DataDesignerGenerationError, match="did not produce any rows"):
+        data_designer.create(builder, num_records=1, dataset_name="invalid-trace-seed")

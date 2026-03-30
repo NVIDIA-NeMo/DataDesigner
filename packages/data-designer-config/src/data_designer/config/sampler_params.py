@@ -49,7 +49,7 @@ class CategorySamplerParams(ConfigBase):
     sampled according to their assigned probabilities. Without weights, uniform sampling is used.
 
     Attributes:
-        values: List of possible categorical values to sample from. Can contain strings, integers,
+        values (required): List of possible categorical values to sample from. Can contain strings, integers,
             or floats. Must contain at least one value.
         weights: Optional unnormalized probability weights for each value. If provided, must be
             the same length as `values`. Weights are automatically normalized to sum to 1.0.
@@ -90,9 +90,9 @@ class DatetimeSamplerParams(ConfigBase):
     The sampling unit determines the smallest possible time interval between consecutive samples.
 
     Attributes:
-        start: Earliest possible datetime for the sampling range (inclusive). Must be a valid
+        start (required): Earliest possible datetime for the sampling range (inclusive). Must be a valid
             datetime string parseable by pandas.to_datetime().
-        end: Latest possible datetime for the sampling range (inclusive). Must be a valid
+        end (required): Latest possible datetime for the sampling range (inclusive). Must be a valid
             datetime string parseable by pandas.to_datetime().
         unit: Time unit for sampling granularity. Options:
             - "Y": Years
@@ -129,9 +129,9 @@ class SubcategorySamplerParams(ConfigBase):
     or conditional sampling patterns.
 
     Attributes:
-        category: Name of the parent category column that this subcategory depends on.
+        category (required): Name of the parent category column that this subcategory depends on.
             The parent column must be generated before this subcategory column.
-        values: Mapping from each parent category value to a list of possible subcategory values.
+        values (required): Mapping from each parent category value to a list of possible subcategory values.
             Each key must correspond to a value that appears in the parent category column.
     """
 
@@ -155,11 +155,11 @@ class TimeDeltaSamplerParams(ConfigBase):
         See: [pandas timedelta documentation](https://pandas.pydata.org/docs/user_guide/timedeltas.html)
 
     Attributes:
-        dt_min: Minimum time-delta value (inclusive). Must be non-negative and less than `dt_max`.
+        dt_min (required): Minimum time-delta value (inclusive). Must be non-negative and less than `dt_max`.
             Specified in units defined by the `unit` parameter.
-        dt_max: Maximum time-delta value (exclusive). Must be positive and greater than `dt_min`.
+        dt_max (required): Maximum time-delta value (exclusive). Must be positive and greater than `dt_min`.
             Specified in units defined by the `unit` parameter.
-        reference_column_name: Name of an existing datetime column to add the time-delta to.
+        reference_column_name (required): Name of an existing datetime column to add the time-delta to.
             This column must be generated before the timedelta column.
         unit: Time unit for the delta values. Options:
             - "D": Days (default)
@@ -247,9 +247,9 @@ class ScipySamplerParams(ConfigBase):
     See: [scipy.stats documentation](https://docs.scipy.org/doc/scipy/reference/stats.html)
 
     Attributes:
-        dist_name: Name of the scipy.stats distribution to sample from (e.g., "beta", "gamma",
+        dist_name (required): Name of the scipy.stats distribution to sample from (e.g., "beta", "gamma",
             "lognorm", "expon"). Must be a valid distribution name from scipy.stats.
-        dist_params: Dictionary of parameters for the specified distribution. Parameter names
+        dist_params (required): Dictionary of parameters for the specified distribution. Parameter names
             and values must match the scipy.stats distribution specification (e.g., {"a": 2, "b": 5}
             for beta distribution, {"scale": 1.5} for exponential).
         decimal_places: Optional number of decimal places to round sampled values to. If None,
@@ -275,8 +275,8 @@ class BinomialSamplerParams(ConfigBase):
     of successful outcomes in repeated experiments.
 
     Attributes:
-        n: Number of independent trials. Must be a positive integer.
-        p: Probability of success on each trial. Must be between 0.0 and 1.0 (inclusive).
+        n (required): Number of independent trials. Must be a positive integer.
+        p (required): Probability of success on each trial. Must be between 0.0 and 1.0 (inclusive).
     """
 
     n: int = Field(..., description="Number of trials.")
@@ -292,7 +292,7 @@ class BernoulliSamplerParams(ConfigBase):
     modeling binary outcomes like success/failure, yes/no, or true/false.
 
     Attributes:
-        p: Probability of success (sampling 1). Must be between 0.0 and 1.0 (inclusive).
+        p (required): Probability of success (sampling 1). Must be between 0.0 and 1.0 (inclusive).
             The probability of failure (sampling 0) is automatically 1 - p.
     """
 
@@ -312,11 +312,11 @@ class BernoulliMixtureSamplerParams(ConfigBase):
     an outcome either doesn't occur (0) or follows a specific distribution when it does occur.
 
     Attributes:
-        p: Probability of sampling from the mixture distribution (non-zero outcome).
+        p (required): Probability of sampling from the mixture distribution (non-zero outcome).
             Must be between 0.0 and 1.0 (inclusive). With probability 1-p, the sample is 0.
-        dist_name: Name of the scipy.stats distribution to sample from when outcome is non-zero.
+        dist_name (required): Name of the scipy.stats distribution to sample from when outcome is non-zero.
             Must be a valid scipy.stats distribution name (e.g., "norm", "gamma", "expon").
-        dist_params: Parameters for the specified scipy.stats distribution.
+        dist_params (required): Parameters for the specified scipy.stats distribution.
     """
 
     p: float = Field(
@@ -348,9 +348,9 @@ class GaussianSamplerParams(ConfigBase):
     appearing naturally in many real-world phenomena due to the Central Limit Theorem.
 
     Attributes:
-        mean: Mean (center) of the Gaussian distribution. This is the expected value and the
+        mean (required): Mean (center) of the Gaussian distribution. This is the expected value and the
             location of the distribution's peak.
-        stddev: Standard deviation of the Gaussian distribution. Controls the spread or width
+        stddev (required): Standard deviation of the Gaussian distribution. Controls the spread or width
             of the distribution. Must be positive.
         decimal_places: Optional number of decimal places to round sampled values to. If None,
             values are not rounded.
@@ -375,7 +375,7 @@ class PoissonSamplerParams(ConfigBase):
     variance equal this parameter value.
 
     Attributes:
-        mean: Mean number of events in the fixed interval (also called rate parameter λ).
+        mean (required): Mean number of events in the fixed interval (also called rate parameter λ).
             Must be positive. This represents both the expected value and the variance of the
             distribution.
     """
@@ -392,8 +392,8 @@ class UniformSamplerParams(ConfigBase):
     equally likely, such as random percentages, proportions, or unbiased measurements.
 
     Attributes:
-        low: Lower bound of the uniform distribution (inclusive). Can be any real number.
-        high: Upper bound of the uniform distribution (inclusive). Must be greater than `low`.
+        low (required): Lower bound of the uniform distribution (inclusive). Can be any real number.
+        high (required): Upper bound of the uniform distribution (inclusive). Must be greater than `low`.
         decimal_places: Optional number of decimal places to round sampled values to. If None,
             values are not rounded and may have many decimal places.
     """

@@ -47,6 +47,8 @@ nav:
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
+      - Trace Ingestion:
+          - Agent Rollout Trace Distillation: recipes/trace_ingestion/agent_rollout_distillation.md
       - MCP and Tool Use:
           - "Basic MCP Tool Use": recipes/mcp_and_tooluse/basic_mcp.md
           - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
@@ -69,6 +71,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - Data Designer Got Skills: devnotes/posts/data-designer-got-skills.md
       - Search Agent: devnotes/posts/search-agent.md
       - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
       - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md

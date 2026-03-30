@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_designer.engine.models.clients.parsing import extract_tool_calls
+from data_designer.engine.models.clients.parsing import extract_reasoning_content, extract_tool_calls
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     EmbeddingRequest,
@@ -42,31 +42,6 @@ def test_extra_body_none_produces_no_extra_keys() -> None:
 def test_extra_body_empty_dict_produces_no_extra_keys() -> None:
     request = ChatCompletionRequest(model="m", messages=[], extra_body={})
     transport = TransportKwargs.from_request(request)
-
-    assert "extra_body" not in transport.body
-
-
-# --- TransportKwargs.from_request: extra_body preserved (opt-in) ---
-
-
-def test_extra_body_preserved_when_flatten_disabled() -> None:
-    request = ChatCompletionRequest(
-        model="m",
-        messages=[],
-        temperature=0.7,
-        extra_body={"reasoning_effort": "high", "seed": 42},
-    )
-    transport = TransportKwargs.from_request(request, flatten_extra_body=False)
-
-    assert transport.body["temperature"] == 0.7
-    assert transport.body["extra_body"] == {"reasoning_effort": "high", "seed": 42}
-    assert "reasoning_effort" not in transport.body
-    assert "seed" not in transport.body
-
-
-def test_extra_body_empty_dict_not_injected_when_flatten_disabled() -> None:
-    request = ChatCompletionRequest(model="m", messages=[], extra_body={})
-    transport = TransportKwargs.from_request(request, flatten_extra_body=False)
 
     assert "extra_body" not in transport.body
 
@@ -236,3 +211,43 @@ def test_extract_tool_calls_none_arguments() -> None:
     result = extract_tool_calls(raw)
 
     assert result[0].arguments_json == "{}"
+
+
+# --- extract_reasoning_content (vLLM field migration) ---
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ({"reasoning": "step-by-step thinking"}, "step-by-step thinking"),
+        ({"reasoning_content": "legacy thinking"}, "legacy thinking"),
+        ({"reasoning": "canonical", "reasoning_content": "legacy"}, "canonical"),
+        ({"content": "hello"}, None),
+        (None, None),
+        ({"reasoning": "", "reasoning_content": "fallback"}, "fallback"),
+        ({"reasoning_content": {"nested": "dict"}}, None),
+        ({"reasoning_content": ["list", "value"]}, None),
+        ({"reasoning_content": ""}, None),
+    ],
+    ids=[
+        "only-reasoning",
+        "only-reasoning_content",
+        "both-reasoning-takes-precedence",
+        "neither-field",
+        "none-message",
+        "empty-reasoning-falls-back",
+        "non-string-dict-fallback-returns-none",
+        "non-string-list-fallback-returns-none",
+        "empty-string-fallback-returns-none",
+    ],
+)
+def test_extract_reasoning_content(message: dict | None, expected: str | None) -> None:
+    assert extract_reasoning_content(message) == expected
+
+
+def test_extract_reasoning_content_works_with_object_style_message() -> None:
+    class Msg:
+        reasoning = "from object"
+        reasoning_content = "legacy object"
+
+    assert extract_reasoning_content(Msg()) == "from object"

@@ -57,7 +57,7 @@ if TYPE_CHECKING:
         ProcessorType,
         SchemaTransformProcessorConfig,
     )
-    from data_designer.config.run_config import RunConfig  # noqa: F401
+    from data_designer.config.run_config import RunConfig, ThrottleConfig  # noqa: F401
     from data_designer.config.sampler_constraints import (  # noqa: F401
         ColumnInequalityConstraint,
         ConstraintType,
@@ -88,6 +88,8 @@ if TYPE_CHECKING:
         SeedConfig,
     )
     from data_designer.config.seed_source import (  # noqa: F401
+        AgentRolloutFormat,
+        AgentRolloutSeedSource,
         DirectorySeedSource,
         FileContentsSeedSource,
         HuggingFaceSeedSource,
@@ -171,6 +173,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SchemaTransformProcessorConfig": (_MOD_PROCESSORS, "SchemaTransformProcessorConfig"),
     # run_config
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
+    "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
     # sampler_constraints
     "ColumnInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ColumnInequalityConstraint"),
     "ConstraintType": (_MOD_SAMPLER_CONSTRAINTS, "ConstraintType"),
@@ -199,6 +202,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SeedConfig": (_MOD_SEED, "SeedConfig"),
     # seed_source
     "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
+    "AgentRolloutFormat": (_MOD_SEED_SOURCE, "AgentRolloutFormat"),
+    "AgentRolloutSeedSource": (_MOD_SEED_SOURCE, "AgentRolloutSeedSource"),
     "DirectorySeedSource": (_MOD_SEED_SOURCE, "DirectorySeedSource"),
     "FileContentsSeedSource": (_MOD_SEED_SOURCE, "FileContentsSeedSource"),
     "HuggingFaceSeedSource": (_MOD_SEED_SOURCE, "HuggingFaceSeedSource"),

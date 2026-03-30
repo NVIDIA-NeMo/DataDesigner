@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING, Callable
 
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
+from data_designer.engine.context import format_row_group_tag
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
+from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerType
@@ -43,7 +45,12 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
 
     @property
     def _person_generator_loader(self) -> Callable[[bool], ManagedDatasetGenerator]:
-        return partial(load_person_data_sampler, blob_storage=self.resource_provider.blob_storage)
+        if (person_reader := self.resource_provider.person_reader) is None:
+            raise DataDesignerRuntimeError(
+                "Cannot perform person generation because no PersonReader has been configured. "
+                "Ensure a PersonReader is set on the ResourceProvider."
+            )
+        return partial(load_person_data_sampler, reader=person_reader)
 
     def _create_sampling_dataset_generator(self) -> SamplingDatasetGenerator:
         return SamplingDatasetGenerator(
@@ -62,7 +69,8 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
 
     def _prepare_for_generation(self, num_records: int) -> SamplingDatasetGenerator:
         logger.info(
-            f"🎲 Preparing samplers to generate {num_records} records across {len(self.config.columns)} columns"
+            f"🎲 {format_row_group_tag()}Preparing samplers to generate"
+            f" {num_records} records across {len(self.config.columns)} columns"
         )
         self._log_person_generation_if_needed()
         return self._create_sampling_dataset_generator()

@@ -20,11 +20,12 @@ Architecture:
                                                               (TaskGroup)
 
 Singleton Event Loop:
-    The background loop is a process-wide singleton. LiteLLM and similar
-    libraries bind internal async state to a specific event loop, so creating
-    per-call or per-instance loops breaks connection reuse and triggers
-    cross-loop errors. ``_ensure_async_engine_loop()`` creates one daemon
-    loop thread and reuses it for all executor instances.
+    The background loop is a process-wide singleton. Async-stateful
+    resources (connection pools, semaphores) bind internal state to a
+    specific event loop, so creating per-call or per-instance loops breaks
+    connection reuse and triggers cross-loop errors.
+    ``ensure_async_engine_loop()`` creates one daemon loop thread and
+    reuses it for all executor instances.
 
 Startup Handshake:
     Loop creation uses a ``threading.Event`` readiness handshake. The
@@ -86,12 +87,12 @@ def _run_loop(loop: asyncio.AbstractEventLoop, ready: threading.Event) -> None:
     loop.run_forever()
 
 
-def _ensure_async_engine_loop() -> asyncio.AbstractEventLoop:
+def ensure_async_engine_loop() -> asyncio.AbstractEventLoop:
     """Get or create a persistent event loop for async engine work.
 
     A single event loop is shared across all AsyncConcurrentExecutor instances
-    to avoid breaking libraries (like LiteLLM) that bind internal async state
-    to a specific event loop.
+    to avoid breaking async-stateful resources (connection pools, semaphores)
+    that bind internal state to a specific event loop.
     """
     global _loop, _thread
     with _lock:
@@ -172,7 +173,7 @@ class AsyncConcurrentExecutor:
             f"AsyncConcurrentExecutor: launching {len(work_items)} tasks "
             f"with max_workers={self._max_workers} for column '{self._column_name}'"
         )
-        loop = _ensure_async_engine_loop()
+        loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(self._run_all(work_items), loop)
         future.result()
 

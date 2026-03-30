@@ -62,17 +62,43 @@ class RowGroupBufferManager:
     def get_row(self, row_group: int, row_index: int) -> dict[str, Any]:
         return self._buffers[row_group][row_index]
 
+    def has_row_group(self, row_group: int) -> bool:
+        return row_group in self._buffers
+
     def get_dataframe(self, row_group: int) -> pd.DataFrame:
         """Return the row group as a DataFrame (excluding dropped rows)."""
         dropped = self._dropped.get(row_group, set())
         rows = [row for i, row in enumerate(self._buffers[row_group]) if i not in dropped]
         return lazy.pd.DataFrame(rows)
 
+    def replace_dataframe(self, row_group: int, df: pd.DataFrame) -> None:
+        """Replace the buffer for a row group from a DataFrame (non-dropped rows only).
+
+        If *df* has fewer rows than active slots, trailing slots are marked as dropped.
+        """
+        dropped = self._dropped.get(row_group, set())
+        records = df.to_dict(orient="records")
+        buf_idx = 0
+        for ri in range(self._row_group_sizes[row_group]):
+            if ri in dropped:
+                continue
+            if buf_idx < len(records):
+                self._buffers[row_group][ri] = records[buf_idx]
+            else:
+                self._dropped.setdefault(row_group, set()).add(ri)
+            buf_idx += 1
+
     def drop_row(self, row_group: int, row_index: int) -> None:
         self._dropped.setdefault(row_group, set()).add(row_index)
 
     def is_dropped(self, row_group: int, row_index: int) -> bool:
         return row_index in self._dropped.get(row_group, set())
+
+    def free_row_group(self, row_group: int) -> None:
+        """Release buffer memory for a row group without writing to disk."""
+        self._buffers.pop(row_group, None)
+        self._dropped.pop(row_group, None)
+        self._row_group_sizes.pop(row_group, None)
 
     def checkpoint_row_group(
         self,
@@ -100,10 +126,7 @@ class RowGroupBufferManager:
         if on_complete:
             on_complete(final_path)
 
-        # Free memory
-        del self._buffers[row_group]
-        self._dropped.pop(row_group, None)
-        self._row_group_sizes.pop(row_group, None)
+        self.free_row_group(row_group)
 
     def write_metadata(self, target_num_records: int, buffer_size: int) -> None:
         """Write final metadata after all row groups are checkpointed."""

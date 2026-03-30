@@ -11,6 +11,7 @@ import pytest
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
     EmbeddingInferenceParams,
+    ImageInferenceParams,
     ModelConfig,
 )
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
@@ -68,6 +69,12 @@ def stub_model_configs() -> list[ModelConfig]:
                 dimensions=100,
             ),
         ),
+        ModelConfig(
+            alias="stub-image",
+            model="stub-model-image",
+            provider="stub-model-provider",
+            inference_parameters=ImageInferenceParams(),
+        ),
     ]
 
 
@@ -86,7 +93,7 @@ def stub_model_registry(
 
 @pytest.fixture
 def stub_model_client() -> MagicMock:
-    """Mock ModelClient for testing ModelFacade without a real LiteLLM router."""
+    """Mock ModelClient for testing ModelFacade without a real HTTP adapter."""
     return MagicMock(spec=ModelClient)
 
 
