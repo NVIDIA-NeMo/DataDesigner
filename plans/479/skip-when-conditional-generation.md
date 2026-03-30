@@ -16,17 +16,6 @@ Today the only workarounds are:
 1. **Generate all columns unconditionally and post-filter** — wastes LLM calls on rows that will be discarded.
 2. **Split into multiple `DataDesigner.create()` calls** with intermediate filtering — loses single-pipeline ergonomics and forces the user to manage seed-dataset hand-offs.
 
-### Motivating Example: HopChain Pipeline
-
-The [HopChain paper](https://arxiv.org/abs/2603.17024) synthesizes multi-hop VLM reasoning data through a pipeline where each stage gates the next:
-
-```
-image → complexity_score → [if score >= 6] → categories → segmentation → query_gen
-                           [if score < 6]  → skip rest
-```
-
-With DataDesigner today, `categories`, `segmentation`, and `query_gen` all execute even for images that score below the threshold — burning VLM inference budget on rows that will be discarded.
-
 ## Proposed Solution
 
 Add a `skip_when` field to `SingleColumnConfig`. When its Jinja2 expression evaluates truthy for a row, the cell is set to `None` and the generator is never called. Skips auto-propagate through the DAG: downstream columns whose `required_columns` include a skipped cell also skip automatically.
