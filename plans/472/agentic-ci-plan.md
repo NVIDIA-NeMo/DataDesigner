@@ -136,10 +136,10 @@ workflow files document what's expected.
 Agentic CI workflows use a custom label to target only capable runners:
 
 ```yaml
-runs-on: [self-hosted, claude-ready]
+runs-on: [self-hosted, agentic-ci]
 ```
 
-The `claude-ready` label must be added manually to each runner that has the
+The `agentic-ci` label must be added manually to each runner that has the
 required tooling (Claude Code CLI, API access, etc.). This prevents agentic CI
 jobs from landing on runners that can't execute them, and lets the team scale
 by labeling new runners as they're provisioned.
