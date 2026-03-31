@@ -1654,10 +1654,16 @@ class DatasetBuilder:
         context_label = f" in column {column_name!r}" if column_name else ""
         failure_kind = cls._classify_worker_failure(exc)
         failure_detail = cls._extract_failure_detail(exc)
-        return (
+        warning = (
             f"⚠️ Generation for record at index {record_index} failed{context_label} ({failure_kind}). "
             f"Will omit this record from the dataset. Detail: {failure_detail}"
         )
+        if getattr(exc, "truncated_by_max_tokens", False):
+            warning += (
+                " The model response appears to have been cut off by max_tokens, which caused the parse/recipe "
+                "failure. Increase inference_parameters.max_tokens in the model config."
+            )
+        return warning
 
     def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
         """If a worker fails, we can handle the exception here."""

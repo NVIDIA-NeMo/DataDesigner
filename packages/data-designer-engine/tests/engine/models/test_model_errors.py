@@ -246,6 +246,28 @@ def test_handle_llm_exceptions_preserves_generation_failure_kind() -> None:
 
     assert exc_info.value.failure_kind == "schema_validation"
     assert exc_info.value.detail == "Response doesn't match requested <response_schema>: 'name' is a required property"
+    assert exc_info.value.truncated_by_max_tokens is False
+
+
+def test_handle_llm_exceptions_emits_truncation_specific_generation_failure_message() -> None:
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        handle_llm_exceptions(
+            GenerationValidationFailureError(
+                "Generation validation failure",
+                detail="Response doesn't match requested <response_schema>: 'name' is a required property",
+                failure_kind="schema_validation",
+                truncated_by_max_tokens=True,
+            ),
+            stub_model_name,
+            stub_model_provider_name,
+            stub_purpose,
+        )
+
+    assert exc_info.value.failure_kind == "schema_validation"
+    assert exc_info.value.detail == "Response doesn't match requested <response_schema>: 'name' is a required property"
+    assert exc_info.value.truncated_by_max_tokens is True
+    assert "cut off by max_tokens" in str(exc_info.value)
+    assert "Increase inference_parameters.max_tokens in the model config" in str(exc_info.value)
 
 
 def test_handle_llm_exceptions_strips_duplicate_period_from_validation_detail() -> None:

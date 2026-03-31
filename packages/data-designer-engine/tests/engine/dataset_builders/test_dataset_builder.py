@@ -236,6 +236,36 @@ def test_worker_error_callback_logs_timeout_detail(
     assert 17 in stub_dataset_builder._records_to_drop
 
 
+def test_worker_error_callback_logs_max_tokens_truncation_guidance(
+    stub_dataset_builder: DatasetBuilder,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    exc = ModelGenerationValidationFailureError(
+        FormattedLLMErrorMessage(
+            cause=(
+                "The model output from 'test-model' could not be parsed into the requested format while "
+                "running generation for column 'test_column' because the response appears to have been cut off "
+                "by max_tokens. Validation detail: Unterminated JSON object."
+            ),
+            solution="Increase inference_parameters.max_tokens in the model config and try again.",
+        ),
+        detail="Unterminated JSON object.",
+        failure_kind="parse_error",
+        truncated_by_max_tokens=True,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        stub_dataset_builder._worker_error_callback(exc, context={"index": 33, "column_name": "test_column"})
+
+    assert "record at index 33" in caplog.text
+    assert "column 'test_column'" in caplog.text
+    assert "(parse error)" in caplog.text
+    assert "Unterminated JSON object." in caplog.text
+    assert "cut off by max_tokens" in caplog.text
+    assert "Increase inference_parameters.max_tokens in the model config." in caplog.text
+    assert 33 in stub_dataset_builder._records_to_drop
+
+
 def test_worker_error_callback_requires_context_index(
     stub_dataset_builder: DatasetBuilder,
     caplog: pytest.LogCaptureFixture,

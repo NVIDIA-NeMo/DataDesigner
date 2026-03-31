@@ -45,6 +45,7 @@ class GenerationValidationFailureError(Exception):
     summary: str
     detail: str | None
     failure_kind: str
+    truncated_by_max_tokens: bool
 
     def __init__(
         self,
@@ -52,10 +53,12 @@ class GenerationValidationFailureError(Exception):
         *,
         detail: str | None = None,
         failure_kind: str = "validation_error",
+        truncated_by_max_tokens: bool = False,
     ) -> None:
         self.summary = summary.strip()
         self.detail = _normalize_error_detail(detail)
         self.failure_kind = failure_kind
+        self.truncated_by_max_tokens = truncated_by_max_tokens
 
         message = self.summary
         if self.detail is not None:
@@ -115,6 +118,7 @@ class ModelStructuredOutputError(DataDesignerError): ...
 class ModelGenerationValidationFailureError(DataDesignerError):
     detail: str | None
     failure_kind: str | None
+    truncated_by_max_tokens: bool
 
     def __init__(
         self,
@@ -122,6 +126,7 @@ class ModelGenerationValidationFailureError(DataDesignerError):
         *,
         detail: str | None = None,
         failure_kind: str | None = None,
+        truncated_by_max_tokens: bool = False,
     ) -> None:
         if message is None:
             super().__init__()
@@ -129,6 +134,7 @@ class ModelGenerationValidationFailureError(DataDesignerError):
             super().__init__(message)
         self.detail = _normalize_error_detail(detail)
         self.failure_kind = failure_kind
+        self.truncated_by_max_tokens = truncated_by_max_tokens
 
 
 class ImageGenerationError(DataDesignerError): ...
@@ -216,16 +222,35 @@ def handle_llm_exceptions(
         case GenerationValidationFailureError():
             detail_text = exception.detail.rstrip(".") if exception.detail is not None else None
             validation_detail = f" Validation detail: {detail_text}." if detail_text is not None else ""
+            if exception.truncated_by_max_tokens:
+                cause = (
+                    f"The model output from {model_name!r} could not be parsed into the requested format "
+                    f"while {purpose} because the response appears to have been cut off by max_tokens."
+                    f"{validation_detail}"
+                )
+                solution = (
+                    "Increase inference_parameters.max_tokens in the model config and try again. "
+                    "If the failure persists, simplify or modify the output schema."
+                )
+            else:
+                cause = (
+                    f"The model output from {model_name!r} could not be parsed into the requested format "
+                    f"while {purpose}.{validation_detail}"
+                )
+                solution = (
+                    "This is most likely temporary as we make additional attempts. If you continue to see more of "
+                    "this, simplify or modify the output schema for structured output and try again. If you are "
+                    "attempting token-intensive tasks like generations with high-reasoning effort, ensure that "
+                    "max_tokens in the model config is high enough to reach completion."
+                )
             raise ModelGenerationValidationFailureError(
                 FormattedLLMErrorMessage(
-                    cause=(
-                        f"The model output from {model_name!r} could not be parsed into the requested format "
-                        f"while {purpose}.{validation_detail}"
-                    ),
-                    solution="This is most likely temporary as we make additional attempts. If you continue to see more of this, simplify or modify the output schema for structured output and try again. If you are attempting token-intensive tasks like generations with high-reasoning effort, ensure that max_tokens in the model config is high enough to reach completion.",
+                    cause=cause,
+                    solution=solution,
                 ),
                 detail=exception.detail,
                 failure_kind=exception.failure_kind,
+                truncated_by_max_tokens=exception.truncated_by_max_tokens,
             ) from None
 
         case DataDesignerError():
