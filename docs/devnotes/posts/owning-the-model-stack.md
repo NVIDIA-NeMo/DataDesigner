@@ -28,7 +28,11 @@ So we built a native client layer. Thin HTTP adapters with adaptive rate-limit h
 
 The replacement is a layered stack where each layer does one thing. `ModelFacade`, the public orchestration surface that column generators call, didn't change at all. Everything below it is new.
 
+<div style="text-align: center;" markdown>
+
 ![Native model client architecture: six layers from ModelFacade down to provider HTTP APIs](assets/owning-the-model-stack/native-model-client-layers.png){ style="max-width:75%; height:auto" }
+
+</div>
 
 From top to bottom:
 
@@ -67,7 +71,11 @@ The asymmetry is deliberate. You probe upward slowly because overshooting wastes
 
 The result is that the system converges on the provider's actual capacity without you setting it. It starts at your configured `max_parallel_requests`, discovers the real limit through 429 signals, and settles into a steady state that tracks the provider's capacity as it changes.
 
+<div style="text-align: center;" markdown>
+
 ![AIMD concurrency control over time: initial phase, 429 drop, recovery, ceiling stabilization, steady state](assets/owning-the-model-stack/aimd-concurrency-over-time.png){ style="max-width:75%; height:auto" }
+
+</div>
 
 This is especially useful when you're self-hosting your inference stack (running vLLM or NVIDIA NIM on your own hardware) as long as the serving framework returns 429s when it's at capacity. The capacity of a self-hosted endpoint depends on your GPU count, model size, quantization, batch settings, and whatever else is sharing the cluster. That capacity might change between runs, or even mid-run if other workloads spin up. If your serving layer signals overload with 429s, you don't need to figure any of that out. Point Data Designer at your endpoint, set `max_parallel_requests` to a generous upper bound, and the system self-adjusts to whatever your infrastructure can actually handle.
 
@@ -89,7 +97,11 @@ Real pipelines aren't simple. A single provider+model combination might serve ch
 
 The throttle manager handles this with two-level keying:
 
+<div style="text-align: center;" markdown>
+
 ![Two-level throttle keying: global cap per provider+model, independent domain states for chat, embedding, image](assets/owning-the-model-stack/throttle-keying.png){ style="max-width:75%; height:auto" }
+
+</div>
 
 - **Global cap**: keyed by `(provider_name, model_id)`. When multiple model aliases target the same provider and model, the effective max is `min()` of their configured `max_parallel_requests`. This enforces the most conservative limit for shared upstream capacity, because the provider doesn't care what you *call* the model, it sees the same API key.
 
@@ -105,7 +117,11 @@ The transport layer (via `httpx` with `RetryTransport`) handles transient server
 
 But **429 is explicitly excluded from transport retries**.
 
+<div style="text-align: center;" markdown>
+
 ![Retry boundary: 502/503/504 retried at transport, 429 passed through to ThrottledModelClient for AIMD feedback](assets/owning-the-model-stack/retry-boundary.png){ style="max-width:75%; height:auto" }
+
+</div>
 
 Why? Because if the retry layer swallows 429s, the throttle manager never learns the provider is overloaded. The whole AIMD feedback loop depends on seeing raw rate-limit signals. A 429 must bubble up to `ThrottledModelClient` so it can call `release_rate_limited()`, cut the concurrency limit, apply the cooldown, and record the ceiling. The next attempt then re-enters the throttle acquire path, waiting for a permit, before making another HTTP call.
 
