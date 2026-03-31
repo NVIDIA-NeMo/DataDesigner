@@ -6,7 +6,8 @@ You are NOT in an interactive session - there is no human to ask questions.
 ## About this repo
 
 DataDesigner is an NVIDIA NeMo framework for creating synthetic datasets.
-See AGENTS.md at the repo root for full architecture context.
+See AGENTS.md at the repo root for an overview and links to detailed docs
+(architecture, style guide, development workflow).
 
 ## Constraints
 

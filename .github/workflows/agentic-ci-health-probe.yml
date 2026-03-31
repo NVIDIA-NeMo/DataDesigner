@@ -21,36 +21,26 @@ jobs:
 
       - name: Ping inference API
         id: ping
+        if: steps.auth.outputs.mode == 'custom'
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
           AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
         run: |
           MODEL="${AGENTIC_CI_MODEL:-claude-sonnet-4-20250514}"
-          AUTH_MODE="${{ steps.auth.outputs.mode }}"
 
-          echo "Auth mode: ${AUTH_MODE}"
+          echo "Auth mode: custom"
           echo "Model: ${MODEL}"
 
           START=$(date +%s%N)
 
-          if [ "$AUTH_MODE" = "custom" ]; then
-            HTTP_CODE=$(curl -s -o /tmp/api-response.json -w "%{http_code}" \
-              --max-time 30 \
-              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
-              -H "Content-Type: application/json" \
-              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-              -H "anthropic-version: 2023-06-01" \
-              -d "{\"model\":\"${MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-          else
-            HTTP_CODE=$(curl -s -o /tmp/api-response.json -w "%{http_code}" \
-              --max-time 30 \
-              -X POST "https://api.anthropic.com/v1/messages" \
-              -H "Content-Type: application/json" \
-              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-              -H "anthropic-version: 2023-06-01" \
-              -d "{\"model\":\"${MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-          fi
+          HTTP_CODE=$(curl -s -o /tmp/api-response.json -w "%{http_code}" \
+            --max-time 30 \
+            -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "{\"model\":\"${MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
 
           END=$(date +%s%N)
           LATENCY_MS=$(( (END - START) / 1000000 ))
@@ -67,7 +57,7 @@ jobs:
           fi
 
       - name: Check latency threshold
-        if: steps.ping.outputs.latency_ms > 10000
+        if: steps.auth.outputs.mode == 'custom' && steps.ping.outputs.latency_ms > 10000
         run: |
           echo "::warning::API latency ${{ steps.ping.outputs.latency_ms }}ms exceeds 10s threshold"
 

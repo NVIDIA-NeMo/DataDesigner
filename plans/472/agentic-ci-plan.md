@@ -505,7 +505,10 @@ Every piece of external content the agent reads is a potential injection vector:
 
 **GitHub token scope:**
 - PR review: `contents: read`, `pull-requests: write` (comment only, no approve/reject)
-- Daily suites: `contents: write` (to open PRs), `issues: write` (to create/update issues)
+- Daily suites: `contents: write` (to open PRs), `issues: write` (to create/update issues).
+  `contents: write` allows pushing to any unprotected branch - branch protection
+  rules requiring human review before merge must be in place on `main` to prevent
+  the agent from self-merging.
 - No `admin`, no `actions: write`, no `security_events: write`
 - Use a dedicated GitHub App with scoped permissions rather than a PAT tied to a
   person's account. This makes permissions auditable and revocable independently.
