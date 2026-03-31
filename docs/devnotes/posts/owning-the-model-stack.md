@@ -198,8 +198,7 @@ The goal is that you spend your time designing datasets, not tuning concurrency 
 
 Key Resources:
 
-1. [NeMo Data Designer on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner)
-2. [Data Designer Documentation](https://nvidia-nemo.github.io/DataDesigner/)
-3. [Design Principles Dev Note](design-principles.md)
+1. [Data Designer Documentation](https://nvidia-nemo.github.io/DataDesigner/)
+2. [Design Principles Dev Note](design-principles.md)
 
 *Want to learn more about NeMo Data Designer? Check out our [documentation](https://nvidia-nemo.github.io/DataDesigner/) and start building your own synthetic data pipelines today.*
