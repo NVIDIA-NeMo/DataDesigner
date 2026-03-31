@@ -194,9 +194,7 @@ Reading these lines in sequence tells you exactly what happened: where the syste
 
 This shipped in Data Designer v0.5.4. If you're using Data Designer today, nothing changes in your pipeline code. `ModelFacade` is the same API it's always been. What changes is what happens underneath. The system now discovers provider capacity at runtime, isolates throttle state per route, and separates retry logic from rate-limit adaptation. Adaptive throttling is enabled by default for all providers. You don't opt in or configure anything; it just starts learning. If you want to see this fully in action, turn on async mode — it's experimental today, but soon to be stable.
 
-For most workloads, the defaults are all you need. Set `max_parallel_requests` to a generous upper bound and let AIMD find the right level. If you're running against a self-hosted stack that returns 429s, the system adapts to your hardware without any tuning. If you want finer control, `ThrottleConfig` is there, but the goal is that you shouldn't have to think about it.
-
-The goal is that you spend your time designing datasets, not tuning concurrency knobs. The system handles the transport-level complexity automatically.
+For most workloads, the defaults are all you need. Set `max_parallel_requests` to a generous upper bound and let AIMD find the right level. If you're running against a stack that returns 429s, the system adapts to the available capacity without any tuning. If you want finer control, `ThrottleConfig` is there — but the goal is that you spend your time designing datasets, not tuning concurrency knobs.
 
 Key Resources:
 
