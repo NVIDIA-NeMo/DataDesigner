@@ -1,5 +1,6 @@
 ---
 date: 2026-03-30
+status: proposed
 authors:
   - andreatgretel
 ---
@@ -243,7 +244,9 @@ permissions:
 
 Constraints:
 - Only runs on non-draft PRs (automatic mode)
-- Skips if the PR only touches docs/markdown (configurable per recipe)
+- Reviews docs/markdown PRs with a lighter recipe variant (link validity,
+  consistency with code, skip linting). Skipping agent review entirely requires
+  a `skip-agent-review` label rather than being inferred from file type.
 - Posts as a comment, not an approval/rejection
 - Rate-limited: one review per `synchronize` event, debounced
 
@@ -272,7 +275,7 @@ more meaningful (fewer "nothing changed" runs).
 | Wed       | structure          | import boundaries, circular deps, dead exports        |
 | Thu       | code-quality       | complexity, exception hygiene, type gaps, TODO aging  |
 | Fri       | test-health        | coverage deltas, hollow tests, fixtures, smoke tests  |
-| Sat/Sun   | off                | -                                                     |
+| Sat/Sun   | weekend agents     | perf benchmarks, AI-QA tests, repo triage (see Follow-up) |
 
 **Why rotate instead of running all five daily?**
 
@@ -338,7 +341,11 @@ Keeps the dependency graph healthy and secure.
 
 - **Version pinning audit**: compare pinned versions in all three `pyproject.toml`
   files against latest available. Prefer strict pins (`==`) over loose (`>=`) for
-  reproducibility.
+  reproducibility. The right level of pinning is context-dependent - strict pins
+  maximize reproducibility but add upgrade friction. The recipe should make
+  nuanced recommendations: strict for transitive deps with a history of breaking
+  changes (e.g., litellm), looser for stable, well-tested libraries. Flag the
+  trade-off rather than blanket-pinning.
 - **Upgrade safety**: for each outdated dependency, check changelogs and CVE
   databases. Propose a PR to bump if safe; flag as an issue if breaking changes or
   security concerns exist.
@@ -391,6 +398,9 @@ Ensures the test suite stays meaningful, not just green.
   only verify they were called without exercising actual behavior.
 - **Fixture/parametrize opportunities**: find duplicate test setup across test files
   that could be consolidated into shared fixtures or `@pytest.mark.parametrize`.
+- **Import/CLI bootup time**: verify import performance stays within budget.
+  The existing `tests/test_import_perf.py` already covers this - the suite
+  should run it and flag regressions against the previous run's baseline.
 - **Smoke tests**: write and run e2e smoke tests that exercise full user-facing
   flows: configure a dataset, build it, validate output. Network calls to LLM
   providers are mocked (using `pytest-httpx` or similar) to keep runs fast,
@@ -410,21 +420,26 @@ The runner should not start from scratch every day. It needs persistent state to
 - Track what changed since the last run (delta-based audits)
 - Accumulate context about the repo over time (trending patterns, recurring issues)
 
-**Approach: `.agents/memory/` directory committed to the repo.**
+**Approach: GitHub Actions cache as primary storage.**
+
+The workflow uses `actions/cache` keyed by suite name (e.g.,
+`agentic-ci-state-docs-and-references`), with `restore-keys` fallback to the
+latest state for that suite. State files follow the same structure:
 
 ```
-.agents/
-  memory/
-    runner-state.json    # machine-readable state (last run times, known issues, etc.)
-    audit-log.md         # human-readable log of recent findings
+runner-state.json    # machine-readable state (last run times, known issues, etc.)
+audit-log.md         # human-readable log of recent findings
 ```
 
-This is the simplest option: state is version-controlled, inspectable, and survives
-runner reprovisioning. The daily workflow commits memory updates to a long-lived branch
-(e.g., `agentic-ci/state`) and rebases on main before each run.
+This is fast, requires no branch management, and avoids merge friction. Cache
+eviction (7 days of no access, or capacity pressure) is a minor inconvenience,
+not data loss - the next run simply re-derives state from scratch, which may
+cause one-time duplicate reports for already-known issues.
 
-Alternatively, memory could live in GitHub Actions artifacts or an external store, but
-committing to a branch keeps it transparent and avoids external dependencies.
+**Auditability add-on (optional):** the workflow can also commit a snapshot of
+`runner-state.json` to a long-lived branch (e.g., `agentic-ci/state`) on a
+weekly cadence for teams that want a full audit trail. This is not the primary
+storage path and does not need to stay in sync with every run.
 
 **What the runner remembers:**
 - Last run timestamp and suite per recipe
@@ -580,6 +595,30 @@ is clear:
 - [ ] Memory compaction - prune stale findings, archive old audit logs
 - [ ] Additional recipes based on team needs (notebook regen, etc.)
 
+### Follow-up: Weekend Agents
+
+Weekend slots are reserved for longer-running, exploratory work that doesn't fit
+the weekday rotation's "one suite, fast, low-noise" model. These are not part of
+the initial rollout but are the natural next expansion once daily suites are stable.
+
+**Performance benchmarks:**
+- Mocked execution time profiling across key workflows (preview, create, build)
+- Memory overhead measurement and hotspot detection
+- Import/CLI bootup regression tracking (complements `test_import_perf.py`)
+- Comparison against previous weekend's baseline to flag trends
+
+**AI-QA tests:**
+- Agent constructs SDG workflows end-to-end using the public API
+- Executes them against mocked model responses
+- Records friction points: confusing errors, missing validation, unclear docs
+- Opens issues for anything that blocks or confuses the agent
+
+**Repo triage:**
+- Analyze open issues and PRs: stale items, unlabeled issues, PRs awaiting review
+- Generate a weekly summary report for the team
+- Eventually, attempt to solve straightforward issues (labeled `good-first-issue`
+  or similar) and open draft PRs for human review
+
 ---
 
 ## Design Decisions and Trade-offs
@@ -669,6 +708,11 @@ API endpoint. Key findings:
 2. **Recipe dry-run mode** - how should contributors test recipe changes locally
    before merging? Run the full agent, or a lightweight lint/validation pass on
    the recipe format?
+
+3. **Cost guardrails** - each suite run consumes tokens against a paid model API.
+   What controls should be in place? Consider per-run token budgets, monthly
+   spend alerts, and automatic recipe disabling if cost exceeds a threshold.
+   Especially relevant for Phase 2+ when five suites run weekly.
 
 ---
 
