@@ -28,7 +28,7 @@ So we built a native client layer. Thin HTTP adapters with adaptive rate-limit h
 
 The replacement is a layered stack where each layer does one thing. `ModelFacade`, the public orchestration surface that column generators call, didn't change at all. Everything below it is new.
 
-![Native model client architecture: five layers from ModelFacade down to provider HTTP APIs](assets/owning-the-model-stack/native-model-client-layers.png){ style="max-width:75%; height:auto" }
+![Native model client architecture: six layers from ModelFacade down to provider HTTP APIs](assets/owning-the-model-stack/native-model-client-layers.png){ style="max-width:75%; height:auto" }
 
 From top to bottom:
 
@@ -36,7 +36,7 @@ From top to bottom:
 
 2. **ThrottledModelClient**: the new layer. It's a decorator around `HttpModelClient` — same `ModelClient` protocol, but every outbound call is wrapped with a throttle permit: acquire a concurrency slot before the call, release it after, and feed the outcome (success, 429, or error) back to `ThrottleManager`. This is where adaptive throttling lives.
 
-3. **ThrottleManager**: the AIMD controller that `ThrottledModelClient` delegates to. A single instance is created at pipeline startup and shared across all model clients. It owns all the mutable concurrency state — per-domain AIMD counters, global caps, cascade dampening, and cooldown timers.
+3. **ThrottleManager**: the Additive Increase / Multiplicative Decrease (AIMD) controller that `ThrottledModelClient` delegates to. A single instance is created at pipeline startup and shared across all model clients. It owns all the mutable concurrency state — per-domain AIMD counters, global caps, cascade dampening, and cooldown timers.
 
 4. **HttpModelClient**: an abstract base class that defines the interface for all provider adapters. It owns the shared `httpx` transport lifecycle — connection pooling, timeouts, and transport-level retries for transient failures (502, 503, 504). Boring but important.
 
