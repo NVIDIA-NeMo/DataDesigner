@@ -115,7 +115,7 @@ One caveat: this boundary behaves differently depending on the execution mode. I
 
 ## **Configuration**
 
-The throttle system is designed to work well out of the box. The defaults are conservative and handle most workloads without tuning. The primary user-facing knob is still `max_parallel_requests` on `ModelConfig`, which sets the hard upper bound for concurrency. AIMD floats below it.
+The throttle system is designed to work well out of the box. The defaults are conservative and handle most workloads without tuning. The primary user-facing knob is still `max_parallel_requests` on your model's inference parameters, which sets the hard upper bound for concurrency. AIMD floats below it.
 
 For workloads where you want to fine-tune the adaptation behavior, `ThrottleConfig` is available on `RunConfig`:
 
@@ -140,7 +140,9 @@ config_builder = dd.DataDesignerConfigBuilder(
             alias="reasoning-model",
             model="nvidia/nemotron-3-super-120b-a12b",
             provider="nvidia",
-            max_parallel_requests=32,
+            inference_parameters=dd.ChatCompletionInferenceParams(
+                max_parallel_requests=32,
+            ),
         ),
     ],
 )
