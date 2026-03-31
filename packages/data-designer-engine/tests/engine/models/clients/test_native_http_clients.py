@@ -295,9 +295,14 @@ async def test_acompletion_lazy_initializes_async_client(
 # Connection pool size regression tests (issue #459)
 # ---------------------------------------------------------------------------
 
+_HTTP_TRANSPORT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.HTTPTransport"
+_ASYNC_HTTP_TRANSPORT_PATCH = (
+    "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.AsyncHTTPTransport"
+)
+
 
 def test_client_limits_respect_max_parallel_requests() -> None:
-    """Connection pool limits must reflect max_parallel_requests (regression for issue #459).
+    """Connection pool limits must reflect max_parallel_requests.
 
     pool_max = max(32, 2 * max_parallel_requests) = max(32, 600) = 600
     """
@@ -309,3 +314,66 @@ def test_client_limits_respect_max_parallel_requests() -> None:
         concurrency_mode=ClientConcurrencyMode.SYNC,
     )
     assert client.limits.max_connections == 600
+
+
+@patch(_HTTP_TRANSPORT_PATCH)
+@patch(_SYNC_CLIENT_PATCH)
+def test_sync_pool_limits_forwarded_to_transport(
+    mock_client_cls: MagicMock,
+    mock_transport_cls: MagicMock,
+) -> None:
+    """Regression for #459: limits must reach HTTPTransport, not just httpx.Client.
+
+    The pre-fix code passed limits= to httpx.Client which silently ignores it
+    when a custom transport= is provided.  The fix constructs HTTPTransport
+    with the correct limits before wrapping it in RetryTransport.  This test
+    fails on the pre-fix code because HTTPTransport was never constructed
+    explicitly (assert_called_once fails).
+    """
+    mock_client_cls.return_value = MagicMock(
+        post=MagicMock(return_value=mock_httpx_response(_make_openai_chat_response()))
+    )
+    client = OpenAICompatibleClient(
+        provider_name=_OPENAI_PROVIDER,
+        endpoint=_OPENAI_ENDPOINT,
+        api_key="sk-test",
+        max_parallel_requests=300,
+        concurrency_mode=ClientConcurrencyMode.SYNC,
+    )
+    client.completion(_make_chat_request(_OPENAI_MODEL))
+
+    mock_transport_cls.assert_called_once()
+    limits = mock_transport_cls.call_args.kwargs["limits"]
+    assert limits.max_connections == 600
+    assert limits.max_keepalive_connections == 300
+
+
+@patch(_ASYNC_HTTP_TRANSPORT_PATCH)
+@patch(_ASYNC_CLIENT_PATCH)
+@pytest.mark.asyncio
+async def test_async_pool_limits_forwarded_to_transport(
+    mock_client_cls: MagicMock,
+    mock_transport_cls: MagicMock,
+) -> None:
+    """Regression for #459: limits must reach AsyncHTTPTransport for async clients.
+
+    Same issue as the sync path — the pre-fix code never explicitly constructed
+    AsyncHTTPTransport, so RetryTransport created a default pool with 100
+    connections regardless of max_parallel_requests.
+    """
+    mock_client_cls.return_value = MagicMock(
+        post=AsyncMock(return_value=mock_httpx_response(_make_openai_chat_response()))
+    )
+    client = OpenAICompatibleClient(
+        provider_name=_OPENAI_PROVIDER,
+        endpoint=_OPENAI_ENDPOINT,
+        api_key="sk-test",
+        max_parallel_requests=300,
+        concurrency_mode=ClientConcurrencyMode.ASYNC,
+    )
+    await client.acompletion(_make_chat_request(_OPENAI_MODEL))
+
+    mock_transport_cls.assert_called_once()
+    limits = mock_transport_cls.call_args.kwargs["limits"]
+    assert limits.max_connections == 600
+    assert limits.max_keepalive_connections == 300
