@@ -81,6 +81,7 @@ tool: claude-code          # or "codex" or "any"
 timeout_minutes: 15
 max_turns: 20              # tool calls consume turns; too low = agent can't work
 permissions:
+  checks: write
   contents: read
   pull-requests: write
 ---
@@ -261,6 +262,10 @@ on:
       suite:
         description: "Override which suite to run (docs-and-references, dependencies, structure, code-quality, test-health, all)"
         required: false
+
+concurrency:
+  group: agentic-ci-daily
+  cancel-in-progress: false   # queue, don't cancel - both runs should complete
 ```
 
 The workflow rotates one suite per weekday. This keeps the daily output to at most
@@ -484,9 +489,13 @@ Every piece of external content the agent reads is a potential injection vector:
 - Gate on `github.event.pull_request.author_association` - only collaborators, members,
   and owners.
 - Never run on `pull_request_target` with checkout of the PR head - this gives fork
-  code access to repo secrets. Use `pull_request` event which runs in the fork's
-  context, or use `pull_request_target` without checking out untrusted code.
-- Consider requiring a label (e.g., `agent-review`) to opt in, at least initially.
+  code access to repo secrets. Use `pull_request` event only.
+- Fork PRs are out of scope. The `pull_request` event's token is scoped to the
+  fork and cannot write comments on the base repo. Since the collaborator gate
+  already filters to members who push branches directly, this is not a limitation.
+- `workflow_dispatch` callers are trusted (they need write access to trigger it).
+  If a dispatch targets a fork PR, the caller made a conscious decision. The
+  `_runner.md` injection guards are the remaining protection in that path.
 
 **Daily maintenance workflow:**
 - Runs on `schedule` and `workflow_dispatch` only - no external input, lower risk.
