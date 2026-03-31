@@ -19,6 +19,8 @@ Tool-specific directories symlink back here so each harness resolves skills from
 - `.claude/skills` → `.agents/skills`
 - `.claude/agents` → `.agents/agents`
 
+`recipes/` has no symlink — recipes are invoked by CI workflows, not by the CLI during interactive sessions.
+
 ## Scope
 
 All skills and agents in this directory are for **contributors developing DataDesigner** — not for end users building datasets.

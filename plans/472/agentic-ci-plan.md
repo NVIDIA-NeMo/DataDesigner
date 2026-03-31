@@ -79,7 +79,7 @@ description: Review a pull request using the existing review-code skill
 trigger: pull_request
 tool: claude-code          # or "codex" or "any"
 timeout_minutes: 15
-max_turns: 20              # tool calls consume turns; too low = agent can't work
+max_turns: 30              # tool calls consume turns; too low = agent can't work
 permissions:
   checks: write
   contents: read
@@ -110,7 +110,7 @@ Key design decisions:
   tool-use rounds the agent gets. Each tool call (Read, Glob, Grep, Bash) consumes
   a turn. Setting it too low (e.g., 1) means the agent can't use any tools. Too
   high and a confused agent burns tokens. Each recipe should declare a sensible
-  default based on expected complexity. PR review needs ~20; a simple health check
+  default based on expected complexity. PR review needs ~30; a simple health check
   might need 5.
 - **Recipes compose skills** - a recipe can invoke any existing skill by name. The
   recipe adds CI-specific concerns (output routing, template variables, constraints)
@@ -377,7 +377,8 @@ Enforces the multi-package layering that makes DataDesigner work.
 
 #### Thursday / code-quality
 
-Catches quality drift that individual PRs don't surface.
+Catches quality drift that individual PRs don't surface. Checks against the
+conventions in STYLEGUIDE.md for concrete thresholds and patterns.
 
 - **Complexity hotspots**: find functions whose cyclomatic complexity exceeds a
   threshold (e.g., 15). Track growth since last check - flag functions that are
@@ -575,7 +576,7 @@ is clear:
 - [ ] `docs-and-references/recipe.md` - docstrings, broken links, architecture refs
 - [ ] `dependencies/recipe.md` - version pinning, upgrade safety, CVEs, unused deps
 - [ ] GitHub workflow: `agentic-ci-daily.yml` with day-of-week suite rotation
-- [ ] Runner memory: `.agents/memory/` structure + state branch workflow
+- [ ] Runner memory: `actions/cache` integration + state schema + optional audit branch
 - [ ] Recipe runner script (Python or bash) for template substitution,
       tool selection, memory load/save, and output routing
 
@@ -687,7 +688,7 @@ API endpoint. Key findings:
    limits tool-use rounds. Setting it to 1 means the agent cannot use any tools
    (Read, Glob, Grep) at all - it exhausts its single turn trying and returns
    "Reached max turns". Each recipe needs a value calibrated to its expected
-   workflow. PR review needs ~20; a simple prompt-only task might need 3-5.
+   workflow. PR review needs ~30; a simple prompt-only task might need 3-5.
 
 2. **Shell quoting breaks with agent output.** Agent responses contain markdown,
    backticks, quotes, and special characters. Piping stdout through shell

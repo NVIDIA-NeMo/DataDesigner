@@ -5,11 +5,21 @@ on:
     - cron: "0 */6 * * *" # every 6 hours
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   probe:
     runs-on: [self-hosted, agentic-ci]
     timeout-minutes: 3
     steps:
+      - name: Check required config
+        run: |
+          if [ -z "${{ vars.AGENTIC_CI_MODEL }}" ]; then
+            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            exit 1
+          fi
+
       - name: Detect auth mode
         id: auth
         run: |
@@ -27,7 +37,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
           AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
         run: |
-          MODEL="${AGENTIC_CI_MODEL:-claude-sonnet-4-20250514}"
+          MODEL="${AGENTIC_CI_MODEL}"
 
           echo "Auth mode: custom"
           echo "Model: ${MODEL}"
@@ -57,7 +67,7 @@ jobs:
           fi
 
       - name: Check latency threshold
-        if: steps.auth.outputs.mode == 'custom' && steps.ping.outputs.latency_ms > 10000
+        if: steps.auth.outputs.mode == 'custom' && fromJSON(steps.ping.outputs.latency_ms) > 10000
         run: |
           echo "::warning::API latency ${{ steps.ping.outputs.latency_ms }}ms exceeds 10s threshold"
 
@@ -67,7 +77,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
           AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
         run: |
-          MODEL="${AGENTIC_CI_MODEL:-claude-sonnet-4-20250514}"
+          MODEL="${AGENTIC_CI_MODEL}"
 
           # Verify claude is installed and reachable
           if ! command -v claude &> /dev/null; then
