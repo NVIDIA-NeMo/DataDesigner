@@ -560,8 +560,9 @@ is clear:
 - [ ] First recipe: `pr-review/recipe.md`
 - [ ] GitHub workflow: `agentic-ci-pr-review.yml` (self-hosted runner)
 - [ ] API health probe workflow (`agentic-ci-health-probe.yml`) - pings the API
-      on a schedule, opens/closes issues on failure/recovery. Needed before relying
-      on the API for real work.
+      on a schedule, fails the workflow run on error (GitHub's built-in
+      notifications handle alerting). Needed before relying on the API for real
+      work.
 - [ ] Documentation in CONTRIBUTING.md or a dedicated `docs/devnotes/agentic-ci.md`
 
 **Validation:**
@@ -700,7 +701,8 @@ API endpoint. Key findings:
    because GitHub Issues were disabled on the fork - `gh issue create` returned
    an error but the workflow step gave no useful diagnostic. Workflows should
    validate prerequisites (API reachable, CLI available, required repo features
-   enabled) in a dedicated step before running the real work.
+   enabled, required variables set) in a dedicated step before running the real
+   work. Fail fast with a clear error message if config is missing.
 
 4. **Model name is endpoint-specific.** Custom API endpoints may use different
    model identifiers than the direct Anthropic API. This must be a secret/env
@@ -708,7 +710,18 @@ API endpoint. Key findings:
 
 5. **API health probe is a Phase 1 requirement.** You need confidence in the
    API's reliability before relying on it for PR reviews. A lightweight cron
-   probe (curl + issue open/close) costs almost nothing and builds a track record.
+   probe (curl + CLI check) costs almost nothing and builds a track record.
+   Relying on workflow failure + GitHub notifications is simpler than managing
+   issue open/close lifecycle.
+
+6. **GitHub Actions `if:` expressions compare strings, not numbers.** Step
+   outputs are always strings. `"9999" > "10000"` is `true` lexicographically.
+   Use `fromJSON(steps.x.outputs.y)` to force numeric comparison.
+
+7. **All workflows should declare explicit `permissions:`.** Even read-only
+   workflows benefit from a `permissions: contents: read` block. It documents
+   intent, prevents accidental scope creep, and aligns with the minimal
+   permissions principle.
 
 ---
 
