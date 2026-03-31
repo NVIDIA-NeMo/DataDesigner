@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Download artifact from previous step
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           name: notebooks
           path: data_designer_tutorial
