@@ -52,6 +52,7 @@ docs = [
     "mkdocs>=1.6.1,<2",
     "mkdocstrings-python>=1.18.2,<2",
     "mkdocstrings>=0.30.1,<1",
+    "pymdown-extensions>=10.21.2,<11",
 ]
 notebooks = [
     "datasets>=4.0.0,<5",
