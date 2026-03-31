@@ -75,7 +75,7 @@ This is especially useful when you're self-hosting your inference stack (running
 
 Classic AIMD has a well-known problem, the sawtooth. After a 429 drops the limit, additive increase climbs all the way back to the configured max, hits another 429, drops again, and repeats. Every climb wastes requests, and the 429 bursts are predictable.
 
-We dampen it with **ceiling stabilization**. After the first 429, the system records the pre-decrease limit as a `rate_limit_ceiling`. Subsequent additive increases don't climb all the way back to `max_parallel_requests` — they stop at `ceiling * (1 + ceiling_overshoot)` (by default 10% above the observed limit). This lets the system probe gently above what it knows works (in case the provider can now handle more traffic) without repeatedly slamming into the wall. If the probe succeeds, the ceiling ratchets up. If it triggers another 429, the ceiling lowers. Over time, the oscillations shrink and the system finds a tight band around the provider's real capacity.
+We dampen it with **ceiling stabilization**. After the first 429, the system records the pre-decrease limit as a `rate_limit_ceiling`. Subsequent additive increases don't climb all the way back to `max_parallel_requests` — they stop at `ceiling * (1 + ceiling_overshoot)` (by default 10% above the observed limit). This lets the system probe gently above what it knows works — the 10% overshoot band — without repeatedly slamming into the wall. If the probe succeeds (no 429), the limit keeps rising within the overshoot band while the ceiling stays put. If a 429 fires at or below the existing ceiling, the ceiling is updated downward to the lower observed limit via `min(existing_ceiling, prev_limit)`, tightening the band over time. The result is that oscillations shrink and the system converges on a tight band around the provider's real capacity.
 
 ### **Cascade dampening**
 
@@ -109,7 +109,7 @@ But **429 is explicitly excluded from transport retries**.
 
 Why? Because if the retry layer swallows 429s, the throttle manager never learns the provider is overloaded. The whole AIMD feedback loop depends on seeing raw rate-limit signals. A 429 must bubble up to `ThrottledModelClient` so it can call `release_rate_limited()`, cut the concurrency limit, apply the cooldown, and record the ceiling. The next attempt then re-enters the throttle acquire path, waiting for a permit, before making another HTTP call.
 
-The split is clean and worth remembering. Transport retries handle *server problems*. Throttle adaptation handles *capacity problems*. The provider is working fine, you're just sending too many. Conflating the two is how you get retry storms.
+The split is clean and worth remembering. Transport retries handle *server problems*. Throttle adaptation handles *capacity problems*. The provider is working fine, you're just sending too many requests. Conflating the two is how you get retry storms.
 
 One caveat: this boundary behaves differently depending on the execution mode. In async mode (currently experimental, enabled with `DATA_DESIGNER_ASYNC_ENGINE=1`), 429s bypass transport retries entirely and flow straight to `ThrottledModelClient` for AIMD feedback — this is the full adaptive loop described above. In sync mode, 429s are retried at the transport layer since there's no salvage queue to re-attempt failed rows. AIMD is still wired up but only fires if all transport retries are exhausted. This is temporary — once the async engine graduates from experimental, it will become the default path and the sync codepath will be retired. Stay tuned for a dedicated dev note on the async engine.
 
@@ -144,6 +144,8 @@ config_builder = dd.DataDesignerConfigBuilder(
         ),
     ],
 )
+
+# ... add columns to config_builder ...
 
 create_result = data_designer.create(
     config_builder,
