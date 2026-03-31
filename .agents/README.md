@@ -8,6 +8,7 @@ This is the tool-agnostic home for shared agent infrastructure used in **develop
 .agents/
 ├── skills/       # Development skills (commit, create-pr, review-code, etc.)
 ├── agents/       # Sub-agent persona definitions (docs-searcher, github-searcher)
+├── recipes/      # Agentic CI recipes (health-probe, pr-review, etc.)
 └── README.md     # This file
 ```
 
