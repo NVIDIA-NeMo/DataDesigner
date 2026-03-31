@@ -25,9 +25,9 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.TEST_OPENROUTER_API_KEY }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.9.5"
       - name: Set up Python
@@ -35,7 +35,7 @@ jobs:
       - name: Restore notebook cache
         if: inputs.use_cache
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .notebook-cache
           key: notebooks-${{ hashFiles('docs/notebook_source/*.py') }}
@@ -80,7 +80,7 @@ jobs:
       - name: Convert and execute notebooks
         run: make convert-execute-notebooks ${{ inputs.use_cache && 'USE_CACHE=1' || '' }}
       - name: Upload notebooks as artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: notebooks
           path: docs/notebooks
