@@ -56,6 +56,7 @@ Supported locales:
 - `en_US`: United States
 - `en_IN`: India (English)
 - `en_SG`: Singapore (English)
+- `fr_FR`: France (French)
 - `hi_Deva_IN`: India (Devanagari script)
 - `hi_Latn_IN`: India (Latin script)
 - `ja_JP`: Japan
@@ -118,6 +119,9 @@ ngc registry resource download-version "nvidia/nemotron-personas/nemotron-person
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_deva_in"
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_latn_in"
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_in"
+
+# For Nemotron-Personas FR
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-fr_fr"
 
 # For Nemotron-Personas JP
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ja_jp"
@@ -183,6 +187,16 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 | `email_address` | string | |
 | `national_id` | string |
 
+**France-Specific Fields (`fr_FR`):**
+
+- `commune` - Smallest administrative division (includes arrondissements)
+- `departement` - Mid-level administrative division
+- `household_type` - Household composition (e.g., single person, couple with/without children)
+- `monthly_income_eur` - Estimated monthly income in euros
+- `first_name_heritage` - Cultural origin of the first name
+- `name_heritage` - Cultural, linguistic, or geographic origin of the surname
+- `is_first_gen_immigrant` - Whether the individual is a first-generation immigrant to France
+
 **Japan-Specific Fields (`ja_JP`):**
 
 - `area`
@@ -234,7 +248,7 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `locale` | str | Language/region code - must be one of: "en_US", "en_IN", "en_SG", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "pt_BR" |
+| `locale` | str | Language/region code - must be one of: "en_US", "en_IN", "en_SG", "fr_FR", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "pt_BR" |
 | `sex` | str (optional) | Filter by "Male" or "Female" |
 | `city` | str or list[str] (optional) | Filter by specific city or cities within locale |
 | `age_range` | list[int] (optional) | Two-element list [min_age, max_age] (default: [18, 114]) |
