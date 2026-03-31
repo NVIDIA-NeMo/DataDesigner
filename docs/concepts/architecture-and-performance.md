@@ -111,13 +111,13 @@ concurrent_requests = min(
 
 `max_parallel_requests` sets the **ceiling**. The actual limit (`current_throttle_limit`) is managed at runtime by an AIMD (Additive Increase / Multiplicative Decrease) controller that reacts to rate-limit signals from the inference server:
 
-- **On a 429 response**: the limit is reduced by a configurable factor (default: 25% reduction) and a cooldown is applied.
+- **On the first 429 in a burst**: the limit is reduced by a configurable factor (default: 25% reduction) and a cooldown is applied. Further 429s from already in-flight requests in the same burst do not reduce the limit again — they release their permits and hold the limit steady.
 - **After consecutive successes**: the limit increases by 1 (by default) until it reaches the ceiling or a stabilized rate-limit threshold.
 
 This means Data Designer automatically finds the right concurrency level for your server without manual tuning.
 
 !!! note "Sync engine caveat"
-    AIMD adaptive concurrency is fully active on the **async engine** path. On the current **sync engine** path, 429 responses are retried transparently at the HTTP transport layer and do not reach the AIMD controller, so the concurrency limit stays fixed at `max_parallel_requests`. The async engine is landing soon and will be the recommended path for production workloads.
+    AIMD adaptive concurrency is fully active on the **async engine** path. On the current **sync engine** path, 429 responses are first retried at the HTTP transport layer; AIMD only engages as a fallback if transport retries are exhausted. In practice the concurrency limit stays near `max_parallel_requests` for most sync workloads. The async engine is landing soon and will be the recommended path for production workloads.
 
 **Example**: With `buffer_size=100` and `max_parallel_requests=32`, Data Designer starts sending up to 32 requests in parallel. If the server returns 429s, concurrency drops automatically (e.g., to 24, then 18) and recovers once the server catches up.
 
@@ -169,7 +169,7 @@ model = dd.ModelConfig(
 
 **Default**: 4
 
-**When to increase**: Your inference backend has high throughput capacity, you're using a cloud API with generous rate limits, or you're running vLLM/TensorRT-LLM with multiple GPUs. With AIMD, setting an aggressively high value is safer than before — the system will self-correct downward if the server can't keep up.
+**When to increase**: Your inference backend has high throughput capacity, you're using a cloud API with generous rate limits, or you're running vLLM/TensorRT-LLM with multiple GPUs. With AIMD, setting an aggressively high value is safer than before — the system will self-correct downward if the server can't keep up. (On the async engine the salvage queue reclaims failed rows; on the sync engine the initial burst of 429s before AIMD stabilizes can drop rows, so start with a more conservative ceiling if you're using the sync path.)
 
 **When to decrease**: You want to cap resource usage to a known safe level, or you want more predictable/debuggable execution.
 
@@ -201,8 +201,8 @@ designer.set_run_config(run_config)
 
 Data Designer uses an AIMD (Additive Increase / Multiplicative Decrease) controller to automatically adjust concurrency per model based on rate-limit feedback from the inference server. The defaults work well for most workloads. Override them via `ThrottleConfig` only when you understand the trade-offs.
 
-!!! note "Requires the async engine"
-    Adaptive throttling is active on the **async engine** path, where 429 responses propagate to the AIMD controller. On the sync engine path, 429s are retried at the HTTP transport layer and `ThrottleConfig` settings have no effect. The async engine is landing soon.
+!!! note "Sync engine caveat"
+    Adaptive throttling is fully active on the **async engine** path, where 429 responses propagate directly to the AIMD controller. On the **sync engine** path, 429s are first retried at the HTTP transport layer; `ThrottleConfig` settings only take effect as a fallback if transport retries are exhausted. The async engine is landing soon and will be the recommended path for production workloads.
 
 ```python
 import data_designer.config as dd
