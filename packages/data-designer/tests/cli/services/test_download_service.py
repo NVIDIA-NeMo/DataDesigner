@@ -51,10 +51,11 @@ def test_get_available_locales(service: DownloadService) -> None:
     locales = service.get_available_locales()
 
     assert isinstance(locales, dict)
-    assert len(locales) == 7
+    assert len(locales) == 8
     assert "en_US" in locales
     assert "en_IN" in locales
     assert "en_SG" in locales
+    assert "fr_FR" in locales
     assert "hi_Deva_IN" in locales
     assert "hi_Latn_IN" in locales
     assert "ja_JP" in locales
