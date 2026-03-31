@@ -85,7 +85,7 @@ Here's a subtlety that bit us during testing. When the system is running at capa
 
 ### **Two-level keying**
 
-Real pipelines aren't simple. A single provider+model combination might serve chat completions, embeddings, and image generation, potentially on different rate-limit budgets. And multiple model aliases in your pipeline might point to the same underlying provider and model (say, one alias for generation and another for judging, both hitting the same NVIDIA endpoint).
+Real pipelines aren't simple. A single provider+model combination might serve chat completions, embeddings, and image generation, potentially on different rate-limit budgets. And multiple [model aliases](../../concepts/models/model-configs.md) in your pipeline might point to the same underlying provider and model (say, one alias for generation and another for judging, both hitting the same NVIDIA endpoint).
 
 The throttle manager handles this with two-level keying:
 
