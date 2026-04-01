@@ -83,6 +83,11 @@ class HttpModelClient(ABC):
     def concurrency_mode(self) -> ClientConcurrencyMode:
         return self._mode
 
+    @property
+    def limits(self) -> httpx.Limits:
+        """Connection pool limits derived from ``max_parallel_requests`` at construction time."""
+        return self._limits
+
     @abstractmethod
     def _build_headers(self, extra_headers: dict[str, str]) -> dict[str, str]:
         """Build provider-specific request headers."""
@@ -97,10 +102,12 @@ class HttpModelClient(ABC):
                 raise RuntimeError("Model client is closed.")
             if self._client is None:
                 if self._transport is None:
-                    self._transport = create_retry_transport(self._retry_config, strip_rate_limit_codes=False)
+                    inner = lazy.httpx.HTTPTransport(limits=self._limits)
+                    self._transport = create_retry_transport(
+                        self._retry_config, strip_rate_limit_codes=False, transport=inner
+                    )
                 self._client = lazy.httpx.Client(
                     transport=self._transport,
-                    limits=self._limits,
                     timeout=lazy.httpx.Timeout(self._timeout_s),
                 )
             return self._client
@@ -113,10 +120,12 @@ class HttpModelClient(ABC):
                 raise RuntimeError("Model client is closed.")
             if self._aclient is None:
                 if self._transport is None:
-                    self._transport = create_retry_transport(self._retry_config, strip_rate_limit_codes=True)
+                    inner = lazy.httpx.AsyncHTTPTransport(limits=self._limits)
+                    self._transport = create_retry_transport(
+                        self._retry_config, strip_rate_limit_codes=True, transport=inner
+                    )
                 self._aclient = lazy.httpx.AsyncClient(
                     transport=self._transport,
-                    limits=self._limits,
                     timeout=lazy.httpx.Timeout(self._timeout_s),
                 )
             return self._aclient

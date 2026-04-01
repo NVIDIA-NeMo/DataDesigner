@@ -289,3 +289,23 @@ async def test_acompletion_lazy_initializes_async_client(
 
     mock_ctor.assert_called_once()
     assert result.message.content == "lazy result"
+
+
+# ---------------------------------------------------------------------------
+# Connection pool size regression tests (issue #459)
+# ---------------------------------------------------------------------------
+
+
+def test_client_limits_respect_max_parallel_requests() -> None:
+    """Connection pool limits must reflect max_parallel_requests (regression for issue #459).
+
+    pool_max = max(32, 2 * max_parallel_requests) = max(32, 600) = 600
+    """
+    client = OpenAICompatibleClient(
+        provider_name=_OPENAI_PROVIDER,
+        endpoint=_OPENAI_ENDPOINT,
+        api_key="sk-test",
+        max_parallel_requests=300,
+        concurrency_mode=ClientConcurrencyMode.SYNC,
+    )
+    assert client.limits.max_connections == 600
