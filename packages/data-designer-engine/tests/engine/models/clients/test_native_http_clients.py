@@ -23,6 +23,10 @@ _ANTHROPIC_MODEL = "claude-test"
 _ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1"
 _SYNC_CLIENT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.Client"
 _ASYNC_CLIENT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.AsyncClient"
+_HTTP_TRANSPORT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.HTTPTransport"
+_ASYNC_HTTP_TRANSPORT_PATCH = (
+    "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.AsyncHTTPTransport"
+)
 
 
 def _make_openai_client(
@@ -30,6 +34,7 @@ def _make_openai_client(
     concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
     sync_client: MagicMock | None = None,
     async_client: MagicMock | None = None,
+    **kwargs: Any,
 ) -> OpenAICompatibleClient:
     return OpenAICompatibleClient(
         provider_name=_OPENAI_PROVIDER,
@@ -38,6 +43,7 @@ def _make_openai_client(
         concurrency_mode=concurrency_mode,
         sync_client=sync_client,
         async_client=async_client,
+        **kwargs,
     )
 
 
@@ -46,6 +52,7 @@ def _make_anthropic_client(
     concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
     sync_client: MagicMock | None = None,
     async_client: MagicMock | None = None,
+    **kwargs: Any,
 ) -> AnthropicClient:
     return AnthropicClient(
         provider_name=_ANTHROPIC_PROVIDER,
@@ -54,6 +61,7 @@ def _make_anthropic_client(
         concurrency_mode=concurrency_mode,
         sync_client=sync_client,
         async_client=async_client,
+        **kwargs,
     )
 
 
@@ -295,32 +303,44 @@ async def test_acompletion_lazy_initializes_async_client(
 # Connection pool size regression tests (issue #459)
 # ---------------------------------------------------------------------------
 
-_HTTP_TRANSPORT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.HTTPTransport"
-_ASYNC_HTTP_TRANSPORT_PATCH = (
-    "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.AsyncHTTPTransport"
-)
+_POOL_LIMITS_CASES = [
+    pytest.param(_make_openai_client, id="openai"),
+    pytest.param(_make_anthropic_client, id="anthropic"),
+]
+
+_SYNC_TRANSPORT_WIRING_CASES = [
+    pytest.param(_make_openai_client, _OPENAI_MODEL, _make_openai_chat_response(), id="openai"),
+    pytest.param(_make_anthropic_client, _ANTHROPIC_MODEL, _make_anthropic_chat_response(), id="anthropic"),
+]
+
+_ASYNC_TRANSPORT_WIRING_CASES = [
+    pytest.param(_make_openai_client, _OPENAI_MODEL, _make_openai_chat_response(), id="openai"),
+    pytest.param(_make_anthropic_client, _ANTHROPIC_MODEL, _make_anthropic_chat_response(), id="anthropic"),
+]
 
 
-def test_client_limits_respect_max_parallel_requests() -> None:
+@pytest.mark.parametrize("client_factory", _POOL_LIMITS_CASES)
+def test_client_limits_respect_max_parallel_requests(client_factory: Callable[..., Any]) -> None:
     """Connection pool limits must reflect max_parallel_requests.
 
     pool_max = max(32, 2 * max_parallel_requests) = max(32, 600) = 600
     """
-    client = OpenAICompatibleClient(
-        provider_name=_OPENAI_PROVIDER,
-        endpoint=_OPENAI_ENDPOINT,
-        api_key="sk-test",
-        max_parallel_requests=300,
+    client = client_factory(
         concurrency_mode=ClientConcurrencyMode.SYNC,
+        max_parallel_requests=300,
     )
     assert client.limits.max_connections == 600
 
 
+@pytest.mark.parametrize(("client_factory", "model_name", "response_json"), _SYNC_TRANSPORT_WIRING_CASES)
 @patch(_HTTP_TRANSPORT_PATCH)
 @patch(_SYNC_CLIENT_PATCH)
 def test_sync_pool_limits_forwarded_to_transport(
     mock_client_cls: MagicMock,
     mock_transport_cls: MagicMock,
+    client_factory: Callable[..., Any],
+    model_name: str,
+    response_json: dict[str, Any],
 ) -> None:
     """Regression for #459: limits must reach HTTPTransport, not just httpx.Client.
 
@@ -330,17 +350,12 @@ def test_sync_pool_limits_forwarded_to_transport(
     fails on the pre-fix code because HTTPTransport was never constructed
     explicitly (assert_called_once fails).
     """
-    mock_client_cls.return_value = MagicMock(
-        post=MagicMock(return_value=mock_httpx_response(_make_openai_chat_response()))
-    )
-    client = OpenAICompatibleClient(
-        provider_name=_OPENAI_PROVIDER,
-        endpoint=_OPENAI_ENDPOINT,
-        api_key="sk-test",
-        max_parallel_requests=300,
+    mock_client_cls.return_value = MagicMock(post=MagicMock(return_value=mock_httpx_response(response_json)))
+    client = client_factory(
         concurrency_mode=ClientConcurrencyMode.SYNC,
+        max_parallel_requests=300,
     )
-    client.completion(_make_chat_request(_OPENAI_MODEL))
+    client.completion(_make_chat_request(model_name))
 
     mock_transport_cls.assert_called_once()
     limits = mock_transport_cls.call_args.kwargs["limits"]
@@ -348,12 +363,16 @@ def test_sync_pool_limits_forwarded_to_transport(
     assert limits.max_keepalive_connections == 300
 
 
+@pytest.mark.parametrize(("client_factory", "model_name", "response_json"), _ASYNC_TRANSPORT_WIRING_CASES)
 @patch(_ASYNC_HTTP_TRANSPORT_PATCH)
 @patch(_ASYNC_CLIENT_PATCH)
 @pytest.mark.asyncio
 async def test_async_pool_limits_forwarded_to_transport(
     mock_client_cls: MagicMock,
     mock_transport_cls: MagicMock,
+    client_factory: Callable[..., Any],
+    model_name: str,
+    response_json: dict[str, Any],
 ) -> None:
     """Regression for #459: limits must reach AsyncHTTPTransport for async clients.
 
@@ -361,17 +380,12 @@ async def test_async_pool_limits_forwarded_to_transport(
     AsyncHTTPTransport, so RetryTransport created a default pool with 100
     connections regardless of max_parallel_requests.
     """
-    mock_client_cls.return_value = MagicMock(
-        post=AsyncMock(return_value=mock_httpx_response(_make_openai_chat_response()))
-    )
-    client = OpenAICompatibleClient(
-        provider_name=_OPENAI_PROVIDER,
-        endpoint=_OPENAI_ENDPOINT,
-        api_key="sk-test",
-        max_parallel_requests=300,
+    mock_client_cls.return_value = MagicMock(post=AsyncMock(return_value=mock_httpx_response(response_json)))
+    client = client_factory(
         concurrency_mode=ClientConcurrencyMode.ASYNC,
+        max_parallel_requests=300,
     )
-    await client.acompletion(_make_chat_request(_OPENAI_MODEL))
+    await client.acompletion(_make_chat_request(model_name))
 
     mock_transport_cls.assert_called_once()
     limits = mock_transport_cls.call_args.kwargs["limits"]
