@@ -478,7 +478,11 @@ endif
 
 generate-colab-notebooks:
 	@echo "📓 Generating Colab-compatible notebooks..."
+ifdef FILES
+	uv run --group docs python docs/scripts/generate_colab_notebooks.py --files $(FILES)
+else
 	uv run --group docs python docs/scripts/generate_colab_notebooks.py
+endif
 	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
 
 # ==============================================================================
