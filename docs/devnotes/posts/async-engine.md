@@ -86,7 +86,7 @@ The pattern is clear: speedup scales with the amount of parallelism available in
 
 <div style="text-align: center;" markdown>
 
-![Speedup increases from 1.1x to 1.7x as DAG parallelism increases](assets/async-engine/speedup-scaling.png){ style="max-width:85%; height:auto" }
+![Speedup increases from 1.1x to 1.6x as DAG parallelism increases](assets/async-engine/speedup-scaling.png){ style="max-width:85%; height:auto" }
 
 </div>
 
