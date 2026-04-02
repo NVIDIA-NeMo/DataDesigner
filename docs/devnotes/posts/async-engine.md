@@ -45,7 +45,7 @@ The fix isn't "make the LLM faster." It's "stop waiting when you don't have to."
 
 </div>
 
-The async engine dispatches `summary` and `trivia` in parallel as soon as `topic` finishes. `analysis` starts as soon as the first `summary` rows complete, overlapping with `trivia` which is still running independently. `conclusion` fires once `analysis` rows are ready. Same pipeline, same config, 41% less wall-clock time.
+The async engine dispatches `summary` and `trivia` in parallel as soon as `topic` finishes. `analysis` starts as soon as the first `summary` rows complete, overlapping with `trivia` which is still running independently. `conclusion` fires once `analysis` rows are ready. Same pipeline, same config, about 22% less wall-clock time.
 
 ## **Three Layers of Concurrency**
 
@@ -82,7 +82,7 @@ The pattern is clear: speedup scales with the amount of parallelism available in
 | **Narrow** | 4-column sequential chain | 5.2s | 4.6s | 1.1x |
 | **Deep** | Chain + independent branch | 8.5s | 6.6s | 1.3x |
 | **Wide** | 5 independent columns | 6.7s | 4.5s | 1.5x |
-| **Dual-model** | 3 generators + 3 judges | 10.0s | 6.1s | 1.7x |
+| **Dual-model** | 3 generators + 3 judges | 10.0s | 6.1s | 1.6x |
 
 <div style="text-align: center;" markdown>
 
@@ -135,12 +135,12 @@ from data_designer.config.run_config import RunConfig
 from data_designer.interface import DataDesigner
 
 dd = DataDesigner()
+dd.set_run_config(RunConfig(
+    progress_bar=True,
+))
 result = dd.create(
     config_builder=config,
     num_records=1000,
-    run_config=RunConfig(
-        progress_bar=True,
-    ),
 )
 ```
 
