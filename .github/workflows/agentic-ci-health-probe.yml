@@ -87,11 +87,13 @@ jobs:
 
           echo "Claude CLI version: $(claude --version 2>&1 || true)"
 
-          # Run a minimal prompt to verify auth + model + tool usage work end-to-end
+          # Run a minimal prompt to verify auth + model work end-to-end
           RESULT=$(claude \
+            --bare \
             --model "$MODEL" \
             -p "Reply with exactly: HEALTH_CHECK_OK" \
             --max-turns 1 \
+            --tools "" \
             --output-format text \
             2>&1) || {
               echo "::error::Claude CLI failed"
