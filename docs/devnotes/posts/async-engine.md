@@ -27,7 +27,7 @@ The async engine changes that. It reads the same dependency graph, dispatches ta
 
 ## **The Bottleneck Was Structural**
 
-Consider a pipeline that generates content about a topic. You have a `topic` sampler, two columns that branch off it independently (`summary` and `trivia`), then an `analysis` that depends on `summary`, and a `conclusion` that depends on `analysis`:
+Consider a pipeline with a branching dependency graph: a `topic` sampler feeds two independent columns (`summary` and `trivia`), then `analysis` depends on `summary`, and `conclusion` depends on `analysis`. The DAG looks like the "deep" shape below, bottom left:
 
 <div style="text-align: center;" markdown>
 
@@ -37,7 +37,7 @@ Consider a pipeline that generates content about a topic. You have a `topic` sam
 
 In the sync engine, this pipeline takes about 8.5 seconds for 10 records. Each column waits for the previous to finish, even when there's no dependency between them. `trivia` waits for `summary` to complete despite not needing its output. Most of the wall-clock time is spent waiting on LLM responses that could have been in flight simultaneously.
 
-The fix isn't "make the LLM faster." It's "stop waiting when you don't have to."
+The fix isn't "make the LLM faster." It's "stop waiting when you don't have to." The figure below shows the same deep pipeline under both engines, with each bar representing the time span a column is actively generating:
 
 <div style="text-align: center;" markdown>
 
@@ -45,7 +45,7 @@ The fix isn't "make the LLM faster." It's "stop waiting when you don't have to."
 
 </div>
 
-The async engine dispatches `summary` and `trivia` in parallel as soon as `topic` finishes. `analysis` starts as soon as the first `summary` rows complete, overlapping with `trivia` which is still running independently. `conclusion` fires once `analysis` rows are ready. Same pipeline, same config, about 22% less wall-clock time.
+In the sync timeline (top), columns run one after another regardless of dependencies. In the async timeline (bottom), `summary` and `trivia` start at the same time. `analysis` kicks off as soon as the first `summary` rows complete, overlapping with `trivia` which is still running independently. `conclusion` fires once `analysis` rows are ready. Same pipeline, same config, 41% less wall-clock time.
 
 ## **Three Layers of Concurrency**
 
