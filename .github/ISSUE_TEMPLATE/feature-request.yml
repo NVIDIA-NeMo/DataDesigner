@@ -39,7 +39,23 @@ body:
       label: Describe alternatives you've considered
       placeholder: A clear and concise description of any alternative solutions or features you've considered.
   - type: textarea
+    id: agent-investigation
+    attributes:
+      label: Agent Investigation
+      description: |
+        If your agent explored the codebase to assess feasibility (e.g., using the `search-docs` or `search-github` skills), paste its findings here.
+      placeholder: Paste agent output here, if applicable.
+  - type: textarea
     id: context
     attributes:
       label: Additional context
       placeholder: Add any other context or screenshots about the feature request here.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I've reviewed existing issues and the documentation
+          required: true
+        - label: This is a design proposal, not a "please build this" request
+          required: true
