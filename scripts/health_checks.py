@@ -31,6 +31,7 @@ from data_designer.config.utils.constants import (
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.secret_resolver import EnvironmentResolver
 
@@ -67,7 +68,8 @@ def _check_model(provider_name: str, model_type: str) -> None:
         provider=provider_name,
     )
 
-    facade = ModelFacade(model_config, secret_resolver, provider_registry)
+    client = create_model_client(model_config, secret_resolver, provider_registry)
+    facade = ModelFacade(model_config, provider_registry, client=client)
 
     if model_type == "embedding":
         result = facade.generate_text_embeddings(

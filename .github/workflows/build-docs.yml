@@ -23,9 +23,9 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.9.5"
       - name: Set up Python
@@ -33,7 +33,7 @@ jobs:
       - name: Install dependencies for docs
         run: uv sync --all-packages --group docs
       - name: Download artifact from previous step
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           name: notebooks
           path: docs/notebooks

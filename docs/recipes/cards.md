@@ -171,4 +171,22 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/search_agent.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/search_agent.py){ .md-button download="search_agent.py" }
 
+-   :material-file-document-multiple:{ .lg .middle } **Markdown Section Seed Reader**
+
+    Define a custom `FileSystemSeedReader` inline and turn Markdown files into one seed row per heading section.
+
+    ---
+
+    **Demonstrates:**
+
+    - Single-file custom seed reader pattern
+    - `hydrate_row()` fanout from `1 -> N`
+    - Manifest-based file selection semantics
+    - `DirectorySeedSource` customization without a new `seed_type`
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](plugin_development/markdown_seed_reader.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/plugin_development/markdown_seed_reader.py){ .md-button download="markdown_seed_reader.py" }
+
 </div>
