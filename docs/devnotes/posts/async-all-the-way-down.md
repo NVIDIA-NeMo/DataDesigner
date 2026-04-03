@@ -67,7 +67,7 @@ Getting this right required solving three problems at different levels of the st
 
 At the top sits the `AsyncTaskScheduler`. It builds an `ExecutionGraph` from your column configs using [Kahn's algorithm](https://en.wikipedia.org/wiki/Topological_sorting#Kahn's_algorithm) for topological ordering, then tracks per-cell completion via a `CompletionTracker`. When a cell completes, the tracker determines which downstream cells are now ready and pushes them onto the dispatch queue.
 
-The scheduler maintains a *[frontier](https://en.wikipedia.org/wiki/Frontier_(graph_theory))* — the set of tasks whose inputs are all satisfied. Dispatch is a loop: pull ready tasks from the frontier, acquire a [semaphore](https://en.wikipedia.org/wiki/Semaphore_(programming)) slot, spawn a worker. When the worker completes, mark the cell done, which may add new tasks to the frontier. The loop runs until every cell in every row group has completed or been dropped.
+The scheduler maintains a *frontier* — the set of tasks whose inputs are all satisfied. Dispatch is a loop: pull ready tasks from the frontier, acquire a [semaphore](https://en.wikipedia.org/wiki/Semaphore_(programming)) slot, spawn a worker. When the worker completes, mark the cell done, which may add new tasks to the frontier. The loop runs until every cell in every row group has completed or been dropped.
 
 Two details matter here. Multi-column generators (where one generator produces several output columns) are deduplicated so they run once. And stateful generators like seed dataset readers get per-instance `asyncio.Lock`s to preserve row-group ordering, since the order rows are read from a seed dataset matters.
 
