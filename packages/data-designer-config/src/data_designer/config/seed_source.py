@@ -218,8 +218,8 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
     path: str | None = Field(
         None,
         description=(
-            "Directory containing agent rollout artifacts. When omitted, built-in defaults are used: "
-            "Claude Code defaults to ~/.claude/projects and Codex defaults to ~/.codex/sessions. "
+            "Directory containing agent rollout artifacts. This field is required for ATIF trajectories. "
+            "When omitted, built-in defaults are used for formats that define one. "
             "Relative paths are resolved from the current working directory when the config is loaded, "
             "not from the config file location."
         ),
