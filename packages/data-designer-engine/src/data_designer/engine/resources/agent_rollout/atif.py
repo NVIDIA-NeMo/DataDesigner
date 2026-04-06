@@ -21,12 +21,26 @@ from data_designer.engine.resources.agent_rollout.utils import (
 
 
 class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
-    """Normalize one standalone ATIF trajectory file into one rollout record."""
+    """Normalize standalone ATIF trajectories into rollout seed rows.
+
+    This handler intentionally supports the narrow ingestion contract used by
+    DataDesigner's built-in rollout readers: one standalone JSON file becomes
+    one normalized rollout record. Multi-file continuations are preserved as
+    metadata only and are not stitched together here.
+    """
 
     format: ClassVar[AgentRolloutFormat] = AgentRolloutFormat.ATIF
 
     def is_handled_file(self, relative_path: str) -> bool:
-        """Return whether the file path looks like a standalone ATIF JSON file."""
+        """Return whether a relative path should be parsed as ATIF.
+
+        Args:
+            relative_path: File path relative to the configured rollout root.
+
+        Returns:
+            True when the file uses the standalone `.json` ATIF packaging
+            expected by this handler.
+        """
         return Path(relative_path).suffix == ".json"
 
     def parse_file(
@@ -36,7 +50,21 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         relative_path: str,
         parse_context: AgentRolloutParseContext | None = None,
     ) -> list[NormalizedAgentRolloutRecord]:
-        """Parse one ATIF trajectory file using the shared rollout row shape."""
+        """Parse one ATIF trajectory file into the shared rollout row shape.
+
+        Args:
+            root_path: Root directory configured on the seed source.
+            relative_path: Path to the ATIF file relative to ``root_path``.
+            parse_context: Unused for ATIF because standalone files do not need
+                attachment-scoped indexing or preprocessing.
+
+        Returns:
+            A single normalized rollout record for the trajectory file.
+
+        Raises:
+            AgentRolloutSeedParseError: If the file is not valid JSON or does
+                not satisfy the ATIF fields needed by the normalized schema.
+        """
         file_path = root_path / relative_path
         payload = load_atif_payload(file_path)
 
@@ -135,7 +163,18 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
 
 
 def load_atif_payload(file_path: Path) -> dict[str, Any]:
-    """Load one ATIF trajectory file and enforce a top-level object payload."""
+    """Load an ATIF trajectory from disk.
+
+    Args:
+        file_path: Absolute path to the ATIF JSON file.
+
+    Returns:
+        The decoded top-level JSON object.
+
+    Raises:
+        AgentRolloutSeedParseError: If the file cannot be parsed as JSON or if
+            the payload is not a JSON object.
+    """
     try:
         with file_path.open(encoding="utf-8") as file:
             payload = json.load(file)
@@ -148,7 +187,20 @@ def load_atif_payload(file_path: Path) -> dict[str, Any]:
 
 
 def normalize_atif_role(raw_source: Any, *, file_path: Path, step_id: int) -> str:
-    """Map ATIF step sources onto the normalized chat roles."""
+    """Map an ATIF step source onto the normalized chat role set.
+
+    Args:
+        raw_source: Raw ``source`` value from an ATIF step.
+        file_path: File being parsed, used for error reporting.
+        step_id: ATIF step identifier, used for error reporting.
+
+    Returns:
+        The corresponding normalized role understood by DataDesigner.
+
+    Raises:
+        AgentRolloutSeedParseError: If the ATIF source is missing or is not one
+            of the supported values.
+    """
     source = require_string(raw_source, f"ATIF source in {file_path} step {step_id}")
     if source == "agent":
         return "assistant"
@@ -158,7 +210,20 @@ def normalize_atif_role(raw_source: Any, *, file_path: Path, step_id: int) -> st
 
 
 def normalize_atif_tool_calls(raw_tool_calls: Any, *, file_path: Path, step_id: int) -> list[dict[str, Any]]:
-    """Convert ATIF tool-call objects into the shared tool-call payload shape."""
+    """Convert ATIF tool calls into the shared normalized tool-call shape.
+
+    Args:
+        raw_tool_calls: Raw ``tool_calls`` payload from an ATIF step.
+        file_path: File being parsed, used for error reporting.
+        step_id: ATIF step identifier, used for error reporting.
+
+    Returns:
+        A list of tool-call dictionaries compatible with the shared chat
+        message schema.
+
+    Raises:
+        AgentRolloutSeedParseError: If the tool-call payload is malformed.
+    """
     if raw_tool_calls is None:
         return []
     if not isinstance(raw_tool_calls, list):
@@ -199,7 +264,21 @@ def build_atif_source_meta(
     copied_context_step_ids: list[int],
     subagent_refs: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Collect ATIF-specific metadata that does not fit the shared row columns."""
+    """Collect ATIF-specific metadata that does not fit shared rollout columns.
+
+    Args:
+        payload: Parsed top-level ATIF trajectory object.
+        file_path: File being parsed, used for error reporting.
+        schema_version: Validated ATIF schema version string.
+        agent: Parsed ATIF agent object.
+        steps: Parsed ATIF steps list.
+        copied_context_step_ids: Step IDs marked as copied context.
+        subagent_refs: Delegated subagent references gathered from observations.
+
+    Returns:
+        A metadata dictionary stored under ``source_meta`` on the normalized
+        rollout row.
+    """
     source_meta: dict[str, Any] = {
         "schema_version": schema_version,
         "step_count": len(steps),
@@ -233,7 +312,21 @@ def normalize_atif_observation_messages(
     step_id: int,
     subagent_refs: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Normalize ATIF observations into tool messages and sidecar metadata."""
+    """Normalize ATIF observations into tool messages and sidecar metadata.
+
+    Args:
+        observation: Raw ATIF observation payload for a step.
+        file_path: File being parsed, used for error reporting.
+        step_id: ATIF step identifier, used for error reporting.
+        subagent_refs: Mutable accumulator used to collect delegated subagent
+            references for later storage in ``source_meta``.
+
+    Returns:
+        A list of normalized tool messages derived from observation results.
+
+    Raises:
+        AgentRolloutSeedParseError: If the observation payload is malformed.
+    """
     if not isinstance(observation, dict):
         raise AgentRolloutSeedParseError(f"ATIF observation in {file_path} step {step_id} must be an object")
 
