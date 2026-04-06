@@ -161,8 +161,16 @@ class SkipConfig(ConfigBase):
     @field_validator("when")
     @classmethod
     def _validate_when_syntax(cls, v: str) -> str:
+        from jinja2 import meta
         from jinja2.sandbox import ImmutableSandboxedEnvironment
-        ImmutableSandboxedEnvironment().parse(v)
+        env = ImmutableSandboxedEnvironment()
+        ast = env.parse(v)
+        if not meta.find_undeclared_variables(ast):
+            raise ValueError(
+                f"skip.when expression {v!r} does not reference any columns. "
+                "Expressions must use Jinja2 delimiters, e.g. "
+                '\'{{ in_stock == 0 }}\' not \'in_stock == 0\'.'
+            )
         return v
 
     @cached_property
@@ -262,6 +270,8 @@ Store metadata on the graph for runtime access:
 - Add `_propagate_skip: dict[str, bool]` to `__init__`
 - Populate during first pass: `if sub.skip is not None: graph._skip_configs[name] = sub.skip` and `graph._propagate_skip[name] = sub.propagate_skip` (for all columns, not just those with `SkipConfig`)
 - Add accessors: `get_skip_config(column) -> SkipConfig | None`, `should_propagate_skip(column) -> bool` (defaults to `True` if column not in dict)
+- Add `_side_effects_by_producer: dict[str, list[str]]` to `__init__` — inverse of the existing `_side_effect_map` (which maps side-effect column → producer). Populated inside `set_side_effect()`: `self._side_effects_by_producer.setdefault(producer, []).append(side_effect_col)`.
+- Add **`get_side_effect_columns(column: str) -> list[str]`** — returns `list(self._side_effects_by_producer.get(column, []))`. Used by `_write_skip_to_record` / `apply_skip_to_record` to clear `__trace`, `__reasoning_content`, etc. on skip.
 
 ### 3. New utilities: `skip_evaluator.py` and `skip_provenance.py`
 
@@ -272,12 +282,6 @@ Store metadata on the graph for runtime access:
 Two pure functions and one environment class, no engine state dependencies:
 
 ```python
-from jinja2.nativetypes import NativeEnvironment
-from jinja2.sandbox import SandboxedEnvironment
-
-from data_designer.engine.processing.utils import deserialize_json_values
-
-
 class NativeSandboxedEnvironment(SandboxedEnvironment, NativeEnvironment):
     """Sandboxed environment that returns native Python types instead of strings.
 
@@ -289,7 +293,14 @@ class NativeSandboxedEnvironment(SandboxedEnvironment, NativeEnvironment):
 
 
 def evaluate_skip_when(expression: str, record: dict) -> bool:
-    """Render expression against deserialized record; return True if result is truthy."""
+    """Render *expression* against *record* and return True if truthy.
+
+    *record* must already be deserialized (caller runs
+    ``deserialize_json_values`` once and passes the result here **and**
+    to the generator). Error handling is centralized here so both sync
+    and async engines get identical behavior: on eval failure, log a
+    warning and return True (fail-safe skip).
+    """
 
 def should_skip_by_propagation(
     required_columns: list[str],
@@ -300,7 +311,7 @@ def should_skip_by_propagation(
 ```
 
 `evaluate_skip_when` implementation:
-1. **Deserialize the record first** via `deserialize_json_values(record)` — this ensures the skip expression sees the same Python objects (dicts, lists) that generators see when rendering their own Jinja2 templates. Without this, a JSON string field like `'{"key": "val"}'` would be a raw string in the skip expression but a dict in the generator, causing inconsistent behavior.
+1. **Caller deserializes, function renders.** The function takes a single `record` dict that the caller has already passed through `deserialize_json_values`. This keeps `evaluate_skip_when` a pure render-and-check with no deserialization concern. The dispatch layer (sync `_fan_out_with_threads`, async `_run_cell`) deserializes once and passes the result to both `evaluate_skip_when` and the generator — no double work. For FULL_COLUMN paths (Step 4d / 5c), the pre-filter loop deserializes each record before calling `evaluate_skip_when`; the generator later receives a stripped DataFrame built from those same records.
 2. **Render the stored expression directly** (no wrapping in `{{ }}`). The stored value already includes Jinja2 delimiters (e.g., `"{{ in_stock == 0 }}"`), so rendering it as-is produces the evaluated result. This matches how `SkipConfig.columns` parses `skip.when` (same stored string as-is).
 3. **Use `NativeSandboxedEnvironment`** (combining `SandboxedEnvironment` + `NativeEnvironment` from `jinja2.nativetypes`). This returns native Python objects (`True`, `False`, `None`, `0`) instead of their string representations (`"True"`, `"False"`, `"None"`, `"0"`). This eliminates the string-truthiness bug entirely — Python's native `bool()` handles `False`, `None`, `0`, `""` correctly without needing a hand-rolled falsy string set.
 4. **Check truthiness** via `bool(result)` on the native Python return value.
@@ -313,11 +324,21 @@ def _compile_skip_template(expression: str) -> Template:
     return _env.from_string(expression)
 
 def evaluate_skip_when(expression: str, record: dict) -> bool:
-    template = _compile_skip_template(expression)
-    deserialized = deserialize_json_values(record)
-    result = template.render(deserialized)
-    return bool(result)
+    try:
+        template = _compile_skip_template(expression)
+        result = template.render(record)
+        return bool(result)
+    except Exception:
+        logger.warning(
+            "skip.when evaluation failed for expression %r; "
+            "treating as truthy (row will be skipped)",
+            expression,
+            exc_info=True,
+        )
+        return True
 ```
+
+**Error handling is inside `evaluate_skip_when`, not in the engine callers.** Both sync (`_should_skip_cell`) and async (`_run_cell`) call this function directly — centralizing the try/except here ensures identical fail-safe behavior regardless of engine path. A broken expression (typo, sandbox violation, `UndefinedError` from `StrictUndefined`) logs a warning and returns `True` (skip the row), avoiding an expensive LLM call on a row with unknown filter status. This replaces the per-engine error handling previously described in Step 5b.
 
 The module-level `_env` singleton and `lru_cache` on `_compile_skip_template` avoid re-creating the environment and re-compiling the Jinja2 AST on every call. For a 100k-row dataset with 5 skip-guarded columns, this reduces 500k template compilations to at most 5.
 
@@ -393,6 +414,8 @@ def _should_skip_cell(
 
     return False
 ```
+
+**Deserialization contract:** `record` must already be deserialized. For CELL_BY_CELL dispatch (Step 4c), the caller runs `deserialize_json_values` once and passes the result to both `_should_skip_cell` and the generator. For FULL_COLUMN dispatch (Step 4d), the pre-filter loop deserializes each record before calling `_should_skip_cell`.
 
 #### 4b. Helper: `_write_skip_to_record()`
 
@@ -498,7 +521,7 @@ After the `is_dropped` guard (line 772), add skip evaluation:
 
 1. Get `skipped_cols = get_skipped_column_names(row_data)` — the row data is already read from the buffer at line 777, so no tracker query is needed.
 2. Check propagation first (independent of `SkipConfig`): `should_skip_by_propagation(self._graph.get_required_columns(task.column), skipped_cols, self._graph.should_propagate_skip(task.column))` — same list as sync (`config.required_columns` duplicated on the graph; **do not** substitute `get_upstream_columns()`).
-3. If not propagation-skipped, get `skip_config = self._graph.get_skip_config(task.column)`. If not None, check `evaluate_skip_when(skip_config.when, row_data)`.
+3. If not propagation-skipped, get `skip_config = self._graph.get_skip_config(task.column)`. If not None, deserialize the record once via `deserialize_json_values(row_data)` and pass the result to both `evaluate_skip_when(skip_config.when, deserialized)` and the generator — same contract as sync Step 4c.
 4. If skip (by either path), write to the buffer record via `buffer_manager.get_row(rg, ri)` using **`apply_skip_to_record`**:
    - `cell_value=skip_config.value if skip_config else None` — the **primary column key must be present** in the record dict, not absent. Downstream `skip.when` expressions and Jinja2 templates may reference skipped columns (e.g., `{{ col is none }}`); an absent key would cause `UndefinedError`. Propagation-only skips (no `SkipConfig`) use `None`.
    - `side_effect_columns` from `self._graph.get_side_effect_columns(task.column)` — always cleared to `None` on skip.
@@ -506,7 +529,7 @@ After the `is_dropped` guard (line 772), add skip evaluation:
 
 The caller (`_execute_task_inner_impl`) still marks the task complete — skipped cells ARE complete (they produced a value). Downstream tasks get unblocked and will themselves check propagation (respecting their own `propagate_skip` setting). Note: `_execute_task_inner_impl` also calls `_check_error_rate(success=True)` and `_reporter.record_success()` — skipped cells count as successes in metrics. This is acceptable for v1 (a skip is a successful outcome, not a failure), but consider adding a separate skip counter to the reporter for observability.
 
-**Error handling:** If `evaluate_skip_when` raises an exception (e.g., `UndefinedError` from `StrictUndefined`, or `SecurityError` from the sandbox), treat it as a non-retryable cell failure — log a warning, skip the cell (write `skip.value`), and continue. Do not crash the batch. This matches the "fail-safe" behavior: if the skip expression can't be evaluated, it's safer to skip the row (avoiding an expensive LLM call on a row with unknown filter status) than to run the generator.
+**Error handling:** Centralized inside `evaluate_skip_when()` (Step 3a) — the function catches all exceptions, logs a warning, and returns `True` (fail-safe skip). Neither engine needs its own try/except around the call. Both sync and async paths get identical behavior: a broken expression skips the row rather than crashing the batch.
 
 **Observability caveat:** Treating eval errors like a truthy skip means broken configs (typos, sandbox mistakes) can **silently skip many rows** while still counting as successes in metrics. Mitigations for implementers: log at a visible level (or rate-limited error) with column name and exception; consider a follow-up **strict mode** or **config dry-run** that evaluates `skip.when` against a sample record at validation time; optionally add a dedicated skip-vs-error counter on the reporter so operators can spot "everything skipped" anomalies.
 
@@ -586,10 +609,10 @@ The `__skipped__` key remains on **in-memory record dicts** during generation fo
 
 | File | Change |
 |---|---|
-| `config/base.py` | **NEW** `SkipConfig` model (`when`, `value` fields + `@field_validator` for Jinja2 syntax + `columns` cached property). `SingleColumnConfig` gets `skip: SkipConfig \| None = None` + `propagate_skip: bool = True` fields + `@model_validator` (sampler/seed rejection, `allow_resize` rejection, self-reference rejection) |
+| `config/base.py` | **NEW** `SkipConfig` model (`when`, `value` fields + `@field_validator` for Jinja2 syntax **and** non-empty `find_undeclared_variables` check (rejects expressions without `{{ }}` delimiters) + `columns` cached property). `SingleColumnConfig` gets `skip: SkipConfig \| None = None` + `propagate_skip: bool = True` fields + `@model_validator` (sampler/seed rejection, `allow_resize` rejection, self-reference rejection) |
 | `engine/.../dag.py` | Add `skip.columns` edges in topological sort (guarded by `if col.skip is not None`) |
-| `engine/.../execution_graph.py` | Add `skip.columns` edges (matching existing `required_columns` pattern) + `_required_columns: dict[str, list[str]]` + `get_required_columns(column) -> list[str]` (**do not** use `get_upstream_columns()` for propagation — it mixes `skip.when` edges with data deps) + `_skip_configs` / `_propagate_skip` + `get_skip_config()` / `should_propagate_skip()` |
-| `engine/.../skip_evaluator.py` | **NEW** — `NativeSandboxedEnvironment`, `_compile_skip_template()` (cached), `evaluate_skip_when()`, `should_skip_by_propagation()` |
+| `engine/.../execution_graph.py` | Add `skip.columns` edges (matching existing `required_columns` pattern) + `_required_columns: dict[str, list[str]]` + `get_required_columns(column) -> list[str]` (**do not** use `get_upstream_columns()` for propagation — it mixes `skip.when` edges with data deps) + `_skip_configs` / `_propagate_skip` + `get_skip_config()` / `should_propagate_skip()` + `_side_effects_by_producer: dict[str, list[str]]` (inverse of existing `set_side_effect` map, populated during `set_side_effect()`) + `get_side_effect_columns(column) -> list[str]` (used by `_write_skip_to_record` / `apply_skip_to_record` to clear side-effect columns on skip) |
+| `engine/.../skip_evaluator.py` | **NEW** — `NativeSandboxedEnvironment`, `_compile_skip_template()` (cached), `evaluate_skip_when(expression, record)` (centralized try/except for fail-safe skip on eval errors; caller must pass pre-deserialized record), `should_skip_by_propagation()` |
 | `engine/.../skip_provenance.py` | **NEW** — `SKIPPED_COLUMNS_RECORD_KEY`, `get_skipped_column_names()`, `apply_skip_to_record()`, `strip_skip_metadata_for_dataframe_row()`, `strip_skip_metadata_from_records()` (sole owners of `__skipped__` string and strip logic) |
 | `engine/.../dataset_builder.py` | `_should_skip_cell()` + `_write_skip_to_record()` delegate to `skip_provenance` + `skip_evaluator`; skip pre-check in `_fan_out_with_threads()`; pre-filter + merge-back in `_run_full_column_generator()` (strip before `DataFrame(active_records)`) |
 | `engine/.../async_scheduler.py` | Skip checks in `_run_cell()` / `_run_batch()` using same helpers as sync; FULL_COLUMN pre-filter builds DataFrame only via `strip_skip_metadata_from_records` |
@@ -633,8 +656,8 @@ The shared propagation path needs to exist in both `DatasetBuilder` (sync — `_
 
 ## Verification
 
-1. **Unit tests — config:** `SkipConfig` field defaults (`value=None`), Jinja2 syntax validation on `when`, `columns` extraction (cached), `SingleColumnConfig.skip` defaults to `None`, `SingleColumnConfig.propagate_skip` defaults to `True`, rejection of `skip` on sampler/seed types, rejection of `skip` + `allow_resize`, rejection of self-referencing `skip.when` (column references itself)
-2. **Unit tests — skip evaluator:** `NativeSandboxedEnvironment` returns native Python types; `evaluate_skip_when` with truthy/falsy expressions (including `False`/`None`/`0` — the case-sensitivity bug); `evaluate_skip_when` against deserialized JSON records; `should_skip_by_propagation` with `propagate_skip=True` and `propagate_skip=False`; `StrictUndefined` raises `UndefinedError` for missing variables (not silently truthy); error handling in `evaluate_skip_when` (graceful failure on sandbox violations)
+1. **Unit tests — config:** `SkipConfig` field defaults (`value=None`), Jinja2 syntax validation on `when`, **rejection of expressions without `{{ }}` delimiters** (e.g., `"in_stock == 0"` with no delimiters must raise `ValueError` because `find_undeclared_variables` returns empty), `columns` extraction (cached), `SingleColumnConfig.skip` defaults to `None`, `SingleColumnConfig.propagate_skip` defaults to `True`, rejection of `skip` on sampler/seed types, rejection of `skip` + `allow_resize`, rejection of self-referencing `skip.when` (column references itself)
+2. **Unit tests — skip evaluator:** `NativeSandboxedEnvironment` returns native Python types; `evaluate_skip_when` with truthy/falsy expressions (including `False`/`None`/`0` — the case-sensitivity bug); `evaluate_skip_when` against deserialized JSON records; `evaluate_skip_when` with pre-deserialized record (caller contract); `should_skip_by_propagation` with `propagate_skip=True` and `propagate_skip=False`; `StrictUndefined` raises `UndefinedError` for missing variables (not silently truthy); **centralized error handling** in `evaluate_skip_when` (graceful failure on sandbox violations — returns `True` and logs warning, same behavior for both sync and async callers)
 3. **Unit tests — skip provenance:** `get_skipped_column_names` empty vs populated and copy semantics; `apply_skip_to_record` adds key, sets cell and side effects; `strip_skip_metadata_*` removes only `SKIPPED_COLUMNS_RECORD_KEY` and preserves other keys; no other module hard-codes `"__skipped__"` (grep / lint rule optional)
 4. **Unit tests — DAG/graph:** `skip.columns` become edges; unknown column in `skip.when` raises `ValueError` (same behavior as unknown `required_columns`); `skip.when` referencing sampler/seed columns (available via `MultiColumnConfig` flattening) resolves correctly; **`get_required_columns()`** returns only config `required_columns` (not the same as `get_upstream_columns()` after `skip` edges exist) — regression case: column with `skip.when` on `gating_col` and empty `required_columns` is **not** propagation-skipped solely because `gating_col` ∈ `__skipped__`
 5. **Integration tests (sync):** Column with `skip` produces `skip.value` for matching rows in `_fan_out_with_threads`; FULL_COLUMN generators pre-filter and merge-back correctly in `_run_full_column_generator`; downstream with no `SkipConfig` auto-skips via `propagate_skip=True`; downstream with `propagate_skip=False` does NOT auto-skip; row count preserved; skipped cells never submitted to thread pool (verify generator not called for skipped rows); **custom column** with declared `required_columns` propagates skip when upstream is skipped (`propagate_skip=True`)
