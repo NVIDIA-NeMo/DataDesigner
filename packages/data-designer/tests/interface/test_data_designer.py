@@ -210,6 +210,39 @@ def _write_codex_trace_directory(root_path: Path) -> None:
     )
 
 
+def _write_atif_trace_directory(root_path: Path) -> None:
+    trace_dir = root_path / "sessions"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    (trace_dir / "session-1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "ATIF-v1.6",
+                "session_id": "atif-session-1",
+                "agent": {
+                    "name": "harbor-agent",
+                    "model_name": "gpt-5",
+                    "extra": {"cwd": "/workspace/project", "git_branch": "main"},
+                },
+                "steps": [
+                    {
+                        "step_id": 1,
+                        "timestamp": "2026-04-06T12:00:00Z",
+                        "source": "user",
+                        "message": "Inspect the repository.",
+                    },
+                    {
+                        "step_id": 2,
+                        "timestamp": "2026-04-06T12:00:04Z",
+                        "source": "agent",
+                        "message": [{"type": "text", "text": "Repository inspected"}],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _write_claude_trace_directory_with_unhandled_files(root_path: Path) -> None:
     _write_claude_trace_directory(root_path)
     _write_jsonl(root_path / "project-a" / "history.jsonl", [{"type": "system"}])
@@ -1128,6 +1161,14 @@ def test_create_dataset_e2e_with_file_contents_seed_source_unreadable_file_raise
     ("dir_name", "seed_source_factory", "writer", "expected_trace_ids", "expected_messages", "expected_tool_counts"),
     [
         (
+            "atif",
+            lambda path: AgentRolloutSeedSource(path=str(path), format=AgentRolloutFormat.ATIF),
+            _write_atif_trace_directory,
+            ["atif-session-1"],
+            ["Repository inspected"],
+            [0],
+        ),
+        (
             "claude-code",
             lambda path: AgentRolloutSeedSource(
                 path=str(path),
@@ -1147,7 +1188,7 @@ def test_create_dataset_e2e_with_file_contents_seed_source_unreadable_file_raise
             [1],
         ),
     ],
-    ids=["claude-code", "codex"],
+    ids=["atif", "claude-code", "codex"],
 )
 def test_create_dataset_e2e_with_trace_seed_sources(
     stub_artifact_path: Path,
@@ -1202,6 +1243,10 @@ def test_create_dataset_e2e_with_trace_seed_sources(
     elif dir_name == "codex":
         assert list(df["source_kind"]) == ["codex"]
         assert list(df["cwd"]) == ["/workspace"]
+    elif dir_name == "atif":
+        assert list(df["source_kind"]) == ["atif"]
+        assert list(df["cwd"]) == ["/workspace/project"]
+        assert list(df["git_branch"]) == ["main"]
 
 
 def test_create_dataset_warns_for_unhandled_transform_files(
