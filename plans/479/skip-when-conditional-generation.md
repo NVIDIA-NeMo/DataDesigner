@@ -251,8 +251,13 @@ if sub.skip is not None:
 
 This exactly matches the existing `required_columns` pattern (line 82-88) — `ExecutionGraph` only sees columns that participate in the DAG, and sampler/seed columns inside `MultiColumnConfig` wrappers are already flattened into `known_columns` during the first pass. No special-casing is needed.
 
-Store skip metadata on the graph for runtime access:
+**Propagation must not use `get_upstream_columns()`.** Today `ExecutionGraph` exposes `get_upstream_columns(column) -> set[str]` (direct `_upstream` neighbors). After this change, that set includes **both** `required_columns` edges **and** `skip.columns` edges. Auto-skip propagation is defined only over **config `required_columns`** (data dependencies for templates / generators). Reusing `get_upstream_columns()` for propagation is **wrong**: e.g. column `A` has `skip.when="{{ gating_col == 0 }}"` and **empty** `required_columns`; `gating_col` is in `__skipped__` for a row. Then `get_upstream_columns("A")` contains `gating_col`, so propagation would skip `A` before `skip.when` runs — but the intended behavior is to **evaluate** `skip.when` (e.g. `None == 0` → false) and **not** propagation-skip `A`.
 
+Store metadata on the graph for runtime access:
+
+- Add `_required_columns: dict[str, list[str]]` to `__init__` — for each column `name`, store `list(sub.required_columns)` while building the graph (same loop as the edge passes; values come from the config property, not from `_upstream`).
+- Populate in the same pass(es) where other per-column metadata is filled: `graph._required_columns[name] = list(sub.required_columns)` for every `sub`.
+- Add **`get_required_columns(column: str) -> list[str]`** — returns `graph._required_columns.get(column, [])` (or a copy). This is what `_should_skip_cell()` / async equivalents use with `should_skip_by_propagation(...)`.
 - Add `_skip_configs: dict[str, SkipConfig]` to `__init__`
 - Add `_propagate_skip: dict[str, bool]` to `__init__`
 - Populate during first pass: `if sub.skip is not None: graph._skip_configs[name] = sub.skip` and `graph._propagate_skip[name] = sub.propagate_skip` (for all columns, not just those with `SkipConfig`)
@@ -454,7 +459,7 @@ The `__skipped__` key is stripped at the serialization boundary before convertin
 After the `is_dropped` guard (line 772), add skip evaluation:
 
 1. Get `skipped_cols` from `row_data.get("__skipped__", set())` — the row data is already read from the buffer at line 777, so no tracker query is needed.
-2. Check propagation first (independent of `SkipConfig`): `should_skip_by_propagation(config.required_columns, skipped_cols, self._graph.should_propagate_skip(task.column))`.
+2. Check propagation first (independent of `SkipConfig`): `should_skip_by_propagation(self._graph.get_required_columns(task.column), skipped_cols, self._graph.should_propagate_skip(task.column))` — same list as sync (`config.required_columns` duplicated on the graph; **do not** substitute `get_upstream_columns()`).
 3. If not propagation-skipped, get `skip_config = self._graph.get_skip_config(task.column)`. If not None, check `evaluate_skip_when(skip_config.when, row_data)`.
 4. If skip (by either path), write to the buffer record via `buffer_manager.get_row(rg, ri)`:
    - `record.setdefault("__skipped__", set()).add(task.column)` — records skip provenance.
@@ -540,7 +545,9 @@ dataframe=lazy.pd.DataFrame(
 ),
 ```
 
-The `__skipped__` key remains in the raw record dicts (accessible via `iter_current_batch()`, etc.) for propagation checks during generation, but is excluded from any DataFrame output, parquet serialization, or processor input.
+The `__skipped__` key remains on **in-memory record dicts** during generation for propagation. It is stripped when building **DataFrames** for `get_dataframe()` / `get_current_batch(as_dataframe=True)` / `write()` so it never appears as a Parquet column.
+
+**Processors and `DropSkippedRowsProcessorConfig`:** Tabular processors that only see those DataFrames **cannot** read `__skipped__` (it is already removed). Resolve this in implementation by **one** of: (1) run row-drop (or equivalent) **on `list[dict]` batches** while `__skipped__` is still present, **before** converting the batch to a stripped DataFrame for downstream processors; or (2) materialize an explicit **derived column** (e.g. row-level flag) from `__skipped__` before strip, and document that contract for dataframe-based processors. Pick one approach in the implementation PR and state it in the processor’s public docs.
 
 ---
 
@@ -550,7 +557,7 @@ The `__skipped__` key remains in the raw record dicts (accessible via `iter_curr
 |---|---|
 | `config/base.py` | **NEW** `SkipConfig` model (`when`, `value` fields + `@field_validator` for Jinja2 syntax + `columns` cached property). `SingleColumnConfig` gets `skip: SkipConfig \| None = None` + `propagate_skip: bool = True` fields + `@model_validator` (sampler/seed rejection, `allow_resize` rejection, self-reference rejection) |
 | `engine/.../dag.py` | Add `skip.columns` edges in topological sort (guarded by `if col.skip is not None`) |
-| `engine/.../execution_graph.py` | Add `skip.columns` edges (matching existing `required_columns` pattern) + `_skip_configs: dict[str, SkipConfig]` + `_propagate_skip: dict[str, bool]` storage + accessors |
+| `engine/.../execution_graph.py` | Add `skip.columns` edges (matching existing `required_columns` pattern) + `_required_columns: dict[str, list[str]]` + `get_required_columns(column) -> list[str]` (**do not** use `get_upstream_columns()` for propagation — it mixes `skip.when` edges with data deps) + `_skip_configs` / `_propagate_skip` + `get_skip_config()` / `should_propagate_skip()` |
 | `engine/.../skip_evaluator.py` | **NEW** — `NativeSandboxedEnvironment`, `_compile_skip_template()` (cached), `evaluate_skip_when()`, `should_skip_by_propagation()` |
 | `engine/.../dataset_builder.py` | `_should_skip_cell()` + `_write_skip_to_record()` helpers; skip pre-check in `_fan_out_with_threads()`; pre-filter + merge-back in `_run_full_column_generator()` |
 | `engine/.../async_scheduler.py` | Skip checks in `_run_cell()` and `_run_batch()` with FULL_COLUMN pre-filtering + adjusted row-count assertion (reads `__skipped__` from buffer records, `propagate_skip` + `SkipConfig` from graph) |
@@ -569,13 +576,13 @@ The `__skipped__` key remains in the raw record dicts (accessible via `iter_curr
 
 - Default `None` works for most cases (becomes `NaN`/`pd.NA` in the DataFrame).
 - Users can set `value=0` for numeric columns, `value=""` for string columns, etc., avoiding dtype issues.
-- Skip provenance is tracked inline in the record dict (`__skipped__` key). If users need to distinguish skip-null from real-null, the `DropSkippedRowsProcessorConfig` processor can read `record.get("__skipped__")` directly.
+- Skip provenance is tracked inline in the record dict (`__skipped__` key) **during generation**. Opt-in row removal uses that provenance **before** or **without** relying on stripped DataFrames — see Step 8 (“Processors and `DropSkippedRowsProcessorConfig`”).
 
 ### 2. Should there be an option to auto-remove skipped rows from the final output?
 
 **Resolution (unchanged):** Start with a `DropSkippedRowsProcessorConfig` processor — it's opt-in, composable with other processors, and doesn't require new parameters on `create()` or column configs.
 
-With record-inline provenance (`__skipped__` key in each record dict), the processor can simply check `record.get("__skipped__")` to determine which rows have skipped columns. No `__skip_mask` column or sidecar file is needed — the provenance is already in the record. The `__skipped__` key is stripped at the serialization boundary (Step 8) so it does not leak into the final DataFrame or parquet output.
+Implementation must align with Step 8: either the processor runs on **record dicts** while `__skipped__` is still present, or it uses a **derived column** produced before `__skipped__` is stripped from DataFrame views — not `record.get("__skipped__")` on a post-strip DataFrame (that key will not exist there).
 
 ## Open Questions
 
@@ -596,7 +603,7 @@ The shared propagation path needs to exist in both `DatasetBuilder` (sync — `_
 
 1. **Unit tests — config:** `SkipConfig` field defaults (`value=None`), Jinja2 syntax validation on `when`, `columns` extraction (cached), `SingleColumnConfig.skip` defaults to `None`, `SingleColumnConfig.propagate_skip` defaults to `True`, rejection of `skip` on sampler/seed types, rejection of `skip` + `allow_resize`, rejection of self-referencing `skip.when` (column references itself)
 2. **Unit tests — skip evaluator:** `NativeSandboxedEnvironment` returns native Python types; `evaluate_skip_when` with truthy/falsy expressions (including `False`/`None`/`0` — the case-sensitivity bug); `evaluate_skip_when` against deserialized JSON records; `should_skip_by_propagation` with `propagate_skip=True` and `propagate_skip=False`; `StrictUndefined` raises `UndefinedError` for missing variables (not silently truthy); error handling in `evaluate_skip_when` (graceful failure on sandbox violations)
-3. **Unit tests — DAG/graph:** `skip.columns` become edges; unknown column in `skip.when` raises `ValueError` (same behavior as unknown `required_columns`); `skip.when` referencing sampler/seed columns (available via `MultiColumnConfig` flattening) resolves correctly
+3. **Unit tests — DAG/graph:** `skip.columns` become edges; unknown column in `skip.when` raises `ValueError` (same behavior as unknown `required_columns`); `skip.when` referencing sampler/seed columns (available via `MultiColumnConfig` flattening) resolves correctly; **`get_required_columns()`** returns only config `required_columns` (not the same as `get_upstream_columns()` after `skip` edges exist) — regression case: column with `skip.when` on `gating_col` and empty `required_columns` is **not** propagation-skipped solely because `gating_col` ∈ `__skipped__`
 4. **Integration tests (sync):** Column with `skip` produces `skip.value` for matching rows in `_fan_out_with_threads`; FULL_COLUMN generators pre-filter and merge-back correctly in `_run_full_column_generator`; downstream with no `SkipConfig` auto-skips via `propagate_skip=True`; downstream with `propagate_skip=False` does NOT auto-skip; row count preserved; skipped cells never submitted to thread pool (verify generator not called for skipped rows); **custom column** with declared `required_columns` propagates skip when upstream is skipped (`propagate_skip=True`)
 5. **Integration tests (async):** Column with `skip` produces `skip.value` for matching rows; downstream with no `SkipConfig` auto-skips via `propagate_skip=True`; downstream with `propagate_skip=False` does NOT auto-skip; **chained propagation** (A skipped -> B auto-skips -> C auto-skips, where B and C have no `SkipConfig`) works transitively; row count preserved; FULL_COLUMN generators pre-filter (verify LLM calls not made for skipped rows); custom `skip.value` written correctly; propagation-only skips write `None` (not a configured value); side-effect columns get `None`; skip count is logged per-column
 6. **Validation tests:** Unknown column in `skip.when` produces ERROR violation; sampler/seed + `skip` produces violation; `allow_resize` + `skip` produces violation
