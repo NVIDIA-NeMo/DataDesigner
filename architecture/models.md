@@ -30,7 +30,7 @@ Defines the contract: sync/async chat, embeddings, image generation, `supports_*
 ### Client Factory
 
 `create_model_client` routes by provider type to the appropriate adapter. Optionally wraps with:
-- **`RetryTransport`** — httpx-level retries via `httpx_retries.RetryTransport`. Rate-limit 429s are excluded from transport retries when `strip_rate_limit_codes=True` so they surface to the throttle layer.
+- **`RetryTransport`** — httpx-level retries via `httpx_retries.RetryTransport`. `HttpModelClient` sets `strip_rate_limit_codes=True` for the async client and `False` for the sync client (`http_model_client.py`), which controls whether 429 responses are eligible for transport-layer retries.
 - **`ThrottledModelClient`** — AIMD (Additive Increase, Multiplicative Decrease) concurrency control per throttle domain.
 
 ### ThrottleManager
@@ -69,8 +69,8 @@ Lazy `ModelFacade` construction per alias. Registers a shared `ThrottleManager` 
 ## Design Decisions
 
 - **Facade pattern** hides HTTP, retry, throttle, and MCP complexity from generators. Generators see `completion()` and get back parsed results.
-- **AIMD throttling at the application layer** rather than relying solely on HTTP retries. This provides smoother throughput under rate limits — the transport retry handles transient failures, while the throttle manager adjusts concurrency to avoid sustained 429 storms.
-- **429s excluded from transport retries** so rate-limit signals reach the throttle manager immediately rather than being masked by retry delays.
+- **AIMD throttling at the application layer** rather than relying solely on HTTP retries. This provides smoother throughput under rate limits — the transport layer still handles many transient failures, while the throttle manager adjusts concurrency to avoid sustained 429 storms.
+- **429 handling depends on sync vs async `HttpModelClient`** — The async client uses `strip_rate_limit_codes=True`, so 429s are not retried at the transport layer and rate-limit signals reach `ThrottledModelClient` / AIMD quickly. The sync client uses `strip_rate_limit_codes=False`, so 429s may still be retried transparently at the transport layer before surfacing to callers.
 - **Distribution-valued inference parameters** (`temperature`, `top_p` as `UniformDistribution` or `ManualDistribution`) enable controlled randomness across a dataset without per-row config changes.
 - **Lazy facade construction** avoids health-checking or connecting to models that are configured but never used in a particular generation run.
 
