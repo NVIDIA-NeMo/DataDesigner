@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
@@ -33,6 +34,7 @@ from data_designer.engine.validation import (
     validate_expression_references,
     validate_prompt_templates,
     validate_schema_transform_processor,
+    validate_skip_references,
 )
 
 STUB_MODEL_ALIAS = "stub-alias"
@@ -118,12 +120,14 @@ ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 @patch("data_designer.engine.validation.validate_prompt_templates")
 @patch("data_designer.engine.validation.validate_code_validation")
 @patch("data_designer.engine.validation.validate_expression_references")
+@patch("data_designer.engine.validation.validate_skip_references")
 @patch("data_designer.engine.validation.validate_columns_not_all_dropped")
 @patch("data_designer.engine.validation.validate_drop_columns_processor")
 @patch("data_designer.engine.validation.validate_schema_transform_processor")
 def test_validate_data_designer_config(
     mock_validate_columns_not_all_dropped,
     mock_validate_expression_references,
+    mock_validate_skip_references,
     mock_validate_code_validation,
     mock_validate_prompt_templates,
     mock_validate_drop_columns_processor,
@@ -177,11 +181,20 @@ def test_validate_data_designer_config(
             level=ViolationLevel.ERROR,
         )
     ]
+    mock_validate_skip_references.return_value = [
+        Violation(
+            column="test_column",
+            type=ViolationType.SKIP_REFERENCE_MISSING,
+            message="test error message",
+            level=ViolationLevel.ERROR,
+        )
+    ]
 
     violations = validate_data_designer_config(COLUMNS, PROCESSOR_CONFIGS, ALLOWED_REFERENCE)
-    assert len(violations) == 6
+    assert len(violations) == 7
     mock_validate_columns_not_all_dropped.assert_called_once()
     mock_validate_expression_references.assert_called_once()
+    mock_validate_skip_references.assert_called_once()
     mock_validate_code_validation.assert_called_once()
     mock_validate_prompt_templates.assert_called_once()
     mock_validate_drop_columns_processor.assert_called_once()
@@ -349,3 +362,65 @@ def test_rich_print_violations(mock_console_print):
         ]
     )
     mock_console_print.assert_called_once()
+
+
+def test_validate_skip_references_missing_column() -> None:
+    columns = [
+        LLMTextColumnConfig(
+            name="with_skip",
+            prompt="test {{ real_col }}",
+            model_alias=STUB_MODEL_ALIAS,
+            skip=SkipConfig(when="{{ ghost }}"),
+        ),
+    ]
+    violations = validate_skip_references(columns, allowed_references=["real_col"])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.SKIP_REFERENCE_MISSING
+    assert violations[0].column == "with_skip"
+
+
+def test_validate_skip_references_valid() -> None:
+    columns = [
+        LLMTextColumnConfig(
+            name="with_skip",
+            prompt="test {{ gate }}",
+            model_alias=STUB_MODEL_ALIAS,
+            skip=SkipConfig(when="{{ gate == 0 }}"),
+        ),
+    ]
+    violations = validate_skip_references(columns, allowed_references=["gate", "with_skip"])
+    assert len(violations) == 0
+
+
+def test_validate_skip_on_sampler_seed() -> None:
+    col = SamplerColumnConfig.model_construct(
+        name="sampler_with_skip",
+        column_type="sampler",
+        sampler_type="uniform",
+        params={"low": 0, "high": 10},
+        skip=SkipConfig(when="{{ y }}"),
+        drop=False,
+        allow_resize=False,
+        propagate_skip=True,
+    )
+    violations = validate_skip_references([col], allowed_references=["y"])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.SKIP_ON_SAMPLER_SEED
+    assert violations[0].column == "sampler_with_skip"
+
+
+def test_validate_skip_with_allow_resize() -> None:
+    col = LLMTextColumnConfig.model_construct(
+        name="with_skip",
+        column_type="llm-text",
+        prompt="test {{ gate }}",
+        model_alias=STUB_MODEL_ALIAS,
+        skip=SkipConfig(when="{{ gate == 0 }}"),
+        allow_resize=True,
+        drop=False,
+        propagate_skip=True,
+    )
+    violations = validate_skip_references([col], allowed_references=["gate"])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.SKIP_WITH_ALLOW_RESIZE
+    assert violations[0].column == "with_skip"

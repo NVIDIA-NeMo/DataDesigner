@@ -7,6 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.engine.dataset_builders.utils.skip_provenance import strip_skip_metadata_from_records
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -66,10 +67,10 @@ class RowGroupBufferManager:
         return row_group in self._buffers
 
     def get_dataframe(self, row_group: int) -> pd.DataFrame:
-        """Return the row group as a DataFrame (excluding dropped rows)."""
+        """Return the row group as a DataFrame (excluding dropped rows, stripping skip metadata)."""
         dropped = self._dropped.get(row_group, set())
         rows = [row for i, row in enumerate(self._buffers[row_group]) if i not in dropped]
-        return lazy.pd.DataFrame(rows)
+        return lazy.pd.DataFrame(strip_skip_metadata_from_records(rows))
 
     def replace_dataframe(self, row_group: int, df: pd.DataFrame) -> None:
         """Replace the buffer for a row group from a DataFrame (non-dropped rows only).

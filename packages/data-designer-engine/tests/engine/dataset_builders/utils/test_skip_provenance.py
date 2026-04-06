@@ -1,0 +1,127 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import pytest
+
+from data_designer.engine.dataset_builders.utils.skip_provenance import (
+    SKIPPED_COLUMNS_RECORD_KEY,
+    apply_skip_to_record,
+    get_skipped_column_names,
+    strip_skip_metadata_for_dataframe_row,
+    strip_skip_metadata_from_records,
+)
+
+
+def test_skipped_columns_record_key_value() -> None:
+    assert SKIPPED_COLUMNS_RECORD_KEY == "__skipped__"
+
+
+def test_get_skipped_column_names_empty() -> None:
+    assert get_skipped_column_names({}) == set()
+
+
+def test_get_skipped_column_names_populated() -> None:
+    record = {SKIPPED_COLUMNS_RECORD_KEY: {"a", "b"}}
+    assert get_skipped_column_names(record) == {"a", "b"}
+
+
+def test_get_skipped_column_names_returns_copy() -> None:
+    inner: set[str] = {"x"}
+    record = {SKIPPED_COLUMNS_RECORD_KEY: inner}
+    names = get_skipped_column_names(record)
+    names.add("y")
+    assert record[SKIPPED_COLUMNS_RECORD_KEY] == {"x"}
+    assert names == {"x", "y"}
+
+
+def test_apply_skip_to_record_adds_provenance() -> None:
+    record: dict = {}
+    apply_skip_to_record(
+        record,
+        column_name="primary",
+        cell_value=None,
+        side_effect_columns=(),
+    )
+    assert record[SKIPPED_COLUMNS_RECORD_KEY] == {"primary"}
+
+
+@pytest.mark.parametrize(
+    "cell_value",
+    [None, True, False, 0, 42, 3.14, "skipped"],
+)
+def test_apply_skip_to_record_sets_cell_value(cell_value: bool | int | float | str | None) -> None:
+    record: dict = {}
+    apply_skip_to_record(
+        record,
+        column_name="col_a",
+        cell_value=cell_value,
+        side_effect_columns=(),
+    )
+    assert record["col_a"] == cell_value
+
+
+def test_apply_skip_to_record_clears_side_effects() -> None:
+    record: dict = {"se1": "keep-me", "se2": 99}
+    apply_skip_to_record(
+        record,
+        column_name="primary",
+        cell_value="pv",
+        side_effect_columns=("se1", "se2"),
+    )
+    assert record["se1"] is None
+    assert record["se2"] is None
+    assert record["primary"] == "pv"
+
+
+def test_apply_skip_to_record_accumulates() -> None:
+    record: dict = {}
+    apply_skip_to_record(
+        record,
+        column_name="first",
+        cell_value=1,
+        side_effect_columns=(),
+    )
+    apply_skip_to_record(
+        record,
+        column_name="second",
+        cell_value=2,
+        side_effect_columns=(),
+    )
+    assert record[SKIPPED_COLUMNS_RECORD_KEY] == {"first", "second"}
+    assert record["first"] == 1
+    assert record["second"] == 2
+
+
+def test_strip_skip_metadata_for_dataframe_row() -> None:
+    record = {
+        "a": 1,
+        SKIPPED_COLUMNS_RECORD_KEY: {"x"},
+        "b": 2,
+    }
+    stripped = strip_skip_metadata_for_dataframe_row(record)
+    assert stripped == {"a": 1, "b": 2}
+    assert SKIPPED_COLUMNS_RECORD_KEY not in stripped
+
+
+def test_strip_skip_metadata_for_dataframe_row_no_metadata() -> None:
+    record = {"a": 1, "b": [10, 20]}
+    stripped = strip_skip_metadata_for_dataframe_row(record)
+    assert stripped == record
+    assert stripped is not record
+    assert stripped["b"] is record["b"]
+
+
+def test_strip_skip_metadata_from_records() -> None:
+    rows = [
+        {"k": 1, SKIPPED_COLUMNS_RECORD_KEY: {"c"}},
+        {"k": 2},
+    ]
+    out = strip_skip_metadata_from_records(rows)
+    assert out == [{"k": 1}, {"k": 2}]
+    assert SKIPPED_COLUMNS_RECORD_KEY in rows[0]
+
+
+def test_strip_skip_metadata_from_records_empty() -> None:
+    assert strip_skip_metadata_from_records([]) == []

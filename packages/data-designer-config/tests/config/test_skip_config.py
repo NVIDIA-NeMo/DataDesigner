@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
+from data_designer.config.base import SkipConfig
+from data_designer.config.column_configs import (
+    LLMTextColumnConfig,
+    SamplerColumnConfig,
+    SeedDatasetColumnConfig,
+)
+from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
+
+_BASE_LLM = dict(name="test", prompt="test {{ x }}", model_alias="default")
+
+
+def test_skip_config_defaults() -> None:
+    cfg = SkipConfig(when="{{ x == 0 }}")
+    assert cfg.value is None
+
+
+def test_skip_config_custom_value() -> None:
+    cfg = SkipConfig(when="{{ x == 0 }}", value=0)
+    assert cfg.value == 0
+
+
+@pytest.mark.parametrize(
+    "value",
+    [True, False, 0, 42, 1.5, "skipped", None],
+)
+def test_skip_config_value_types(value: bool | int | float | str | None) -> None:
+    cfg = SkipConfig(when="{{ x == 0 }}", value=value)
+    assert cfg.value == value
+
+
+def test_skip_config_when_syntax_validation() -> None:
+    with pytest.raises(ValidationError):
+        SkipConfig(when="{{ 1 + }}")
+
+
+def test_skip_config_when_rejects_no_delimiters() -> None:
+    with pytest.raises(ValidationError, match="does not reference any columns"):
+        SkipConfig(when="in_stock == 0")
+
+
+def test_skip_config_columns_extraction() -> None:
+    cfg = SkipConfig(when="{{ in_stock == 0 }}")
+    assert cfg.columns == ["in_stock"]
+
+
+def test_skip_config_columns_multiple() -> None:
+    cfg = SkipConfig(when="{{ a > 0 and b < 10 }}")
+    assert cfg.columns == ["a", "b"]
+
+
+def test_skip_config_columns_cached() -> None:
+    cfg = SkipConfig(when="{{ x == 0 }}")
+    first = cfg.columns
+    assert cfg.columns is first
+
+
+def test_single_column_config_skip_defaults_none() -> None:
+    col = LLMTextColumnConfig(**_BASE_LLM)
+    assert col.skip is None
+
+
+def test_single_column_config_propagate_skip_default_true() -> None:
+    col = LLMTextColumnConfig(**_BASE_LLM)
+    assert col.propagate_skip is True
+
+
+def test_skip_rejected_on_sampler_type() -> None:
+    with pytest.raises(ValidationError, match="skip is not supported on sampler columns"):
+        SamplerColumnConfig(
+            name="s",
+            sampler_type=SamplerType.UUID,
+            params=UUIDSamplerParams(prefix="p_", short_form=True),
+            skip=SkipConfig(when="{{ y == 1 }}"),
+        )
+
+
+def test_skip_rejected_on_seed_dataset_type() -> None:
+    with pytest.raises(ValidationError, match="skip is not supported on seed-dataset columns"):
+        SeedDatasetColumnConfig(
+            name="seed_col",
+            skip=SkipConfig(when="{{ y == 1 }}"),
+        )
+
+
+def test_skip_rejected_with_allow_resize() -> None:
+    with pytest.raises(ValidationError, match="skip and allow_resize cannot be used together"):
+        LLMTextColumnConfig(
+            **_BASE_LLM,
+            allow_resize=True,
+            skip=SkipConfig(when="{{ x == 0 }}"),
+        )
+
+
+def test_skip_self_reference_rejected() -> None:
+    with pytest.raises(ValidationError, match="references itself"):
+        LLMTextColumnConfig(
+            name="foo",
+            prompt="test {{ bar }}",
+            model_alias="default",
+            skip=SkipConfig(when="{{ foo == 0 }}"),
+        )
