@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+"""ATIF trajectory ingestion for standalone rollout JSON files."""
+
 import json
 from pathlib import Path
 from typing import Any, ClassVar
@@ -19,9 +21,12 @@ from data_designer.engine.resources.agent_rollout.utils import (
 
 
 class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
+    """Normalize one standalone ATIF trajectory file into one rollout record."""
+
     format: ClassVar[AgentRolloutFormat] = AgentRolloutFormat.ATIF
 
     def is_handled_file(self, relative_path: str) -> bool:
+        """Return whether the file path looks like a standalone ATIF JSON file."""
         return Path(relative_path).suffix == ".json"
 
     def parse_file(
@@ -31,11 +36,11 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         relative_path: str,
         parse_context: AgentRolloutParseContext | None = None,
     ) -> list[NormalizedAgentRolloutRecord]:
-        del parse_context
+        """Parse one ATIF trajectory file using the shared rollout row shape."""
         file_path = root_path / relative_path
         payload = load_atif_payload(file_path)
 
-        require_string(payload.get("schema_version"), f"ATIF schema_version in {file_path}")
+        schema_version = require_string(payload.get("schema_version"), f"ATIF schema_version in {file_path}")
         session_id = require_string(payload.get("session_id"), f"ATIF session_id in {file_path}")
         agent = payload.get("agent")
         if not isinstance(agent, dict):
@@ -95,29 +100,15 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                     )
                 )
 
-        source_meta: dict[str, Any] = {
-            "schema_version": require_string(payload.get("schema_version"), f"ATIF schema_version in {file_path}"),
-            "step_count": len(steps),
-            "agent_name": require_string(agent.get("name"), f"ATIF agent.name in {file_path}"),
-        }
-        for field_name in ("version", "model_name"):
-            value = coerce_optional_str(agent.get(field_name))
-            if value:
-                source_meta[field_name] = value
-        if copied_context_step_ids:
-            source_meta["copied_context_step_ids"] = copied_context_step_ids
-        if subagent_refs:
-            source_meta["subagent_trajectory_refs"] = subagent_refs
-        if notes := coerce_optional_str(payload.get("notes")):
-            source_meta["notes"] = notes
-        if continued_trajectory_ref := coerce_optional_str(payload.get("continued_trajectory_ref")):
-            source_meta["continued_trajectory_ref"] = continued_trajectory_ref
-        if final_metrics := payload.get("final_metrics"):
-            if isinstance(final_metrics, dict):
-                source_meta["final_metrics"] = final_metrics
-        if extra := payload.get("extra"):
-            if isinstance(extra, dict):
-                source_meta["extra"] = extra
+        source_meta = build_atif_source_meta(
+            payload=payload,
+            file_path=file_path,
+            schema_version=schema_version,
+            agent=agent,
+            steps=steps,
+            copied_context_step_ids=copied_context_step_ids,
+            subagent_refs=subagent_refs,
+        )
 
         agent_extra = agent.get("extra") if isinstance(agent.get("extra"), dict) else {}
         cwd = coerce_optional_str(agent_extra.get("cwd"))
@@ -144,6 +135,7 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
 
 
 def load_atif_payload(file_path: Path) -> dict[str, Any]:
+    """Load one ATIF trajectory file and enforce a top-level object payload."""
     try:
         with file_path.open(encoding="utf-8") as file:
             payload = json.load(file)
@@ -156,6 +148,7 @@ def load_atif_payload(file_path: Path) -> dict[str, Any]:
 
 
 def normalize_atif_role(raw_source: Any, *, file_path: Path, step_id: int) -> str:
+    """Map ATIF step sources onto the normalized chat roles."""
     source = require_string(raw_source, f"ATIF source in {file_path} step {step_id}")
     if source == "agent":
         return "assistant"
@@ -165,6 +158,7 @@ def normalize_atif_role(raw_source: Any, *, file_path: Path, step_id: int) -> st
 
 
 def normalize_atif_tool_calls(raw_tool_calls: Any, *, file_path: Path, step_id: int) -> list[dict[str, Any]]:
+    """Convert ATIF tool-call objects into the shared tool-call payload shape."""
     if raw_tool_calls is None:
         return []
     if not isinstance(raw_tool_calls, list):
@@ -195,6 +189,43 @@ def normalize_atif_tool_calls(raw_tool_calls: Any, *, file_path: Path, step_id: 
     return tool_calls
 
 
+def build_atif_source_meta(
+    *,
+    payload: dict[str, Any],
+    file_path: Path,
+    schema_version: str,
+    agent: dict[str, Any],
+    steps: list[Any],
+    copied_context_step_ids: list[int],
+    subagent_refs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Collect ATIF-specific metadata that does not fit the shared row columns."""
+    source_meta: dict[str, Any] = {
+        "schema_version": schema_version,
+        "step_count": len(steps),
+        "agent_name": require_string(agent.get("name"), f"ATIF agent.name in {file_path}"),
+    }
+    for field_name in ("version", "model_name"):
+        value = coerce_optional_str(agent.get(field_name))
+        if value:
+            source_meta[field_name] = value
+    if copied_context_step_ids:
+        source_meta["copied_context_step_ids"] = copied_context_step_ids
+    if subagent_refs:
+        source_meta["subagent_trajectory_refs"] = subagent_refs
+    if notes := coerce_optional_str(payload.get("notes")):
+        source_meta["notes"] = notes
+    if continued_trajectory_ref := coerce_optional_str(payload.get("continued_trajectory_ref")):
+        source_meta["continued_trajectory_ref"] = continued_trajectory_ref
+    if final_metrics := payload.get("final_metrics"):
+        if isinstance(final_metrics, dict):
+            source_meta["final_metrics"] = final_metrics
+    if extra := payload.get("extra"):
+        if isinstance(extra, dict):
+            source_meta["extra"] = extra
+    return source_meta
+
+
 def normalize_atif_observation_messages(
     observation: Any,
     *,
@@ -202,6 +233,7 @@ def normalize_atif_observation_messages(
     step_id: int,
     subagent_refs: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Normalize ATIF observations into tool messages and sidecar metadata."""
     if not isinstance(observation, dict):
         raise AgentRolloutSeedParseError(f"ATIF observation in {file_path} step {step_id} must be an object")
 
