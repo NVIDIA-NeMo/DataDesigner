@@ -94,6 +94,11 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                 raise AgentRolloutSeedParseError(
                     f"Expected integer ATIF step_id at {file_path} steps[{step_index - 1}], got {step_id!r}"
                 )
+            if step_id != step_index:
+                raise AgentRolloutSeedParseError(
+                    f"Expected sequential ATIF step_id {step_index} at {file_path} steps[{step_index - 1}], "
+                    f"got {step_id!r}"
+                )
 
             if timestamp := coerce_optional_str(raw_step.get("timestamp")):
                 timestamps.append(timestamp)
@@ -104,16 +109,24 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
             if "message" not in raw_step:
                 raise AgentRolloutSeedParseError(f"ATIF step {step_id} in {file_path} is missing message content")
 
+            message_role = normalize_atif_role(raw_step.get("source"), file_path=file_path, step_id=step_id)
+            validate_atif_step_fields(
+                raw_step=raw_step, file_path=file_path, step_id=step_id, message_role=message_role
+            )
+            tool_calls = normalize_atif_tool_calls(
+                raw_step.get("tool_calls"),
+                file_path=file_path,
+                step_id=step_id,
+            )
+
             messages.append(
                 build_message(
-                    role=normalize_atif_role(raw_step.get("source"), file_path=file_path, step_id=step_id),
+                    role=message_role,
                     content=raw_step.get("message"),
-                    reasoning_content=coerce_optional_str(raw_step.get("reasoning_content")),
-                    tool_calls=normalize_atif_tool_calls(
-                        raw_step.get("tool_calls"),
-                        file_path=file_path,
-                        step_id=step_id,
-                    ),
+                    reasoning_content=coerce_optional_str(raw_step.get("reasoning_content"))
+                    if message_role == "assistant"
+                    else None,
+                    tool_calls=tool_calls,
                 )
             )
 
@@ -124,6 +137,7 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                         observation,
                         file_path=file_path,
                         step_id=step_id,
+                        valid_tool_call_ids={tool_call["id"] for tool_call in tool_calls},
                         subagent_refs=subagent_refs,
                     )
                 )
@@ -207,6 +221,28 @@ def normalize_atif_role(raw_source: Any, *, file_path: Path, step_id: int) -> st
     if source in {"system", "user"}:
         return source
     raise AgentRolloutSeedParseError(f"Unsupported ATIF source {source!r} in {file_path} step {step_id}")
+
+
+def validate_atif_step_fields(
+    *,
+    raw_step: dict[str, Any],
+    file_path: Path,
+    step_id: int,
+    message_role: str,
+) -> None:
+    """Reject assistant-only ATIF fields on non-agent steps."""
+    if message_role == "assistant":
+        return
+
+    invalid_fields = [
+        field_name
+        for field_name in ("reasoning_content", "tool_calls", "observation")
+        if raw_step.get(field_name) is not None
+    ]
+    if invalid_fields:
+        raise AgentRolloutSeedParseError(
+            f"ATIF step {step_id} in {file_path} with role {message_role!r} cannot include {', '.join(invalid_fields)}"
+        )
 
 
 def normalize_atif_tool_calls(raw_tool_calls: Any, *, file_path: Path, step_id: int) -> list[dict[str, Any]]:
@@ -310,6 +346,7 @@ def normalize_atif_observation_messages(
     *,
     file_path: Path,
     step_id: int,
+    valid_tool_call_ids: set[str],
     subagent_refs: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Normalize ATIF observations into tool messages and sidecar metadata.
@@ -340,12 +377,22 @@ def normalize_atif_observation_messages(
             raise AgentRolloutSeedParseError(
                 f"Expected ATIF observation result object in {file_path} step {step_id}, got {type(raw_result).__name__}"
             )
+        source_call_id = coerce_optional_str(raw_result.get("source_call_id"))
+        if source_call_id is not None and source_call_id not in valid_tool_call_ids:
+            raise AgentRolloutSeedParseError(
+                f"ATIF observation source_call_id {source_call_id!r} in {file_path} step {step_id} "
+                "does not reference a declared tool call"
+            )
         if "content" in raw_result and raw_result.get("content") is not None:
+            if source_call_id is None:
+                raise AgentRolloutSeedParseError(
+                    f"ATIF observation result in {file_path} step {step_id} with content is missing source_call_id"
+                )
             messages.append(
                 build_message(
                     role="tool",
                     content=raw_result.get("content"),
-                    tool_call_id=coerce_optional_str(raw_result.get("source_call_id")),
+                    tool_call_id=source_call_id,
                 )
             )
 

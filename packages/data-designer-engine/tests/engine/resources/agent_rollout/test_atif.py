@@ -16,6 +16,19 @@ def _make_handler() -> AtifAgentRolloutFormatHandler:
     return AtifAgentRolloutFormatHandler()
 
 
+def _write_payload(tmp_path: Path, payload: object) -> None:
+    (tmp_path / "trace.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _build_payload(*, steps: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "schema_version": "ATIF-v1.6",
+        "session_id": "atif-session",
+        "agent": {"name": "harbor-agent", "model_name": "gpt-5"},
+        "steps": steps,
+    }
+
+
 def test_parse_file_comprehensive_happy_path(tmp_path: Path) -> None:
     trajectory_path = tmp_path / "trace.json"
     trajectory_path.write_text(
@@ -133,10 +146,109 @@ def test_parse_file_comprehensive_happy_path(tmp_path: Path) -> None:
 
 
 def test_parse_file_rejects_non_object_payload(tmp_path: Path) -> None:
-    trajectory_path = tmp_path / "trace.json"
-    trajectory_path.write_text('["not", "an", "object"]', encoding="utf-8")
+    _write_payload(tmp_path, ["not", "an", "object"])
 
     with pytest.raises(AgentRolloutSeedParseError, match="Expected JSON object"):
+        _make_handler().parse_file(root_path=tmp_path, relative_path="trace.json")
+
+
+def test_parse_file_rejects_non_sequential_step_ids(tmp_path: Path) -> None:
+    _write_payload(
+        tmp_path,
+        _build_payload(
+            steps=[
+                {"step_id": 2, "source": "user", "message": "First"},
+                {"step_id": 1, "source": "agent", "message": "Second"},
+            ]
+        ),
+    )
+
+    with pytest.raises(AgentRolloutSeedParseError, match="Expected sequential ATIF step_id 1"):
+        _make_handler().parse_file(root_path=tmp_path, relative_path="trace.json")
+
+
+@pytest.mark.parametrize(
+    ("source", "field_name", "field_value"),
+    [
+        pytest.param("user", "tool_calls", [{"tool_call_id": "call-1", "function_name": "search"}], id="user-tools"),
+        pytest.param("system", "reasoning_content", "Need to inspect", id="system-reasoning"),
+        pytest.param("user", "observation", {"results": []}, id="user-observation"),
+    ],
+)
+def test_parse_file_rejects_assistant_only_fields_on_non_agent_steps(
+    tmp_path: Path,
+    source: str,
+    field_name: str,
+    field_value: object,
+) -> None:
+    step = {
+        "step_id": 1,
+        "source": source,
+        "message": "Invalid step",
+        field_name: field_value,
+    }
+    _write_payload(tmp_path, _build_payload(steps=[step]))
+
+    with pytest.raises(AgentRolloutSeedParseError, match=field_name):
+        _make_handler().parse_file(root_path=tmp_path, relative_path="trace.json")
+
+
+def test_parse_file_rejects_observation_results_with_content_missing_source_call_id(tmp_path: Path) -> None:
+    _write_payload(
+        tmp_path,
+        _build_payload(
+            steps=[
+                {
+                    "step_id": 1,
+                    "source": "agent",
+                    "message": "Inspecting",
+                    "tool_calls": [
+                        {
+                            "tool_call_id": "call-1",
+                            "function_name": "search",
+                            "arguments": {"query": "repo"},
+                        }
+                    ],
+                    "observation": {"results": [{"content": "tool output"}]},
+                }
+            ]
+        ),
+    )
+
+    with pytest.raises(AgentRolloutSeedParseError, match="missing source_call_id"):
+        _make_handler().parse_file(root_path=tmp_path, relative_path="trace.json")
+
+
+def test_parse_file_rejects_observation_results_referencing_unknown_tool_calls(tmp_path: Path) -> None:
+    _write_payload(
+        tmp_path,
+        _build_payload(
+            steps=[
+                {
+                    "step_id": 1,
+                    "source": "agent",
+                    "message": "Inspecting",
+                    "tool_calls": [
+                        {
+                            "tool_call_id": "call-1",
+                            "function_name": "search",
+                            "arguments": {"query": "repo"},
+                        }
+                    ],
+                    "observation": {
+                        "results": [
+                            {
+                                "source_call_id": "call-2",
+                                "content": "tool output",
+                            }
+                        ]
+                    },
+                }
+            ]
+        ),
+    )
+
+    with pytest.raises(AgentRolloutSeedParseError, match="does not reference a declared tool call"):
         _make_handler().parse_file(root_path=tmp_path, relative_path="trace.json")
 
 
