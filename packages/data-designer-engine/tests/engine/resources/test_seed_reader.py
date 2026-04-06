@@ -229,6 +229,59 @@ def _write_claude_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> N
     )
 
 
+def _write_atif_trace_directory(root_path: Path) -> None:
+    session_dir = root_path / "project-a"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "session-1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "ATIF-v1.6",
+                "session_id": "atif-session-1",
+                "agent": {"name": "harbor-agent", "model_name": "gpt-5"},
+                "steps": [
+                    {
+                        "step_id": 1,
+                        "timestamp": "2026-04-06T12:00:00Z",
+                        "source": "user",
+                        "message": "Inspect the repo",
+                    },
+                    {
+                        "step_id": 2,
+                        "timestamp": "2026-04-06T12:00:02Z",
+                        "source": "agent",
+                        "message": "Repo inspected",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "session-2.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "ATIF-v1.6",
+                "session_id": "atif-session-2",
+                "agent": {"name": "harbor-agent", "model_name": "gpt-5"},
+                "steps": [
+                    {
+                        "step_id": 1,
+                        "timestamp": "2026-04-06T13:00:00Z",
+                        "source": "user",
+                        "message": "Run tests",
+                    },
+                    {
+                        "step_id": 2,
+                        "timestamp": "2026-04-06T13:00:03Z",
+                        "source": "agent",
+                        "message": "Tests checked",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture
 def write_alpha_beta_text_files(tmp_path: Path) -> Callable[[str, str], Path]:
     def _write_alpha_beta_text_files(alpha_contents: str, beta_contents: str) -> Path:
@@ -840,6 +893,27 @@ def test_agent_rollout_seed_reader_hydrates_to_record_count(tmp_path: Path, writ
 
     assert len(batch_df) == 2
     assert sorted(reader.hydrated_relative_paths) == ["project-a/session-1.jsonl", "project-a/session-2.jsonl"]
+
+
+def test_agent_rollout_seed_reader_hydrates_atif_json_files(tmp_path: Path) -> None:
+    _write_atif_trace_directory(tmp_path)
+
+    reader = TrackingAgentRolloutSeedReader()
+    reader.attach(
+        AgentRolloutSeedSource(
+            path=str(tmp_path),
+            format=AgentRolloutFormat.ATIF,
+        ),
+        PlaintextResolver(),
+    )
+
+    batch_reader = reader.create_batch_reader(batch_size=10, index_range=None, shuffle=False)
+    batch_df = batch_reader.read_next_batch().to_pandas().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(batch_df["trace_id"]) == ["atif-session-1", "atif-session-2"]
+    assert list(batch_df["source_kind"]) == ["atif", "atif"]
+    assert list(batch_df["final_assistant_message"]) == ["Repo inspected", "Tests checked"]
+    assert sorted(reader.hydrated_relative_paths) == ["project-a/session-1.json", "project-a/session-2.json"]
 
 
 def test_agent_rollout_seed_reader_hydration_laziness(tmp_path: Path, write_jsonl: WriteJsonl) -> None:
