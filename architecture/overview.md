@@ -15,7 +15,7 @@ DataDesigner is split across three installable packages that merge at runtime in
 ├─────────────────────────────────────────────────────────┤
 │  data-designer-config  (declaration)                    │
 │    Column configs, model configs, sampler params,       │
-│    builder API, plugin system, lazy imports              │
+│    builder API, plugin system, lazy imports             │
 └─────────────────────────────────────────────────────────┘
 ```
 
