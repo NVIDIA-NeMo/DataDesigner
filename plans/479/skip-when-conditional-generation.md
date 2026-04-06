@@ -5,7 +5,7 @@ authors:
 issue: https://github.com/NVIDIA-NeMo/DataDesigner/issues/479
 ---
 
-# Plan: `skip_when` — Conditional Column Generation
+# Plan: Conditional column generation — `SkipConfig` / `skip.when`
 
 ## Problem
 
@@ -620,7 +620,7 @@ Implementation must align with Step 8: either the processor runs on **record dic
 
 ### 1. Shared propagation path with #362
 
-[Issue #362](https://github.com/NVIDIA-NeMo/DataDesigner/issues/362) (keep failed-parse fields as null) needs a similar "cell became unavailable, propagate through the DAG" mechanism. `skip_when` is intentional/config-driven; #362 is runtime failure. Both need:
+[Issue #362](https://github.com/NVIDIA-NeMo/DataDesigner/issues/362) (keep failed-parse fields as null) needs a similar "cell became unavailable, propagate through the DAG" mechanism. Expression-gated skip via **`SkipConfig.when`** is intentional/config-driven; #362 is runtime failure. Both need:
 - A way to mark a cell as unavailable
 - Downstream propagation through the DAG
 - Tracking of which cells were affected
