@@ -227,6 +227,12 @@ def test_filesystem_seed_sources_reject_path_like_file_patterns(
     ("rollout_format", "file_pattern", "error_message"),
     [
         pytest.param(
+            AgentRolloutFormat.ATIF,
+            "nested/trace.json",
+            "match file names, not relative paths",
+            id="atif-posix",
+        ),
+        pytest.param(
             AgentRolloutFormat.CLAUDE_CODE,
             "",
             "non-empty string",
@@ -248,6 +254,23 @@ def test_agent_rollout_seed_source_rejects_invalid_file_patterns(
 ) -> None:
     with pytest.raises(ValueError, match=error_message):
         AgentRolloutSeedSource(path=str(tmp_path), file_pattern=file_pattern, format=rollout_format)
+
+
+def test_agent_rollout_seed_source_requires_explicit_atif_path() -> None:
+    with pytest.raises(ValueError, match="path is required for format 'atif'"):
+        AgentRolloutSeedSource(format=AgentRolloutFormat.ATIF)
+
+
+def test_agent_rollout_seed_source_uses_default_atif_file_pattern(tmp_path: Path) -> None:
+    trace_dir = tmp_path / "atif"
+    trace_dir.mkdir()
+
+    source = AgentRolloutSeedSource(path=str(trace_dir), format=AgentRolloutFormat.ATIF)
+
+    assert source.seed_type == "agent_rollout"
+    assert source.resolved_file_pattern == "*.json"
+    assert source.recursive is True
+    assert source.format == AgentRolloutFormat.ATIF
 
 
 def test_agent_rollout_seed_source_uses_default_claude_path(

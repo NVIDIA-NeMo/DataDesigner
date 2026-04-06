@@ -25,7 +25,7 @@ uv pip install -e /path/to/your/plugin
 pip install data-designer-{plugin-name}
 ```
 
-Once installed, plugins are automatically discovered and ready to use — no additional registration or configuration needed. See the [example plugin](example.md) for a complete walkthrough.
+Once installed, plugins are automatically discovered and ready to use — no additional registration or configuration needed. See the [example plugin](example.md) for a complete walkthrough, or jump to [FileSystemSeedReader Plugins](filesystem_seed_reader.md) for filesystem-backed seed reader authoring.
 
 ## How do you create plugins?
 
@@ -41,7 +41,7 @@ Each plugin has three components, and we recommend organizing them into separate
     - Processor plugins: inherit from `ProcessorConfig` with a `processor_type` discriminator
 - **`impl.py`** -- Implementation class containing the core logic
     - Column generator plugins: inherit from `ColumnGeneratorFullColumn` or `ColumnGeneratorCellByCell`
-    - Seed reader plugins: inherit from `SeedReader`
+    - Seed reader plugins: inherit from `SeedReader` or `FileSystemSeedReader` for directory-backed sources
     - Processor plugins: inherit from `Processor` and override callback methods (`process_before_batch`, `process_after_batch`, `process_after_generation`)
 - **`plugin.py`** -- A `Plugin` instance that connects the config and implementation classes
 
@@ -81,4 +81,8 @@ my_processor_plugin = Plugin(
 )
 ```
 
-**Ready to get started?** See the [Example Plugin](example.md) for a complete walkthrough of creating a column generator plugin.
+**Ready to get started?**
+
+- See the [Example Plugin](example.md) for a column generator walkthrough
+- See [FileSystemSeedReader Plugins](filesystem_seed_reader.md) for filesystem-backed seed reader plugins
+- See the [Markdown Section Seed Reader recipe](../recipes/plugin_development/markdown_seed_reader.md) for a runnable single-file `1:N` filesystem reader example

@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from httpx_retries import Retry, RetryTransport
+
+if TYPE_CHECKING:
+    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,7 @@ def create_retry_transport(
     config: RetryConfig | None = None,
     *,
     strip_rate_limit_codes: bool = True,
+    transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None,
 ) -> RetryTransport:
     """Build an httpx ``RetryTransport`` from a :class:`RetryConfig`.
 
@@ -51,6 +56,12 @@ def create_retry_transport(
             AIMD feedback loop.  When ``False`` (used by the sync engine, which has
             no salvage queue), 429 is kept in the retry list so the transport layer
             retries it transparently.
+        transport: Optional pre-configured transport to pass directly to
+            ``RetryTransport``.  Pass ``httpx.HTTPTransport`` for sync clients or
+            ``httpx.AsyncHTTPTransport`` for async clients — typically with a custom
+            ``limits=`` — so that the connection pool is sized correctly.  When
+            ``None`` (default), ``RetryTransport`` creates its own default pools for
+            both sync and async requests.
     """
     cfg = config or RetryConfig()
     status_codes = cfg.retryable_status_codes
@@ -72,4 +83,4 @@ def create_retry_transport(
         respect_retry_after_header=True,
         allowed_methods=Retry.RETRYABLE_METHODS | frozenset(["POST"]),
     )
-    return RetryTransport(retry=retry)
+    return RetryTransport(transport=transport, retry=retry)
