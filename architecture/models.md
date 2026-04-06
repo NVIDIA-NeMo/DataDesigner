@@ -24,8 +24,8 @@ Generators never interact with HTTP clients directly. They request a `ModelFacad
 
 Defines the contract: sync/async chat, embeddings, image generation, `supports_*` capability checks, `close` / `aclose`. Two implementations:
 
-- **`OpenAICompatibleClient`** — wraps the OpenAI SDK; works with any OpenAI-compatible endpoint (NIM, vLLM, etc.)
-- **`AnthropicClient`** — wraps the Anthropic SDK
+- **`OpenAICompatibleClient`** — native httpx adapter for OpenAI-compatible endpoints (NIM, vLLM, etc.)
+- **`AnthropicClient`** — native httpx adapter for the Anthropic Messages API
 
 ### Client Factory
 

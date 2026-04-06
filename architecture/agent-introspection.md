@@ -27,11 +27,11 @@ Maps a **family name** to a **discriminated union type** and its **discriminator
 
 | Family | Union Type | Discriminator |
 |--------|-----------|---------------|
-| `column-types` | `ColumnConfigT` | `column_type` |
-| `sampler-types` | `SamplerParamsT` | `sampler_type` |
-| `validator-types` | `ValidatorParamsT` | `validator_type` |
-| `processor-types` | `ProcessorConfigT` | `processor_type` |
-| `constraint-types` | `ColumnConstraintT` | `constraint_type` |
+| `columns` | `ColumnConfigT` | `column_type` |
+| `samplers` | `SamplerParamsT` | `sampler_type` |
+| `validators` | `ValidatorParamsT` | `validator_type` |
+| `processors` | `ProcessorConfigT` | `processor_type` |
+| `constraints` | `ColumnConstraintT` | `constraint_type` |
 
 ### Type Discovery
 
@@ -58,9 +58,9 @@ Reuse the CLI's repository stack:
 ## Data Flow
 
 ```
-Agent calls: data-designer agent types column-types
-  → Typer dispatches to agent.get_types("column-types")
-  → FamilySpec maps "column-types" → ColumnConfigT union
+Agent calls: data-designer agent types columns
+  → Typer dispatches to agent.get_types("columns")
+  → FamilySpec maps "columns" → ColumnConfigT union
   → discover_family_types walks union members
   → get_family_catalog extracts names + descriptions
   → get_family_source_files resolves source locations

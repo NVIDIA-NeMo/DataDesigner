@@ -55,9 +55,9 @@ This keeps generation aligned with the public Python API — the CLI is a thin w
 
 ### Config Management
 ```
-User invokes command (e.g., `data-designer models add`)
+User invokes command (e.g., `data-designer config models`)
   → Command function wires DATA_DESIGNER_HOME
-  → Controller presents interactive form
+  → Controller presents interactive menu
   → Service validates and applies changes
   → Repository reads/writes config files
 ```

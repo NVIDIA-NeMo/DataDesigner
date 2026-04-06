@@ -20,7 +20,7 @@ Plugins are standard Python packages that declare entry points in the `data_desi
 `Plugin` (in `plugins/plugin.py`) is a Pydantic model describing a plugin:
 - **`impl_qualified_name`** — fully qualified name of the implementation class (e.g., generator)
 - **`config_qualified_name`** — fully qualified name of the config class
-- **`PluginType`** — one of `COLUMN_GENERATOR`, `SEED_SOURCE`, or `PROCESSOR`
+- **`PluginType`** — one of `COLUMN_GENERATOR`, `SEED_READER`, or `PROCESSOR`
 
 Validators ensure:
 - Both modules exist and are importable
@@ -38,7 +38,7 @@ Plugins can be disabled globally with `DISABLE_DATA_DESIGNER_PLUGINS=true`.
 Thin facade over `PluginRegistry` providing typed injection methods:
 - `inject_into_column_config_type_union` — extends `ColumnConfigT`
 - `inject_into_seed_source_type_union` — extends `SeedSourceT`
-- `inject_into_processor_type_union` — extends `ProcessorConfigT`
+- `inject_into_processor_config_type_union` — extends `ProcessorConfigT`
 
 Each method ORs the plugin's config class into the existing type union (`type_union |= plugin.config_cls`).
 
