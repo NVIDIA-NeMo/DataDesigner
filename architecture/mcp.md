@@ -17,14 +17,14 @@ The subsystem has three layers:
 
 ### MCPIOService
 
-Singleton module-level service that manages the async I/O layer:
+The `io.py` module exposes MCP I/O through **one shared `MCPIOService` instance** (`_MCP_IO_SERVICE`) created at import; `atexit` registers `shutdown`. Async state (loop, sessions, caches) lives on that instance.
 
 - **Background async loop** — runs on a daemon thread; sync callers use `asyncio.run_coroutine_threadsafe` to bridge
 - **Session pool** — `_sessions` keyed by provider cache key (JSON of provider config); `_get_or_create_session` with in-flight deduplication prevents redundant connections
 - **Tool listing** — cached per session; coalescing for concurrent list requests via `_inflight_tools` prevents duplicate discovery calls
 - **Tool execution** — parallel tool calls within a single completion response
 
-Module-level functions (`list_tools`, `call_tools`, `clear_session_pool`) delegate to the singleton instance.
+Module-level functions (`list_tools`, `call_tools`, `clear_session_pool`) delegate to `_MCP_IO_SERVICE`.
 
 ### MCPFacade
 

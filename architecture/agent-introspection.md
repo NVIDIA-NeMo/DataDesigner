@@ -6,7 +6,7 @@ Source: `packages/data-designer/src/data_designer/cli/commands/agent.py` and `pa
 
 ## Overview
 
-Agent introspection solves a specific problem: agents working with DataDesigner need to know what column types, sampler types, validator types, and processor types are available — including any installed plugins. Rather than hardcoding this knowledge or parsing source code, agents can call `data-designer agent` commands to get structured, up-to-date information.
+Agent introspection solves a specific problem: when an agent helps someone **author a dataset configuration** (columns, samplers, validators, processors, and related options), it needs an accurate catalog of what is available — including types added by installed plugins. Rather than hardcoding that knowledge or parsing source code, the agent can call `data-designer agent` commands to get structured, up-to-date information.
 
 ## Key Components
 

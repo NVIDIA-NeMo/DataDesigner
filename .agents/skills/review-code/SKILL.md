@@ -94,6 +94,11 @@ Read the following files at the repository root to load the project's standards 
 - **`STYLEGUIDE.md`** — code style rules (formatting, naming, imports, type annotations), design principles (DRY, KISS, YAGNI, SOLID), common pitfalls, lazy loading and `TYPE_CHECKING` patterns
 - **`DEVELOPMENT.md`** — testing patterns and expectations
 
+**Documentation sources (load when the changeset touches matching areas):**
+
+- **`architecture/*.md`** — subsystem maps aligned with `packages/` (e.g. `engine/mcp/` ↔ `architecture/mcp.md`). Use to verify the PR does not leave recorded architecture false relative to new behavior.
+- **`docs/`** — published user-facing documentation. Cross-check when public API, CLI behavior, or config surface changes would affect what readers are told.
+
 Use these guidelines as the baseline for the entire review. Project-specific rules take precedence over general best practices.
 
 ## Step 3: Understand the Scope
@@ -146,6 +151,17 @@ Re-read the changed files with a focus on **structure and design of the new/modi
 - Raw exceptions leaking instead of being normalized to project error types (see AGENTS.md / interface errors)
 - Obvious inefficiencies introduced by this change (N+1 queries, repeated computation, unnecessary copies)
 - Appropriate data structures for the access pattern
+
+**Documentation alignment (same pass — scoped, not a full docs audit):**
+
+When **code** under `packages/` changes behavior, structure, or public contracts in a way that a maintainer would reasonably describe in `architecture/` or `docs/`:
+
+1. Identify the closest **`architecture/<topic>.md`** (and any obvious `docs/` pages) for that subsystem.
+2. If the PR **also edits** those docs, sanity-check that the edits match the code.
+3. If the PR **does not** edit docs but the change **contradicts** what `architecture/` or `docs/` currently asserts, flag it (**Warnings** if contributors rely on that text; **Suggestions** if impact is narrow). Suggest updating the same PR or an explicit follow-up issue.
+4. **Skip** this check for pure refactors with no observable behavior change, typo-only PRs, or changes already limited to documentation.
+
+The local **`search-docs`** skill can help locate `docs/` pages by topic when the right file is not obvious.
 
 ### Pass 3: Standards, Testing & Polish
 

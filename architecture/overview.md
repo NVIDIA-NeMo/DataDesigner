@@ -55,7 +55,7 @@ Users declare what their data should look like through config objects (columns, 
 - **PEP 420 namespace packages** allow the three packages to be installed independently while sharing the `data_designer` namespace. This enables lighter installs (e.g., config-only for validation tooling) without import conflicts.
 - **Lazy imports throughout** — `__getattr__`-based lazy loading in `data_designer.config` and `data_designer.interface`, plus `lazy_heavy_imports` for numpy/pandas, keep startup fast.
 - **Dual execution engines** share the same `DatasetBuilder` API. The async engine adds row-group parallelism and DAG-aware scheduling without changing the public interface.
-- **Registries as singletons** — `TaskRegistry.__new__` ensures one instance per registry subclass, preventing duplicate registration and enabling consistent plugin injection.
+- **`TaskRegistry` subclasses: one instance per class** — `TaskRegistry.__new__` (`registry/base.py`) ensures a single instance of each concrete registry (column generators, profilers, processors). **`ModelRegistry`** and **`MCPRegistry`** are ordinary classes, constructed per run with injected dependencies. **`PluginRegistry`** (`plugins/registry.py`) uses `__new__` so entry points are discovered once per process.
 
 ## Cross-References
 
