@@ -2,4 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: 💬 Ask a Question
     url: https://github.com/NVIDIA-NeMo/DataDesigner/discussions
-    about: Please use GitHub Discussions for general questions.
+    about: >-
+      Have a question? Try pointing your agent at the repo first — it can search docs,
+      find issues, and more. See CONTRIBUTING.md for the recommended workflow.
+      If that doesn't help, use GitHub Discussions.
