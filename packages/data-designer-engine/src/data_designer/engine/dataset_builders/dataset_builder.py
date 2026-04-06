@@ -529,7 +529,7 @@ class DatasetBuilder:
 
         if self._graph.should_propagate_skip(column_name):
             required = self._graph.get_required_columns(column_name)
-            if should_skip_by_propagation(required, skipped_cols, propagate_skip=True):
+            if should_skip_by_propagation(required, skipped_cols):
                 return True
 
         skip_config = self._graph.get_skip_config(column_name)

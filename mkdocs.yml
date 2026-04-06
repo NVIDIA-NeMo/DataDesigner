@@ -44,6 +44,8 @@ nav:
           - Text to Python: recipes/code_generation/text_to_python.md
           - Text to SQL: recipes/code_generation/text_to_sql.md
           - "Nemotron Super Text to SQL": recipes/code_generation/enterprise_text_to_sql.md
+      - Conditional Generation:
+          - "Conditional Generation with Skip": recipes/conditional_generation/conditional_generation_with_skip.md
       - Plugin Development:
           - Markdown Section Seed Reader Plugin: recipes/plugin_development/markdown_seed_reader.md
       - QA and Chat:

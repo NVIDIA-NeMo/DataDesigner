@@ -67,9 +67,10 @@ def evaluate_skip_when(expression: str, record: dict) -> bool:
 def should_skip_by_propagation(
     required_columns: list[str],
     skipped_columns_for_row: set[str],
-    propagate_skip: bool = True,
 ) -> bool:
-    """Return ``True`` if propagation is enabled and any required column was skipped."""
-    if not propagate_skip:
-        return False
+    """Return ``True`` if any required column was skipped.
+
+    The caller is responsible for checking ``propagate_skip`` on the column
+    config *before* calling this function (see ``ExecutionGraph.should_propagate_skip``).
+    """
     return not skipped_columns_for_row.isdisjoint(required_columns)

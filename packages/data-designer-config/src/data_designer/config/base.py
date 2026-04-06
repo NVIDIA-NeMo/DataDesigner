@@ -67,6 +67,8 @@ class SkipConfig(ConfigBase):
             )
         return v
 
+    # cached_property writes to instance.__dict__; this works because ConfigBase
+    # is not frozen.  If ConfigBase ever gains frozen=True, switch to model_post_init.
     @cached_property
     def columns(self) -> list[str]:
         """Column names referenced in the ``when`` expression.

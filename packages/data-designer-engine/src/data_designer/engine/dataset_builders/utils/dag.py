@@ -21,10 +21,10 @@ def _add_dependency_edges(
     dep_names: list[str],
     dag_column_config_dict: dict[str, ColumnConfigT],
     side_effect_dict: dict[str, list[str]],
+    all_side_effects: set[str],
     label: str,
 ) -> None:
     """Add DAG edges from *dep_names* to *name*, resolving through side-effect parents."""
-    all_side_effects = set(chain.from_iterable(side_effect_dict.values()))
     for dep in dep_names:
         if dep in dag_column_config_dict:
             logger.debug(f"{LOG_INDENT}🔗 `{name}` {label} depends on `{dep}`")
@@ -51,13 +51,18 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
         return non_dag_column_config_list
 
     side_effect_dict = {n: list(c.side_effect_columns) for n, c in dag_column_config_dict.items()}
+    all_side_effects = set(chain.from_iterable(side_effect_dict.values()))
 
     logger.info("⛓️ Sorting column configs into a Directed Acyclic Graph")
     for name, col in dag_column_config_dict.items():
         dag.add_node(name)
-        _add_dependency_edges(dag, name, list(col.required_columns), dag_column_config_dict, side_effect_dict, "")
+        _add_dependency_edges(
+            dag, name, list(col.required_columns), dag_column_config_dict, side_effect_dict, all_side_effects, ""
+        )
         if col.skip is not None:
-            _add_dependency_edges(dag, name, col.skip.columns, dag_column_config_dict, side_effect_dict, "skip.when")
+            _add_dependency_edges(
+                dag, name, col.skip.columns, dag_column_config_dict, side_effect_dict, all_side_effects, "skip.when"
+            )
 
     if not lazy.nx.is_directed_acyclic_graph(dag):
         raise DAGCircularDependencyError(

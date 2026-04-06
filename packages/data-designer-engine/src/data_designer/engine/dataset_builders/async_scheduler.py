@@ -789,19 +789,9 @@ class AsyncTaskScheduler:
         else:
             record = {}
 
-        # Skip evaluation: propagation first, then expression gate
-        skipped_cols = get_skipped_column_names(record)
-        if self._graph.should_propagate_skip(task.column):
-            required = self._graph.get_required_columns(task.column)
-            if should_skip_by_propagation(required, skipped_cols, propagate_skip=True):
-                self._apply_skip_to_record(task, record)
-                return None, True
-
-        skip_config = self._graph.get_skip_config(task.column)
-        if skip_config is not None:
-            if evaluate_skip_when(skip_config.when, record):
-                self._apply_skip_to_record(task, record)
-                return None, True
+        if self._should_skip_record(task.column, record):
+            self._apply_skip_to_record(task, record)
+            return None, True
 
         # Copy for generation: agenerate crosses an await boundary, so the
         # generator must not hold a mutable reference to the live record.
@@ -815,6 +805,20 @@ class AsyncTaskScheduler:
                     self._buffer_manager.update_cell(task.row_group, task.row_index, col, result[col])
 
         return result, False
+
+    def _should_skip_record(self, column: str, record: dict) -> bool:
+        """Decide whether a cell should be skipped (propagation first, then expression gate)."""
+        skipped_cols = get_skipped_column_names(record)
+        if self._graph.should_propagate_skip(column):
+            required = self._graph.get_required_columns(column)
+            if should_skip_by_propagation(required, skipped_cols):
+                return True
+
+        skip_config = self._graph.get_skip_config(column)
+        if skip_config is not None:
+            return evaluate_skip_when(skip_config.when, record)
+
+        return False
 
     def _apply_skip_to_record(self, task: Task, record: dict) -> None:
         """Write skip provenance directly into *record* (the live buffer row)."""
@@ -846,27 +850,8 @@ class AsyncTaskScheduler:
                     if ri in pre_dropped:
                         continue
                     record = self._buffer_manager.get_row(task.row_group, ri)
-                    skipped_cols = get_skipped_column_names(record)
-
-                    should_skip = False
-                    if self._graph.should_propagate_skip(task.column):
-                        required = self._graph.get_required_columns(task.column)
-                        if should_skip_by_propagation(required, skipped_cols, propagate_skip=True):
-                            should_skip = True
-
-                    if not should_skip:
-                        skip_config = self._graph.get_skip_config(task.column)
-                        if skip_config is not None:
-                            should_skip = evaluate_skip_when(skip_config.when, record)
-
-                    if should_skip:
-                        sc = self._graph.get_skip_config(task.column)
-                        apply_skip_to_record(
-                            record,
-                            column_name=task.column,
-                            cell_value=sc.value if sc is not None else None,
-                            side_effect_columns=self._graph.get_side_effect_columns(task.column),
-                        )
+                    if self._should_skip_record(task.column, record):
+                        self._apply_skip_to_record(task, record)
                         pre_skipped.add(ri)
 
             # Build DataFrame excluding dropped and skipped rows

@@ -53,20 +53,16 @@ def test_evaluate_skip_when_strict_undefined_returns_true() -> None:
 
 
 def test_should_skip_by_propagation_true() -> None:
-    assert should_skip_by_propagation(["a", "b"], {"a"}, propagate_skip=True) is True
+    assert should_skip_by_propagation(["a", "b"], {"a"}) is True
 
 
 def test_should_skip_by_propagation_no_overlap() -> None:
-    assert should_skip_by_propagation(["a"], {"b"}, propagate_skip=True) is False
-
-
-def test_should_skip_by_propagation_disabled() -> None:
-    assert should_skip_by_propagation(["a"], {"a"}, propagate_skip=False) is False
+    assert should_skip_by_propagation(["a"], {"b"}) is False
 
 
 def test_should_skip_by_propagation_empty_required() -> None:
-    assert should_skip_by_propagation([], {"a"}, propagate_skip=True) is False
+    assert should_skip_by_propagation([], {"a"}) is False
 
 
 def test_should_skip_by_propagation_empty_skipped() -> None:
-    assert should_skip_by_propagation(["a"], set(), propagate_skip=True) is False
+    assert should_skip_by_propagation(["a"], set()) is False
