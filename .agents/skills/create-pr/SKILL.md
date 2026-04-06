@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Create a GitHub PR with a well-formatted description matching the repository PR template
+description: Create a GitHub PR with a well-formatted description matching the repository PR template (flat Changes by default; optional Added/Changed/Removed/Fixed grouping)
 argument-hint: [special instructions]
 disable-model-invocation: true
 metadata:
@@ -40,7 +40,9 @@ Run these commands in parallel to understand the changes:
 
 ## Step 2: Analyze and Categorize Changes
 
-### By Change Type (from commits and diff)
+Use change types below to **decide** how to write the Changes section (flat vs grouped). You still describe testing under **Testing**, not under these buckets.
+
+### By change type (internal checklist)
 - ✨ **Added**: New files, features, capabilities
 - 🔧 **Changed**: Modified existing functionality
 - 🗑️ **Removed**: Deleted files or features
@@ -48,7 +50,11 @@ Run these commands in parallel to understand the changes:
 - 📚 **Docs**: Documentation updates
 - 🧪 **Tests**: Test additions/modifications
 
-### Identify Attention Areas 🔍
+### When to use optional grouping in **Changes**
+- **Flat bullet list** (default): Small PRs, single theme, or when categories would be sparse or redundant.
+- **Grouped subheadings** (`### ✨ Added`, `### 🔧 Changed`, `### 🗑️ Removed`, `### 🐛 Fixed`): Large PRs, release-note-style summaries, or clearly distinct fix + feature mixes. **Omit any empty section** — do not leave placeholder headings.
+
+### Identify attention areas
 Flag for special reviewer attention:
 - Files with significant changes (>100 lines)
 - Changes to base classes, interfaces, or public API
@@ -75,7 +81,9 @@ If commits have mixed types, use the primary/most significant type.
    git push -u origin <branch-name>
    ```
 
-2. **Build the PR body** using the repository's template structure:
+2. **Build the PR body** using the repository's template structure.
+
+**Default — flat Changes** (remove the HTML comment block from the template when filling in, or replace with your bullets only):
 
 ```markdown
 ## 📋 Summary
@@ -88,7 +96,7 @@ If commits have mixed types, use the primary/most significant type.
 
 ## 🔄 Changes
 
-- [Bullet list of key changes, grouped logically]
+- [Bullet list of key changes]
 - [Link to key files when helpful for reviewers]
 - [Reference commits for specific changes in multi-commit PRs]
 
@@ -104,6 +112,23 @@ If commits have mixed types, use the primary/most significant type.
 - [x] Commits are signed off (DCO)
 - [ ] Architecture docs updated (if applicable)
 ```
+
+**Optional — grouped Changes** (only when Step 2 criteria apply; omit empty sections):
+
+```markdown
+## 🔄 Changes
+
+### ✨ Added
+- [...]
+
+### 🔧 Changed
+- [...]
+
+### 🐛 Fixed
+- [...]
+```
+
+(Include `### 🗑️ Removed` only when something was deleted.)
 
 If there are genuinely important attention areas for reviewers, add an **Attention Areas** section after Changes:
 
@@ -129,7 +154,7 @@ If there are genuinely important attention areas for reviewers, add an **Attenti
 
 - **Summary**: Always include — be concise and focus on the "why", not just the "what"
 - **Related Issue**: Always include if an issue exists. Use `Fixes #NNN` for bugs, `Closes #NNN` for features/tasks
-- **Changes**: Bullet list grouped logically. Omit trivial changes (formatting, imports) unless they are the point of the PR
+- **Changes**: Default to a flat list. Use Added/Changed/Removed/Fixed subheadings only for large or mixed PRs; never emit empty subsection headings
 - **Testing**: Check off items that apply. Mark N/A items explicitly rather than leaving them unchecked without explanation
 - **Checklist**: Check off items that are true. Leave unchecked with a note if something doesn't apply
 - **Attention Areas**: Only include if there are genuinely important items; omit for simple PRs
@@ -145,6 +170,6 @@ If there are genuinely important attention areas for reviewers, add an **Attenti
 
 - **No changes**: Inform user there's nothing to create a PR for
 - **Uncommitted work**: Warn and ask before proceeding
-- **Large PRs** (>20 files): Summarize by directory/module
+- **Large PRs** (>20 files): Summarize by directory/module; grouped Changes often helps here
 - **Single commit**: PR title can match commit message
 - **No related issue**: Note "N/A" in the Related Issue section rather than omitting it

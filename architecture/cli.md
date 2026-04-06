@@ -72,7 +72,7 @@ User invokes command (e.g., `data-designer create config.yaml`)
 
 ## Design Decisions
 
-- **Lazy command loading** keeps CLI startup under ~200ms regardless of how many commands exist. Heavy imports (engine, models) only load when the relevant command runs.
+- **Lazy command loading** keeps `data-designer --help` responsive: command modules (and their heavy dependencies, such as the engine and model stacks) load only when a command is invoked, not at process startup.
 - **Controller/service/repo for config, direct API for generation** — config management benefits from the layered pattern (testable services, swappable repositories). Generation doesn't need this indirection; it delegates to the same `DataDesigner` class that Python users call directly.
 - **`DATA_DESIGNER_HOME`** centralizes all CLI-managed state (model configs, provider configs, tool configs, personas) in a single directory, defaulting to `~/.data_designer/`.
 - **Rich-based UI** provides formatted tables, progress bars, and interactive prompts without requiring a web interface.

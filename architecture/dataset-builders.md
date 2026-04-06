@@ -81,6 +81,7 @@ DatasetBuilder.build()
 ### Async
 ```
 DatasetBuilder.build()
+  → _build_async()
   → _prepare_async_run()
       → ExecutionGraph.create()
       → CompletionTracker.with_graph()

@@ -5,7 +5,15 @@
 <!-- Link to the issue this addresses: Fixes #NNN or Closes #NNN -->
 
 ## 🔄 Changes
-<!-- Bullet list of key changes -->
+<!--
+  Default: a flat bullet list (delete this comment when you fill in).
+
+  Optional — for large or mixed PRs, group under the headings below and omit any empty section:
+  ### ✨ Added
+  ### 🔧 Changed
+  ### 🗑️ Removed
+  ### 🐛 Fixed
+-->
 
 ## 🧪 Testing
 <!-- What testing was done? -->
