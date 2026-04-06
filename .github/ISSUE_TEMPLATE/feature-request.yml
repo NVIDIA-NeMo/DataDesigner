@@ -43,7 +43,7 @@ body:
     attributes:
       label: Agent Investigation
       description: |
-        If your agent explored the codebase to assess feasibility (e.g., using the `search-docs` or `search-github` skills), paste its findings here.
+        If your agent explored the codebase to assess feasibility (for example by searching project documentation or existing issues), paste its findings here.
       placeholder: Paste agent output here, if applicable.
   - type: textarea
     id: context

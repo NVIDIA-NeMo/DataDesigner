@@ -49,7 +49,7 @@ body:
     attributes:
       label: Agent Diagnostic / Prior Investigation
       description: |
-        If you used an agent, paste the output from its investigation (e.g., from the `search-docs` or `search-github` skills).
+        If you used an agent, paste the output from its investigation (for example, what it found in the docs or issue tracker).
         If you couldn't or didn't use an agent, briefly say why and include the troubleshooting you already tried.
       placeholder: |
         Paste agent output here, or describe the manual investigation you performed.
