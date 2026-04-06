@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from itertools import chain
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_types import ColumnConfigT
@@ -23,11 +24,12 @@ def _add_dependency_edges(
     label: str,
 ) -> None:
     """Add DAG edges from *dep_names* to *name*, resolving through side-effect parents."""
+    all_side_effects = set(chain.from_iterable(side_effect_dict.values()))
     for dep in dep_names:
         if dep in dag_column_config_dict:
             logger.debug(f"{LOG_INDENT}🔗 `{name}` {label} depends on `{dep}`")
             dag.add_edge(dep, name)
-        elif dep in sum(side_effect_dict.values(), []):
+        elif dep in all_side_effects:
             for parent, cols in side_effect_dict.items():
                 if dep in cols:
                     logger.debug(f"{LOG_INDENT}🔗 `{name}` {label} depends on `{parent}` via `{dep}`")

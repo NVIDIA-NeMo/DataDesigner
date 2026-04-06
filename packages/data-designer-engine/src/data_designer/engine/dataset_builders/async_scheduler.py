@@ -845,8 +845,8 @@ class AsyncTaskScheduler:
                 for ri in range(rg_size):
                     if ri in pre_dropped:
                         continue
-                    row_data = dict(self._buffer_manager.get_row(task.row_group, ri))
-                    skipped_cols = get_skipped_column_names(row_data)
+                    record = self._buffer_manager.get_row(task.row_group, ri)
+                    skipped_cols = get_skipped_column_names(record)
 
                     should_skip = False
                     if self._graph.should_propagate_skip(task.column):
@@ -857,10 +857,9 @@ class AsyncTaskScheduler:
                     if not should_skip:
                         skip_config = self._graph.get_skip_config(task.column)
                         if skip_config is not None:
-                            should_skip = evaluate_skip_when(skip_config.when, row_data)
+                            should_skip = evaluate_skip_when(skip_config.when, record)
 
                     if should_skip:
-                        record = self._buffer_manager.get_row(task.row_group, ri)
                         sc = self._graph.get_skip_config(task.column)
                         apply_skip_to_record(
                             record,

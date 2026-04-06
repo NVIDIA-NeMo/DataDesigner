@@ -7,13 +7,17 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
-from jinja2 import StrictUndefined, Template
+from jinja2 import StrictUndefined
 from jinja2.exceptions import SecurityError, TemplateSyntaxError, UndefinedError
 from jinja2.nativetypes import NativeEnvironment
 from jinja2.sandbox import SandboxedEnvironment
 
 from data_designer.engine.processing.utils import deserialize_json_values
+
+if TYPE_CHECKING:
+    from jinja2 import Template
 
 logger = logging.getLogger(__name__)
 

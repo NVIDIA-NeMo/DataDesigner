@@ -74,10 +74,10 @@ class ExecutionGraph:
                 for se_col in sub.side_effect_columns:
                     graph.set_side_effect(se_col, name)
 
-                graph._required_columns[name] = list(sub.required_columns)
-                graph._propagate_skip[name] = sub.propagate_skip
+                graph.set_required_columns(name, list(sub.required_columns))
+                graph.set_propagate_skip(name, sub.propagate_skip)
                 if sub.skip is not None:
-                    graph._skip_configs[name] = sub.skip
+                    graph.set_skip_config(name, sub.skip)
 
         known_columns = set(graph.columns)
 
@@ -133,6 +133,18 @@ class ExecutionGraph:
         """Map a side-effect column name to its producing column."""
         self._side_effect_map[side_effect_col] = producer
         self._side_effects_by_producer.setdefault(producer, []).append(side_effect_col)
+
+    def set_required_columns(self, column: str, required: list[str]) -> None:
+        """Store the config-level ``required_columns`` for *column*."""
+        self._required_columns[column] = required
+
+    def set_propagate_skip(self, column: str, propagate: bool) -> None:
+        """Store whether *column* should auto-skip when an upstream was skipped."""
+        self._propagate_skip[column] = propagate
+
+    def set_skip_config(self, column: str, skip_config: SkipConfig) -> None:
+        """Attach a ``SkipConfig`` to *column*."""
+        self._skip_configs[column] = skip_config
 
     def resolve_side_effect(self, column: str) -> str:
         """Resolve a column name through the side-effect map.

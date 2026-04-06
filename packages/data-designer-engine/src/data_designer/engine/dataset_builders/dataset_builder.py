@@ -40,6 +40,7 @@ from data_designer.engine.dataset_builders.utils.processor_runner import Process
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import evaluate_skip_when, should_skip_by_propagation
 from data_designer.engine.dataset_builders.utils.skip_provenance import (
+    SKIPPED_COLUMNS_RECORD_KEY,
     apply_skip_to_record,
     get_skipped_column_names,
     strip_skip_metadata_from_records,
@@ -582,7 +583,11 @@ class DatasetBuilder:
                     if i in skip_indices:
                         merged.append(record)
                     else:
-                        merged.append(next(result_iter))
+                        gen_result = next(result_iter)
+                        prior_skipped = record.get(SKIPPED_COLUMNS_RECORD_KEY)
+                        if prior_skipped:
+                            gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
+                        merged.append(gen_result)
                 batch = merged
             else:
                 batch = list(batch)
@@ -711,13 +716,19 @@ class DatasetBuilder:
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
             executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
-            work_items = [
-                (
-                    generator.agenerate(record),
-                    {"index": i, "column_name": generator.config.name},
+            work_items: list[tuple[Any, dict[str, Any]]] = []
+            for i, record in self.batch_manager.iter_current_batch():
+                if self._should_skip_cell(generator.config.name, record):
+                    self._write_skip_to_record(generator.config.name, record)
+                    self.batch_manager.update_record(i, record)
+                    progress_tracker.record_skipped()
+                    continue
+                work_items.append(
+                    (
+                        generator.agenerate(record),
+                        {"index": i, "column_name": generator.config.name},
+                    )
                 )
-                for i, record in self.batch_manager.iter_current_batch()
-            ]
             executor.run(work_items)
             self._finalize_fan_out(progress_tracker)
 
