@@ -26,16 +26,41 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class HermesAgentParseContext(AgentRolloutParseContext):
+    """Store Hermes session index data shared across file parses.
+
+    Attributes:
+        session_index: Session metadata keyed by Hermes ``session_id`` values.
+    """
+
     session_index: dict[str, dict[str, Any]]
 
 
 class HermesAgentRolloutFormatHandler(AgentRolloutFormatHandler):
+    """Normalize Hermes Agent session artifacts into rollout seed rows."""
+
     format: ClassVar[AgentRolloutFormat] = AgentRolloutFormat.HERMES_AGENT
 
     def build_parse_context(self, *, root_path: Path, recursive: bool) -> HermesAgentParseContext:
+        """Load Hermes session index data once for the current scan.
+
+        Args:
+            root_path: Root directory configured on the seed source.
+            recursive: Whether the scan should include nested directories.
+
+        Returns:
+            Parse context containing any discovered ``sessions.json`` metadata.
+        """
         return HermesAgentParseContext(session_index=load_hermes_session_index(root_path, recursive=recursive))
 
     def is_handled_file(self, relative_path: str) -> bool:
+        """Return whether a file path should be parsed as Hermes Agent.
+
+        Args:
+            relative_path: File path relative to the configured rollout root.
+
+        Returns:
+            ``True`` for CLI session logs and gateway transcript JSONL files.
+        """
         path = Path(relative_path)
         if path.name == "sessions.json":
             return False
@@ -50,6 +75,16 @@ class HermesAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         relative_path: str,
         parse_context: AgentRolloutParseContext | None = None,
     ) -> list[NormalizedAgentRolloutRecord]:
+        """Parse one Hermes file into normalized rollout records.
+
+        Args:
+            root_path: Root directory configured on the seed source.
+            relative_path: Path to the Hermes file relative to ``root_path``.
+            parse_context: Optional preloaded Hermes session index.
+
+        Returns:
+            One normalized record for a CLI session log or gateway transcript.
+        """
         file_path = root_path / relative_path
         session_index: dict[str, dict[str, Any]] = {}
         if isinstance(parse_context, HermesAgentParseContext):
@@ -64,6 +99,18 @@ class HermesAgentRolloutFormatHandler(AgentRolloutFormatHandler):
 
 
 def parse_hermes_cli_session_log(file_path: Path) -> NormalizedAgentRolloutRecord:
+    """Parse a Hermes CLI ``session_*.json`` log.
+
+    Args:
+        file_path: Absolute path to the Hermes CLI session file.
+
+    Returns:
+        A normalized rollout record for the session log.
+
+    Raises:
+        AgentRolloutSeedParseError: If the Hermes payload is malformed or
+            missing required fields.
+    """
     payload = load_json_object(file_path)
     raw_messages = _require_message_list(payload.get("messages"), file_path=file_path, context="Hermes CLI session")
     messages = normalize_hermes_messages(raw_messages, file_path=file_path)
@@ -96,6 +143,19 @@ def parse_hermes_gateway_transcript(
     file_path: Path,
     session_index: dict[str, dict[str, Any]],
 ) -> list[NormalizedAgentRolloutRecord]:
+    """Parse a Hermes gateway JSONL transcript.
+
+    Args:
+        file_path: Absolute path to the Hermes JSONL transcript file.
+        session_index: Optional metadata keyed by session ID from
+            ``sessions.json`` files.
+
+    Returns:
+        A single normalized rollout record, or an empty list for empty files.
+
+    Raises:
+        AgentRolloutSeedParseError: If any transcript row is malformed.
+    """
     rows = list(load_jsonl_rows(file_path))
     if not rows:
         logger.warning("Skipping empty Hermes Agent transcript file %s", file_path)
@@ -127,6 +187,18 @@ def parse_hermes_gateway_transcript(
 
 
 def normalize_hermes_messages(raw_messages: list[dict[str, Any]], *, file_path: Path) -> list[dict[str, Any]]:
+    """Convert Hermes message payloads into the shared chat schema.
+
+    Args:
+        raw_messages: Raw Hermes message objects from a session artifact.
+        file_path: File being parsed, used for error reporting.
+
+    Returns:
+        A normalized message list compatible with rollout seed records.
+
+    Raises:
+        AgentRolloutSeedParseError: If a Hermes message is malformed.
+    """
     normalized_messages: list[dict[str, Any]] = []
     for message_index, raw_message in enumerate(raw_messages, start=1):
         if not isinstance(raw_message, dict):
@@ -176,6 +248,19 @@ def normalize_hermes_tool_calls(
     file_path: Path,
     message_index: int,
 ) -> list[dict[str, Any]]:
+    """Normalize Hermes assistant tool calls.
+
+    Args:
+        raw_tool_calls: Raw ``tool_calls`` payload from a Hermes message.
+        file_path: File being parsed, used for error reporting.
+        message_index: One-based message index for error reporting.
+
+    Returns:
+        A list of normalized function-call payloads.
+
+    Raises:
+        AgentRolloutSeedParseError: If the tool-call payload is malformed.
+    """
     if raw_tool_calls is None:
         return []
     if not isinstance(raw_tool_calls, list):
@@ -214,6 +299,14 @@ def normalize_hermes_tool_calls(
 
 
 def extract_hermes_tool_names(raw_tools: Any) -> list[str]:
+    """Extract unique declared Hermes tool names in declaration order.
+
+    Args:
+        raw_tools: Raw top-level Hermes ``tools`` payload.
+
+    Returns:
+        Distinct tool names declared in the session metadata.
+    """
     if not isinstance(raw_tools, list):
         return []
 
@@ -234,6 +327,15 @@ def extract_hermes_tool_names(raw_tools: Any) -> list[str]:
 
 
 def load_hermes_session_index(root_path: Path, *, recursive: bool = True) -> dict[str, dict[str, Any]]:
+    """Load Hermes ``sessions.json`` entries keyed by session ID.
+
+    Args:
+        root_path: Root directory configured on the seed source.
+        recursive: Whether to search nested directories.
+
+    Returns:
+        Metadata entries keyed by Hermes ``session_id`` values.
+    """
     entries_by_session_id: dict[str, dict[str, Any]] = {}
     glob_method = root_path.rglob if recursive else root_path.glob
     for index_path in sorted(glob_method("sessions.json")):
@@ -254,12 +356,33 @@ def load_hermes_session_index(root_path: Path, *, recursive: bool = True) -> dic
 
 
 def _require_message_list(raw_messages: Any, *, file_path: Path, context: str) -> list[dict[str, Any]]:
+    """Require a Hermes ``messages`` list.
+
+    Args:
+        raw_messages: Candidate ``messages`` payload.
+        file_path: File being parsed, used for error reporting.
+        context: Human-readable parse context for error messages.
+
+    Returns:
+        The original ``messages`` list when it is well-formed.
+
+    Raises:
+        AgentRolloutSeedParseError: If ``raw_messages`` is not a list.
+    """
     if not isinstance(raw_messages, list):
         raise AgentRolloutSeedParseError(f"{context} at {file_path} is missing a 'messages' list")
     return raw_messages
 
 
 def _normalize_message_content(content: Any) -> Any:
+    """Coerce Hermes message content into the normalized content shape.
+
+    Args:
+        content: Raw Hermes message content.
+
+    Returns:
+        A string or content-block list compatible with ``build_message``.
+    """
     if content is None:
         return ""
     if isinstance(content, (str, list)):
@@ -268,6 +391,14 @@ def _normalize_message_content(content: Any) -> Any:
 
 
 def _extract_finish_reasons(raw_messages: list[dict[str, Any]]) -> list[str]:
+    """Collect distinct assistant finish reasons in first-seen order.
+
+    Args:
+        raw_messages: Raw Hermes message objects.
+
+    Returns:
+        Unique assistant finish reasons present in the message list.
+    """
     finish_reasons: list[str] = []
     seen_reasons: set[str] = set()
     for raw_message in raw_messages:
@@ -284,6 +415,14 @@ def _extract_finish_reasons(raw_messages: list[dict[str, Any]]) -> list[str]:
 
 
 def _extract_used_tool_names(raw_messages: list[dict[str, Any]]) -> list[str]:
+    """Collect distinct tool names referenced by Hermes tool calls.
+
+    Args:
+        raw_messages: Raw Hermes message objects.
+
+    Returns:
+        Unique tool names referenced in assistant ``tool_calls`` payloads.
+    """
     tool_names: list[str] = []
     seen_names: set[str] = set()
     for raw_message in raw_messages:
@@ -312,6 +451,16 @@ def _build_hermes_cli_source_meta(
     raw_messages: list[dict[str, Any]],
     tool_names: list[str],
 ) -> dict[str, Any]:
+    """Build CLI-session metadata that stays outside the shared schema.
+
+    Args:
+        payload: Parsed top-level Hermes CLI session payload.
+        raw_messages: Raw Hermes messages used to build the record.
+        tool_names: Distinct tool names declared on the session.
+
+    Returns:
+        Hermes-specific metadata stored under ``source_meta``.
+    """
     source_meta: dict[str, Any] = {
         "record_count": len(raw_messages),
         "session_format": "cli_session_log",
@@ -335,6 +484,15 @@ def _build_hermes_gateway_source_meta(
     session_meta: dict[str, Any],
     raw_messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """Build gateway-transcript metadata that stays outside shared columns.
+
+    Args:
+        session_meta: Optional session metadata loaded from ``sessions.json``.
+        raw_messages: Raw Hermes messages used to build the record.
+
+    Returns:
+        Hermes-specific metadata stored under ``source_meta``.
+    """
     source_meta: dict[str, Any] = {
         "record_count": len(raw_messages),
         "session_format": "gateway_transcript",
