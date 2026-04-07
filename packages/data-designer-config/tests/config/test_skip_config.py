@@ -17,16 +17,6 @@ from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 _BASE_LLM = dict(name="test", prompt="test {{ x }}", model_alias="default")
 
 
-def test_skip_config_defaults() -> None:
-    cfg = SkipConfig(when="{{ x == 0 }}")
-    assert cfg.value is None
-
-
-def test_skip_config_custom_value() -> None:
-    cfg = SkipConfig(when="{{ x == 0 }}", value=0)
-    assert cfg.value == 0
-
-
 @pytest.mark.parametrize(
     "value",
     [True, False, 0, 42, 1.5, "skipped", None],
@@ -36,24 +26,28 @@ def test_skip_config_value_types(value: bool | int | float | str | None) -> None
     assert cfg.value == value
 
 
-def test_skip_config_when_syntax_validation() -> None:
-    with pytest.raises(ValidationError):
-        SkipConfig(when="{{ 1 + }}")
+@pytest.mark.parametrize(
+    ("when", "match"),
+    [
+        pytest.param("{{ 1 + }}", "unexpected", id="syntax-error"),
+        pytest.param("in_stock == 0", "does not reference any columns", id="no-delimiters"),
+    ],
+)
+def test_skip_config_when_rejects_invalid_expressions(when: str, match: str) -> None:
+    with pytest.raises(ValidationError, match=match):
+        SkipConfig(when=when)
 
 
-def test_skip_config_when_rejects_no_delimiters() -> None:
-    with pytest.raises(ValidationError, match="does not reference any columns"):
-        SkipConfig(when="in_stock == 0")
-
-
-def test_skip_config_columns_extraction() -> None:
-    cfg = SkipConfig(when="{{ in_stock == 0 }}")
-    assert cfg.columns == ["in_stock"]
-
-
-def test_skip_config_columns_multiple() -> None:
-    cfg = SkipConfig(when="{{ a > 0 and b < 10 }}")
-    assert cfg.columns == ["a", "b"]
+@pytest.mark.parametrize(
+    ("when", "expected"),
+    [
+        pytest.param("{{ in_stock == 0 }}", ["in_stock"], id="single"),
+        pytest.param("{{ a > 0 and b < 10 }}", ["a", "b"], id="multiple"),
+    ],
+)
+def test_skip_config_columns_extraction(when: str, expected: list[str]) -> None:
+    cfg = SkipConfig(when=when)
+    assert cfg.columns == expected
 
 
 def test_skip_config_columns_cached() -> None:
@@ -62,14 +56,16 @@ def test_skip_config_columns_cached() -> None:
     assert cfg.columns is first
 
 
-def test_single_column_config_skip_defaults_none() -> None:
+@pytest.mark.parametrize(
+    ("attr", "expected"),
+    [
+        pytest.param("skip", None, id="skip-defaults-none"),
+        pytest.param("propagate_skip", True, id="propagate-skip-defaults-true"),
+    ],
+)
+def test_single_column_config_skip_defaults(attr: str, expected: object) -> None:
     col = LLMTextColumnConfig(**_BASE_LLM)
-    assert col.skip is None
-
-
-def test_single_column_config_propagate_skip_default_true() -> None:
-    col = LLMTextColumnConfig(**_BASE_LLM)
-    assert col.propagate_skip is True
+    assert getattr(col, attr) == expected
 
 
 def test_skip_rejected_on_sampler_type() -> None:
