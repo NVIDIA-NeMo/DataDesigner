@@ -68,6 +68,19 @@ class HermesAgentRolloutFormatHandler(AgentRolloutFormatHandler):
             return path.name.startswith("session_")
         return path.suffix == ".jsonl"
 
+    def should_warn_unhandled_file(self, relative_path: str) -> bool:
+        """Suppress warning noise for known non-session Hermes JSON artifacts.
+
+        Args:
+            relative_path: File path relative to the configured rollout root.
+
+        Returns:
+            ``False`` for non-session JSON files that Hermes commonly writes
+            alongside session logs, and ``True`` otherwise.
+        """
+        path = Path(relative_path)
+        return not (path.suffix == ".json" and not path.name.startswith("session_"))
+
     def parse_file(
         self,
         *,
@@ -113,7 +126,11 @@ def parse_hermes_cli_session_log(file_path: Path) -> NormalizedAgentRolloutRecor
     """
     payload = load_json_object(file_path)
     raw_messages = _require_message_list(payload.get("messages"), file_path=file_path, context="Hermes CLI session")
-    messages = normalize_hermes_messages(raw_messages, file_path=file_path)
+    messages = normalize_hermes_messages(
+        raw_messages,
+        file_path=file_path,
+        system_prompt=coerce_optional_str(payload.get("system_prompt")),
+    )
 
     session_id = coerce_optional_str(payload.get("session_id")) or file_path.stem.removeprefix("session_")
     available_tool_names = extract_hermes_tool_names(payload.get("tools"))
@@ -186,12 +203,19 @@ def parse_hermes_gateway_transcript(
     ]
 
 
-def normalize_hermes_messages(raw_messages: list[dict[str, Any]], *, file_path: Path) -> list[dict[str, Any]]:
+def normalize_hermes_messages(
+    raw_messages: list[dict[str, Any]],
+    *,
+    file_path: Path,
+    system_prompt: str | None = None,
+) -> list[dict[str, Any]]:
     """Convert Hermes message payloads into the shared chat schema.
 
     Args:
         raw_messages: Raw Hermes message objects from a session artifact.
         file_path: File being parsed, used for error reporting.
+        system_prompt: Optional top-level Hermes system prompt to materialize as
+            the first normalized system message.
 
     Returns:
         A normalized message list compatible with rollout seed records.
@@ -200,6 +224,9 @@ def normalize_hermes_messages(raw_messages: list[dict[str, Any]], *, file_path: 
         AgentRolloutSeedParseError: If a Hermes message is malformed.
     """
     normalized_messages: list[dict[str, Any]] = []
+    if system_prompt:
+        normalized_messages.append(build_message(role="system", content=system_prompt))
+
     for message_index, raw_message in enumerate(raw_messages, start=1):
         if not isinstance(raw_message, dict):
             raise AgentRolloutSeedParseError(
@@ -334,7 +361,10 @@ def load_hermes_session_index(root_path: Path, *, recursive: bool = True) -> dic
         recursive: Whether to search nested directories.
 
     Returns:
-        Metadata entries keyed by Hermes ``session_id`` values.
+        Metadata entries keyed by Hermes ``session_id`` values. Documented
+        `sessions.json` files are treated as lightweight ``session_key`` to
+        active-session-ID maps, while richer dict entries are also accepted for
+        forward compatibility.
     """
     entries_by_session_id: dict[str, dict[str, Any]] = {}
     glob_method = root_path.rglob if recursive else root_path.glob
@@ -342,6 +372,13 @@ def load_hermes_session_index(root_path: Path, *, recursive: bool = True) -> dic
         try:
             index_payload = load_json_object(index_path)
             for session_key, entry in index_payload.items():
+                if isinstance(entry, str):
+                    session_id = coerce_optional_str(entry)
+                    if not session_id:
+                        continue
+                    entries_by_session_id[session_id] = {"session_key": session_key}
+                    continue
+
                 if not isinstance(entry, dict):
                     continue
                 session_id = coerce_optional_str(entry.get("session_id"))
@@ -476,6 +513,9 @@ def _build_hermes_cli_source_meta(
     if isinstance(system_prompt, str) and system_prompt:
         source_meta["has_system_prompt"] = True
         source_meta["system_prompt_chars"] = len(system_prompt)
+    raw_tools = payload.get("tools")
+    if isinstance(raw_tools, list) and raw_tools:
+        source_meta["tools"] = stringify_json_value(raw_tools)
     return source_meta
 
 

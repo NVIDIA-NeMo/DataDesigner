@@ -94,12 +94,15 @@ def test_parse_file_cli_session_log_happy_path(tmp_path: Path) -> None:
     assert record.source_kind == "hermes_agent"
     assert record.started_at == "2026-04-07T09:39:07.028463"
     assert record.ended_at == "2026-04-07T09:51:07.905570"
-    assert record.message_count == 4
+    assert record.message_count == 5
     assert record.tool_call_count == 1
     assert record.final_assistant_message == "Done."
+    assert record.messages[0]["role"] == "system"
+    assert record.messages[0]["content"][0]["text"] == "You are Hermes."
     assert record.source_meta["model"] == "aws/anthropic/bedrock-claude-opus-4-6"
     assert record.source_meta["base_url"] == "https://inference-api.nvidia.com/v1"
     assert record.source_meta["available_tool_names"] == ["terminal"]
+    assert json.loads(record.source_meta["tools"])[0]["function"]["name"] == "terminal"
     assert record.source_meta["has_system_prompt"] is True
     assert record.source_meta["system_prompt_chars"] == len("You are Hermes.")
     assert record.source_meta["finish_reasons"] == ["tool_calls", "stop"]
@@ -111,31 +114,7 @@ def test_parse_file_gateway_transcript_uses_sessions_index(
 ) -> None:
     _write_json(
         tmp_path / "sessions.json",
-        {
-            "slack:thread-1": {
-                "session_key": "slack:thread-1",
-                "session_id": "gateway-session-1",
-                "created_at": "2026-04-07T08:00:00",
-                "updated_at": "2026-04-07T08:05:00",
-                "display_name": "ops-thread",
-                "platform": "slack",
-                "chat_type": "thread",
-                "input_tokens": 12,
-                "output_tokens": 34,
-                "total_tokens": 46,
-                "last_prompt_tokens": 99,
-                "estimated_cost_usd": 0.12,
-                "cost_status": "reported",
-                "memory_flushed": True,
-                "origin": {
-                    "platform": "slack",
-                    "chat_id": "C123",
-                    "chat_name": "deployments",
-                    "chat_type": "thread",
-                    "thread_id": "thread-1",
-                },
-            }
-        },
+        {"slack:thread-1": "gateway-session-1"},
     )
     write_jsonl(
         tmp_path / "gateway-session-1.jsonl",
@@ -175,16 +154,21 @@ def test_parse_file_gateway_transcript_uses_sessions_index(
     assert len(records) == 1
     record = records[0]
     assert record.trace_id == "gateway-session-1"
-    assert record.started_at == "2026-04-07T08:00:00"
-    assert record.ended_at == "2026-04-07T08:05:00"
+    assert record.started_at is None
+    assert record.ended_at is None
     assert record.tool_call_count == 1
     assert record.final_assistant_message == "I'll inspect the logs."
     assert record.source_meta["session_format"] == "gateway_transcript"
     assert record.source_meta["session_key"] == "slack:thread-1"
-    assert record.source_meta["platform"] == "slack"
-    assert record.source_meta["chat_type"] == "thread"
     assert record.source_meta["tool_names_used"] == ["terminal"]
-    assert record.source_meta["origin"]["chat_id"] == "C123"
+
+
+def test_should_warn_unhandled_file_suppresses_non_session_json_noise() -> None:
+    handler = _make_handler()
+
+    assert handler.should_warn_unhandled_file("request_dump_foo.json") is False
+    assert handler.should_warn_unhandled_file("sessions.json") is False
+    assert handler.should_warn_unhandled_file("notes.txt") is True
 
 
 def test_parse_file_cli_session_requires_messages_list(tmp_path: Path) -> None:

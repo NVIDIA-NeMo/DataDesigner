@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -289,6 +290,16 @@ def _write_atif_trace_directory(root_path: Path) -> None:
 
 def _write_hermes_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> None:
     _write_json(
+        root_path / "request_dump_20260407_092759_baeaac_20260407_093000_000000.json",
+        {
+            "session_id": "20260407_092759_baeaac",
+            "timestamp": "2026-04-07T09:30:00",
+            "reason": "debug_dump",
+            "error": None,
+            "request": {"messages": []},
+        },
+    )
+    _write_json(
         root_path / "session_20260407_092759_baeaac.json",
         {
             "session_id": "20260407_092759_baeaac",
@@ -342,17 +353,7 @@ def _write_hermes_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> N
     )
     _write_json(
         root_path / "sessions.json",
-        {
-            "slack:thread-1": {
-                "session_key": "slack:thread-1",
-                "session_id": "gateway-session-1",
-                "created_at": "2026-04-07T08:00:00",
-                "updated_at": "2026-04-07T08:05:00",
-                "display_name": "ops-thread",
-                "platform": "slack",
-                "chat_type": "thread",
-            }
-        },
+        {"slack:thread-1": "gateway-session-1"},
     )
     write_jsonl(
         root_path / "gateway-session-1.jsonl",
@@ -1059,6 +1060,28 @@ def test_agent_rollout_seed_reader_supports_hermes_json_and_jsonl(
         "gateway-session-1.jsonl",
         "session_20260407_092759_baeaac.json",
     ]
+
+
+def test_agent_rollout_seed_reader_ignores_hermes_non_session_json_without_warning(
+    tmp_path: Path,
+    write_jsonl: WriteJsonl,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _write_hermes_trace_directory(tmp_path, write_jsonl)
+
+    reader = AgentRolloutSeedReader()
+    reader.attach(
+        AgentRolloutSeedSource(
+            path=str(tmp_path),
+            format=AgentRolloutFormat.HERMES_AGENT,
+        ),
+        PlaintextResolver(),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        assert reader.get_seed_dataset_size() == 2
+
+    assert "Skipping unhandled hermes_agent file" not in caplog.text
 
 
 def test_agent_rollout_seed_reader_wraps_os_errors_as_seed_reader_error(

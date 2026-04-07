@@ -24,6 +24,11 @@ class AgentRolloutFormatHandler(ABC):
         """Build format-specific context once per attachment. Default: None."""
         return None
 
+    def should_warn_unhandled_file(self, relative_path: str) -> bool:
+        """Return whether unhandled files for this format should emit warnings."""
+        del relative_path
+        return True
+
     @abstractmethod
     def is_handled_file(self, relative_path: str) -> bool: ...
 

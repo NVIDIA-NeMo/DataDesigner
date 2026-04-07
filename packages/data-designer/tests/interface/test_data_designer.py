@@ -250,6 +250,16 @@ def _write_atif_trace_directory(root_path: Path) -> None:
 
 def _write_hermes_trace_directory(root_path: Path) -> None:
     _write_json(
+        root_path / "request_dump_20260407_092759_baeaac_20260407_093000_000000.json",
+        {
+            "session_id": "20260407_092759_baeaac",
+            "timestamp": "2026-04-07T09:30:00",
+            "reason": "debug_dump",
+            "error": None,
+            "request": {"messages": []},
+        },
+    )
+    _write_json(
         root_path / "session_20260407_092759_baeaac.json",
         {
             "session_id": "20260407_092759_baeaac",
@@ -303,24 +313,7 @@ def _write_hermes_trace_directory(root_path: Path) -> None:
     )
     _write_json(
         root_path / "sessions.json",
-        {
-            "slack:thread-1": {
-                "session_key": "slack:thread-1",
-                "session_id": "gateway-session-1",
-                "created_at": "2026-04-07T08:00:00",
-                "updated_at": "2026-04-07T08:05:00",
-                "display_name": "ops-thread",
-                "platform": "slack",
-                "chat_type": "thread",
-                "origin": {
-                    "platform": "slack",
-                    "chat_id": "C123",
-                    "chat_name": "deployments",
-                    "chat_type": "thread",
-                    "thread_id": "thread-1",
-                },
-            }
-        },
+        {"slack:thread-1": "gateway-session-1"},
     )
     _write_jsonl(
         root_path / "gateway-session-1.jsonl",
@@ -1364,8 +1357,10 @@ def test_create_dataset_e2e_with_trace_seed_sources(
         assert list(df["git_branch"]) == ["main"]
     elif dir_name == "hermes-agent":
         assert list(df["source_kind"]) == ["hermes_agent", "hermes_agent"]
-        assert list(df["started_at"]) == ["2026-04-07T09:39:07.028463", "2026-04-07T08:00:00"]
-        assert list(df["ended_at"]) == ["2026-04-07T09:51:07.905570", "2026-04-07T08:05:00"]
+        assert df.iloc[0]["started_at"] == "2026-04-07T09:39:07.028463"
+        assert df.iloc[0]["ended_at"] == "2026-04-07T09:51:07.905570"
+        assert lazy.pd.isna(df.iloc[1]["started_at"])
+        assert lazy.pd.isna(df.iloc[1]["ended_at"])
         assert list(df["source_meta"].map(lambda meta: meta["session_format"])) == [
             "cli_session_log",
             "gateway_transcript",
