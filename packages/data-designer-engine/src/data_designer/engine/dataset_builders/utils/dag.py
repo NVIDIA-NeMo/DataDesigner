@@ -15,28 +15,6 @@ from data_designer.logging import LOG_INDENT
 logger = logging.getLogger(__name__)
 
 
-def _add_dependency_edges(
-    dag: lazy.nx.DiGraph,
-    name: str,
-    dep_names: list[str],
-    dag_column_config_dict: dict[str, ColumnConfigT],
-    side_effect_dict: dict[str, list[str]],
-    all_side_effects: set[str],
-    label: str,
-) -> None:
-    """Add DAG edges from *dep_names* to *name*, resolving through side-effect parents."""
-    for dep in dep_names:
-        if dep in dag_column_config_dict:
-            logger.debug(f"{LOG_INDENT}🔗 `{name}` {label} depends on `{dep}`")
-            dag.add_edge(dep, name)
-        elif dep in all_side_effects:
-            for parent, cols in side_effect_dict.items():
-                if dep in cols:
-                    logger.debug(f"{LOG_INDENT}🔗 `{name}` {label} depends on `{parent}` via `{dep}`")
-                    dag.add_edge(parent, name)
-                    break
-
-
 def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> list[ColumnConfigT]:
     dag = lazy.nx.DiGraph()
 
@@ -75,3 +53,25 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
     sorted_columns.extend([dag_column_config_dict[n] for n in list(lazy.nx.topological_sort(dag))])
 
     return sorted_columns
+
+
+def _add_dependency_edges(
+    dag: lazy.nx.DiGraph,
+    name: str,
+    dep_names: list[str],
+    dag_column_config_dict: dict[str, ColumnConfigT],
+    side_effect_dict: dict[str, list[str]],
+    all_side_effects: set[str],
+    label: str,
+) -> None:
+    """Add DAG edges from *dep_names* to *name*, resolving through side-effect parents."""
+    for dep in dep_names:
+        if dep in dag_column_config_dict:
+            logger.debug(f"{LOG_INDENT}🔗 `{name}` {label} depends on `{dep}`")
+            dag.add_edge(dep, name)
+        elif dep in all_side_effects:
+            for parent, cols in side_effect_dict.items():
+                if dep in cols:
+                    logger.debug(f"{LOG_INDENT}🔗 `{name}` {label} depends on `{parent}` via `{dep}`")
+                    dag.add_edge(parent, name)
+                    break
