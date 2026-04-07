@@ -2,9 +2,9 @@
 
 In this mode, make reasonable design decisions autonomously based on the dataset description. Do not ask clarifying questions — infer sensible defaults and move straight through to a working preview.
 
-1. **Resolve CLI command** — Run `command -v data-designer 2>/dev/null || (test -x .venv/bin/data-designer && realpath .venv/bin/data-designer)`.
-  - If the command outputs a path, use it as the `data-designer` executable for all commands in this workflow.
-  - If it produces no output or fails, STOP and follow the Troubleshooting section in SKILL.md. Do not continue to the next step.
+1. **Resolve CLI command** — Run `command -v data-designer 2>/dev/null || (test -x .venv/bin/data-designer && realpath .venv/bin/data-designer) || echo CLI_NOT_FOUND`.
+  - If the output is a path, use it as the `data-designer` executable for all commands in this workflow.
+  - If the output is `CLI_NOT_FOUND`, STOP and follow the Troubleshooting section in SKILL.md. Do not continue to the next step.
 2. **Learn** — Run `data-designer agent context`.
   - If no model aliases are configured, stop and tell the user to run `data-designer config` to set them up before proceeding.
   - Inspect schemas for every column, sampler type, validator, and processor you plan to use.
