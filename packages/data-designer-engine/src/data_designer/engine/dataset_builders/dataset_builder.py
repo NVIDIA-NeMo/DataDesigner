@@ -599,6 +599,11 @@ class DatasetBuilder:
             if active_records:
                 active_df = lazy.pd.DataFrame(strip_skip_metadata_from_records(active_records))
                 result_records = generator.generate(active_df).to_dict(orient="records")
+                if len(result_records) != len(active_records):
+                    raise DatasetGenerationError(
+                        f"Generator for '{column_name}' returned {len(result_records)} rows "
+                        f"but {len(active_records)} active (non-skipped) records were expected."
+                    )
 
                 result_iter = iter(result_records)
                 batch = []

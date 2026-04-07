@@ -780,7 +780,7 @@ class AsyncTaskScheduler:
             raise ValueError(f"Cell task requires a row_index, got None for column '{task.column}'")
 
         if self._tracker.is_dropped(task.row_group, task.row_index):
-            return None, True
+            return None, False
 
         # Evaluate skip against the live buffer record (no copy needed —
         # there is no `await` between the read and the skip-metadata write).
