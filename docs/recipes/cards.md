@@ -171,24 +171,6 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/search_agent.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/search_agent.py){ .md-button download="search_agent.py" }
 
--   :material-skip-next:{ .lg .middle } **Conditional Generation with Skip**
-
-    Generate a customer support ticket dataset where expensive columns are only produced when needed. Demonstrates expression gates, skip propagation, and propagation opt-out.
-
-    ---
-
-    **Demonstrates:**
-
-    - Conditional column generation with `skip.when`
-    - Automatic skip propagation to downstream columns
-    - Propagation opt-out with `propagate_skip=False`
-    - Gating on structured output fields
-
-    ---
-
-    [:material-book-open-page-variant: View Recipe](conditional_generation/conditional_generation_with_skip.md){ .md-button }
-    [Download Code :octicons-download-24:](../assets/recipes/conditional_generation/conditional_generation_with_skip.py){ .md-button download="conditional_generation_with_skip.py" }
-
 -   :material-file-document-multiple:{ .lg .middle } **Markdown Section Seed Reader**
 
     Define a custom `FileSystemSeedReader` inline and turn Markdown files into one seed row per heading section.

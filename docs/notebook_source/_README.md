@@ -69,7 +69,7 @@ Learn the fundamentals of Data Designer by generating a simple product review da
 
 **Start here if you're new to Data Designer!**
 
-### [2. Structured Outputs and Jinja Expressions](2-structured-outputs-and-jinja-expressions.ipynb)
+### [2. Structured Outputs, Jinja Expressions, and Conditional Generation](2-structured-outputs-and-jinja-expressions.ipynb)
 
 Explore more advanced data generation capabilities:
 
@@ -78,6 +78,7 @@ Explore more advanced data generation capabilities:
 - Combining samplers with structured data
 - Building complex data dependencies
 - Working with nested data structures
+- Conditional generation with `skip.when`
 
 ### [3. Seeding with an External Dataset](3-seeding-with-a-dataset.ipynb)
 

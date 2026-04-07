@@ -33,7 +33,7 @@ nav:
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
-      - Structured Outputs and Jinja Expressions: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
+      - Structured Outputs, Jinja Expressions, and Conditional Generation: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
       - Seeding with an External Dataset: notebooks/3-seeding-with-a-dataset.ipynb
       - Providing Images as Context: notebooks/4-providing-images-as-context.ipynb
       - Generating Images: notebooks/5-generating-images.ipynb
@@ -44,8 +44,6 @@ nav:
           - Text to Python: recipes/code_generation/text_to_python.md
           - Text to SQL: recipes/code_generation/text_to_sql.md
           - "Nemotron Super Text to SQL": recipes/code_generation/enterprise_text_to_sql.md
-      - Conditional Generation:
-          - "Conditional Generation with Skip": recipes/conditional_generation/conditional_generation_with_skip.md
       - Plugin Development:
           - Markdown Section Seed Reader Plugin: recipes/plugin_development/markdown_seed_reader.md
       - QA and Chat:
