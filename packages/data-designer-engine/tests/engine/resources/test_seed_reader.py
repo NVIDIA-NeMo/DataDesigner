@@ -202,11 +202,7 @@ class TrackingAgentRolloutSeedReader(AgentRolloutSeedReader):
 
 
 WriteJsonl = Callable[[Path, list[dict[str, Any]]], None]
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
+WriteJson = Callable[[Path, dict[str, Any]], None]
 
 
 def _write_claude_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> None:
@@ -288,8 +284,8 @@ def _write_atif_trace_directory(root_path: Path) -> None:
     )
 
 
-def _write_hermes_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> None:
-    _write_json(
+def _write_hermes_trace_directory(root_path: Path, write_json: WriteJson, write_jsonl: WriteJsonl) -> None:
+    write_json(
         root_path / "request_dump_20260407_092759_baeaac_20260407_093000_000000.json",
         {
             "session_id": "20260407_092759_baeaac",
@@ -299,7 +295,7 @@ def _write_hermes_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> N
             "request": {"messages": []},
         },
     )
-    _write_json(
+    write_json(
         root_path / "session_20260407_092759_baeaac.json",
         {
             "session_id": "20260407_092759_baeaac",
@@ -351,7 +347,7 @@ def _write_hermes_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> N
             ],
         },
     )
-    _write_json(
+    write_json(
         root_path / "sessions.json",
         {"slack:thread-1": "gateway-session-1"},
     )
@@ -1036,9 +1032,10 @@ def test_agent_rollout_seed_reader_hydration_laziness(tmp_path: Path, write_json
 
 def test_agent_rollout_seed_reader_supports_hermes_json_and_jsonl(
     tmp_path: Path,
+    write_json: WriteJson,
     write_jsonl: WriteJsonl,
 ) -> None:
-    _write_hermes_trace_directory(tmp_path, write_jsonl)
+    _write_hermes_trace_directory(tmp_path, write_json, write_jsonl)
 
     reader = TrackingAgentRolloutSeedReader()
     reader.attach(
@@ -1064,10 +1061,11 @@ def test_agent_rollout_seed_reader_supports_hermes_json_and_jsonl(
 
 def test_agent_rollout_seed_reader_ignores_hermes_non_session_json_without_warning(
     tmp_path: Path,
+    write_json: WriteJson,
     write_jsonl: WriteJsonl,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    _write_hermes_trace_directory(tmp_path, write_jsonl)
+    _write_hermes_trace_directory(tmp_path, write_json, write_jsonl)
 
     reader = AgentRolloutSeedReader()
     reader.attach(

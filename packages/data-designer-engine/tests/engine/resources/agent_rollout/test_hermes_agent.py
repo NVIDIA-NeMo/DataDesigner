@@ -18,13 +18,11 @@ def _make_handler() -> HermesAgentRolloutFormatHandler:
     return HermesAgentRolloutFormatHandler()
 
 
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def test_parse_file_cli_session_log_happy_path(tmp_path: Path) -> None:
-    _write_json(
+def test_parse_file_cli_session_log_happy_path(
+    tmp_path: Path,
+    write_json: Callable[[Path, dict[str, Any]], None],
+) -> None:
+    write_json(
         tmp_path / "session_20260407_092759_baeaac.json",
         {
             "session_id": "20260407_092759_baeaac",
@@ -110,9 +108,10 @@ def test_parse_file_cli_session_log_happy_path(tmp_path: Path) -> None:
 
 def test_parse_file_gateway_transcript_uses_sessions_index(
     tmp_path: Path,
+    write_json: Callable[[Path, dict[str, Any]], None],
     write_jsonl: Callable[[Path, list[dict[str, Any]]], None],
 ) -> None:
-    _write_json(
+    write_json(
         tmp_path / "sessions.json",
         {"slack:thread-1": "gateway-session-1"},
     )
@@ -171,8 +170,11 @@ def test_should_warn_unhandled_file_suppresses_non_session_json_noise() -> None:
     assert handler.should_warn_unhandled_file("notes.txt") is True
 
 
-def test_parse_file_cli_session_requires_messages_list(tmp_path: Path) -> None:
-    _write_json(
+def test_parse_file_cli_session_requires_messages_list(
+    tmp_path: Path,
+    write_json: Callable[[Path, dict[str, Any]], None],
+) -> None:
+    write_json(
         tmp_path / "session_20260407_092611_298324.json",
         {
             "session_id": "20260407_092611_298324",
