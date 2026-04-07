@@ -22,15 +22,13 @@ concurrency:
 jobs:
   review:
     # Only run for collaborators (or manual dispatch, which requires write access).
-    # Skip draft PRs on automatic triggers. Allow the re-review label to bypass draft check.
+    # Skip draft PRs unless re-review label is added. Only the re-review label triggers a run.
     if: >-
       github.event_name == 'workflow_dispatch'
       || (
-        contains(fromJSON('["MEMBER","COLLABORATOR","OWNER"]'), github.event.pull_request.author_association)
-        && (
-          github.event.pull_request.draft == false
-          || (github.event.action == 'labeled' && github.event.label.name == 're-review')
-        )
+        github.event.pull_request.author_association == 'MEMBER'
+        || github.event.pull_request.author_association == 'COLLABORATOR'
+        || github.event.pull_request.author_association == 'OWNER'
       )
     runs-on: [self-hosted, agentic-ci]
     timeout-minutes: 15
@@ -119,7 +117,7 @@ jobs:
           RECIPE_BODY=$(cat .agents/recipes/pr-review/recipe.md \
             | sed '1,/^---$/{ /^---$/,/^---$/d }')
 
-          PROMPT=$(echo -e "${RUNNER_CTX}\n\n${RECIPE_BODY}" \
+          PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}" \
             | sed "s/{{pr_number}}/${PR}/g")
 
           claude \
