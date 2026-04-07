@@ -20,9 +20,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  debug:
+    # Temporary job to inspect event context values.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump event context
+        run: |
+          echo "event_name=${{ github.event_name }}"
+          echo "action=${{ github.event.action }}"
+          echo "author_association=${{ github.event.pull_request.author_association }}"
+          echo "draft=${{ github.event.pull_request.draft }}"
+          echo "pr_number=${{ github.event.pull_request.number }}"
+          cat "$GITHUB_EVENT_PATH" | jq '{action: .action, pr_author_association: .pull_request.author_association, pr_draft: .pull_request.draft, pr_number: .pull_request.number}'
+
   review:
-    # DEBUG: temporarily set to true to verify runner picks up the job.
-    if: true
+    # Only run for collaborators (or manual dispatch, which requires write access).
+    # Skip draft PRs unless re-review label is added. Only the re-review label triggers a run.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (
+        contains(fromJSON('["MEMBER","COLLABORATOR","OWNER"]'), github.event.pull_request.author_association)
+        && (github.event.action != 'labeled' || github.event.label.name == 're-review')
+        && (
+          github.event.pull_request.draft == false
+          || (github.event.action == 'labeled' && github.event.label.name == 're-review')
+        )
+      )
     runs-on: [self-hosted, agentic-ci]
     timeout-minutes: 15
     steps:
