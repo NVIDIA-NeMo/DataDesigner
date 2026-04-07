@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.context import current_row_group
+from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
@@ -834,8 +835,6 @@ class AsyncTaskScheduler:
 
     async def _run_batch(self, task: Task, generator: ColumnGenerator) -> Any:
         """Execute a full-column/batch task."""
-        from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
-
         rg_size = self._get_rg_size(task.row_group)
 
         if self._buffer_manager is not None:
