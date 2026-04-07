@@ -176,7 +176,7 @@ class DatasetBuilder:
             mode = StorageMode.DISK if save_multimedia_to_disk else StorageMode.DATAFRAME
             self.artifact_storage.set_media_storage_mode(mode)
 
-        generators = self._initialize_generators()
+        generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
@@ -210,7 +210,7 @@ class DatasetBuilder:
         if self._has_image_columns():
             self.artifact_storage.set_media_storage_mode(StorageMode.DATAFRAME)
 
-        generators = self._initialize_generators()
+        generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
         if DATA_DESIGNER_ASYNC_ENGINE:
@@ -417,7 +417,7 @@ class DatasetBuilder:
         """Check if config has any image generation columns."""
         return any(col.column_type == DataDesignerColumnType.IMAGE for col in self.single_column_configs)
 
-    def _initialize_generators(self) -> list[ColumnGenerator]:
+    def _initialize_generators_and_graph(self) -> tuple[list[ColumnGenerator], ExecutionGraph]:
         generators = [
             self._registry.column_generators.get_for_config_type(type(config))(
                 config=config, resource_provider=self._resource_provider
@@ -432,8 +432,8 @@ class DatasetBuilder:
                     strategies[sub.name] = strategy
             else:
                 strategies[gen.config.name] = strategy
-        self._graph = ExecutionGraph.create(self._column_configs, strategies)
-        return generators
+        graph = ExecutionGraph.create(self._column_configs, strategies)
+        return generators, graph
 
     def _write_builder_config(self) -> None:
         self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
