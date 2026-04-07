@@ -171,7 +171,7 @@ Path: {{ relative_path }}
 
 ### 🤖 AgentRolloutSeedSource
 
-Parse agent rollout trace files (e.g. from ATIF, Claude Code, or Codex) into a structured seed dataset. Each trace becomes one seed row with normalized metadata and the full message history, ready for distillation or analysis pipelines.
+Parse agent rollout trace files (e.g. from ATIF, Claude Code, Codex, or Hermes Agent) into a structured seed dataset. Each trace becomes one seed row with normalized metadata and the full message history, ready for distillation or analysis pipelines.
 
 ```python
 seed_source = dd.AgentRolloutSeedSource(
@@ -185,6 +185,7 @@ When `path` is omitted, built-in defaults are used for the vendor-native formats
 
 - **Claude Code** → `~/.claude/projects`
 - **Codex** → `~/.codex/sessions`
+- **Hermes Agent** → `~/.hermes/sessions`
 
 ATIF rollouts use standalone `.json` trajectory files and require an explicit `path`.
 
@@ -210,7 +211,7 @@ seed_source = dd.AgentRolloutSeedSource(
 `AgentRolloutSeedSource` exposes a rich set of seeded columns:
 
 - `trace_id` — unique identifier for the trace
-- `source_kind` — the rollout format (e.g. `"atif"`, `"claude_code"`, `"codex"`)
+- `source_kind` — the rollout format (e.g. `"atif"`, `"claude_code"`, `"codex"`, `"hermes_agent"`)
 - `source_path` — full path to the source file
 - `root_session_id` — top-level session identifier
 - `agent_id` — agent identifier (if present)

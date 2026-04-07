@@ -244,6 +244,12 @@ def test_filesystem_seed_sources_reject_path_like_file_patterns(
             "match file names, not relative paths",
             id="codex-posix",
         ),
+        pytest.param(
+            AgentRolloutFormat.HERMES_AGENT,
+            r"nested\\session_*.json",
+            "match file names, not relative paths",
+            id="hermes-windows",
+        ),
     ],
 )
 def test_agent_rollout_seed_source_rejects_invalid_file_patterns(
@@ -309,6 +315,24 @@ def test_agent_rollout_seed_source_uses_default_codex_path(
     assert source.format == AgentRolloutFormat.CODEX
 
 
+def test_agent_rollout_seed_source_uses_default_hermes_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    hermes_dir = tmp_path / ".hermes" / "sessions"
+    hermes_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = AgentRolloutSeedSource(format=AgentRolloutFormat.HERMES_AGENT)
+
+    assert source.seed_type == "agent_rollout"
+    assert source.path is None
+    assert source.file_pattern is None
+    assert source.resolved_file_pattern == "*.json*"
+    assert source.recursive is True
+    assert source.format == AgentRolloutFormat.HERMES_AGENT
+
+
 def test_agent_rollout_seed_source_round_trips_none_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -347,8 +371,10 @@ def test_seed_sources_are_exported_from_config_module(
 ) -> None:
     claude_dir = tmp_path / ".claude" / "projects"
     codex_dir = tmp_path / ".codex" / "sessions"
+    hermes_dir = tmp_path / ".hermes" / "sessions"
     claude_dir.mkdir(parents=True)
     codex_dir.mkdir(parents=True)
+    hermes_dir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(tmp_path))
 
     directory_source = dd.DirectorySeedSource(path=str(tmp_path))

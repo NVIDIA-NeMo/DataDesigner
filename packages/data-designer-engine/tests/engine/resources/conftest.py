@@ -63,3 +63,12 @@ def write_jsonl() -> Callable[[Path, list[dict[str, Any]]], None]:
                 file.write(f"{json.dumps(record)}\n")
 
     return _write
+
+
+@pytest.fixture
+def write_json() -> Callable[[Path, dict[str, Any]], None]:
+    def _write(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    return _write
