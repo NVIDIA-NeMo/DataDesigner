@@ -21,15 +21,8 @@ concurrency:
 
 jobs:
   review:
-    # Only run for collaborators (or manual dispatch, which requires write access).
-    # Skip draft PRs unless re-review label is added. Only the re-review label triggers a run.
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      || (
-        github.event.pull_request.author_association == 'MEMBER'
-        || github.event.pull_request.author_association == 'COLLABORATOR'
-        || github.event.pull_request.author_association == 'OWNER'
-      )
+    # DEBUG: temporarily set to true to verify runner picks up the job.
+    if: true
     runs-on: [self-hosted, agentic-ci]
     timeout-minutes: 15
     steps:
