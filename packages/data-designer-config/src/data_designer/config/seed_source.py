@@ -172,6 +172,10 @@ def get_codex_default_path() -> str:
     return str(Path("~/.codex/sessions").expanduser())
 
 
+def get_hermes_agent_default_path() -> str:
+    return str(Path("~/.hermes/sessions").expanduser())
+
+
 def _validate_filesystem_seed_source_path(value: str | None) -> str | None:
     if value is None:
         return None
@@ -195,6 +199,7 @@ class AgentRolloutFormat(StrEnum):
     ATIF = "atif"
     CLAUDE_CODE = "claude_code"
     CODEX = "codex"
+    HERMES_AGENT = "hermes_agent"
 
 
 def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str | None, str]:
@@ -204,6 +209,8 @@ def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str | No
         return (get_claude_code_default_path(), "*.jsonl")
     if fmt == AgentRolloutFormat.CODEX:
         return (get_codex_default_path(), "*.jsonl")
+    if fmt == AgentRolloutFormat.HERMES_AGENT:
+        return (get_hermes_agent_default_path(), "*.json*")
     raise ValueError(f"🛑 Unknown agent rollout format: {fmt!r}")
 
 
@@ -220,6 +227,8 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         description=(
             "Directory containing agent rollout artifacts. This field is required for ATIF trajectories. "
             "When omitted, built-in defaults are used for formats that define one. "
+            "Claude Code defaults to ~/.claude/projects, Codex defaults to ~/.codex/sessions, "
+            "and Hermes Agent defaults to ~/.hermes/sessions. "
             "Relative paths are resolved from the current working directory when the config is loaded, "
             "not from the config file location."
         ),
@@ -229,7 +238,8 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         None,
         description=(
             "Case-sensitive filename pattern used to match agent rollout files. When omitted, "
-            "ATIF defaults to '*.json' while Claude Code and Codex default to '*.jsonl'."
+            "ATIF defaults to '*.json', Claude Code and Codex default to '*.jsonl', "
+            "and Hermes Agent defaults to '*.json*'."
         ),
     )
 

@@ -89,6 +89,11 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             file.write(f"{json.dumps(row)}\n")
 
 
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _write_empty_jsonl(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("", encoding="utf-8")
@@ -240,6 +245,108 @@ def _write_atif_trace_directory(root_path: Path) -> None:
             }
         ),
         encoding="utf-8",
+    )
+
+
+def _write_hermes_trace_directory(root_path: Path) -> None:
+    _write_json(
+        root_path / "session_20260407_092759_baeaac.json",
+        {
+            "session_id": "20260407_092759_baeaac",
+            "model": "aws/anthropic/bedrock-claude-opus-4-6",
+            "base_url": "https://inference-api.nvidia.com/v1",
+            "platform": "cli",
+            "session_start": "2026-04-07T09:39:07.028463",
+            "last_updated": "2026-04-07T09:51:07.905570",
+            "system_prompt": "You are Hermes.",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "terminal",
+                        "description": "Run shell commands.",
+                        "parameters": {"type": "object", "properties": {}, "required": []},
+                    },
+                }
+            ],
+            "messages": [
+                {"role": "user", "content": "Set up a uv project."},
+                {
+                    "role": "assistant",
+                    "content": "I'll initialize the project.",
+                    "finish_reason": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tooluse_init",
+                            "call_id": "tooluse_init",
+                            "type": "function",
+                            "function": {
+                                "name": "terminal",
+                                "arguments": '{"command":"uv init"}',
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "tooluse_init",
+                    "content": '{"output":"Initialized project","exit_code":0,"error":null}',
+                },
+                {
+                    "role": "assistant",
+                    "content": "Done.",
+                    "finish_reason": "stop",
+                    "tool_calls": [],
+                },
+            ],
+        },
+    )
+    _write_json(
+        root_path / "sessions.json",
+        {
+            "slack:thread-1": {
+                "session_key": "slack:thread-1",
+                "session_id": "gateway-session-1",
+                "created_at": "2026-04-07T08:00:00",
+                "updated_at": "2026-04-07T08:05:00",
+                "display_name": "ops-thread",
+                "platform": "slack",
+                "chat_type": "thread",
+                "origin": {
+                    "platform": "slack",
+                    "chat_id": "C123",
+                    "chat_name": "deployments",
+                    "chat_type": "thread",
+                    "thread_id": "thread-1",
+                },
+            }
+        },
+    )
+    _write_jsonl(
+        root_path / "gateway-session-1.jsonl",
+        [
+            {"role": "user", "content": "Check the deployment status."},
+            {
+                "role": "assistant",
+                "content": "I'll inspect the logs.",
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "tooluse_logs",
+                        "type": "function",
+                        "function": {
+                            "name": "terminal",
+                            "arguments": '{"command":"kubectl logs deploy/app"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "tooluse_logs",
+                "content": '{"output":"healthy","exit_code":0,"error":null}',
+            },
+        ],
     )
 
 
@@ -1187,8 +1294,16 @@ def test_create_dataset_e2e_with_file_contents_seed_source_unreadable_file_raise
             ["Listed files"],
             [1],
         ),
+        (
+            "hermes-agent",
+            lambda path: AgentRolloutSeedSource(path=str(path), format=AgentRolloutFormat.HERMES_AGENT),
+            _write_hermes_trace_directory,
+            ["20260407_092759_baeaac", "gateway-session-1"],
+            ["Done.", "I'll inspect the logs."],
+            [1, 1],
+        ),
     ],
-    ids=["atif", "claude-code", "codex"],
+    ids=["atif", "claude-code", "codex", "hermes-agent"],
 )
 def test_create_dataset_e2e_with_trace_seed_sources(
     stub_artifact_path: Path,
@@ -1247,6 +1362,14 @@ def test_create_dataset_e2e_with_trace_seed_sources(
         assert list(df["source_kind"]) == ["atif"]
         assert list(df["cwd"]) == ["/workspace/project"]
         assert list(df["git_branch"]) == ["main"]
+    elif dir_name == "hermes-agent":
+        assert list(df["source_kind"]) == ["hermes_agent", "hermes_agent"]
+        assert list(df["started_at"]) == ["2026-04-07T09:39:07.028463", "2026-04-07T08:00:00"]
+        assert list(df["ended_at"]) == ["2026-04-07T09:51:07.905570", "2026-04-07T08:05:00"]
+        assert list(df["source_meta"].map(lambda meta: meta["session_format"])) == [
+            "cli_session_log",
+            "gateway_transcript",
+        ]
 
 
 def test_create_dataset_warns_for_unhandled_transform_files(
