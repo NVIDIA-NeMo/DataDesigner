@@ -28,7 +28,7 @@ jobs:
       || (
         contains(fromJSON('["MEMBER","COLLABORATOR","OWNER"]'), github.event.pull_request.author_association)
         && (
-          !github.event.pull_request.draft
+          github.event.pull_request.draft == false
           || (github.event.action == 'labeled' && github.event.label.name == 're-review')
         )
       )
