@@ -791,7 +791,8 @@ class AsyncTaskScheduler:
 
         if self._should_skip_record(task.column, record):
             self._apply_skip_to_record(task, record)
-            return None, True
+            skip_config = self._graph.get_skip_config(task.column)
+            return skip_config.value if skip_config is not None else None, True
 
         # Copy for generation: agenerate crosses an await boundary, so the
         # generator must not hold a mutable reference to the live record.
