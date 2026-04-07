@@ -55,15 +55,24 @@ jobs:
             fi
           fi
 
-          # Check if the PR author has write (or admin) permission.
-          AUTHOR="${{ github.event.pull_request.user.login }}"
-          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${AUTHOR}/permission" --jq '.permission' 2>/dev/null || echo "none")
-          echo "Author=${AUTHOR} permission=${PERMISSION}"
+          # For labeled events, check the sender (who added the label) so
+          # maintainers can authorize reviews on external PRs.
+          # For other events, check the PR author.
+          if [ "${{ github.event.action }}" = "labeled" ]; then
+            USER="${{ github.event.sender.login }}"
+            echo "Checking sender (labeler): ${USER}"
+          else
+            USER="${{ github.event.pull_request.user.login }}"
+            echo "Checking PR author: ${USER}"
+          fi
+
+          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${USER}/permission" --jq '.permission' 2>/dev/null || echo "none")
+          echo "permission=${PERMISSION}"
 
           if [ "$PERMISSION" = "admin" ] || [ "$PERMISSION" = "write" ]; then
             echo "allowed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Skipping: author does not have write access (permission=${PERMISSION})"
+            echo "Skipping: ${USER} does not have write access (permission=${PERMISSION})"
             echo "allowed=false" >> "$GITHUB_OUTPUT"
           fi
 
