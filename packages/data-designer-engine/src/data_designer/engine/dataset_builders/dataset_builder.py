@@ -39,7 +39,7 @@ from data_designer.engine.dataset_builders.utils.execution_graph import Executio
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import evaluate_skip_when, should_skip_by_propagation
-from data_designer.engine.dataset_builders.utils.skip_provenance import (
+from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
     apply_skip_to_record,
     get_skipped_column_names,
@@ -518,92 +518,111 @@ class DatasetBuilder:
             emoji = "💥" if new_count > original_count else "✂️"
             logger.info(f"{emoji} Column '{column_name}' resized batch: {original_count} -> {new_count} records.")
 
+    def _require_graph(self) -> ExecutionGraph:
+        """Return the initialized execution graph for the current run."""
+        graph = self._graph
+        if graph is None:
+            raise DatasetGenerationError("Execution graph accessed before generator initialization.")
+        return graph
+
+    def _column_can_skip(self, column_name: str) -> bool:
+        """Fast check: can *column_name* ever be skipped (expression gate or propagation)?"""
+        graph = self._require_graph()
+        if graph.get_skip_config(column_name) is not None:
+            return True
+        return graph.should_propagate_skip(column_name) and bool(graph.get_required_columns(column_name))
+
     def _should_skip_cell(self, column_name: str, record: dict) -> bool:
         """Decide whether a single cell should be skipped (propagation or expression gate)."""
-        if self._graph is None:
-            raise DatasetGenerationError(
-                "Execution graph is not initialized. Call _initialize_generators() before generation."
-            )
+        graph = self._require_graph()
 
         skipped_cols = get_skipped_column_names(record)
 
-        if self._graph.should_propagate_skip(column_name):
-            required = self._graph.get_required_columns(column_name)
+        if graph.should_propagate_skip(column_name):
+            required = graph.get_required_columns(column_name)
             if should_skip_by_propagation(required, skipped_cols):
                 return True
 
-        skip_config = self._graph.get_skip_config(column_name)
+        skip_config = graph.get_skip_config(column_name)
         if skip_config is not None:
             return evaluate_skip_when(skip_config.when, record)
 
         return False
 
     def _write_skip_to_record(self, column_name: str, record: dict) -> None:
-        """Write skip provenance and the skip value into *record* in-place."""
-        if self._graph is None:
-            raise DatasetGenerationError(
-                "Execution graph is not initialized. Call _initialize_generators() before generation."
-            )
-        skip_config = self._graph.get_skip_config(column_name)
+        """Write skip metadata and the skip value into *record* in-place."""
+        graph = self._require_graph()
+        skip_config = graph.get_skip_config(column_name)
         skip_value = skip_config.value if skip_config is not None else None
         apply_skip_to_record(
             record,
             column_name=column_name,
             cell_value=skip_value,
-            side_effect_columns=self._graph.get_side_effect_columns(column_name),
+            side_effect_columns=graph.get_side_effect_columns(column_name),
         )
 
     def _run_full_column_generator(self, generator: ColumnGenerator) -> None:
         original_count = self.batch_manager.num_records_in_buffer
+        allow_resize = getattr(generator.config, "allow_resize", False)
 
-        # Skip evaluation only applies to single-column configs.
-        # Multi-column configs (sampler/seed) are rejected by the SkipConfig
-        # model validator, so they never carry skip metadata.
-        skip_indices: set[int] = set()
-        if self._graph is not None and not isinstance(generator.config, MultiColumnConfig):
-            column_name = generator.config.name
-            for i, record in self.batch_manager.iter_current_batch():
-                if self._should_skip_cell(column_name, record):
-                    self._write_skip_to_record(column_name, record)
-                    self.batch_manager.update_record(i, record)
-                    skip_indices.add(i)
-
-        if skip_indices:
-            batch = self.batch_manager.get_current_batch(as_dataframe=False)
-            active_records = [r for i, r in enumerate(batch) if i not in skip_indices]
-
-            if active_records:
-                active_df = lazy.pd.DataFrame(strip_skip_metadata_from_records(active_records))
-                result_df = generator.generate(active_df)
-                result_records = result_df.to_dict(orient="records")
-
-                result_iter = iter(result_records)
-                merged: list[dict] = []
-                for i, record in enumerate(batch):
-                    if i in skip_indices:
-                        merged.append(record)
-                    else:
-                        gen_result = next(result_iter)
-                        prior_skipped = record.get(SKIPPED_COLUMNS_RECORD_KEY)
-                        if prior_skipped:
-                            gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
-                        merged.append(gen_result)
-                batch = merged
-            else:
-                batch = list(batch)
-
-            allow_resize = getattr(generator.config, "allow_resize", False)
-            self._log_resize_if_changed(
-                self._column_display_name(generator.config), original_count, len(batch), allow_resize
-            )
-            self.batch_manager.replace_buffer(batch, allow_resize=allow_resize)
-        else:
+        if isinstance(generator.config, MultiColumnConfig):
             df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
-            allow_resize = getattr(generator.config, "allow_resize", False)
             self._log_resize_if_changed(
                 self._column_display_name(generator.config), original_count, len(df), allow_resize
             )
             self.batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=allow_resize)
+            return
+
+        column_name = generator.config.name
+        if not self._column_can_skip(column_name):
+            df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
+            self._log_resize_if_changed(
+                self._column_display_name(generator.config), original_count, len(df), allow_resize
+            )
+            self.batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=allow_resize)
+            return
+
+        has_skipped = False
+        active_records: list[dict] = []
+        records_with_skip_status: list[tuple[bool, dict]] = []
+        for _, record in self.batch_manager.iter_current_batch():
+            skipped = self._should_skip_cell(column_name, record)
+            if skipped:
+                has_skipped = True
+                self._write_skip_to_record(column_name, record)
+            else:
+                active_records.append(record)
+            records_with_skip_status.append((skipped, record))
+
+        if has_skipped:
+            batch: list[dict]
+            if active_records:
+                active_df = lazy.pd.DataFrame(strip_skip_metadata_from_records(active_records))
+                result_records = generator.generate(active_df).to_dict(orient="records")
+
+                result_iter = iter(result_records)
+                batch = []
+                for skipped, record in records_with_skip_status:
+                    if skipped:
+                        batch.append(record)
+                        continue
+                    gen_result = next(result_iter)
+                    prior_skipped = record.get(SKIPPED_COLUMNS_RECORD_KEY)
+                    if prior_skipped is not None:
+                        gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
+                    batch.append(gen_result)
+            else:
+                batch = [record for _, record in records_with_skip_status]
+
+            self._log_resize_if_changed(
+                self._column_display_name(generator.config), original_count, len(batch), allow_resize
+            )
+            self.batch_manager.replace_buffer(batch, allow_resize=allow_resize)
+            return
+
+        df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
+        self._log_resize_if_changed(self._column_display_name(generator.config), original_count, len(df), allow_resize)
+        self.batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=allow_resize)
 
     def _run_model_health_check_if_needed(self) -> None:
         model_aliases: set[str] = set()
@@ -713,12 +732,13 @@ class DatasetBuilder:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
         bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
             executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
             work_items: list[tuple[Any, dict[str, Any]]] = []
             for i, record in self.batch_manager.iter_current_batch():
-                if self._should_skip_cell(generator.config.name, record):
+                if can_skip and self._should_skip_cell(generator.config.name, record):
                     self._write_skip_to_record(generator.config.name, record)
                     self.batch_manager.update_record(i, record)
                     progress_tracker.record_skipped()
@@ -736,11 +756,12 @@ class DatasetBuilder:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
         bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
             with ConcurrentThreadExecutor(max_workers=max_workers, **executor_kwargs) as executor:
                 for i, record in self.batch_manager.iter_current_batch():
-                    if self._should_skip_cell(generator.config.name, record):
+                    if can_skip and self._should_skip_cell(generator.config.name, record):
                         self._write_skip_to_record(generator.config.name, record)
                         self.batch_manager.update_record(i, record)
                         progress_tracker.record_skipped()

@@ -125,14 +125,14 @@ ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 @patch("data_designer.engine.validation.validate_drop_columns_processor")
 @patch("data_designer.engine.validation.validate_schema_transform_processor")
 def test_validate_data_designer_config(
-    mock_validate_columns_not_all_dropped,
-    mock_validate_expression_references,
-    mock_validate_skip_references,
-    mock_validate_code_validation,
-    mock_validate_prompt_templates,
-    mock_validate_drop_columns_processor,
-    mock_validate_schema_transform_processor,
-):
+    mock_validate_schema_transform_processor: Mock,
+    mock_validate_drop_columns_processor: Mock,
+    mock_validate_columns_not_all_dropped: Mock,
+    mock_validate_skip_references: Mock,
+    mock_validate_expression_references: Mock,
+    mock_validate_code_validation: Mock,
+    mock_validate_prompt_templates: Mock,
+) -> None:
     mock_validate_columns_not_all_dropped.return_value = [
         Violation(
             column="test_column",

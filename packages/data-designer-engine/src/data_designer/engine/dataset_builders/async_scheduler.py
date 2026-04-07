@@ -22,7 +22,7 @@ from data_designer.engine.dataset_builders.utils.async_progress_reporter import 
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import evaluate_skip_when, should_skip_by_propagation
-from data_designer.engine.dataset_builders.utils.skip_provenance import (
+from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
     get_skipped_column_names,
     strip_skip_metadata_from_records,
@@ -783,7 +783,7 @@ class AsyncTaskScheduler:
             return None, True
 
         # Evaluate skip against the live buffer record (no copy needed —
-        # there is no `await` between the read and the provenance write).
+        # there is no `await` between the read and the skip-metadata write).
         if self._buffer_manager is not None:
             record = self._buffer_manager.get_row(task.row_group, task.row_index)
         else:
@@ -821,7 +821,7 @@ class AsyncTaskScheduler:
         return False
 
     def _apply_skip_to_record(self, task: Task, record: dict) -> None:
-        """Write skip provenance directly into *record* (the live buffer row)."""
+        """Write skip metadata directly into *record* (the live buffer row)."""
         skip_config = self._graph.get_skip_config(task.column)
         skip_value = skip_config.value if skip_config is not None else None
         apply_skip_to_record(
@@ -839,27 +839,25 @@ class AsyncTaskScheduler:
 
         if self._buffer_manager is not None:
             pre_dropped: set[int] = {ri for ri in range(rg_size) if self._buffer_manager.is_dropped(task.row_group, ri)}
+            active_rows_data: list[dict] = []
 
             # Skip evaluation only applies to single-column configs.
             # Multi-column configs (sampler/seed) are rejected by the SkipConfig
             # model validator, so they never carry skip metadata.
             pre_skipped: set[int] = set()
             is_multi = isinstance(generator.config, MultiColumnConfig)
-            if not is_multi:
-                for ri in range(rg_size):
-                    if ri in pre_dropped:
-                        continue
-                    record = self._buffer_manager.get_row(task.row_group, ri)
-                    if self._should_skip_record(task.column, record):
-                        self._apply_skip_to_record(task, record)
-                        pre_skipped.add(ri)
+            for ri in range(rg_size):
+                if ri in pre_dropped:
+                    continue
 
-            # Build DataFrame excluding dropped and skipped rows
-            active_rows_data = [
-                self._buffer_manager.get_row(task.row_group, ri)
-                for ri in range(rg_size)
-                if ri not in pre_dropped and ri not in pre_skipped
-            ]
+                record = self._buffer_manager.get_row(task.row_group, ri)
+                if not is_multi and self._should_skip_record(task.column, record):
+                    self._apply_skip_to_record(task, record)
+                    pre_skipped.add(ri)
+                    continue
+
+                active_rows_data.append(record)
+
             batch_df = (
                 lazy.pd.DataFrame(strip_skip_metadata_from_records(active_rows_data))
                 if active_rows_data

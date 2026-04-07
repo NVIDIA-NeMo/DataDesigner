@@ -40,10 +40,11 @@ Preparation (`_prepare_async_run`):
 ### Execution Graph
 
 `ExecutionGraph` (in `dataset_builders/utils/execution_graph.py`) models column dependencies:
-- Upstream/downstream sets derived from `required_columns` and side-effect columns
+- Upstream/downstream sets derived from `required_columns`, side-effect columns, and `skip.when` references
 - `GenerationStrategy` per column (CELL_BY_CELL or FULL_COLUMN)
 - Kahn topological sort for execution order
 - `split_upstream_by_strategy` — separates batch-level from cell-level dependencies
+- Skip metadata: `SkipConfig`, `propagate_skip`, `required_columns`, and `side_effects_by_producer` per column — queried at runtime by both engines to evaluate skip decisions
 
 ### CompletionTracker
 
@@ -53,9 +54,28 @@ Tracks per-row-group, per-column completion state:
 - **Frontier**: computes ready tasks when backed by `ExecutionGraph`
 - Handles dropped rows and downstream task enqueuing
 
+### Conditional Generation (Skip)
+
+Columns can be conditionally skipped per-row via `SkipConfig` (defined in `data_designer.config.base`). Two mechanisms control skipping:
+
+1. **Expression gate** — `skip=SkipConfig(when="{{ expr }}")` on a `SingleColumnConfig`. The Jinja2 expression is evaluated per-row; when truthy, the column is skipped for that row and the configured `value` (default `None`) is written instead of calling the generator.
+2. **Skip propagation** — when an upstream column was skipped, downstream columns auto-skip unless they set `propagate_skip=False`. Propagation checks `required_columns` against the row's `__skipped__` set.
+
+Skip evaluation is handled by two utility modules:
+
+- **`skip_evaluator.py`** — `evaluate_skip_when` renders the expression in a `NativeSandboxedEnvironment` (native Python types, `StrictUndefined`). `should_skip_by_propagation` checks set intersection between required columns and skipped columns.
+- **`skip_tracker.py`** — manages the `__skipped__` metadata key on record dicts. Each record carries a `__skipped__` set listing which columns were skipped for that row. `apply_skip_to_record` adds the column name to that set, writes the skip value into the cell, and clears any side-effect columns. `strip_skip_metadata_from_records` removes the `__skipped__` key before DataFrame construction so it never reaches parquet (called by `DatasetBatchManager`, `RowGroupBufferManager`, and inline in both engines).
+
+Both execution modes integrate skip at the same points:
+
+- **Sequential**: `_run_full_column_generator` and the fan-out methods (`_fan_out_with_threads`, `_fan_out_with_async`) call `_should_skip_cell` per record. Skipped rows are excluded from the generator input, then merged back with skip metadata preserved. A fast `_column_can_skip` check short-circuits the per-record evaluation when no skip config or propagation applies.
+- **Async**: `_run_cell` and `_run_batch` in `AsyncTaskScheduler` call `_should_skip_record` / `_apply_skip_to_record` with the same logic. Skipped cells report as skipped (not success) in progress tracking.
+
+DAG edges are added for `skip.when` column references (both in `dag.py` and `ExecutionGraph.create`) so skip-gate columns are generated before the gated column.
+
 ### DAG (Config-Level)
 
-`dataset_builders/utils/dag.py` provides `topologically_sort_column_configs` — builds a NetworkX graph from `required_columns` and side-effect columns, returns a topological ordering. Used by both execution modes for initial column ordering.
+`dataset_builders/utils/dag.py` provides `topologically_sort_column_configs` — builds a NetworkX graph from `required_columns`, side-effect columns, and `skip.when` references, returns a topological ordering. Used by both execution modes for initial column ordering.
 
 ### DatasetBatchManager
 

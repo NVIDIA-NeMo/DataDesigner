@@ -502,12 +502,17 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
 def test_fan_out_with_threads_passes_column_name_in_context(
     mock_executor_class: Mock,
     stub_resource_provider: Mock,
-    stub_test_config_builder: DataDesignerConfigBuilder,
+    stub_model_configs: dict[str, object],
 ) -> None:
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
     builder = DatasetBuilder(
-        data_designer_config=stub_test_config_builder.build(),
+        data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
+    builder.build_preview(num_records=1)
 
     mock_executor = Mock()
     mock_executor_class.return_value.__enter__ = Mock(return_value=mock_executor)
@@ -537,12 +542,17 @@ def test_fan_out_with_threads_passes_column_name_in_context(
 def test_fan_out_with_async_passes_column_name_in_context(
     mock_executor_class: Mock,
     stub_resource_provider: Mock,
-    stub_test_config_builder: DataDesignerConfigBuilder,
+    stub_model_configs: dict[str, object],
 ) -> None:
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
     builder = DatasetBuilder(
-        data_designer_config=stub_test_config_builder.build(),
+        data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
+    builder.build_preview(num_records=1)
 
     mock_executor = Mock()
 

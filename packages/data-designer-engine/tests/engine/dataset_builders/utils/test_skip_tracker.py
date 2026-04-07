@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_designer.engine.dataset_builders.utils.skip_provenance import (
+from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
     apply_skip_to_record,
     get_skipped_column_names,
@@ -36,7 +36,7 @@ def test_get_skipped_column_names_returns_copy() -> None:
     assert names == {"x", "y"}
 
 
-def test_apply_skip_to_record_adds_provenance() -> None:
+def test_apply_skip_to_record_adds_skip_marker() -> None:
     record: dict = {}
     apply_skip_to_record(
         record,

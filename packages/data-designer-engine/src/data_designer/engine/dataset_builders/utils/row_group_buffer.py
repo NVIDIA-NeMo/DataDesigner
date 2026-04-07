@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.engine.dataset_builders.utils.skip_provenance import strip_skip_metadata_from_records
+from data_designer.engine.dataset_builders.utils.skip_tracker import strip_skip_metadata_from_records
 
 if TYPE_CHECKING:
     import pandas as pd

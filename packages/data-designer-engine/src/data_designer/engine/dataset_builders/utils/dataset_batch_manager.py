@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Callable, Container, Iterator
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
-from data_designer.engine.dataset_builders.utils.skip_provenance import strip_skip_metadata_from_records
+from data_designer.engine.dataset_builders.utils.skip_tracker import strip_skip_metadata_from_records
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 
 if TYPE_CHECKING:

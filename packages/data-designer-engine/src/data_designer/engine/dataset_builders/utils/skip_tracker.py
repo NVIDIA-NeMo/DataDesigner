@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Record-inline skip provenance for conditional column generation.
+"""Record-inline skip tracking for conditional column generation.
 
 All reads, writes, and DataFrame-stripping of the ``__skipped__`` key go
 through this module so sync, async, and buffer code do not diverge.
@@ -27,7 +27,7 @@ def apply_skip_to_record(
     cell_value: bool | int | float | str | None,
     side_effect_columns: Sequence[str],
 ) -> None:
-    """Mutate *record* in place: provenance, primary cell value, side effects cleared."""
+    """Mutate *record* in place: skip marker, primary cell value, side effects cleared."""
     skipped: set[str] = record.setdefault(SKIPPED_COLUMNS_RECORD_KEY, set())
     skipped.add(column_name)
     record[column_name] = cell_value
@@ -36,7 +36,7 @@ def apply_skip_to_record(
 
 
 def strip_skip_metadata_for_dataframe_row(record: dict) -> dict:
-    """Shallow copy of *record* without skip provenance — safe for ``pd.DataFrame(rows)``."""
+    """Shallow copy of *record* without skip metadata — safe for ``pd.DataFrame(rows)``."""
     return {k: v for k, v in record.items() if k != SKIPPED_COLUMNS_RECORD_KEY}
 
 
