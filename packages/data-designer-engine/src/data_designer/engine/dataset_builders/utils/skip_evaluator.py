@@ -34,11 +34,6 @@ class NativeSandboxedEnvironment(SandboxedEnvironment, NativeEnvironment):
 _env = NativeSandboxedEnvironment(undefined=StrictUndefined)
 
 
-@lru_cache(maxsize=64)
-def _compile_skip_template(expression: str) -> Template:
-    return _env.from_string(expression)
-
-
 def evaluate_skip_when(expression: str, record: dict) -> bool:
     """Render *expression* against *record*; return ``True`` if result is truthy.
 
@@ -57,7 +52,7 @@ def evaluate_skip_when(expression: str, record: dict) -> bool:
         return bool(result)
     except (UndefinedError, SecurityError, TemplateSyntaxError, TypeError, ValueError):
         logger.warning(
-            "skip.when evaluation failed for expression %r; treating as truthy (row will be skipped)",
+            "skip.when evaluation failed for expression %r; treating as truthy (cell will be skipped)",
             expression,
             exc_info=True,
         )
@@ -74,3 +69,8 @@ def should_skip_by_propagation(
     config *before* calling this function (see ``ExecutionGraph.should_propagate_skip``).
     """
     return not skipped_columns_for_row.isdisjoint(required_columns)
+
+
+@lru_cache(maxsize=64)
+def _compile_skip_template(expression: str) -> Template:
+    return _env.from_string(expression)
