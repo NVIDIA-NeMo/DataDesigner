@@ -142,6 +142,126 @@ preview.display_sample_record()
 
 This stays fully declarative: no custom seed reader or preprocessing step is required. Because `sampled_turn` is drawn from the normalized `messages` list, the same config works across all supported rollout formats.
 
+## Example: Turn Tool Interactions into a Review Dataset
+
+You can also explode imported rollouts into a tool-interaction dataset. This example scans normalized `messages`, emits one row per tool call and matching tool response, preserves the trace context up to that response, and then uses a structured column to label the interaction as a success, failure, or unclear outcome.
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+from pydantic import BaseModel, Field
+from typing import Literal
+
+
+@dd.custom_column_generator(
+    required_columns=["messages"],
+    side_effect_columns=["tool_call", "tool_response", "tool_name"],
+)
+def explode_tool_interactions(row: dict) -> list[dict]:
+    rows = []
+    tool_calls_by_id = {}
+    context_messages = []
+
+    for message in row["messages"]:
+        context_messages.append(message)
+
+        for tool_call in message.get("tool_calls") or []:
+            tool_call_id = tool_call.get("id")
+            if tool_call_id:
+                tool_calls_by_id[tool_call_id] = tool_call
+
+        if message.get("role") != "tool":
+            continue
+
+        tool_call = tool_calls_by_id.get(
+            message.get("tool_call_id"),
+            {
+                "id": message.get("tool_call_id"),
+                "type": "function",
+                "function": {"name": "unknown", "arguments": "{}"},
+            },
+        )
+        tool_name = tool_call.get("function", {}).get("name", "unknown")
+
+        rows.append(
+            {
+                **row,
+                "tool_interaction_context": list(context_messages),
+                "tool_call": tool_call,
+                "tool_response": message,
+                "tool_name": tool_name,
+            }
+        )
+
+    return rows
+
+
+class ToolInteractionAnalysis(BaseModel):
+    outcome: Literal["success", "failure", "unclear"] = Field(
+        description="Whether the tool interaction appears to have succeeded, failed, or is ambiguous."
+    )
+    summary: str = Field(
+        description="One or two sentences summarizing what the tool was asked to do and what the response indicates."
+    )
+
+
+data_designer = DataDesigner()
+config_builder = dd.DataDesignerConfigBuilder(
+    model_configs=[
+        dd.ModelConfig(
+            alias="tool-analyst",
+            model="nvidia/nemotron-3-nano-30b-a3b",
+            provider="nvidia",
+        )
+    ]
+)
+
+config_builder.with_seed_dataset(
+    dd.AgentRolloutSeedSource(
+        format=dd.AgentRolloutFormat.CLAUDE_CODE,
+    )
+)
+
+config_builder.add_column(
+    dd.CustomColumnConfig(
+        name="tool_interaction_context",
+        generator_function=explode_tool_interactions,
+        allow_resize=True,
+    )
+)
+
+config_builder.add_column(
+    dd.LLMStructuredColumnConfig(
+        name="tool_interaction_analysis",
+        model_alias="tool-analyst",
+        output_format=ToolInteractionAnalysis,
+        prompt="""\
+You are analyzing one tool interaction from an imported agent rollout.
+
+Context up to the tool response:
+{{ tool_interaction_context }}
+
+Tool name: {{ tool_name }}
+
+Tool call:
+{{ tool_call }}
+
+Tool response:
+{{ tool_response }}
+
+Decide whether this interaction is a success, failure, or unclear outcome.
+Then summarize what the tool was asked to do and what happened.
+Base your answer on the tool call arguments, the tool response, and the immediate context.
+""",
+    )
+)
+
+preview = data_designer.preview(config_builder, num_records=5)
+preview.display_sample_record()
+```
+
+This pattern is useful when you want to curate evaluator or monitoring datasets from real traces. The resize-enabled custom column turns each tool interaction into its own record, and the structured column adds a consistent outcome label plus a grounded summary. Because the logic operates on normalized `tool_calls` and `tool` messages, the same pattern transfers across supported rollout formats. If your traces are long, consider adding a second custom or expression column that windows the context before sending it to a model.
+
 ## Related Guides
 
 - For the general seed dataset model, see [Seed Datasets](seed-datasets.md).
