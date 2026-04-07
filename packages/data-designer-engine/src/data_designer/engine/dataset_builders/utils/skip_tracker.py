@@ -27,7 +27,13 @@ def apply_skip_to_record(
     cell_value: bool | int | float | str | None,
     side_effect_columns: Sequence[str],
 ) -> None:
-    """Mutate *record* in place: skip marker, primary cell value, side effects cleared."""
+    """Mutate *record* in place: skip marker, primary cell value, side effects cleared.
+
+    Side-effect columns (e.g. ``__trace``, ``__reasoning_content``) are set to
+    ``None`` because the generator never ran — without this, records would have
+    inconsistent keys, breaking DataFrame construction and leaving stale or
+    missing values visible to downstream columns.
+    """
     skipped: set[str] = record.setdefault(SKIPPED_COLUMNS_RECORD_KEY, set())
     skipped.add(column_name)
     record[column_name] = cell_value
