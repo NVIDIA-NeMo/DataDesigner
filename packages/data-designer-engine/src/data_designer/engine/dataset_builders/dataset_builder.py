@@ -527,7 +527,9 @@ class DatasetBuilder:
 
     def _column_can_skip(self, column_name: str) -> bool:
         """Fast check: can *column_name* ever be skipped (expression gate or propagation)?"""
-        graph = self._require_graph()
+        if self._graph is None:
+            return False
+        graph = self._graph
         if graph.get_skip_config(column_name) is not None:
             return True
         return graph.should_propagate_skip(column_name) and bool(graph.get_required_columns(column_name))
