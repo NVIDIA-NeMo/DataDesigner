@@ -3,7 +3,7 @@
 
 """Record-inline skip tracking for conditional column generation.
 
-All reads, writes, and DataFrame-stripping of the ``__skipped__`` key go
+All reads, writes, and DataFrame-stripping of the ``__internal_skipped_columns`` key go
 through this module so sync, async, and buffer code do not diverge.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Final
 
-SKIPPED_COLUMNS_RECORD_KEY: Final[str] = "__skipped__"
+SKIPPED_COLUMNS_RECORD_KEY: Final[str] = "__internal_skipped_columns"
 
 
 def get_skipped_column_names(record: dict) -> set[str]:

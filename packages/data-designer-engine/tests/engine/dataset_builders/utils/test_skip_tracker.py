@@ -15,7 +15,7 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
 
 
 def test_skipped_columns_record_key_value() -> None:
-    assert SKIPPED_COLUMNS_RECORD_KEY == "__skipped__"
+    assert SKIPPED_COLUMNS_RECORD_KEY == "__internal_skipped_columns"
 
 
 @pytest.mark.parametrize(
