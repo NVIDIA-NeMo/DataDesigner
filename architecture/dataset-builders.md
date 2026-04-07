@@ -44,7 +44,7 @@ Preparation (`_prepare_async_run`):
 - `GenerationStrategy` per column (CELL_BY_CELL or FULL_COLUMN)
 - Kahn topological sort for execution order
 - `split_upstream_by_strategy` — separates batch-level from cell-level dependencies
-- Skip metadata: `SkipConfig`, `propagate_skip`, `required_columns`, and `side_effects_by_producer` per column — queried at runtime by both engines to evaluate skip decisions
+- Skip metadata per column — `get_skip_config`, `should_propagate_skip`, `get_required_columns`, and `get_side_effect_columns` — queried at runtime by both engines to evaluate skip decisions
 
 ### CompletionTracker
 

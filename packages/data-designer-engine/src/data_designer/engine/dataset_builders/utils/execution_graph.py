@@ -38,7 +38,7 @@ class ExecutionGraph:
         self._required_columns: dict[str, list[str]] = {}
         self._skip_configs: dict[str, SkipConfig] = {}
         self._propagate_skip: dict[str, bool] = {}
-        self._side_effects_by_producer: dict[str, list[str]] = {}
+        self._producer_to_side_effect_map: dict[str, list[str]] = {}
 
     @property
     def columns(self) -> list[str]:
@@ -132,7 +132,7 @@ class ExecutionGraph:
     def set_side_effect(self, side_effect_col: str, producer: str) -> None:
         """Map a side-effect column name to its producing column."""
         self._side_effect_map[side_effect_col] = producer
-        self._side_effects_by_producer.setdefault(producer, []).append(side_effect_col)
+        self._producer_to_side_effect_map.setdefault(producer, []).append(side_effect_col)
 
     def set_required_columns(self, column: str, required: list[str]) -> None:
         """Store the config-level ``required_columns`` for *column*."""
@@ -178,7 +178,7 @@ class ExecutionGraph:
 
     def get_side_effect_columns(self, column: str) -> list[str]:
         """Return side-effect column names produced by *column*."""
-        return list(self._side_effects_by_producer.get(column, []))
+        return list(self._producer_to_side_effect_map.get(column, []))
 
     def get_strategy(self, column: str) -> GenerationStrategy:
         return self._strategies[column]
