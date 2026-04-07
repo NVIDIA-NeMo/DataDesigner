@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import pytest
 from jinja2 import StrictUndefined
 
 from data_designer.engine.dataset_builders.utils.skip_evaluator import (
@@ -19,32 +20,20 @@ def test_native_sandboxed_environment_returns_native_types() -> None:
     assert type(result) is int
 
 
-def test_evaluate_skip_when_truthy() -> None:
-    assert evaluate_skip_when("{{ x == 0 }}", {"x": 0}) is True
-
-
-def test_evaluate_skip_when_falsy() -> None:
-    assert evaluate_skip_when("{{ x == 0 }}", {"x": 1}) is False
-
-
-def test_evaluate_skip_when_native_false() -> None:
-    assert evaluate_skip_when("{{ x }}", {"x": False}) is False
-
-
-def test_evaluate_skip_when_native_none() -> None:
-    assert evaluate_skip_when("{{ x }}", {"x": None}) is False
-
-
-def test_evaluate_skip_when_native_zero() -> None:
-    assert evaluate_skip_when("{{ x }}", {"x": 0}) is False
-
-
-def test_evaluate_skip_when_native_empty_string() -> None:
-    assert evaluate_skip_when("{{ x }}", {"x": ""}) is False
-
-
-def test_evaluate_skip_when_deserializes_json() -> None:
-    assert evaluate_skip_when('{{ x.key == "val" }}', {"x": '{"key": "val"}'}) is True
+@pytest.mark.parametrize(
+    ("expression", "record", "expected"),
+    [
+        pytest.param("{{ x == 0 }}", {"x": 0}, True, id="truthy-match"),
+        pytest.param("{{ x == 0 }}", {"x": 1}, False, id="falsy-no-match"),
+        pytest.param("{{ x }}", {"x": False}, False, id="native-false"),
+        pytest.param("{{ x }}", {"x": None}, False, id="native-none"),
+        pytest.param("{{ x }}", {"x": 0}, False, id="native-zero"),
+        pytest.param("{{ x }}", {"x": ""}, False, id="native-empty-string"),
+        pytest.param('{{ x.key == "val" }}', {"x": '{"key": "val"}'}, True, id="deserializes-json"),
+    ],
+)
+def test_evaluate_skip_when(expression: str, record: dict, expected: bool) -> None:
+    assert evaluate_skip_when(expression, record) is expected
 
 
 def test_evaluate_skip_when_strict_undefined_returns_true() -> None:
@@ -52,17 +41,14 @@ def test_evaluate_skip_when_strict_undefined_returns_true() -> None:
     assert evaluate_skip_when("{{ missing_var }}", {}) is True
 
 
-def test_should_skip_by_propagation_true() -> None:
-    assert should_skip_by_propagation(["a", "b"], {"a"}) is True
-
-
-def test_should_skip_by_propagation_no_overlap() -> None:
-    assert should_skip_by_propagation(["a"], {"b"}) is False
-
-
-def test_should_skip_by_propagation_empty_required() -> None:
-    assert should_skip_by_propagation([], {"a"}) is False
-
-
-def test_should_skip_by_propagation_empty_skipped() -> None:
-    assert should_skip_by_propagation(["a"], set()) is False
+@pytest.mark.parametrize(
+    ("required", "skipped", "expected"),
+    [
+        pytest.param(["a", "b"], {"a"}, True, id="overlap"),
+        pytest.param(["a"], {"b"}, False, id="no-overlap"),
+        pytest.param([], {"a"}, False, id="empty-required"),
+        pytest.param(["a"], set(), False, id="empty-skipped"),
+    ],
+)
+def test_should_skip_by_propagation(required: list[str], skipped: set[str], expected: bool) -> None:
+    assert should_skip_by_propagation(required, skipped) is expected

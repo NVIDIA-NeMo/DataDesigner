@@ -18,13 +18,15 @@ def test_skipped_columns_record_key_value() -> None:
     assert SKIPPED_COLUMNS_RECORD_KEY == "__skipped__"
 
 
-def test_get_skipped_column_names_empty() -> None:
-    assert get_skipped_column_names({}) == set()
-
-
-def test_get_skipped_column_names_populated() -> None:
-    record = {SKIPPED_COLUMNS_RECORD_KEY: {"a", "b"}}
-    assert get_skipped_column_names(record) == {"a", "b"}
+@pytest.mark.parametrize(
+    ("record", "expected"),
+    [
+        pytest.param({}, set(), id="empty"),
+        pytest.param({SKIPPED_COLUMNS_RECORD_KEY: {"a", "b"}}, {"a", "b"}, id="populated"),
+    ],
+)
+def test_get_skipped_column_names(record: dict, expected: set[str]) -> None:
+    assert get_skipped_column_names(record) == expected
 
 
 def test_get_skipped_column_names_returns_copy() -> None:
@@ -113,15 +115,16 @@ def test_strip_skip_metadata_for_dataframe_row_no_metadata() -> None:
     assert stripped["b"] is record["b"]
 
 
-def test_strip_skip_metadata_from_records() -> None:
-    rows = [
-        {"k": 1, SKIPPED_COLUMNS_RECORD_KEY: {"c"}},
-        {"k": 2},
-    ]
-    out = strip_skip_metadata_from_records(rows)
-    assert out == [{"k": 1}, {"k": 2}]
-    assert SKIPPED_COLUMNS_RECORD_KEY in rows[0]
-
-
-def test_strip_skip_metadata_from_records_empty() -> None:
-    assert strip_skip_metadata_from_records([]) == []
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        pytest.param(
+            [{"k": 1, SKIPPED_COLUMNS_RECORD_KEY: {"c"}}, {"k": 2}],
+            [{"k": 1}, {"k": 2}],
+            id="mixed",
+        ),
+        pytest.param([], [], id="empty"),
+    ],
+)
+def test_strip_skip_metadata_from_records(rows: list[dict], expected: list[dict]) -> None:
+    assert strip_skip_metadata_from_records(rows) == expected
