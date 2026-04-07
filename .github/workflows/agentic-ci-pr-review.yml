@@ -147,6 +147,7 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
           AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          DISABLE_PROMPT_CACHING: "1"
           GH_TOKEN: ${{ github.token }}
         run: |
           PR=${{ steps.pr.outputs.number }}
@@ -168,19 +169,16 @@ jobs:
             --verbose \
             2>&1 | tee /tmp/claude-review-log.txt || true
 
-          # Verify the review file was created.
-          if [ ! -s "/tmp/review-${PR}.md" ]; then
-            echo "::warning::Review file not created by agent. Extracting from output."
-            echo "Review could not be completed - the agent did not produce a review file." \
-              > "/tmp/review-${PR}.md"
-          fi
-
       - name: Post review comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR=${{ steps.pr.outputs.number }}
-          gh pr comment "$PR" --body-file "/tmp/review-${PR}.md"
+          if [ -s "/tmp/review-${PR}.md" ]; then
+            gh pr comment "$PR" --body-file "/tmp/review-${PR}.md"
+          else
+            echo "::warning::Review file not created by agent."
+          fi
 
       - name: Remove re-review label
         if: github.event.action == 'labeled' && github.event.label.name == 're-review'
