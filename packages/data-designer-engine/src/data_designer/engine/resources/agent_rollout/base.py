@@ -26,7 +26,8 @@ class AgentRolloutFormatHandler(ABC):
 
     def should_warn_unhandled_file(self, relative_path: str) -> bool:
         """Return whether unhandled files for this format should emit warnings."""
-        del relative_path
+        # Default: warn for all unhandled files; subclasses may inspect
+        # relative_path to suppress known non-session artifacts.
         return True
 
     @abstractmethod

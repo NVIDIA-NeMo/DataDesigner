@@ -79,7 +79,9 @@ class HermesAgentRolloutFormatHandler(AgentRolloutFormatHandler):
             alongside session logs, and ``True`` otherwise.
         """
         path = Path(relative_path)
-        return not (path.suffix == ".json" and not path.name.startswith("session_"))
+        if path.suffix != ".json":
+            return True
+        return path.name.startswith("session_")
 
     def parse_file(
         self,
