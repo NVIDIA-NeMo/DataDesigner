@@ -8,6 +8,7 @@ from data_designer.engine.resources.agent_rollout.atif import AtifAgentRolloutFo
 from data_designer.engine.resources.agent_rollout.base import AgentRolloutFormatHandler
 from data_designer.engine.resources.agent_rollout.claude_code import ClaudeCodeAgentRolloutFormatHandler
 from data_designer.engine.resources.agent_rollout.codex import CodexAgentRolloutFormatHandler
+from data_designer.engine.resources.agent_rollout.hermes_agent import HermesAgentRolloutFormatHandler
 
 BUILTIN_AGENT_ROLLOUT_FORMAT_HANDLERS: dict[AgentRolloutFormat, AgentRolloutFormatHandler] = {
     handler.format: handler
@@ -15,6 +16,7 @@ BUILTIN_AGENT_ROLLOUT_FORMAT_HANDLERS: dict[AgentRolloutFormat, AgentRolloutForm
         AtifAgentRolloutFormatHandler(),
         ClaudeCodeAgentRolloutFormatHandler(),
         CodexAgentRolloutFormatHandler(),
+        HermesAgentRolloutFormatHandler(),
     )
 }
 
