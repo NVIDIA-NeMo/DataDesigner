@@ -208,7 +208,7 @@ on:
 
 Three trigger modes:
 - **Automatic**: runs on PR open, push, or ready-for-review.
-- **Label**: adding a `re-review` label triggers a new review. The workflow
+- **Label**: adding a `agent-review` label triggers a new review. The workflow
   removes the label after running so it can be re-added next time.
 - **Manual**: `workflow_dispatch` with a PR number input, for ad-hoc reviews
   or debugging from the CLI (`gh workflow run ... -f pr_number=123`).
@@ -223,7 +223,7 @@ Steps:
 7. Invoke Claude Code / Codex with the rendered prompt
 8. Write output to a temp file, then post via `gh --body-file` (avoid shell
    quoting issues with agent output containing backticks, quotes, or special chars)
-9. If triggered by label, remove the `re-review` label
+9. If triggered by label, remove the `agent-review` label
 
 The workflow registers a **check run** on the PR. The check itself carries no
 review text - it just acts as the gate and status indicator:

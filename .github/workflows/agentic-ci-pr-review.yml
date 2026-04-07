@@ -2,7 +2,7 @@ name: "Agentic CI: PR Review"
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, labeled]
+    types: [opened, ready_for_review, labeled]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -39,16 +39,16 @@ jobs:
             exit 0
           fi
 
-          # Only the re-review label should trigger a run.
-          if [ "${{ github.event.action }}" = "labeled" ] && [ "${{ github.event.label.name }}" != "re-review" ]; then
-            echo "Skipping: labeled event but not re-review"
+          # Only the agent-review label should trigger a run.
+          if [ "${{ github.event.action }}" = "labeled" ] && [ "${{ github.event.label.name }}" != "agent-review" ]; then
+            echo "Skipping: labeled event but not agent-review"
             echo "allowed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Skip drafts unless re-review label is being added.
+          # Skip drafts unless agent-review label is being added.
           if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
-            if [ "${{ github.event.action }}" != "labeled" ] || [ "${{ github.event.label.name }}" != "re-review" ]; then
+            if [ "${{ github.event.action }}" != "labeled" ] || [ "${{ github.event.label.name }}" != "agent-review" ]; then
               echo "Skipping: draft PR"
               echo "allowed=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -180,9 +180,9 @@ jobs:
             echo "::warning::Review file not created by agent."
           fi
 
-      - name: Remove re-review label
-        if: github.event.action == 'labeled' && github.event.label.name == 're-review'
+      - name: Remove agent-review label
+        if: github.event.action == 'labeled' && github.event.label.name == 'agent-review'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr edit ${{ steps.pr.outputs.number }} --remove-label "re-review"
+          gh pr edit ${{ steps.pr.outputs.number }} --remove-label "agent-review"
