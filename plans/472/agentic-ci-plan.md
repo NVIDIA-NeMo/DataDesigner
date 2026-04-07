@@ -197,7 +197,7 @@ requires both sets of credentials on the runner but provides resilience.
 ```yaml
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, labeled]
+    types: [opened, ready_for_review, labeled]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -207,7 +207,8 @@ on:
 ```
 
 Three trigger modes:
-- **Automatic**: runs on PR open, push, or ready-for-review.
+- **Automatic**: runs on PR open or ready-for-review. Does not run on
+  subsequent pushes to keep reviews opt-in after the initial one.
 - **Label**: adding a `agent-review` label triggers a new review. The workflow
   removes the label after running so it can be re-added next time.
 - **Manual**: `workflow_dispatch` with a PR number input, for ad-hoc reviews
@@ -249,7 +250,6 @@ Constraints:
   consistency with code, skip linting). Skipping agent review entirely requires
   a `skip-agent-review` label rather than being inferred from file type.
 - Posts as a comment, not an approval/rejection
-- Rate-limited: one review per `synchronize` event, debounced
 
 #### Daily Maintenance Workflow
 
