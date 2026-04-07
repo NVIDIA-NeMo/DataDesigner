@@ -1,6 +1,6 @@
 ---
 date: 2026-03-30
-status: proposed
+status: in-progress
 authors:
   - andreatgretel
 ---
@@ -553,13 +553,13 @@ is clear:
 
 ## Phased Rollout
 
-### Phase 1: Foundation (this PR / next PR)
+### Phase 1: Foundation
 
 **Deliverables:**
-- [ ] `.agents/recipes/` directory with `_runner.md` and recipe format spec
-- [ ] First recipe: `pr-review/recipe.md`
-- [ ] GitHub workflow: `agentic-ci-pr-review.yml` (self-hosted runner)
-- [ ] API health probe workflow (`agentic-ci-health-probe.yml`) - pings the API
+- [x] `.agents/recipes/` directory with `_runner.md` and recipe format spec
+- [x] First recipe: `pr-review/recipe.md`
+- [x] GitHub workflow: `agentic-ci-pr-review.yml` (self-hosted runner)
+- [x] API health probe workflow (`agentic-ci-health-probe.yml`) - pings the API
       on a schedule, fails the workflow run on error (GitHub's built-in
       notifications handle alerting). Needed before relying on the API for real
       work.

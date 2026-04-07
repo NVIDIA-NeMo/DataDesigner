@@ -1,0 +1,152 @@
+name: "Agentic CI: PR Review"
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, labeled]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: agentic-ci-pr-review-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Only run for collaborators (or manual dispatch, which requires write access).
+    # Skip draft PRs on automatic triggers. Allow the re-review label to bypass draft check.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (
+        contains(fromJSON('["MEMBER","COLLABORATOR","OWNER"]'), github.event.pull_request.author_association)
+        && (
+          !github.event.pull_request.draft
+          || (github.event.action == 'labeled' && github.event.label.name == 're-review')
+        )
+      )
+    runs-on: [self-hosted, agentic-ci]
+    timeout-minutes: 15
+    steps:
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check required config
+        run: |
+          if [ -z "${{ vars.AGENTIC_CI_MODEL }}" ]; then
+            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            exit 1
+          fi
+
+      - name: Detect auth mode
+        id: auth
+        run: |
+          if [ -n "${{ secrets.AGENTIC_CI_API_BASE_URL }}" ] && [ -n "${{ secrets.AGENTIC_CI_API_KEY }}" ]; then
+            echo "mode=custom" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=oauth" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
+
+      # For workflow_dispatch, fetch and checkout the PR head.
+      - name: Checkout PR branch (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=${{ steps.pr.outputs.number }}
+          HEAD_SHA=$(gh pr view "$PR" --json headRefOid -q '.headRefOid')
+          git fetch origin "$HEAD_SHA"
+          git checkout "$HEAD_SHA"
+
+      - name: Pre-flight checks
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+        run: |
+          if ! command -v claude &> /dev/null; then
+            echo "::error::claude CLI not found in PATH"
+            exit 1
+          fi
+          echo "Claude CLI version: $(claude --version 2>&1 || true)"
+
+          # Quick API check (custom endpoint only)
+          if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{\"model\":\"${{ vars.AGENTIC_CI_MODEL }}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
+              exit 1
+            fi
+            echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+          fi
+
+      - name: Run PR review recipe
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=${{ steps.pr.outputs.number }}
+          MODEL="${AGENTIC_CI_MODEL}"
+
+          # Build the prompt from _runner.md + recipe, substituting template vars.
+          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
+          RECIPE_BODY=$(cat .agents/recipes/pr-review/recipe.md \
+            | sed '1,/^---$/{ /^---$/,/^---$/d }')
+
+          PROMPT=$(echo -e "${RUNNER_CTX}\n\n${RECIPE_BODY}" \
+            | sed "s/{{pr_number}}/${PR}/g")
+
+          claude \
+            --model "$MODEL" \
+            -p "$PROMPT" \
+            --max-turns 30 \
+            --output-format text \
+            --verbose \
+            2>&1 | tee /tmp/claude-review-log.txt || true
+
+          # Verify the review file was created.
+          if [ ! -s "/tmp/review-${PR}.md" ]; then
+            echo "::warning::Review file not created by agent. Extracting from output."
+            echo "Review could not be completed - the agent did not produce a review file." \
+              > "/tmp/review-${PR}.md"
+          fi
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=${{ steps.pr.outputs.number }}
+          gh pr comment "$PR" --body-file "/tmp/review-${PR}.md"
+
+      - name: Remove re-review label
+        if: github.event.action == 'labeled' && github.event.label.name == 're-review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr edit ${{ steps.pr.outputs.number }} --remove-label "re-review"
