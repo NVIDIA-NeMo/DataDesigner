@@ -173,6 +173,9 @@ Path: {{ relative_path }}
 
 Parse agent rollout trace files (e.g. from ATIF, Claude Code, Codex, or Hermes Agent) into a structured seed dataset. Each trace becomes one seed row with normalized metadata and the full message history, ready for distillation or analysis pipelines.
 
+!!! info "Dedicated guide"
+    See [Agent Rollout Ingestion](agent-rollout-ingestion.md) for the rollout-specific guide. This section keeps the quick-start and seeded-column summary.
+
 ```python
 seed_source = dd.AgentRolloutSeedSource(
     format=dd.AgentRolloutFormat.CLAUDE_CODE,
