@@ -312,8 +312,8 @@ data_designer.validate(config_builder)
 # for a subset of rows — for example, a detailed complaint analysis is only useful when the review is negative.
 #
 # Data Designer lets you **skip** column generation on a per-row basis using `SkipConfig`.
-# Skipped rows receive `None` by default, but you can set a custom fill value with
-# `skip=dd.SkipConfig(when="...", value="N/A - SKIPPED")` to write a specific value instead.
+# Skipped rows receive `None` by default, but you can provide a sentinel value with
+# `skip=dd.SkipConfig(when="...", value="N/A")` to write a specific value instead.
 #
 # There are three patterns to know:
 #
