@@ -34,3 +34,7 @@ Review pull request #{{pr_number}} using the `review-code` skill.
   critical files and note that a full review was not feasible in a single pass.
 - If the PR only changes docs/markdown, focus on accuracy, broken links, and
   consistency with code. Skip linting.
+- If the PR only changes files under `plans/`, focus on: completeness of the
+  plan (gaps, missing phases), feasibility of the proposed approach, alignment
+  with existing architecture (check AGENTS.md), and whether open questions are
+  identified. Skip linting and code-style checks.
