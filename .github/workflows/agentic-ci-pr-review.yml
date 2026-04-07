@@ -20,32 +20,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  debug:
-    # Temporary job to inspect event context values.
+  gate:
+    # Decide whether the review job should run. Uses the collaborator API
+    # instead of author_association (which is unreliable when org membership
+    # is private).
     runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
     steps:
-      - name: Dump event context
+      - name: Check permissions
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "event_name=${{ github.event_name }}"
-          echo "action=${{ github.event.action }}"
-          echo "author_association=${{ github.event.pull_request.author_association }}"
-          echo "draft=${{ github.event.pull_request.draft }}"
-          echo "pr_number=${{ github.event.pull_request.number }}"
-          cat "$GITHUB_EVENT_PATH" | jq '{action: .action, pr_author_association: .pull_request.author_association, pr_draft: .pull_request.draft, pr_number: .pull_request.number}'
+          # workflow_dispatch callers already have write access.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Only the re-review label should trigger a run.
+          if [ "${{ github.event.action }}" = "labeled" ] && [ "${{ github.event.label.name }}" != "re-review" ]; then
+            echo "Skipping: labeled event but not re-review"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip drafts unless re-review label is being added.
+          if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            if [ "${{ github.event.action }}" != "labeled" ] || [ "${{ github.event.label.name }}" != "re-review" ]; then
+              echo "Skipping: draft PR"
+              echo "allowed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # Check if the PR author has write (or admin) permission.
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${AUTHOR}/permission" --jq '.permission' 2>/dev/null || echo "none")
+          echo "Author=${AUTHOR} permission=${PERMISSION}"
+
+          if [ "$PERMISSION" = "admin" ] || [ "$PERMISSION" = "write" ]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipping: author does not have write access (permission=${PERMISSION})"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+          fi
 
   review:
-    # Only run for collaborators (or manual dispatch, which requires write access).
-    # Skip draft PRs unless re-review label is added. Only the re-review label triggers a run.
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      || (
-        contains(fromJSON('["MEMBER","COLLABORATOR","OWNER"]'), github.event.pull_request.author_association)
-        && (github.event.action != 'labeled' || github.event.label.name == 're-review')
-        && (
-          github.event.pull_request.draft == false
-          || (github.event.action == 'labeled' && github.event.label.name == 're-review')
-        )
-      )
+    needs: gate
+    if: needs.gate.outputs.allowed == 'true'
     runs-on: [self-hosted, agentic-ci]
     timeout-minutes: 15
     steps:
