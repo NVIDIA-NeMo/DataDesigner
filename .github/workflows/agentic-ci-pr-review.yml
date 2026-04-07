@@ -82,20 +82,19 @@ jobs:
             echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Validate PR number
+        run: |
+          PR=${{ steps.pr.outputs.number }}
+          if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid PR number: ${PR}"
+            exit 1
+          fi
+
       - name: Check required config
         run: |
           if [ -z "${{ vars.AGENTIC_CI_MODEL }}" ]; then
             echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
             exit 1
-          fi
-
-      - name: Detect auth mode
-        id: auth
-        run: |
-          if [ -n "${{ secrets.AGENTIC_CI_API_BASE_URL }}" ] && [ -n "${{ secrets.AGENTIC_CI_API_KEY }}" ]; then
-            echo "mode=custom" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=oauth" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout PR branch
