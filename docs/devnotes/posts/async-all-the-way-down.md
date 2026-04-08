@@ -9,9 +9,7 @@ authors:
 
 # **Async All the Way Down**
 
-Every Data Designer pipeline carries a map of what can run in parallel. Consider a pipeline that generates a `topic`, writes a `summary` and a `trivia` fact from that topic, then produces an `analysis` of the summary. `summary` and `trivia` both depend on `topic`, so they could run alongside each other. `analysis` depends on `summary`, so it has to wait — but only on the same row's summary, not the entire column. These references form a per-cell dependency graph. The previous engine used that graph to order columns, but it ran each column to completion before starting the next. A row's `analysis` couldn't start until *every* row of `summary` had finished, even though it only needed its own.
-
-We rebuilt the execution layer to schedule at the cell level. As soon as a cell's specific upstream dependencies complete, it dispatches — regardless of what other rows or columns are still in flight. Completion flows diagonally across the grid: early rows finish all their columns while later rows are still generating their first. For multi-model workflows, this means every endpoint stays saturated — a judge model starts processing rows the moment the first generator results land, rather than waiting for all generation to finish. The result is significantly faster pipelines with no changes to your config.
+Data Designer's execution engine now schedules work at the cell level rather than the column level. Instead of running each column to completion before starting the next, the async engine dispatches a cell as soon as its specific upstream dependencies complete. Multi-model pipelines keep every endpoint saturated, and single-model pipelines benefit from AIMD-based adaptive concurrency. The result is faster pipelines with no changes to your config.
 
 <!-- more -->
 
@@ -27,7 +25,9 @@ This post walks through how we built the new execution layer, what it does diffe
 
 ## **The Bottleneck Was Structural**
 
-Take the pipeline from above and add one more column: `conclusion` depends on `analysis`. The dependency graph now has a branch (`trivia` runs independently) and a chain (`summary` → `analysis` → `conclusion`). That's the "Deep" shape below:
+Every Data Designer pipeline carries a map of what can run in parallel. Consider a pipeline that generates a `topic`, writes a `summary` and a `trivia` fact from that topic, then produces an `analysis` of the summary. `summary` and `trivia` both depend on `topic`, so they could run alongside each other. `analysis` depends on `summary`, so it has to wait - but only on the same row's summary, not the entire column. These references form a per-cell dependency graph. The previous engine used that graph to order columns, but within each batch it ran each column to completion before starting the next. A row's `analysis` couldn't start until *every* row of `summary` in that batch had finished, even though it only needed its own.
+
+Now add one more column: `conclusion` depends on `analysis`. The dependency graph now has a branch (`trivia` runs independently) and a chain (`summary` → `analysis` → `conclusion`). That's the "Deep" shape below:
 
 <div style="text-align: center;" markdown>
 
@@ -69,9 +69,7 @@ At the top sits the `AsyncTaskScheduler`. It builds an `ExecutionGraph` from you
 
 The scheduler maintains a *frontier* — the set of tasks whose inputs are all satisfied. Dispatch is a loop: pull ready tasks from the frontier, acquire a [semaphore](https://en.wikipedia.org/wiki/Semaphore_(programming)) slot, spawn a worker. When the worker completes, mark the cell done, which may add new tasks to the frontier. The loop runs until every cell in every row group has completed or been dropped.
 
-Two details matter here. Multi-column generators (where one generator produces several output columns) are deduplicated so they run once. And stateful generators like seed dataset readers get per-instance `asyncio.Lock`s to preserve row-group ordering, since the order rows are read from a seed dataset matters.
-
-There's also a subtlety in how the scheduler manages its task slots, and getting it right required a delicate dance between two semaphores. A naïve approach would hold a submission slot for the entire lifetime of a task. That's fine for the outbound HTTP call — the slot is released before the request goes out. But the `ThrottleManager` can impose an internal timeout while waiting for a permit during AIMD cooldown, and *that* wait would hold the submission slot hostage. If enough tasks are blocked waiting for throttle permits, the scheduler can't dispatch new work even when the frontier has ready tasks.
+There's a subtlety in how the scheduler manages its task slots, and getting it right required a delicate dance between two semaphores. A naïve approach would hold a submission slot for the entire lifetime of a task. That's fine for the outbound HTTP call — the slot is released before the request goes out. But the `ThrottleManager` can impose an internal timeout while waiting for a permit during AIMD cooldown, and *that* wait would hold the submission slot hostage. If enough tasks are blocked waiting for throttle permits, the scheduler can't dispatch new work even when the frontier has ready tasks.
 
 The fix is a one-way semaphore handoff. The scheduler maintains two pools: a *submission* semaphore that caps how many tasks can be dispatched, and an *LLM-wait* semaphore (sized larger) for tasks that are blocked on a model call. When a task is about to call the model, it acquires an LLM-wait slot and releases its submission slot in the same atomic operation — stepping from one pool to the other mid-flight. The dispatch loop immediately sees a free submission slot and can send another task. When the LLM responds, the LLM-wait slot is released. Non-LLM generators (samplers, Jinja expressions) skip the handoff and hold their submission slot for the full duration, which is fine because they complete quickly.
 
