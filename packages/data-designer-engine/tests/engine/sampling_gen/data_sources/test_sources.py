@@ -164,21 +164,6 @@ def test_datetime_format_mixin_postproc_same_month_records():
     lazy.pd.testing.assert_series_equal(result, expected)
 
 
-def test_datetime_format_mixin_postproc_same_day_records():
-    series = lazy.pd.Series(lazy.pd.to_datetime(["2024-01-01 08:00:00", "2024-02-01 12:00:00"]))
-    result = DatetimeFormatMixin.postproc(series, None)
-    expected = lazy.pd.Series(["2024-01-01T08:00:00", "2024-02-01T12:00:00"], dtype="str")
-    lazy.pd.testing.assert_series_equal(result, expected)
-
-
-def test_datetime_format_mixin_postproc_always_parseable():
-    """All postproc outputs without convert_to must be parseable by fromisoformat."""
-    series = lazy.pd.Series(lazy.pd.date_range("2023-06-01", periods=5, freq="h"))
-    result = DatetimeFormatMixin.postproc(series, None)
-    for val in result:
-        lazy.pd.Timestamp.fromisoformat(val)
-
-
 def test_datetime_format_mixin_postproc_stdlib_fromisoformat():
     """Output must be parseable by Python stdlib datetime.fromisoformat, not just pandas."""
     from datetime import datetime

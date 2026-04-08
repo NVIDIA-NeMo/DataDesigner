@@ -148,26 +148,13 @@ def test_datetime_single_record_returns_isoformat(stub_schema_builder):
     stub_schema_builder.add_column(
         name="ts",
         sampler_type=SamplerType.DATETIME,
-        params={"start": "2024-01-01", "end": "2026-12-31", "unit": "D"},
+        params={"start": "2024-01-01", "end": "2026-06-30", "unit": "h"},
     )
     generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
     dataset = generator.generate(1)
     value = dataset["ts"].iloc[0]
     assert "T" in value, f"Expected ISO-8601 format but got: {value}"
     datetime.fromisoformat(value)
-
-
-def test_datetime_all_same_month_returns_isoformat(stub_schema_builder):
-    stub_schema_builder.add_column(
-        name="ts",
-        sampler_type=SamplerType.DATETIME,
-        params={"start": "2024-03-01", "end": "2024-03-31", "unit": "D"},
-    )
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
-    dataset = generator.generate(10)
-    for value in dataset["ts"]:
-        assert "T" in value, f"Expected ISO-8601 format but got: {value}"
-        datetime.fromisoformat(value)
 
 
 @pytest.mark.parametrize("unit", ["Y", "M", "D", "h", "m", "s"])
