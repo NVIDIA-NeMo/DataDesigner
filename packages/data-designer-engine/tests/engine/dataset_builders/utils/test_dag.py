@@ -21,8 +21,8 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
-from data_designer.engine.dataset_builders.utils.dag import topologically_sort_column_configs
 from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
+from data_designer.engine.dataset_builders.utils.execution_graph import topologically_sort_column_configs
 
 MODEL_ALIAS = "stub-model-alias"
 
