@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -201,6 +202,7 @@ class TrackingAgentRolloutSeedReader(AgentRolloutSeedReader):
 
 
 WriteJsonl = Callable[[Path, list[dict[str, Any]]], None]
+WriteJson = Callable[[Path, dict[str, Any]], None]
 
 
 def _write_claude_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> None:
@@ -224,6 +226,154 @@ def _write_claude_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> N
                 "type": "assistant",
                 "sessionId": "session-2",
                 "message": {"content": [{"type": "text", "text": "Goodbye"}]},
+            },
+        ],
+    )
+
+
+def _write_atif_trace_directory(root_path: Path) -> None:
+    session_dir = root_path / "project-a"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "session-1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "ATIF-v1.6",
+                "session_id": "atif-session-1",
+                "agent": {"name": "harbor-agent", "model_name": "gpt-5"},
+                "steps": [
+                    {
+                        "step_id": 1,
+                        "timestamp": "2026-04-06T12:00:00Z",
+                        "source": "user",
+                        "message": "Inspect the repo",
+                    },
+                    {
+                        "step_id": 2,
+                        "timestamp": "2026-04-06T12:00:02Z",
+                        "source": "agent",
+                        "message": "Repo inspected",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "session-2.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "ATIF-v1.6",
+                "session_id": "atif-session-2",
+                "agent": {"name": "harbor-agent", "model_name": "gpt-5"},
+                "steps": [
+                    {
+                        "step_id": 1,
+                        "timestamp": "2026-04-06T13:00:00Z",
+                        "source": "user",
+                        "message": "Run tests",
+                    },
+                    {
+                        "step_id": 2,
+                        "timestamp": "2026-04-06T13:00:03Z",
+                        "source": "agent",
+                        "message": "Tests checked",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_hermes_trace_directory(root_path: Path, write_json: WriteJson, write_jsonl: WriteJsonl) -> None:
+    write_json(
+        root_path / "request_dump_20260407_092759_baeaac_20260407_093000_000000.json",
+        {
+            "session_id": "20260407_092759_baeaac",
+            "timestamp": "2026-04-07T09:30:00",
+            "reason": "debug_dump",
+            "error": None,
+            "request": {"messages": []},
+        },
+    )
+    write_json(
+        root_path / "session_20260407_092759_baeaac.json",
+        {
+            "session_id": "20260407_092759_baeaac",
+            "model": "aws/anthropic/bedrock-claude-opus-4-6",
+            "base_url": "https://inference-api.nvidia.com/v1",
+            "platform": "cli",
+            "session_start": "2026-04-07T09:39:07.028463",
+            "last_updated": "2026-04-07T09:51:07.905570",
+            "system_prompt": "You are Hermes.",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "terminal",
+                        "description": "Run shell commands.",
+                        "parameters": {"type": "object", "properties": {}, "required": []},
+                    },
+                }
+            ],
+            "messages": [
+                {"role": "user", "content": "Set up a uv project."},
+                {
+                    "role": "assistant",
+                    "content": "I'll initialize the project.",
+                    "finish_reason": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tooluse_init",
+                            "call_id": "tooluse_init",
+                            "type": "function",
+                            "function": {
+                                "name": "terminal",
+                                "arguments": '{"command":"uv init"}',
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "tooluse_init",
+                    "content": '{"output":"Initialized project","exit_code":0,"error":null}',
+                },
+                {
+                    "role": "assistant",
+                    "content": "Done.",
+                    "finish_reason": "stop",
+                    "tool_calls": [],
+                },
+            ],
+        },
+    )
+    write_json(
+        root_path / "sessions.json",
+        {"slack:thread-1": "gateway-session-1"},
+    )
+    write_jsonl(
+        root_path / "gateway-session-1.jsonl",
+        [
+            {"role": "user", "content": "Check the deployment status."},
+            {
+                "role": "assistant",
+                "content": "I'll inspect the logs.",
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "tooluse_logs",
+                        "type": "function",
+                        "function": {
+                            "name": "terminal",
+                            "arguments": '{"command":"kubectl logs deploy/app"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "tooluse_logs",
+                "content": '{"output":"healthy","exit_code":0,"error":null}',
             },
         ],
     )
@@ -842,6 +992,27 @@ def test_agent_rollout_seed_reader_hydrates_to_record_count(tmp_path: Path, writ
     assert sorted(reader.hydrated_relative_paths) == ["project-a/session-1.jsonl", "project-a/session-2.jsonl"]
 
 
+def test_agent_rollout_seed_reader_hydrates_atif_json_files(tmp_path: Path) -> None:
+    _write_atif_trace_directory(tmp_path)
+
+    reader = TrackingAgentRolloutSeedReader()
+    reader.attach(
+        AgentRolloutSeedSource(
+            path=str(tmp_path),
+            format=AgentRolloutFormat.ATIF,
+        ),
+        PlaintextResolver(),
+    )
+
+    batch_reader = reader.create_batch_reader(batch_size=10, index_range=None, shuffle=False)
+    batch_df = batch_reader.read_next_batch().to_pandas().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(batch_df["trace_id"]) == ["atif-session-1", "atif-session-2"]
+    assert list(batch_df["source_kind"]) == ["atif", "atif"]
+    assert list(batch_df["final_assistant_message"]) == ["Repo inspected", "Tests checked"]
+    assert sorted(reader.hydrated_relative_paths) == ["project-a/session-1.json", "project-a/session-2.json"]
+
+
 def test_agent_rollout_seed_reader_hydration_laziness(tmp_path: Path, write_jsonl: WriteJsonl) -> None:
     _write_claude_trace_directory(tmp_path, write_jsonl)
 
@@ -857,6 +1028,58 @@ def test_agent_rollout_seed_reader_hydration_laziness(tmp_path: Path, write_json
     with patch("data_designer.engine.resources.agent_rollout.claude_code.load_jsonl_rows") as mock_load:
         reader.get_seed_dataset_size()
         mock_load.assert_not_called()
+
+
+def test_agent_rollout_seed_reader_supports_hermes_json_and_jsonl(
+    tmp_path: Path,
+    write_json: WriteJson,
+    write_jsonl: WriteJsonl,
+) -> None:
+    _write_hermes_trace_directory(tmp_path, write_json, write_jsonl)
+
+    reader = TrackingAgentRolloutSeedReader()
+    reader.attach(
+        AgentRolloutSeedSource(
+            path=str(tmp_path),
+            format=AgentRolloutFormat.HERMES_AGENT,
+        ),
+        PlaintextResolver(),
+    )
+
+    assert reader.get_seed_dataset_size() == 2
+
+    batch_reader = reader.create_batch_reader(batch_size=10, index_range=None, shuffle=False)
+    batch_df = batch_reader.read_next_batch().to_pandas().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(batch_df["trace_id"]) == ["20260407_092759_baeaac", "gateway-session-1"]
+    assert list(batch_df["source_kind"]) == ["hermes_agent", "hermes_agent"]
+    assert sorted(reader.hydrated_relative_paths) == [
+        "gateway-session-1.jsonl",
+        "session_20260407_092759_baeaac.json",
+    ]
+
+
+def test_agent_rollout_seed_reader_ignores_hermes_non_session_json_without_warning(
+    tmp_path: Path,
+    write_json: WriteJson,
+    write_jsonl: WriteJsonl,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _write_hermes_trace_directory(tmp_path, write_json, write_jsonl)
+
+    reader = AgentRolloutSeedReader()
+    reader.attach(
+        AgentRolloutSeedSource(
+            path=str(tmp_path),
+            format=AgentRolloutFormat.HERMES_AGENT,
+        ),
+        PlaintextResolver(),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        assert reader.get_seed_dataset_size() == 2
+
+    assert "Skipping unhandled hermes_agent file" not in caplog.text
 
 
 def test_agent_rollout_seed_reader_wraps_os_errors_as_seed_reader_error(

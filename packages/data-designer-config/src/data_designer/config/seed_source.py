@@ -8,7 +8,7 @@ from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 from typing_extensions import Self
 
 from data_designer.config.errors import InvalidFilePathError
@@ -172,6 +172,10 @@ def get_codex_default_path() -> str:
     return str(Path("~/.codex/sessions").expanduser())
 
 
+def get_hermes_agent_default_path() -> str:
+    return str(Path("~/.hermes/sessions").expanduser())
+
+
 def _validate_filesystem_seed_source_path(value: str | None) -> str | None:
     if value is None:
         return None
@@ -192,15 +196,21 @@ def _validate_filesystem_seed_source_file_pattern(value: str | None) -> str | No
 
 
 class AgentRolloutFormat(StrEnum):
+    ATIF = "atif"
     CLAUDE_CODE = "claude_code"
     CODEX = "codex"
+    HERMES_AGENT = "hermes_agent"
 
 
-def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str, str]:
+def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str | None, str]:
+    if fmt == AgentRolloutFormat.ATIF:
+        return (None, "*.json")
     if fmt == AgentRolloutFormat.CLAUDE_CODE:
         return (get_claude_code_default_path(), "*.jsonl")
     if fmt == AgentRolloutFormat.CODEX:
         return (get_codex_default_path(), "*.jsonl")
+    if fmt == AgentRolloutFormat.HERMES_AGENT:
+        return (get_hermes_agent_default_path(), "*.json*")
     raise ValueError(f"🛑 Unknown agent rollout format: {fmt!r}")
 
 
@@ -215,8 +225,10 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
     path: str | None = Field(
         None,
         description=(
-            "Directory containing agent rollout artifacts. When omitted, built-in defaults are used: "
-            "Claude Code defaults to ~/.claude/projects and Codex defaults to ~/.codex/sessions. "
+            "Directory containing agent rollout artifacts. This field is required for ATIF trajectories. "
+            "When omitted, built-in defaults are used for formats that define one. "
+            "Claude Code defaults to ~/.claude/projects, Codex defaults to ~/.codex/sessions, "
+            "and Hermes Agent defaults to ~/.hermes/sessions. "
             "Relative paths are resolved from the current working directory when the config is loaded, "
             "not from the config file location."
         ),
@@ -225,9 +237,18 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
     file_pattern: str | None = Field(
         None,
         description=(
-            "Case-sensitive filename pattern used to match agent rollout files. When omitted, defaults to '*.jsonl'."
+            "Case-sensitive filename pattern used to match agent rollout files. When omitted, "
+            "ATIF defaults to '*.json', Claude Code and Codex default to '*.jsonl', "
+            "and Hermes Agent defaults to '*.json*'."
         ),
     )
+
+    @model_validator(mode="after")
+    def validate_runtime_path_source(self) -> Self:
+        default_path, _ = get_agent_rollout_format_defaults(self.format)
+        if self.path is None and default_path is None:
+            raise ValueError(f"🛑 AgentRolloutSeedSource.path is required for format {self.format.value!r}.")
+        return self
 
     @property
     def runtime_path(self) -> str:
@@ -235,6 +256,8 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
             return self._runtime_path
         default_path, _ = get_agent_rollout_format_defaults(self.format)
         resolved_path = self.path if self.path is not None else default_path
+        if resolved_path is None:
+            raise ValueError(f"🛑 AgentRolloutSeedSource.path is required for format {self.format.value!r}.")
         self._runtime_path = _resolve_filesystem_runtime_path(resolved_path)
         return self._runtime_path
 

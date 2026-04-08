@@ -58,6 +58,18 @@ def load_jsonl_rows(file_path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
             yield (line_number, parsed_line)
 
 
+def load_json_object(file_path: Path) -> dict[str, Any]:
+    with file_path.open(encoding="utf-8") as file:
+        try:
+            parsed_payload = json.load(file)
+        except json.JSONDecodeError as error:
+            raise AgentRolloutSeedParseError(f"Invalid JSON in {file_path}: {error.msg}") from error
+
+    if not isinstance(parsed_payload, dict):
+        raise AgentRolloutSeedParseError(f"Expected JSON object in {file_path}, got {type(parsed_payload).__name__}")
+    return parsed_payload
+
+
 def require_string(value: Any, context: str) -> str:
     if not isinstance(value, str) or value == "":
         raise AgentRolloutSeedParseError(f"Expected non-empty string for {context}, got {value!r}")

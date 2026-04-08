@@ -598,7 +598,7 @@ class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
         for p in matched_paths:
             if handler.is_handled_file(p):
                 handled.append(p)
-            else:
+            elif handler.should_warn_unhandled_file(p):
                 logger.warning("Skipping unhandled %s file %s", self.source.format.value, p)
         return [
             _build_metadata_record(context=context, relative_path=p, source_kind=self.source.format.value)

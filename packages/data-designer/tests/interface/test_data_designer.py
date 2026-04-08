@@ -89,6 +89,11 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             file.write(f"{json.dumps(row)}\n")
 
 
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _write_empty_jsonl(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("", encoding="utf-8")
@@ -205,6 +210,134 @@ def _write_codex_trace_directory(root_path: Path) -> None:
                     "role": "assistant",
                     "content": [{"type": "output_text", "text": "Listed files"}],
                 },
+            },
+        ],
+    )
+
+
+def _write_atif_trace_directory(root_path: Path) -> None:
+    trace_dir = root_path / "sessions"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    (trace_dir / "session-1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "ATIF-v1.6",
+                "session_id": "atif-session-1",
+                "agent": {
+                    "name": "harbor-agent",
+                    "model_name": "gpt-5",
+                    "extra": {"cwd": "/workspace/project", "git_branch": "main"},
+                },
+                "steps": [
+                    {
+                        "step_id": 1,
+                        "timestamp": "2026-04-06T12:00:00Z",
+                        "source": "user",
+                        "message": "Inspect the repository.",
+                    },
+                    {
+                        "step_id": 2,
+                        "timestamp": "2026-04-06T12:00:04Z",
+                        "source": "agent",
+                        "message": [{"type": "text", "text": "Repository inspected"}],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_hermes_trace_directory(root_path: Path) -> None:
+    _write_json(
+        root_path / "request_dump_20260407_092759_baeaac_20260407_093000_000000.json",
+        {
+            "session_id": "20260407_092759_baeaac",
+            "timestamp": "2026-04-07T09:30:00",
+            "reason": "debug_dump",
+            "error": None,
+            "request": {"messages": []},
+        },
+    )
+    _write_json(
+        root_path / "session_20260407_092759_baeaac.json",
+        {
+            "session_id": "20260407_092759_baeaac",
+            "model": "aws/anthropic/bedrock-claude-opus-4-6",
+            "base_url": "https://inference-api.nvidia.com/v1",
+            "platform": "cli",
+            "session_start": "2026-04-07T09:39:07.028463",
+            "last_updated": "2026-04-07T09:51:07.905570",
+            "system_prompt": "You are Hermes.",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "terminal",
+                        "description": "Run shell commands.",
+                        "parameters": {"type": "object", "properties": {}, "required": []},
+                    },
+                }
+            ],
+            "messages": [
+                {"role": "user", "content": "Set up a uv project."},
+                {
+                    "role": "assistant",
+                    "content": "I'll initialize the project.",
+                    "finish_reason": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tooluse_init",
+                            "call_id": "tooluse_init",
+                            "type": "function",
+                            "function": {
+                                "name": "terminal",
+                                "arguments": '{"command":"uv init"}',
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "tooluse_init",
+                    "content": '{"output":"Initialized project","exit_code":0,"error":null}',
+                },
+                {
+                    "role": "assistant",
+                    "content": "Done.",
+                    "finish_reason": "stop",
+                    "tool_calls": [],
+                },
+            ],
+        },
+    )
+    _write_json(
+        root_path / "sessions.json",
+        {"slack:thread-1": "gateway-session-1"},
+    )
+    _write_jsonl(
+        root_path / "gateway-session-1.jsonl",
+        [
+            {"role": "user", "content": "Check the deployment status."},
+            {
+                "role": "assistant",
+                "content": "I'll inspect the logs.",
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "tooluse_logs",
+                        "type": "function",
+                        "function": {
+                            "name": "terminal",
+                            "arguments": '{"command":"kubectl logs deploy/app"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "tooluse_logs",
+                "content": '{"output":"healthy","exit_code":0,"error":null}',
             },
         ],
     )
@@ -1128,6 +1261,14 @@ def test_create_dataset_e2e_with_file_contents_seed_source_unreadable_file_raise
     ("dir_name", "seed_source_factory", "writer", "expected_trace_ids", "expected_messages", "expected_tool_counts"),
     [
         (
+            "atif",
+            lambda path: AgentRolloutSeedSource(path=str(path), format=AgentRolloutFormat.ATIF),
+            _write_atif_trace_directory,
+            ["atif-session-1"],
+            ["Repository inspected"],
+            [0],
+        ),
+        (
             "claude-code",
             lambda path: AgentRolloutSeedSource(
                 path=str(path),
@@ -1146,8 +1287,16 @@ def test_create_dataset_e2e_with_file_contents_seed_source_unreadable_file_raise
             ["Listed files"],
             [1],
         ),
+        (
+            "hermes-agent",
+            lambda path: AgentRolloutSeedSource(path=str(path), format=AgentRolloutFormat.HERMES_AGENT),
+            _write_hermes_trace_directory,
+            ["20260407_092759_baeaac", "gateway-session-1"],
+            ["Done.", "I'll inspect the logs."],
+            [1, 1],
+        ),
     ],
-    ids=["claude-code", "codex"],
+    ids=["atif", "claude-code", "codex", "hermes-agent"],
 )
 def test_create_dataset_e2e_with_trace_seed_sources(
     stub_artifact_path: Path,
@@ -1202,6 +1351,20 @@ def test_create_dataset_e2e_with_trace_seed_sources(
     elif dir_name == "codex":
         assert list(df["source_kind"]) == ["codex"]
         assert list(df["cwd"]) == ["/workspace"]
+    elif dir_name == "atif":
+        assert list(df["source_kind"]) == ["atif"]
+        assert list(df["cwd"]) == ["/workspace/project"]
+        assert list(df["git_branch"]) == ["main"]
+    elif dir_name == "hermes-agent":
+        assert list(df["source_kind"]) == ["hermes_agent", "hermes_agent"]
+        assert df.iloc[0]["started_at"] == "2026-04-07T09:39:07.028463"
+        assert df.iloc[0]["ended_at"] == "2026-04-07T09:51:07.905570"
+        assert lazy.pd.isna(df.iloc[1]["started_at"])
+        assert lazy.pd.isna(df.iloc[1]["ended_at"])
+        assert list(df["source_meta"].map(lambda meta: meta["session_format"])) == [
+            "cli_session_log",
+            "gateway_transcript",
+        ]
 
 
 def test_create_dataset_warns_for_unhandled_transform_files(

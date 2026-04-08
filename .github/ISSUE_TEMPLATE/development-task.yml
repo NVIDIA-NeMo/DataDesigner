@@ -1,5 +1,5 @@
 name: 🛠️ Development Task
-description: Track internal development work, refactoring, or infrastructure
+description: Track internal development work, refactoring, or infrastructure changes
 labels: ["task"]
 body:
   - type: dropdown
@@ -25,6 +25,20 @@ body:
     attributes:
       label: Technical Details & Implementation Plan
       placeholder: Describe the technical approach, files affected, or logic changes.
+  - type: textarea
+    id: investigation
+    attributes:
+      label: Investigation / Context
+      description: |
+        Relevant issue links, architecture context, or notes from prior exploration.
+      placeholder: Link related issues, reference architecture docs, or describe relevant context.
+  - type: textarea
+    id: agent-plan
+    attributes:
+      label: Agent Plan / Findings
+      description: |
+        If an agent investigated this task, paste its findings or proposed plan here.
+      placeholder: Paste agent output here, if applicable.
   - type: input
     id: dependencies
     attributes:

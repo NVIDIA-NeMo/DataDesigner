@@ -227,6 +227,12 @@ def test_filesystem_seed_sources_reject_path_like_file_patterns(
     ("rollout_format", "file_pattern", "error_message"),
     [
         pytest.param(
+            AgentRolloutFormat.ATIF,
+            "nested/trace.json",
+            "match file names, not relative paths",
+            id="atif-posix",
+        ),
+        pytest.param(
             AgentRolloutFormat.CLAUDE_CODE,
             "",
             "non-empty string",
@@ -238,6 +244,12 @@ def test_filesystem_seed_sources_reject_path_like_file_patterns(
             "match file names, not relative paths",
             id="codex-posix",
         ),
+        pytest.param(
+            AgentRolloutFormat.HERMES_AGENT,
+            r"nested\\session_*.json",
+            "match file names, not relative paths",
+            id="hermes-windows",
+        ),
     ],
 )
 def test_agent_rollout_seed_source_rejects_invalid_file_patterns(
@@ -248,6 +260,23 @@ def test_agent_rollout_seed_source_rejects_invalid_file_patterns(
 ) -> None:
     with pytest.raises(ValueError, match=error_message):
         AgentRolloutSeedSource(path=str(tmp_path), file_pattern=file_pattern, format=rollout_format)
+
+
+def test_agent_rollout_seed_source_requires_explicit_atif_path() -> None:
+    with pytest.raises(ValueError, match="path is required for format 'atif'"):
+        AgentRolloutSeedSource(format=AgentRolloutFormat.ATIF)
+
+
+def test_agent_rollout_seed_source_uses_default_atif_file_pattern(tmp_path: Path) -> None:
+    trace_dir = tmp_path / "atif"
+    trace_dir.mkdir()
+
+    source = AgentRolloutSeedSource(path=str(trace_dir), format=AgentRolloutFormat.ATIF)
+
+    assert source.seed_type == "agent_rollout"
+    assert source.resolved_file_pattern == "*.json"
+    assert source.recursive is True
+    assert source.format == AgentRolloutFormat.ATIF
 
 
 def test_agent_rollout_seed_source_uses_default_claude_path(
@@ -284,6 +313,24 @@ def test_agent_rollout_seed_source_uses_default_codex_path(
     assert source.resolved_file_pattern == "*.jsonl"
     assert source.recursive is True
     assert source.format == AgentRolloutFormat.CODEX
+
+
+def test_agent_rollout_seed_source_uses_default_hermes_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    hermes_dir = tmp_path / ".hermes" / "sessions"
+    hermes_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = AgentRolloutSeedSource(format=AgentRolloutFormat.HERMES_AGENT)
+
+    assert source.seed_type == "agent_rollout"
+    assert source.path is None
+    assert source.file_pattern is None
+    assert source.resolved_file_pattern == "*.json*"
+    assert source.recursive is True
+    assert source.format == AgentRolloutFormat.HERMES_AGENT
 
 
 def test_agent_rollout_seed_source_round_trips_none_path(
@@ -324,8 +371,10 @@ def test_seed_sources_are_exported_from_config_module(
 ) -> None:
     claude_dir = tmp_path / ".claude" / "projects"
     codex_dir = tmp_path / ".codex" / "sessions"
+    hermes_dir = tmp_path / ".hermes" / "sessions"
     claude_dir.mkdir(parents=True)
     codex_dir.mkdir(parents=True)
+    hermes_dir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(tmp_path))
 
     directory_source = dd.DirectorySeedSource(path=str(tmp_path))
