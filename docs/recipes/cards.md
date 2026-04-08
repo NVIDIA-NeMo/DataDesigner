@@ -114,6 +114,7 @@ Each recipe is a self-contained example that can be run independently.
     ---
 
     [:material-book-open-page-variant: View Recipe](trace_ingestion/agent_rollout_distillation.md){ .md-button }
+    [:material-file-document-outline: Ingestion Guide](../concepts/agent-rollout-ingestion.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/trace_ingestion/agent_rollout_distillation.py){ .md-button download="agent_rollout_distillation.py" }
 
 
