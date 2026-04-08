@@ -44,8 +44,10 @@ class SamplerColumnConfig(SingleColumnConfig):
         conditional_params: Optional dictionary for conditional parameters. The dict keys
             are the conditions that must be met (e.g., "age > 21") for the conditional parameters
             to be used. The values of dict are the parameters to use when the condition is met.
-        convert_to: Optional type conversion to apply after sampling. Must be one of "float", "int", or "str".
-            Useful for converting numerical samples to strings or other types.
+        convert_to: Optional type conversion to apply after sampling. For numerical samplers,
+            must be one of "float", "int", or "str". For datetime and timedelta samplers, accepts
+            a strftime format string (e.g., ``"%Y-%m-%d"``, ``"%m/%d/%Y %H:%M"``). When omitted,
+            datetime/timedelta columns default to ISO-8601 format (e.g., ``2024-01-15T09:30:00``).
 
     Inherited Attributes:
         name (required): Unique name of the column to be generated.
@@ -70,7 +72,12 @@ class SamplerColumnConfig(SingleColumnConfig):
         description="Optional dictionary for conditional parameters; keys are conditions, values are params to use when met",
     )
     convert_to: str | None = Field(
-        default=None, description="Optional type conversion after sampling: 'float', 'int', or 'str'"
+        default=None,
+        description=(
+            "Optional type conversion after sampling: 'float', 'int', or 'str' for numerical samplers; "
+            "a strftime format string (e.g., '%Y-%m-%d') for datetime/timedelta samplers. "
+            "Datetime/timedelta columns default to ISO-8601 (e.g., 2024-01-15T09:30:00) when omitted."
+        ),
     )
     column_type: Literal["sampler"] = "sampler"
 

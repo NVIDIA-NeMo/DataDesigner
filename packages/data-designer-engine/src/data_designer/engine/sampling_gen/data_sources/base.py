@@ -90,6 +90,13 @@ class TypeConversionMixin:
 
 
 class DatetimeFormatMixin:
+    """Pre/post-processing mixin for datetime and timedelta samplers.
+
+    Formatting behavior:
+        - With ``convert_to``: formats using the given strftime string.
+        - Without ``convert_to``: returns ISO-8601 strings (e.g., ``2024-01-15T09:30:00``).
+    """
+
     @staticmethod
     def preproc(series: pd.Series, convert_to: str | None) -> pd.Series:
         return series
