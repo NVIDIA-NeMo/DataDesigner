@@ -55,6 +55,13 @@ class TrackingSemaphore(asyncio.Semaphore):
     def available_permits(self) -> int:
         return self._value  # type: ignore[attr-defined]
 
+    def try_acquire(self) -> bool:
+        """Non-blocking acquire. Returns ``True`` if a permit was taken."""
+        if self._value > 0:  # type: ignore[attr-defined]
+            self._value -= 1  # type: ignore[attr-defined]
+            return True
+        return False
+
 
 @dataclass
 class _RowGroupState:
@@ -296,8 +303,11 @@ class AsyncTaskScheduler:
                     for t in ready
                     if (s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done or t.column in seed_cols
                 ]
+            semaphore_full = False
             for task in ready:
-                await self._submission_semaphore.acquire()
+                if not self._submission_semaphore.try_acquire():
+                    semaphore_full = True
+                    break
                 self._dispatched.add(task)
                 self._in_flight.add(task)
                 if (s := self._rg_states.get(task.row_group)) is not None:
@@ -321,7 +331,7 @@ class AsyncTaskScheduler:
                 if self._all_rgs_admitted:
                     break
 
-            if not ready:
+            if not ready or semaphore_full:
                 await self._wake_event.wait()
 
     async def _salvage_rounds(
@@ -400,7 +410,8 @@ class AsyncTaskScheduler:
                     if (s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done or t.column in seed_cols
                 ]
             for task in ready:
-                await self._submission_semaphore.acquire()
+                if not self._submission_semaphore.try_acquire():
+                    break
                 self._dispatched.add(task)
                 self._in_flight.add(task)
                 if (s := self._rg_states.get(task.row_group)) is not None:
