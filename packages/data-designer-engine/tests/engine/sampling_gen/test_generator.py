@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from functools import partial
 
@@ -67,7 +68,7 @@ def test_datetime_formats(stub_schema_builder):
     generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
     dataset = generator.generate(100)
 
-    assert dataset["year"].str.match(r"\d{4}").all()
+    assert dataset["year"].str.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}").all()
     assert dataset["datetime"].str.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}").all()
 
 
@@ -96,7 +97,7 @@ def test_timedelta(stub_schema_builder):
     generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
     dataset = generator.generate(100)
 
-    assert dataset["new_date"].str.match(r"\d{4}-\d{2}-\d{2}").all()
+    assert dataset["new_date"].str.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}").all()
 
     dt = lazy.pd.to_datetime(dataset["new_date"]) - lazy.pd.to_datetime(dataset["reference_date"])
     assert (dt <= lazy.pd.Timedelta(days=10)).all()
@@ -140,6 +141,149 @@ def test_dataset_column_convert_datetime_format(stub_schema_builder):
     assert dataset["col_1"].dtype == "object"
     assert dataset["col_1"].str.contains(r"\d{2}/\d{2}/\d{4}").all()
     assert lazy.pd.to_datetime(dataset["col_1"], format="%m/%d/%Y").notna().all()
+
+
+def test_datetime_single_record_returns_isoformat(stub_schema_builder):
+    """Reproducer for issue #484: single-record preview must return full ISO-8601."""
+    stub_schema_builder.add_column(
+        name="ts",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2024-01-01", "end": "2026-12-31", "unit": "D"},
+    )
+    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    dataset = generator.generate(1)
+    value = dataset["ts"].iloc[0]
+    assert "T" in value, f"Expected ISO-8601 format but got: {value}"
+    datetime.fromisoformat(value)
+
+
+def test_datetime_all_same_month_returns_isoformat(stub_schema_builder):
+    stub_schema_builder.add_column(
+        name="ts",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2024-03-01", "end": "2024-03-31", "unit": "D"},
+    )
+    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    dataset = generator.generate(10)
+    for value in dataset["ts"]:
+        assert "T" in value, f"Expected ISO-8601 format but got: {value}"
+        datetime.fromisoformat(value)
+
+
+@pytest.mark.parametrize("unit", ["Y", "M", "D", "h", "m", "s"])
+def test_datetime_all_units_preview_size(stub_schema_builder, unit):
+    """Every unit granularity must return valid ISO-8601 even at preview sizes (1-5 records)."""
+    stub_schema_builder.add_column(
+        name="ts",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2020-01-01", "end": "2025-12-31", "unit": unit},
+    )
+    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    dataset = generator.generate(3)
+    for value in dataset["ts"]:
+        assert "T" in value, f"unit={unit!r}: expected ISO-8601, got: {value}"
+        datetime.fromisoformat(value)
+
+
+def test_datetime_output_round_trips_through_pd_to_datetime(stub_schema_builder):
+    """Output strings must survive pd.to_datetime() for downstream DataFrame joins/filters."""
+    stub_schema_builder.add_column(
+        name="ts",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2020-01-01", "end": "2025-01-01", "unit": "s"},
+    )
+    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    dataset = generator.generate(50)
+    parsed = lazy.pd.to_datetime(dataset["ts"])
+    assert parsed.notna().all()
+    assert parsed.dtype == "datetime64[ns]"
+
+
+def test_timedelta_single_record(stub_schema_builder):
+    """TimeDelta columns must also produce valid ISO-8601 for single-record previews."""
+    stub_schema_builder.add_column(
+        name="order_date",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2024-01-01", "end": "2024-12-31", "unit": "D"},
+    )
+    stub_schema_builder.add_column(
+        name="delivery_date",
+        sampler_type=SamplerType.TIMEDELTA,
+        params={"dt_min": 1, "dt_max": 5, "reference_column_name": "order_date", "unit": "D"},
+    )
+    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    dataset = generator.generate(1)
+    for col in ["order_date", "delivery_date"]:
+        value = dataset[col].iloc[0]
+        assert "T" in value, f"{col}: expected ISO-8601, got: {value}"
+        datetime.fromisoformat(value)
+
+
+def test_timedelta_hourly_units(stub_schema_builder):
+    """TimeDelta with sub-day units must produce valid ISO-8601."""
+    stub_schema_builder.add_column(
+        name="event_start",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2024-06-01", "end": "2024-06-30", "unit": "h"},
+    )
+    stub_schema_builder.add_column(
+        name="event_end",
+        sampler_type=SamplerType.TIMEDELTA,
+        params={"dt_min": 1, "dt_max": 4, "reference_column_name": "event_start", "unit": "h"},
+    )
+    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    dataset = generator.generate(20)
+    for col in ["event_start", "event_end"]:
+        for value in dataset[col]:
+            datetime.fromisoformat(value)
+    # Verify the timedelta relationship holds.
+    starts = lazy.pd.to_datetime(dataset["event_start"])
+    ends = lazy.pd.to_datetime(dataset["event_end"])
+    deltas = ends - starts
+    assert (deltas >= lazy.pd.Timedelta(hours=1)).all()
+    assert (deltas < lazy.pd.Timedelta(hours=4)).all()
+
+
+def test_multiple_datetime_columns_independent(stub_schema_builder):
+    """Multiple datetime columns with different configs don't contaminate each other."""
+    stub_schema_builder.add_column(
+        name="created_at",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2020-01-01", "end": "2020-12-31", "unit": "D"},
+    )
+    stub_schema_builder.add_column(
+        name="logged_at",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2024-06-01", "end": "2024-06-30", "unit": "s"},
+        convert_to="%Y-%m-%d %H:%M:%S",
+    )
+    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    dataset = generator.generate(10)
+    # created_at: no convert_to → ISO-8601 with T separator.
+    for value in dataset["created_at"]:
+        assert "T" in value
+        datetime.fromisoformat(value)
+    # logged_at: explicit convert_to → space separator, no T.
+    for value in dataset["logged_at"]:
+        assert "T" not in value
+        lazy.pd.to_datetime(value, format="%Y-%m-%d %H:%M:%S")
+
+
+def test_datetime_narrow_range_single_day(stub_schema_builder):
+    """Sampling within a single day must still return full ISO-8601 timestamps."""
+    stub_schema_builder.add_column(
+        name="ts",
+        sampler_type=SamplerType.DATETIME,
+        params={"start": "2024-07-04 00:00:00", "end": "2024-07-04 23:59:59", "unit": "s"},
+    )
+    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    dataset = generator.generate(5)
+    for value in dataset["ts"]:
+        assert "T" in value, f"Expected ISO-8601 format but got: {value}"
+        parsed = datetime.fromisoformat(value)
+        assert parsed.year == 2024
+        assert parsed.month == 7
+        assert parsed.day == 4
 
 
 def test_dataset_with_conditionals(stub_schema_builder):

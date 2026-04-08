@@ -98,15 +98,7 @@ class DatetimeFormatMixin:
     def postproc(series: pd.Series, convert_to: str | None) -> pd.Series:
         if convert_to is not None:
             return series.dt.strftime(convert_to)
-        if series.dt.month.nunique() == 1:
-            return series.apply(lambda dt: dt.year).astype(str)
-        if series.dt.day.nunique() == 1:
-            return series.apply(lambda dt: dt.strftime("%Y-%m"))
-        if series.dt.hour.sum() > 0 or series.dt.minute.sum() > 0:
-            return series.apply(lambda dt: dt.isoformat()).astype(str)
-        if series.dt.second.sum() == 0:
-            return series.apply(lambda dt: dt.date()).astype(str)
-        return series.apply(lambda dt: dt.isoformat()).astype(str)
+        return series.dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     @staticmethod
     def validate_data_conversion(convert_to: str | None) -> None:
