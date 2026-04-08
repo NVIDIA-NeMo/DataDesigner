@@ -82,14 +82,14 @@ def test_dag_construction():
 
     assert sorted_column_configs[0].column_type == DataDesignerColumnType.SAMPLER
 
-    assert [c.name for c in sorted_column_configs[1:]] == [
-        "test_code",
-        "test_validation",
-        "depends_on_validation",
-        "test_judge",
-        "test_code_and_depends_on_validation_reasoning_traces",
-        "uses_all_the_stuff",
-    ]
+    names = [c.name for c in sorted_column_configs[1:]]
+    assert names[0] == "test_code"
+    assert names[1] == "test_validation"
+    assert names[2] == "depends_on_validation"
+    # test_judge and test_code_and_depends_on_validation_reasoning_traces have no mutual
+    # dependency, so their relative order is not guaranteed by topological sort.
+    assert set(names[3:5]) == {"test_judge", "test_code_and_depends_on_validation_reasoning_traces"}
+    assert names[5] == "uses_all_the_stuff"
 
 
 def test_circular_dependencies():
