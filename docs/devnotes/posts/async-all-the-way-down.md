@@ -31,7 +31,7 @@ Take the pipeline from above and add one more column: `conclusion` depends on `a
 
 <div style="text-align: center;" markdown>
 
-![DAG shapes used in benchmarks](assets/async-all-the-way-down/dag-shapes.svg){ style="max-width:70%; height:auto" }
+![DAG shapes used in benchmarks](assets/async-all-the-way-down/dag-shapes.svg){ style="max-width:85%; height:auto" }
 
 </div>
 
@@ -59,7 +59,7 @@ Getting this right required solving three problems at different levels of the st
 
 <div style="text-align: center;" markdown>
 
-![Three layers: AsyncTaskScheduler for dependency dispatch, row-group admission for memory, ThrottleManager for rate limits](assets/async-all-the-way-down/architecture-layers.svg){ style="max-width:85%; height:auto" }
+![Three layers: AsyncTaskScheduler for dependency dispatch, row-group admission for memory, ThrottleManager for rate limits](assets/async-all-the-way-down/architecture-layers.svg){ style="max-width:100%; height:auto" }
 
 </div>
 
@@ -134,7 +134,7 @@ The pattern is clear: speedup scales with the amount of parallelism available in
 
 <div style="text-align: center;" markdown>
 
-![Speedup increases from 1.1x to 1.6x as DAG parallelism increases](assets/async-all-the-way-down/speedup-scaling.png){ style="max-width:85%; height:auto" }
+![Speedup increases from 1.1x to 1.6x as DAG parallelism increases](assets/async-all-the-way-down/speedup-scaling.png){ style="max-width:100%; height:auto" }
 
 </div>
 
@@ -149,6 +149,30 @@ The benchmarks above use 10 records deliberately — small batches isolate the s
 This is where the per-model throttle pools become important. Single-model pipelines are most susceptible to cascading backoff because all columns compete for the same pool. Multi-model pipelines hold up well because each model adapts independently — a 429 on the generator model doesn't slow down the judge. In our larger runs, dual-model and multi-provider workloads consistently showed the largest async gains.
 
 The primary tuning lever is `max_parallel_requests` per model. Set it to a generous upper bound and let AIMD find the real ceiling. See the [Owning the Model Stack](owning-the-model-stack.md) dev note for the full story on adaptive concurrency.
+
+### **At scale with self-hosted inference**
+
+Rate limits are a property of hosted API providers. With self-hosted vLLM on your own GPUs, the bottleneck shifts from API quotas to GPU throughput, and the async engine's aggressive dispatch becomes an advantage rather than a risk.
+
+We ran the dual-model pipeline at 100k records on a Slurm cluster with NVIDIA A100-80GB GPUs: one node running a 120B generator model (TP=4, DP=2) and a second node running an 8B judge model (TP=1, DP=8). Each job processed a 10k-record shard, with 10 shards running in parallel. This is a two-node setup, but the same approach extends to as many nodes and models as your pipeline needs.
+
+<div style="text-align: center;" markdown>
+
+![Boxplot showing 1.6x speedup across 10 shards of 10k records on self-hosted vLLM](assets/async-all-the-way-down/scale-boxplot.png){ style="max-width:85%; height:auto" }
+
+</div>
+
+Across 10 shards, the async engine averaged 16 minutes per shard versus 25 minutes for sync, a consistent 1.6x speedup with low variance. No rate limits, no AIMD backoff, just the scheduling difference.
+
+The model activity timeline shows why. In sync mode, DD processes each column to completion before starting the next, so the generator and judge models take turns. In async mode, the judge starts processing rows as soon as the first generator results land, keeping both models busy simultaneously.
+
+<div style="text-align: center;" markdown>
+
+![Model activity timeline showing sequential vs overlapping model usage](assets/async-all-the-way-down/scale-model-timeline.png){ style="max-width:100%; height:auto" }
+
+</div>
+
+Look at the dot strips beneath each Gantt chart. In sync mode, each model endpoint is at full capacity while it's active - but only one is active at a time. The generator GPUs sit idle while the judge runs, and vice versa. When a single self-hosted endpoint is already saturated, async scheduling alone can't push more throughput through it. The speedup here comes from pipelines with multiple endpoints, where async keeps all of them busy simultaneously instead of leaving half your GPUs idle.
 
 ---
 
