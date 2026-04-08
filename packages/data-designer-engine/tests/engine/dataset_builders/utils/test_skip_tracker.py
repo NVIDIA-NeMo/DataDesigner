@@ -9,6 +9,7 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
     apply_skip_to_record,
     get_skipped_column_names,
+    restore_skip_metadata,
     strip_skip_metadata_for_dataframe_row,
     strip_skip_metadata_from_records,
 )
@@ -128,3 +129,34 @@ def test_strip_skip_metadata_for_dataframe_row_no_metadata() -> None:
 )
 def test_strip_skip_metadata_from_records(rows: list[dict], expected: list[dict]) -> None:
     assert strip_skip_metadata_from_records(rows) == expected
+
+
+def test_restore_skip_metadata_copies_metadata() -> None:
+    old = [
+        {"a": 1, SKIPPED_COLUMNS_RECORD_KEY: {"col_x"}},
+        {"a": 2},
+        {"a": 3, SKIPPED_COLUMNS_RECORD_KEY: {"col_y", "col_z"}},
+    ]
+    new = [{"a": 10}, {"a": 20}, {"a": 30}]
+    restore_skip_metadata(old, new)
+    assert new[0][SKIPPED_COLUMNS_RECORD_KEY] == {"col_x"}
+    assert SKIPPED_COLUMNS_RECORD_KEY not in new[1]
+    assert new[2][SKIPPED_COLUMNS_RECORD_KEY] == {"col_y", "col_z"}
+
+
+def test_restore_skip_metadata_handles_length_mismatch() -> None:
+    old = [
+        {"a": 1, SKIPPED_COLUMNS_RECORD_KEY: {"col_x"}},
+        {"a": 2, SKIPPED_COLUMNS_RECORD_KEY: {"col_y"}},
+    ]
+    new = [{"a": 10}]
+    restore_skip_metadata(old, new)
+    assert new[0][SKIPPED_COLUMNS_RECORD_KEY] == {"col_x"}
+
+
+def test_restore_skip_metadata_no_metadata() -> None:
+    old = [{"a": 1}, {"a": 2}]
+    new = [{"a": 10}, {"a": 20}]
+    restore_skip_metadata(old, new)
+    assert SKIPPED_COLUMNS_RECORD_KEY not in new[0]
+    assert SKIPPED_COLUMNS_RECORD_KEY not in new[1]

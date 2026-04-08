@@ -49,3 +49,18 @@ def strip_skip_metadata_for_dataframe_row(record: dict) -> dict:
 def strip_skip_metadata_from_records(records: Sequence[dict]) -> list[dict]:
     """Map :func:`strip_skip_metadata_for_dataframe_row` over *records*."""
     return [strip_skip_metadata_for_dataframe_row(r) for r in records]
+
+
+def restore_skip_metadata(old_records: Sequence[dict], new_records: Sequence[dict]) -> None:
+    """Copy ``SKIPPED_COLUMNS_RECORD_KEY`` from *old_records* into *new_records* in-place.
+
+    ``pd.DataFrame`` construction drops non-column keys, so skip metadata is
+    lost when records round-trip through a DataFrame.  Call this after
+    ``df.to_dict(orient="records")`` to re-attach the metadata before passing
+    the records to ``replace_buffer``.  When lengths differ (e.g.
+    ``allow_resize``), only positionally matched rows are restored.
+    """
+    for i in range(min(len(old_records), len(new_records))):
+        meta = old_records[i].get(SKIPPED_COLUMNS_RECORD_KEY)
+        if meta is not None:
+            new_records[i][SKIPPED_COLUMNS_RECORD_KEY] = meta
