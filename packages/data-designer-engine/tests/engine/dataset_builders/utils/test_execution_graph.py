@@ -156,6 +156,24 @@ def test_side_effect_name_collision_prefers_real_column() -> None:
     assert graph.get_downstream_columns("summary") == set()
 
 
+def test_side_effect_collision_first_writer_wins() -> None:
+    """When two producers declare the same side-effect, the first registration wins."""
+    graph = ExecutionGraph()
+    graph.add_column("producer_a", GenerationStrategy.CELL_BY_CELL)
+    graph.add_column("producer_b", GenerationStrategy.CELL_BY_CELL)
+    graph.add_column("consumer", GenerationStrategy.CELL_BY_CELL)
+
+    graph.set_side_effect("shared_se", "producer_a")
+    graph.set_side_effect("shared_se", "producer_b")  # should be ignored
+
+    assert graph.resolve_side_effect("shared_se") == "producer_a"
+
+    # consumer depends on shared_se -> should resolve to producer_a, not producer_b
+    resolved = graph.resolve_side_effect("shared_se")
+    graph.add_edge(upstream=resolved, downstream="consumer")
+    assert graph.get_upstream_columns("consumer") == {"producer_a"}
+
+
 # -- Validation tests -------------------------------------------------------
 
 

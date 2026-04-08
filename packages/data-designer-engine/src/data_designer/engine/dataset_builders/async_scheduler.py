@@ -124,10 +124,19 @@ class AsyncTaskScheduler:
         self._disable_early_shutdown = disable_early_shutdown
         self._early_shutdown = False
 
-        # Multi-column dedup: group output columns by generator identity
+        # Multi-column dedup: group output columns by generator identity.
+        # Include side-effect columns so their values are written to the
+        # buffer and available to downstream prompt templates.
         instance_to_columns: dict[int, list[str]] = {}
+        seen_cols: set[str] = set()
         for col, gen in generators.items():
             instance_to_columns.setdefault(id(gen), []).append(col)
+            seen_cols.add(col)
+        for col, gen in generators.items():
+            for side_effect_col in getattr(gen.config, "side_effect_columns", []):
+                if side_effect_col not in seen_cols:
+                    instance_to_columns.setdefault(id(gen), []).append(side_effect_col)
+                    seen_cols.add(side_effect_col)
         self._instance_to_columns = instance_to_columns
 
         # Stateful generator tracking: instance_id → asyncio.Lock

@@ -105,8 +105,15 @@ class ExecutionGraph:
         self._downstream.setdefault(upstream, set()).add(downstream)
 
     def set_side_effect(self, side_effect_col: str, producer: str) -> None:
-        """Map a side-effect column name to its producing column."""
-        self._side_effect_map[side_effect_col] = producer
+        """Map a side-effect column name to its producing column.
+
+        First-writer-wins: if a side-effect column is already mapped to a
+        different producer, the earlier mapping is kept.  This matches sync
+        engine semantics where earlier consumers see the first producer's
+        value.
+        """
+        if side_effect_col not in self._side_effect_map:
+            self._side_effect_map[side_effect_col] = producer
 
     def resolve_side_effect(self, column: str) -> str:
         """Resolve a column name through the side-effect map.
