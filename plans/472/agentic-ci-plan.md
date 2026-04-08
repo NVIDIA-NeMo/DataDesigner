@@ -1,6 +1,6 @@
 ---
 date: 2026-03-30
-status: proposed
+status: in-progress
 authors:
   - andreatgretel
 ---
@@ -197,7 +197,7 @@ requires both sets of credentials on the runner but provides resilience.
 ```yaml
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, labeled]
+    types: [opened, ready_for_review, labeled]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -207,8 +207,9 @@ on:
 ```
 
 Three trigger modes:
-- **Automatic**: runs on PR open, push, or ready-for-review.
-- **Label**: adding a `re-review` label triggers a new review. The workflow
+- **Automatic**: runs on PR open or ready-for-review. Does not run on
+  subsequent pushes to keep reviews opt-in after the initial one.
+- **Label**: adding a `agent-review` label triggers a new review. The workflow
   removes the label after running so it can be re-added next time.
 - **Manual**: `workflow_dispatch` with a PR number input, for ad-hoc reviews
   or debugging from the CLI (`gh workflow run ... -f pr_number=123`).
@@ -223,7 +224,7 @@ Steps:
 7. Invoke Claude Code / Codex with the rendered prompt
 8. Write output to a temp file, then post via `gh --body-file` (avoid shell
    quoting issues with agent output containing backticks, quotes, or special chars)
-9. If triggered by label, remove the `re-review` label
+9. If triggered by label, remove the `agent-review` label
 
 The workflow registers a **check run** on the PR. The check itself carries no
 review text - it just acts as the gate and status indicator:
@@ -249,7 +250,6 @@ Constraints:
   consistency with code, skip linting). Skipping agent review entirely requires
   a `skip-agent-review` label rather than being inferred from file type.
 - Posts as a comment, not an approval/rejection
-- Rate-limited: one review per `synchronize` event, debounced
 
 #### Daily Maintenance Workflow
 
@@ -553,13 +553,13 @@ is clear:
 
 ## Phased Rollout
 
-### Phase 1: Foundation (this PR / next PR)
+### Phase 1: Foundation
 
 **Deliverables:**
-- [ ] `.agents/recipes/` directory with `_runner.md` and recipe format spec
-- [ ] First recipe: `pr-review/recipe.md`
-- [ ] GitHub workflow: `agentic-ci-pr-review.yml` (self-hosted runner)
-- [ ] API health probe workflow (`agentic-ci-health-probe.yml`) - pings the API
+- [x] `.agents/recipes/` directory with `_runner.md` and recipe format spec
+- [x] First recipe: `pr-review/recipe.md`
+- [x] GitHub workflow: `agentic-ci-pr-review.yml` (self-hosted runner)
+- [x] API health probe workflow (`agentic-ci-health-probe.yml`) - pings the API
       on a schedule, fails the workflow run on error (GitHub's built-in
       notifications handle alerting). Needed before relying on the API for real
       work.
