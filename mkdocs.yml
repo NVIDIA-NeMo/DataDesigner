@@ -9,6 +9,7 @@ nav:
   - Concepts:
       - Columns: concepts/columns.md
       - Seed Datasets: concepts/seed-datasets.md
+      - Agent Rollout Ingestion: concepts/agent-rollout-ingestion.md
       - Models:
           - Default Model Settings: concepts/models/default-model-settings.md
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md

@@ -8,6 +8,9 @@ imported trace into a compact task digest, a standalone instruction-response pai
 judge-scored quality signal you can use for downstream filtering. It supports both full dataset creation and in-memory
 preview mode via `--preview`.
 
+!!! info "Looking for ingestion details?"
+    See [Agent Rollout Ingestion](../../concepts/agent-rollout-ingestion.md) for supported formats, default paths, normalized columns, and rollout-specific parsing behavior. This recipe stays focused on the distillation pipeline.
+
 ```python
 --8<-- "assets/recipes/trace_ingestion/agent_rollout_distillation.py"
 ```
