@@ -50,7 +50,7 @@ The repository includes skills for common development tasks. These are located i
 
 ## Pull Requests
 
-- PRs should link to the issue they address (`Fixes #NNN` or `Closes #NNN`)
+- PRs must link to the issue they address (`Fixes #NNN` or `Closes #NNN`). For external contributors, this is enforced by a required status check: the linked issue must exist and carry the `triaged` label (added by a maintainer after review). Collaborators are exempt from this check.
 - Use the `create-pr` skill for well-formatted PR descriptions, or follow the PR template
 - Ensure all checks pass before requesting review:
   ```bash

@@ -1,0 +1,171 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Stale PR Cleanup"
+
+on:
+  schedule:
+    - cron: "0 9 * * *"  # daily at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+jobs:
+  stale-check:
+    if: github.repository_owner == 'NVIDIA-NeMo'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check stale PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          NOW=$(date -u +%s)
+
+          # Thresholds in days.
+          REMIND_DAYS_EXTERNAL=7
+          CLOSE_DAYS_EXTERNAL=14
+          REMIND_DAYS_COLLAB=14
+          CLOSE_DAYS_COLLAB=28
+
+          REMINDER_MARKER="<!-- stale-pr-reminder -->"
+          CLOSE_MARKER="<!-- stale-pr-closed -->"
+
+          # Fetch all open PRs.
+          PRS=$(gh pr list --repo "$REPO" --state open \
+            --json number,author,labels,createdAt --limit 200)
+
+          PR_COUNT=$(echo "$PRS" | jq 'length')
+          echo "Found ${PR_COUNT} open PRs"
+
+          echo "$PRS" | jq -c '.[]' | while IFS= read -r PR; do
+            PR_NUM=$(echo "$PR" | jq -r '.number')
+            AUTHOR=$(echo "$PR" | jq -r '.author.login')
+            LABELS=$(echo "$PR" | jq -r '[.labels[].name] | join(",")')
+
+            echo "--- PR #${PR_NUM} by ${AUTHOR} ---"
+
+            # Skip if keep-open label is present.
+            if echo "$LABELS" | grep -q "keep-open"; then
+              echo "  Skipping: has keep-open label"
+              continue
+            fi
+
+            # Check if author is a collaborator.
+            PERMISSION=$(gh api "repos/${REPO}/collaborators/${AUTHOR}/permission" \
+              --jq '.permission' 2>/dev/null || echo "none")
+
+            IS_COLLAB=false
+            if [ "$PERMISSION" = "admin" ] || [ "$PERMISSION" = "write" ]; then
+              IS_COLLAB=true
+            fi
+
+            if [ "$IS_COLLAB" = "true" ]; then
+              REMIND_DAYS=$REMIND_DAYS_COLLAB
+              CLOSE_DAYS=$CLOSE_DAYS_COLLAB
+            else
+              REMIND_DAYS=$REMIND_DAYS_EXTERNAL
+              CLOSE_DAYS=$CLOSE_DAYS_EXTERNAL
+            fi
+
+            # Check for failing checks on the PR's head commit.
+            CHECKS_JSON=$(gh pr checks "$PR_NUM" --repo "$REPO" --json name,state 2>/dev/null || echo "[]")
+            FAILING=$(echo "$CHECKS_JSON" | jq '[.[] | select(.state == "FAILURE" or .state == "ERROR")] | length')
+
+            if [ "$FAILING" -eq 0 ]; then
+              echo "  Skipping: no failing checks"
+              continue
+            fi
+
+            FAILING_NAMES=$(echo "$CHECKS_JSON" | jq -r '[.[] | select(.state == "FAILURE" or .state == "ERROR") | .name] | join(", ")')
+            echo "  Failing checks (${FAILING}): ${FAILING_NAMES}"
+
+            # Find last author activity: latest push or author comment.
+            LAST_PUSH=$(gh api "repos/${REPO}/pulls/${PR_NUM}/commits" \
+              --jq 'last | .commit.committer.date' 2>/dev/null || echo "")
+            LAST_COMMENT=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments" \
+              --jq "[.[] | select(.user.login == \"${AUTHOR}\") | .created_at] | last" 2>/dev/null || echo "")
+
+            # Convert to epoch, take the most recent.
+            LAST_PUSH_EPOCH=0
+            LAST_COMMENT_EPOCH=0
+            if [ -n "$LAST_PUSH" ] && [ "$LAST_PUSH" != "null" ]; then
+              LAST_PUSH_EPOCH=$(date -u -d "$LAST_PUSH" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$LAST_PUSH" +%s 2>/dev/null || echo 0)
+            fi
+            if [ -n "$LAST_COMMENT" ] && [ "$LAST_COMMENT" != "null" ]; then
+              LAST_COMMENT_EPOCH=$(date -u -d "$LAST_COMMENT" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$LAST_COMMENT" +%s 2>/dev/null || echo 0)
+            fi
+
+            if [ "$LAST_PUSH_EPOCH" -gt "$LAST_COMMENT_EPOCH" ]; then
+              LAST_ACTIVITY_EPOCH=$LAST_PUSH_EPOCH
+            else
+              LAST_ACTIVITY_EPOCH=$LAST_COMMENT_EPOCH
+            fi
+
+            if [ "$LAST_ACTIVITY_EPOCH" -eq 0 ]; then
+              # Fall back to PR creation date.
+              CREATED=$(echo "$PR" | jq -r '.createdAt')
+              LAST_ACTIVITY_EPOCH=$(date -u -d "$CREATED" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED" +%s 2>/dev/null || echo "$NOW")
+            fi
+
+            DAYS_INACTIVE=$(( (NOW - LAST_ACTIVITY_EPOCH) / 86400 ))
+            echo "  Days inactive: ${DAYS_INACTIVE} (remind=${REMIND_DAYS}, close=${CLOSE_DAYS}, collab=${IS_COLLAB})"
+
+            # Check for existing reminder comment.
+            HAS_REMINDER=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments" \
+              --jq "[.[] | select(.body | contains(\"${REMINDER_MARKER}\"))] | length" 2>/dev/null || echo 0)
+
+            if [ "$DAYS_INACTIVE" -ge "$CLOSE_DAYS" ] && [ "$HAS_REMINDER" -gt 0 ]; then
+              echo "  Closing PR #${PR_NUM} (inactive ${DAYS_INACTIVE} days, reminder was posted)"
+
+              CLOSE_BODY=$(cat <<MSG
+          ${CLOSE_MARKER}
+          ### Auto-closed: inactive PR
+
+          This PR has been automatically closed after ${DAYS_INACTIVE} days of inactivity
+          with failing checks.
+
+          Feel free to reopen this PR once you're ready to address the outstanding checks.
+          If you believe this was closed in error, add the \`keep-open\` label and reopen.
+          MSG
+          )
+              echo "$CLOSE_BODY" > /tmp/close-body.md
+              gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/close-body.md
+              gh pr close "$PR_NUM" --repo "$REPO"
+
+            elif [ "$DAYS_INACTIVE" -ge "$REMIND_DAYS" ] && [ "$HAS_REMINDER" -eq 0 ]; then
+              echo "  Posting reminder on PR #${PR_NUM} (inactive ${DAYS_INACTIVE} days)"
+
+              GRACE_LEFT=$(( CLOSE_DAYS - DAYS_INACTIVE ))
+              if [ "$GRACE_LEFT" -lt 1 ]; then
+                GRACE_LEFT=1
+              fi
+
+              REMIND_BODY=$(cat <<MSG
+          ${REMINDER_MARKER}
+          ### Stale PR reminder
+
+          This PR has had failing checks for **${DAYS_INACTIVE} days** without activity.
+
+          **Failing checks:** ${FAILING_NAMES}
+
+          Please push an update or leave a comment if you're still working on this.
+          Otherwise, this PR will be automatically closed in **${GRACE_LEFT} days**.
+
+          To prevent auto-close, add the \`keep-open\` label.
+          MSG
+          )
+              echo "$REMIND_BODY" > /tmp/remind-body.md
+              gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/remind-body.md
+
+            else
+              echo "  No action needed"
+            fi
+          done
+
+          echo "Stale PR check complete"
