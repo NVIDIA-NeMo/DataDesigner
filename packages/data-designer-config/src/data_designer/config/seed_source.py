@@ -176,6 +176,10 @@ def get_hermes_agent_default_path() -> str:
     return str(Path("~/.hermes/sessions").expanduser())
 
 
+def get_pi_coding_agent_default_path() -> str:
+    return str(Path("~/.pi/agent/sessions").expanduser())
+
+
 def _validate_filesystem_seed_source_path(value: str | None) -> str | None:
     if value is None:
         return None
@@ -200,6 +204,7 @@ class AgentRolloutFormat(StrEnum):
     CLAUDE_CODE = "claude_code"
     CODEX = "codex"
     HERMES_AGENT = "hermes_agent"
+    PI_CODING_AGENT = "pi_coding_agent"
 
 
 def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str | None, str]:
@@ -211,6 +216,8 @@ def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str | No
         return (get_codex_default_path(), "*.jsonl")
     if fmt == AgentRolloutFormat.HERMES_AGENT:
         return (get_hermes_agent_default_path(), "*.json*")
+    if fmt == AgentRolloutFormat.PI_CODING_AGENT:
+        return (get_pi_coding_agent_default_path(), "*.jsonl")
     raise ValueError(f"🛑 Unknown agent rollout format: {fmt!r}")
 
 
@@ -228,7 +235,8 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
             "Directory containing agent rollout artifacts. This field is required for ATIF trajectories. "
             "When omitted, built-in defaults are used for formats that define one. "
             "Claude Code defaults to ~/.claude/projects, Codex defaults to ~/.codex/sessions, "
-            "and Hermes Agent defaults to ~/.hermes/sessions. "
+            "Hermes Agent defaults to ~/.hermes/sessions, "
+            "and Pi Coding Agent defaults to ~/.pi/agent/sessions. "
             "Relative paths are resolved from the current working directory when the config is loaded, "
             "not from the config file location."
         ),
@@ -238,7 +246,7 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         None,
         description=(
             "Case-sensitive filename pattern used to match agent rollout files. When omitted, "
-            "ATIF defaults to '*.json', Claude Code and Codex default to '*.jsonl', "
+            "ATIF defaults to '*.json', Claude Code, Codex, and Pi Coding Agent default to '*.jsonl', "
             "and Hermes Agent defaults to '*.json*'."
         ),
     )

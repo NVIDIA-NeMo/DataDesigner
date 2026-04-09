@@ -90,6 +90,20 @@ def stringify_json_value(value: Any) -> str:
     return json.dumps(value if value is not None else {}, sort_keys=True)
 
 
+def normalize_message_content(content: Any) -> Any:
+    """Coerce raw message content into the normalized content shape.
+
+    Returns ``""`` for ``None``, passes through ``str`` and ``list``
+    unchanged, and falls back to :func:`stringify_json_value` for
+    everything else.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, (str, list)):
+        return content
+    return stringify_json_value(content)
+
+
 def stringify_text_value(value: Any) -> str:
     if value is None:
         return ""

@@ -42,6 +42,18 @@ Use `AgentRolloutSeedSource` when you want to work from existing agent traces in
     )
     ```
 
+=== "Pi Coding Agent"
+
+    Uses `~/.pi/agent/sessions` and `*.jsonl` by default. Sessions are tree-structured JSONL files; the active conversation path is resolved automatically.
+
+    ```python
+    import data_designer.config as dd
+
+    seed_source = dd.AgentRolloutSeedSource(
+        format=dd.AgentRolloutFormat.PI_CODING_AGENT,
+    )
+    ```
+
 === "ATIF"
 
     ATIF requires an explicit `path`. See Harbor's [ATIF documentation](https://harborframework.com/docs/trajectory-format) for the format specification.
@@ -63,31 +75,31 @@ You can override `path` and `file_pattern` for any format when your rollout arti
 
 All supported rollout formats map into the same seeded row schema. In the table below, `None` means the source artifact does not expose that field directly, and `derived` means Data Designer computes it from normalized `messages`.
 
-| Normalized field | ATIF | Claude Code | Codex | Hermes Agent |
-|---|---|---|---|---|
-| `trace_id` | `session_id` | `sessionId[:agentId]` | `session_meta.id` or file stem | CLI `session_id` or file stem; gateway file stem |
-| `source_kind` | `"atif"` | `"claude_code"` | `"codex"` | `"hermes_agent"` |
-| `source_path` | Parsed `.json` path | Parsed `.jsonl` trace path | Parsed `rollout-*.jsonl` path | Parsed CLI `.json` or gateway `.jsonl` path |
-| `root_session_id` | `session_id` | `sessionId` or file stem | `trace_id` | `trace_id` |
-| `agent_id` | `None` | `agentId` | `None` | `None` |
-| `is_sidechain` | `False` | `isSidechain` | `False` | `False` |
-| `cwd` | `agent.extra.cwd` | First non-null record `cwd` | `session_meta.cwd` | `None` |
-| `project_path` | `extra.project_path` or `cwd` | `projectPath` or `cwd` | `cwd` | `None` |
-| `git_branch` | `agent.extra.git_branch` | First non-null record `gitBranch` | `session_meta.git_branch` | `None` |
-| `started_at` | Earliest step timestamp | Earliest row timestamp | `session_meta.timestamp` or earliest record timestamp | CLI `session_start`; gateway `created_at` |
-| `ended_at` | Latest step timestamp | Latest row timestamp | Latest record timestamp | CLI `last_updated`; gateway `updated_at` |
-| `messages` | Normalized steps | Normalized trace rows | Normalized response items | Normalized CLI or gateway rows |
-| `source_meta` | ATIF metadata | Claude metadata | Codex metadata | Hermes metadata |
-| `message_count` | `derived` | `derived` | `derived` | `derived` |
-| `tool_call_count` | `derived` | `derived` | `derived` | `derived` |
-| `final_assistant_message` | `derived` | `derived` | `derived` | `derived` |
+| Normalized field | ATIF | Claude Code | Codex | Hermes Agent | Pi Coding Agent |
+|---|---|---|---|---|---|
+| `trace_id` | `session_id` | `sessionId[:agentId]` | `session_meta.id` or file stem | CLI `session_id` or file stem; gateway file stem | Session header `id` |
+| `source_kind` | `"atif"` | `"claude_code"` | `"codex"` | `"hermes_agent"` | `"pi_coding_agent"` |
+| `source_path` | Parsed `.json` path | Parsed `.jsonl` trace path | Parsed `rollout-*.jsonl` path | Parsed CLI `.json` or gateway `.jsonl` path | Parsed `.jsonl` session path |
+| `root_session_id` | `session_id` | `sessionId` or file stem | `trace_id` | `trace_id` | Session header `id` |
+| `agent_id` | `None` | `agentId` | `None` | `None` | `None` |
+| `is_sidechain` | `False` | `isSidechain` | `False` | `False` | `False` |
+| `cwd` | `agent.extra.cwd` | First non-null record `cwd` | `session_meta.cwd` | `None` | Session header `cwd` |
+| `project_path` | `extra.project_path` or `cwd` | `projectPath` or `cwd` | `cwd` | `None` | Session header `cwd` |
+| `git_branch` | `agent.extra.git_branch` | First non-null record `gitBranch` | `session_meta.git_branch` | `None` | `None` |
+| `started_at` | Earliest step timestamp | Earliest row timestamp | `session_meta.timestamp` or earliest record timestamp | CLI `session_start`; gateway `created_at` | Earliest entry timestamp |
+| `ended_at` | Latest step timestamp | Latest row timestamp | Latest record timestamp | CLI `last_updated`; gateway `updated_at` | Latest entry timestamp |
+| `messages` | Normalized steps | Normalized trace rows | Normalized response items | Normalized CLI or gateway rows | Normalized active-path messages |
+| `source_meta` | ATIF metadata | Claude metadata | Codex metadata | Hermes metadata | Pi session metadata |
+| `message_count` | `derived` | `derived` | `derived` | `derived` | `derived` |
+| `tool_call_count` | `derived` | `derived` | `derived` | `derived` | `derived` |
+| `final_assistant_message` | `derived` | `derived` | `derived` | `derived` | `derived` |
 
 ### Notes
 
-- `trace_id`: Claude Code appends `agentId` when present. Hermes uses either the CLI session ID or the gateway transcript file stem.
-- `is_sidechain`: ATIF and Hermes currently normalize this to `False`. Claude Code preserves `isSidechain` directly.
-- `messages`: All formats normalize into the same chat-style message schema. See [Message Traces](traces.md) for the shared block structure.
-- `source_meta`: This is where format-specific details live, such as ATIF copied-context metadata, Claude summaries, Codex response-item types, or Hermes tool/session metadata.
+- `trace_id`: Claude Code appends `agentId` when present. Hermes uses either the CLI session ID or the gateway transcript file stem. Pi uses the session header `id`.
+- `is_sidechain`: ATIF, Hermes, and Pi currently normalize this to `False`. Claude Code preserves `isSidechain` directly.
+- `messages`: All formats normalize into the same chat-style message schema. See [Message Traces](traces.md) for the shared block structure. Pi sessions are tree-structured; only the active conversation path (from the last entry back to root) is included.
+- `source_meta`: This is where format-specific details live, such as ATIF copied-context metadata, Claude summaries, Codex response-item types, Hermes tool/session metadata, or Pi session version and branch information.
 
 ## Example: Summarize a Random Turn
 
