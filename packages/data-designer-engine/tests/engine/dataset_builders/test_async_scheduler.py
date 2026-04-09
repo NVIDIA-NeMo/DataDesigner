@@ -1430,3 +1430,47 @@ async def test_scheduler_rg_semaphore_deadlock_with_transient_failures() -> None
 
     assert tracker.is_row_group_complete(0, 2, ["seed", "col"])
     assert tracker.is_row_group_complete(1, 2, ["seed", "col"])
+
+
+def test_side_effect_columns_separated_from_completion_tracking() -> None:
+    """Side-effect columns must appear in _instance_to_write_columns (buffer writes)
+    but NOT in _instance_to_columns (completion tracking), because they are not
+    registered in the execution graph and would cause KeyError in CompletionTracker.
+    """
+    graph = ExecutionGraph()
+    graph.add_column("seed", GenerationStrategy.FULL_COLUMN)
+    graph.add_column("primary", GenerationStrategy.CELL_BY_CELL)
+    graph.add_edge(upstream="seed", downstream="primary")
+
+    row_groups = [(0, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    provider = _mock_provider()
+    seed_gen = MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)
+    cell_gen = MockCellGenerator(config=_expr_config("primary"), resource_provider=provider)
+    # Replace the config with a mock that reports side-effect columns.
+    mock_config = MagicMock()
+    mock_config.side_effect_columns = ["side_a", "side_b"]
+    object.__setattr__(cell_gen, "_config", mock_config)
+
+    generators: dict[str, ColumnGenerator] = {"seed": seed_gen, "primary": cell_gen}
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+    )
+
+    cell_id = id(cell_gen)
+
+    # Completion tracking dict: only real columns
+    assert "side_a" not in scheduler._instance_to_columns.get(cell_id, [])
+    assert "side_b" not in scheduler._instance_to_columns.get(cell_id, [])
+    assert "primary" in scheduler._instance_to_columns.get(cell_id, [])
+
+    # Buffer write dict: includes side-effect columns
+    write_cols = scheduler._instance_to_write_columns.get(cell_id, [])
+    assert "primary" in write_cols
+    assert "side_a" in write_cols
+    assert "side_b" in write_cols
