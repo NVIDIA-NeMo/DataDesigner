@@ -1,0 +1,4970 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/data-designer-got-skills/">
+      
+      
+        <link rel="prev" href="../search-agent-sft-data-teaching-llms-to-browse-the-web/">
+      
+      
+        <link rel="next" href="../owning-the-model-stack-adaptive-concurrency-ftw/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/palette-favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Data Designer Got Skills - NeMo Data Designer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CFira+Code:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Fira Code"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../css/style.css">
+    
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#data-designer-got-skills" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You're not viewing the latest version.
+  <a href="../../..">
+    <strong>Click here to go to latest.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            NeMo Data Designer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Data Designer Got Skills
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7M9 21v-1h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1m3-17a5 5 0 0 0-5 5c0 2.05 1.23 3.81 3 4.58V16h4v-2.42c1.77-.77 3-2.53 3-4.58a5 5 0 0 0-5-5"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7M9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" hidden>
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    NeMo Data Designer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/seed-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seed Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/agent-rollout-ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Rollout Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Models
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/default-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Default Model Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure with the CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/custom-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Model Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/model-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/model-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/inference-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inference Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/custom_columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/validators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/person_sampling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Person Sampling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/traces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Traces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_10" id="__nav_2_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Use & MCP
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tool Use & MCP
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/tool_use_and_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/mcp-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/tool-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/enabling-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enabling Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/configure-mcp-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/safety-and-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety & Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/architecture-and-performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/deployment-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../notebooks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/1-the-basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured Outputs and Jinja Expressions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seeding with an External Dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/4-providing-images-as-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providing Images as Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/5-generating-images/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generating Images
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/6-editing-images-with-image-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Image-to-Image Editing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Recipes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/cards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipe Cards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Generation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/text_to_python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to Python
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/enterprise_text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Super Text to SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugin Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/plugin_development/markdown_seed_reader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Markdown Section Seed Reader Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QA and Chat
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    QA and Chat
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/qa_and_chat/product_info_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Product Info QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/qa_and_chat/multi_turn_chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Turn Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trace Ingestion
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Trace Ingestion
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/trace_ingestion/agent_rollout_distillation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Rollout Trace Distillation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP and Tool Use
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MCP and Tool Use
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/basic_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic MCP Tool Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/pdf_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PDF Document QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/search_agent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Super Search Agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/filesystem_seed_reader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FileSystemSeedReader Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/available/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Available Plugin List
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/column_configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    column_configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config_builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/data_designer_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data_designer_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/run_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    run_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/sampler_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sampler_params
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/validator_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validator_params
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dev Notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../async-all-the-way-down/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Async All the Way Down
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../owning-the-model-stack-adaptive-concurrency-ftw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Owning the Model Stack: Adaptive Concurrency FTW!
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Designer Got Skills
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Designer Got Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#agents-as-first-class-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agents as First-Class Users
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-baseline-let-the-agent-figure-it-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Baseline: Let the Agent Figure It Out
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shortening-the-path-data-designers-agent-cli-and-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shortening the Path: Data Designer's Agent CLI and Skill
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shortening the Path: Data Designer&#39;s Agent CLI and Skill">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#coding-best-practices-still-matter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coding best practices still matter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-skill-in-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Skill in action
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#measuring-the-difference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measuring the Difference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getting-started" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting Started
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's Next
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../search-agent-sft-data-teaching-llms-to-browse-the-web/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Search Agent SFT Data: Teaching LLMs to Browse the Web
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deep-research-trajectories-with-nemo-data-designer-and-mcp-tool-use/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Research Trajectories with NeMo Data Designer and MCP Tool Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../designing-data-designer-why-sdg-is-a-systems-problem/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing Data Designer: Why SDG Is a Systems Problem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graduate-level-science-reasoning-data-with-nemo-data-designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graduate-Level Science Reasoning Data with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_10" id="__nav_7_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archive
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Archive
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+    
+  
+  
+    <li class="md-nav__item">
+      <a href="../archive/2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2026
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#agents-as-first-class-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agents as First-Class Users
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-baseline-let-the-agent-figure-it-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Baseline: Let the Agent Figure It Out
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shortening-the-path-data-designers-agent-cli-and-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shortening the Path: Data Designer's Agent CLI and Skill
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shortening the Path: Data Designer&#39;s Agent CLI and Skill">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#coding-best-practices-still-matter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coding best practices still matter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-skill-in-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Skill in action
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#measuring-the-difference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measuring the Difference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getting-started" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting Started
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's Next
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+  <div class="md-content md-content--post" data-md-component="content">
+    <div class="md-sidebar md-sidebar--post" data-md-component="sidebar" data-md-type="navigation">
+      <div class="md-sidebar__scrollwrap">
+        <div class="md-sidebar__inner md-post">
+          <nav class="md-nav md-nav--primary">
+            <div class="md-post__back">
+              <div class="md-nav__title md-nav__container">
+                <a href="../" class="md-nav__link">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+                  <span class="md-ellipsis">
+                    Back to index
+                  </span>
+                </a>
+              </div>
+            </div>
+            
+              <div class="md-post__authors md-typeset">
+                
+                  <div class="md-profile md-post__profile">
+                    <span class="md-author md-author--long">
+                      <img src="https://avatars.githubusercontent.com/u/10998105?v=4" alt="Johnny Greco">
+                    </span>
+                    <span class="md-profile__description">
+                      <strong>
+                        
+                          Johnny Greco
+                        
+                      </strong>
+                      <br>
+                      Researcher at NVIDIA
+                    </span>
+                  </div>
+                
+              </div>
+            
+            <ul class="md-post__meta md-nav__list">
+              <li class="md-nav__item md-nav__item--section">
+                <div class="md-post__title">
+                  <span class="md-ellipsis">
+                    Metadata
+                  </span>
+                </div>
+                <nav class="md-nav">
+                  <ul class="md-nav__list">
+                    <li class="md-nav__item">
+                      <div class="md-nav__link">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 19H5V8h14m-3-7v2H8V1H6v2H5c-1.11 0-2 .89-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-1V1m-1 11h-5v5h5z"/></svg>
+                        <time datetime="2026-03-24 00:00:00+00:00" class="md-ellipsis">March 24, 2026</time>
+                      </div>
+                    </li>
+                    
+                    
+                    
+                      
+                      <li class="md-nav__item">
+                        <div class="md-nav__link">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 20a8 8 0 0 0 8-8 8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8m0-18a10 10 0 0 1 10 10 10 10 0 0 1-10 10C6.47 22 2 17.5 2 12A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7z"/></svg>
+                          <span class="md-ellipsis">
+                            
+                              28 min read
+                            
+                          </span>
+                        </div>
+                      </li>
+                    
+                  </ul>
+                </nav>
+              </li>
+            </ul>
+            
+          </nav>
+          
+        </div>
+      </div>
+    </div>
+    <article class="md-content__inner md-typeset">
+      
+        
+  
+
+
+
+  
+  
+
+
+<h1 id="data-designer-got-skills"><strong>Data Designer Got Skills</strong></h1>
+<p><em>Lessons from building an agent-first CLI and skill for Data Designer</em></p>
+<p>We just published the <code>data-designer</code> skill, which leverages agent-focused CLI commands in <a href="https://github.com/NVIDIA-NeMo/DataDesigner">Data Designer</a> to efficiently generate datasets. Just describe the dataset you want and your agent will craft the Data Designer configuration for you — schema design, validation, preview, generation — interactively or on full autopilot (just tell the agent to "be opinionated" or "surprise me").</p>
+<!-- more -->
+
+<p><img alt="Data Designer Got Skills" src="../assets/data-designer-got-skills/hero_data_designer_got_skills.png" width="100%" /></p>
+<p>Instead of asking agents to explore the source code, a single CLI command (<code>data-designer agent context</code>) delivers curated, code-derived context in one read, and three more commands (<code>validate</code>, <code>preview</code>, <code>create</code>) handle the rest. The agent's only job is writing the configuration. Combined with the new skill, this reduces token usage by <strong>~80%</strong>, errors by <strong>~90%</strong>, and wall-clock time by <strong>~47%</strong> — all while improving output quality (mean judge score <strong>4.0 → 4.7</strong>). We benchmarked our approach across 228 sessions each for the skill and a baseline.</p>
+<p>In today's Dev Note, we'll walk through the challenges agents face when using new libraries, how we designed a CLI and skill to help them, and the benchmark results in detail.</p>
+<div class="admonition tip">
+<p class="admonition-title">TL;DR – Tips for building agent skills for your library</p>
+<ol>
+<li>
+<p><strong>Consolidate your public API surface.</strong> Keep your user-facing API in a small, well-documented set of files, separate from execution internals. This can significantly reduce the number of files agents need to read in the usage context.</p>
+</li>
+<li>
+<p><strong>Build CLI commands that surface this context.</strong> Agents love CLIs! Build one that exposes code-derived API context, config validation, and workflow execution as commands — agents shouldn't have to crawl your source code or learn standard execution patterns.</p>
+</li>
+<li>
+<p><strong>Always review your session histories.</strong> This has become the "always look at your data" of 2026. Reviewing sessions was one of the most important steps in our skill development process, showing us exactly where and how agents get stuck and waste tokens.</p>
+</li>
+<li>
+<p><strong>Benchmark your skill against a baseline.</strong> We saw large gains in efficiency, error rates, and output quality, but only because we ran hundreds of controlled sessions to verify. Benchmarking along the way helped guide our design decisions and gave us confidence that we were moving in the right direction.</p>
+</li>
+</ol>
+</div>
+<hr />
+<h2 id="agents-as-first-class-users"><strong>Agents as First-Class Users</strong></h2>
+<p>Agents have become first-class users of basically all software. Somewhere in the last few months, we crossed a threshold. Models like <a href="https://www.anthropic.com/news/claude-opus-4-5">Opus 4.5</a> and <a href="https://openai.com/index/gpt-5-1-for-developers/">Codex 5.1</a>, paired with maturing harnesses like <a href="https://code.claude.com/docs/en/overview">Claude Code</a>, <a href="https://chatgpt.com/codex">Codex</a>, and <a href="https://opencode.ai/">OpenCode</a>, have become <em>really</em> good. They're real users of your library, and their experience with your API matters.</p>
+<p>We use agents to both build Data Designer and use it to generate datasets. When we started watching how they actually interact with the tool, a pattern emerged. They spend most of their tokens in the wrong place. Crawling engine internals, reading DAG resolution logic, reconstructing the API after reading most of the source code. They get there eventually, which is impressive, but the path they take is wasteful.</p>
+<p>The problem isn't the agent. Data Designer has a small config API — three or four files that contain nearly all the context you need for the typical use case. But nothing was pointing the agent at those files instead of the backend engine. If your library has a CLI, it's worth asking: does it serve your agent users as well as it serves your human ones? A single CLI command that delivers curated API context can replace dozens of tool calls spent on source-code exploration.</p>
+<hr />
+<h2 id="the-baseline-let-the-agent-figure-it-out"><strong>The Baseline: Let the Agent Figure It Out</strong></h2>
+<p>To see what this looks like in practice, let's walk through a simple example. We prompted Claude Code to build a text-to-python dataset with Data Designer, providing a relatively detailed dataset description, instructions to locate the library source, and a CLI command to discover valid <a href="https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/">model aliases</a> in the user's environment.</p>
+<p>The prompt we used is shown below. Note that the hints at the bottom matter more than you might think. Providing the package path and the CLI commands up front streamlines the work the agent needs to do to understand the library and use it.</p>
+<details open="open">
+<summary><strong>The prompt</strong></summary>
+<div class="language-text highlight"><pre><span></span><code>I need to generate a text-to-python dataset focused on data science and analytics for
+supervised fine-tuning (SFT) a code LLM.
+
+Each record should include at least:
+- A natural language instruction describing a data science task in Python.
+- A difficulty level sampled from beginner, intermediate, and advanced.
+- A subtopic sampled from areas like data cleaning, exploratory analysis, aggregation
+  and groupby operations, visualization with matplotlib/seaborn, statistical testing,
+  feature engineering, and working with messy or missing data.
+- A complete Python solution generated by an LLM that correctly implements the instruction.
+  The code should be syntactically valid and self-contained.
+- A code validation column that checks the generated solution for syntactic
+  correctness and reports any issues found.
+- An LLM-as-a-judge column that scores each (instruction, solution) pair on correctness,
+  code quality, and instruction clarity. Use a 1-5 scale and return structured results.
+
+The instructions should be realistic and diverse — vary the complexity, libraries used,
+and required operations to match the difficulty level.
+
+Use Data Designer for this task.
+
+You can find the installed package directory by running:
+
+    python -c &quot;import data_designer.config as dd, os; print(os.path.dirname(dd.__file__))&quot;
+
+Check the available model aliases (those with API keys) by running:
+
+    data-designer config list
+
+Write a Python file with a function called `load_config_builder` that returns the config builder.
+
+Validate that it is configured correctly using:
+
+    data-designer validate &lt;path-to-python-file&gt;
+</code></pre></div>
+</details>
+<p>While the agent didn't exactly start from zero, we didn't give it much and it still figured it out – impressive! It found the package, explored the source, pieced together the API, and produced a valid configuration. But look at the path it took:</p>
+<ul>
+<li>The main agent located the package and ran <code>config list</code>, then spawned a <strong>subagent</strong> to "Explore the Data Designer package thoroughly."</li>
+<li>The subagent read <strong>14 source files</strong> (some two or three times), hit an error on <code>__init__.py</code>, recovered, and returned a detailed report. <strong>25 tool calls</strong> inside the subagent alone.</li>
+<li>Back in the main agent, it re-read <code>column_configs.py</code>, <code>validator_params.py</code>, and <code>config/__init__.py</code> (files the subagent already covered), grepped for <code>CategorySamplerParams</code> and <code>add_column</code>, then wrote the config and validated.</li>
+<li>Final tally: <strong>35 tool calls</strong>, <strong>1 error</strong>, <strong>159 seconds</strong>, <strong>~1.4M tokens</strong> between the main agent and the subagent.</li>
+</ul>
+<p>Review the full session below:</p>
+<!-- ── 2. Typical Baseline Session ── -->
+<details class="session-trace" open>
+<summary>
+<span class="st-arrow">&#9654;</span>
+<span class="st-badge baseline">Baseline</span>
+<span class="st-name">Typical Baseline Session</span>
+<span class="st-stats">
+<span class="st-stat">35 tools</span>
+<span class="st-stat err">1 errors</span>
+<span class="st-stat">159s</span>
+</span>
+</summary>
+<div class="st-body">
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Let me start by exploring the Data Designer package and checking available configurations.</em></span>
+</div>
+<div class="st-step">
+<span class="st-num">1</span>
+<span class="st-tool bash">Bash</span>
+<span class="st-desc">
+<code>.venv/bin/python -c &quot;import data_designer.config as dd, os; print(os.path.dirname(dd.__file__))&quot;</code><div>.venv/lib/python3.13/site-packages/data_designer/config</div>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">2</span>
+<span class="st-tool bash">Bash</span>
+<span class="st-desc">
+<code>.venv/bin/data-designer config list</code><details class="st-expand"><summary><span class="st-arrow">&#9654;</span> output (5,284 chars)</summary><div>  ─────────────────────── Data Designer Configurations ───────────────────────
+
+  💡  Configuration directory: ~/.data-designer
+
+                                Model Providers
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
+┃ Name       ┃ Endpoint             ┃ Type   ┃ API Key               ┃ Default ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
+│ nvidia     │ https://integrate.a… │ openai │ NVIDIA_API_KEY        │    ✓    │
+│ openai     │ https://inference-a… │ openai │ NVIDIA_INFERENCE_API… │         │
+│ openrouter │ https://openrouter.… │ openai │ OPENROUTER_API_KEY    │         │
+└────────────┴──────────────────────┴────────┴───────────────────────┴─────────┘
+
+                              Model Configurations
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃                      ┃                     ┃            ┃ Inference          ┃
+┃ Alias                ┃ Model               ┃ Provider   ┃ Parameters         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ nvidia-text          │ nvidia/nemotron-3-… │ nvidia     │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ temperature=1.00,  │
+│                      │                     │            │ top_p=1.00         │
+│ nvidia-reasoning     │ openai/gpt-oss-20b  │ nvidia     │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ temperature=0.35,  │
+│                      │                     │            │ top_p=0.95         │
+│ nvidia-vision        │ nvidia/nemotron-na… │ nvidia     │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ temperature=0.85,  │
+│                      │                     │            │ top_p=0.95         │
+│ nvidia-embedding     │ nvidia/llama-3.2-n… │ nvidia     │ generation_type=e… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ extra_body={&#x27;inpu… │
+│                      │                     │            │ &#x27;query&#x27;},          │
+│                      │                     │            │ encoding_format=f… │
+│ openai-text          │ us/azure/openai/gp… │ openai     │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ temperature=0.85,  │
+│                      │                     │            │ top_p=0.95         │
+│ openai-reasoning     │ openai/openai/gpt-… │ openai     │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ extra_body={&#x27;reas… │
+│                      │                     │            │ &#x27;medium&#x27;}          │
+│ openai-vision        │ openai/openai/gpt-… │ openai     │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ extra_body={&#x27;reas… │
+│                      │                     │            │ &#x27;medium&#x27;}          │
+│ openai-embedding     │ text-embedding-3-l… │ openai     │ generation_type=e… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ encoding_format=f… │
+│ openrouter-text      │ nvidia/nemotron-3-… │ openrouter │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ temperature=1.00,  │
+│                      │                     │            │ top_p=1.00         │
+│ openrouter-reasoning │ openai/gpt-oss-20b  │ openrouter │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ temperature=0.35,  │
+│                      │                     │            │ top_p=0.95         │
+│ openrouter-vision    │ nvidia/nemotron-na… │ openrouter │ generation_type=c… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ temperature=0.85,  │
+│                      │                     │            │ top_p=0.95         │
+│ openrouter-embedding │ openai/text-embedd… │ openrouter │ generation_type=e… │
+│                      │                     │            │ max_parallel_requ… │
+│                      │                     │            │ encoding_format=f… │
+└──────────────────────┴─────────────────────┴────────────┴────────────────────┘
+
+  ⚠️   MCP providers have not been configured. Run &#x27;data-designer config mcp&#x27; to
+configure them.
+
+  ⚠️   Tool configs have not been configured. Run &#x27;data-designer config tools&#x27;
+to configure them.</div></details>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Now let me explore the Data Designer package structure and understand the API.</em></span>
+</div>
+<div class="st-step err">
+<span class="st-num">3</span>
+<span class="st-tool agent">Agent</span>
+<span class="st-desc">
+<code>Explore</code> &mdash; Explore Data Designer API<details class="st-expand"><summary><span class="st-arrow">&#9654;</span> prompt (974 chars)</summary><div>Explore the Data Designer package thoroughly. The package is located at:
+.venv/lib/python3.13/site-packages/data_designer/
+
+I need to understand:
+1. How to create a DataDesignerConfig or ConfigBuilder — look for the main config builder API
+2. What column types are available (especially for LLM generation, code validation, sampling/categorical, LLM-as-judge)
+3. How columns are defined and added to a config
+4. How to specify model aliases for columns
+5. Any example configs or tests that show how to build a config
+6. How the `data-designer validate` CLI command works (what it expects)
+7. The `load_config_builder` function pattern — what should it return?
+
+Be very thorough — check __init__.py files, column types, config module, CLI module, and any examples directory. Look at the actual class signatures and constructors.</div></details><details class="st-expand"><summary><span class="st-arrow">&#9654;</span> subagent work (25 tool calls, <strong style="color:#ef4444">1 error</strong>)</summary><div style="white-space:normal"><div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">1</span><span class="st-tool bash" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Bash</span><span style="font-size:.72rem"><code>find .venv/lib/python3.13/site-packages/data_designer</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">2</span><span class="st-tool bash" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Bash</span><span style="font-size:.72rem"><code>find .venv/lib/python3.13/site-packages/data_designer</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid #ef4444;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">3</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/__init__.py</code> &mdash; <strong style="color:#ef4444">error</strong></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">4</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/__init__.py</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">5</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/config_builder.py</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">6</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/column_types.py</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">7</span><span class="st-tool bash" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Bash</span><span style="font-size:.72rem"><code>find .venv/lib/python3.13/site-packages/data_designer</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">8</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/column_configs.py</code> <span style="opacity:.5">(limit=300)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">9</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/column_configs.py</code> <span style="opacity:.5">(offset=300, limit=300)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">10</span><span class="st-tool bash" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Bash</span><span style="font-size:.72rem"><code>find .venv/lib/python3.13/site-packages/data_designer</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">11</span><span class="st-tool bash" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Bash</span><span style="font-size:.72rem"><code>find .venv/lib/python3.13/site-packages/data_designer</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">12</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/cli/commands/validate.py</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">13</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/cli/utils/config_loader.py</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">14</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/cli/controllers/generation_controller.py</code> <span style="opacity:.5">(limit=200)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">15</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/models.py</code> <span style="opacity:.5">(limit=250)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">16</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/models.py</code> <span style="opacity:.5">(offset=250, limit=250)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">17</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/models.py</code> <span style="opacity:.5">(offset=500, limit=200)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">18</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/sampler_params.py</code> <span style="opacity:.5">(limit=200)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">19</span><span class="st-tool bash" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Bash</span><span style="font-size:.72rem"><code>find .venv/lib/python3.13/site-packages/data_designer</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">20</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/data_designer_config.py</code> <span style="opacity:.5">(limit=200)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">21</span><span class="st-tool bash" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Bash</span><span style="font-size:.72rem"><code>find .venv/lib/python3.13/site-packages/data_designer</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">22</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/validator_params.py</code> <span style="opacity:.5">(limit=200)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">23</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/interface/data_designer.py</code> <span style="opacity:.5">(limit=150)</span></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">24</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/utils/code_lang.py</code></span></div>
+<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;border-left:2px solid transparent;padding-left:.4rem"><span style="min-width:1.2rem;text-align:right;opacity:.4;font-size:.7rem">25</span><span class="st-tool read" style="font-size:.62rem;min-width:2.2rem;padding:.02rem .25rem">Read</span><span style="font-size:.72rem"><code>data_designer/config/sampler_params.py</code> <span style="opacity:.5">(offset=200, limit=300)</span></span></div></div></details><details class="st-expand"><summary><span class="st-arrow">&#9654;</span> subagent report (12,076 chars)</summary><div>Now I have comprehensive information about the Data Designer package. Let me compile a thorough report.
+
+## Data Designer Package Exploration Report
+
+I&#x27;ve conducted a thorough exploration of the Data Designer package located at `.venv/lib/python3.13/site-packages/data_designer/`. Here&#x27;s my comprehensive understanding:
+
+### 1. Creating a DataDesignerConfig or ConfigBuilder
+
+**Main API:** The primary builder class is `DataDesignerConfigBuilder` located at:
+- `.venv/lib/python3.13/site-packages/data_designer/config/config_builder.py`
+
+**Constructor:**
+<div class="language-python highlight"><pre><span></span><code><span class="n">DataDesignerConfigBuilder</span><span class="p">(</span>
+    <span class="n">model_configs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ModelConfig</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tool_configs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ToolConfig</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span>
+</code></pre></div>
+
+**Key Methods:**
+- `__init__()`: Initialize with optional model configs (defaults to local models) and tool configs
+- `add_column()`: Add columns to the config (most commonly used)
+- `add_model_config()`: Add model configurations
+- `add_tool_config()`: Add MCP tool configurations
+- `with_seed_dataset()`: Attach a seed dataset source
+- `build()`: Returns a `DataDesignerConfig` object
+- `get_builder_config()`: Returns a `BuilderConfig` wrapping the config
+- `write_config()`: Save to YAML/JSON file
+- `from_config()`: Create builder from existing config file or dict
+
+**Alternative Creation:**
+<div class="language-python highlight"><pre><span></span><code><span class="c1"># From existing config file/dict</span>
+<span class="n">builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="n">config_path_or_dict</span><span class="p">)</span>
+</code></pre></div>
+
+### 2. Available Column Types
+
+**Location:** `.venv/lib/python3.13/site-packages/data_designer/config/column_types.py`
+
+**Column Types (enum: DataDesignerColumnType):**
+
+1. **LLM Generation Columns:**
+   - `llm-text` → `LLMTextColumnConfig`: Free-form text generation with Jinja2 templates
+   - `llm-code` → `LLMCodeColumnConfig`: Code generation with language specification (Python, SQL, JS, etc.)
+   - `llm-structured` → `LLMStructuredColumnConfig`: Structured JSON output using JSON schema or Pydantic models
+   - `llm-judge` → `LLMJudgeColumnConfig`: Multi-dimensional evaluation/scoring of other columns
+
+2. **Sampling/Categorical Columns:**
+   - `sampler` → `SamplerColumnConfig`: Numerical and categorical sampling (13+ sampler types available)
+
+3. **Code Validation:**
+   - `validation` → `ValidationColumnConfig`: Run validation code (Python/SQL) or call validation functions
+
+4. **Other Column Types:**
+   - `seed-dataset` → `SeedDatasetColumnConfig`: Columns sourced from seed data (auto-created)
+   - `expression` → `ExpressionColumnConfig`: Jinja2-based derived/computed columns
+   - `embedding` → `EmbeddingColumnConfig`: Generate embeddings for text
+   - `image` → `ImageColumnConfig`: Generate images from prompts
+   - `custom` → `CustomColumnConfig`: User-defined generation logic with decorators
+
+### 3. How Columns Are Defined and Added
+
+**Two approaches:**
+
+**Approach 1: Direct column objects**
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLMTextColumnConfig</span><span class="p">,</span> <span class="n">SamplerColumnConfig</span>
+
+<span class="n">text_col</span> <span class="o">=</span> <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">review</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">prompt</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Write</span> <span class="n">a</span> <span class="n">product</span> <span class="n">review</span> <span class="n">about</span> <span class="p">{{</span> <span class="n">product_name</span> <span class="p">}}</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">model_alias</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">claude</span><span class="o">-</span><span class="mf">3.5</span><span class="o">-</span><span class="n">sonnet</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span>
+<span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">text_col</span><span class="p">)</span>
+
+<span class="c1"># Sampler column</span>
+<span class="n">sampler_col</span> <span class="o">=</span> <span class="n">SamplerColumnConfig</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">age</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">sampler_type</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">uniform</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">params</span><span class="o">=</span><span class="p">{</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">low</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;:</span> <span class="mi">18</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">high</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;:</span> <span class="mi">65</span><span class="p">}</span>
+<span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">sampler_col</span><span class="p">)</span>
+</code></pre></div>
+
+**Approach 2: Via kwargs (using add_column)**
+<div class="language-python highlight"><pre><span></span><code><span class="n">builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">review</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">column_type</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">llm</span><span class="o">-</span><span class="n">text</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">prompt</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Write</span> <span class="n">a</span> <span class="n">product</span> <span class="n">review</span> <span class="n">about</span> <span class="p">{{</span> <span class="n">product_name</span> <span class="p">}}</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">model_alias</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">claude</span><span class="o">-</span><span class="mf">3.5</span><span class="o">-</span><span class="n">sonnet</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span>
+<span class="p">)</span>
+</code></pre></div>
+
+**Column Properties:**
+- Each column config extends `SingleColumnConfig` with a `column_type` discriminator field
+- Columns support:
+  - `required_columns`: List of columns this column depends on
+  - `side_effect_columns`: Additional columns created as side effects (e.g., traces, reasoning_content)
+  - Jinja2 template validation for prompts
+  - Type conversion and formatting options
+
+### 4. Model Aliases for Columns
+
+**Location:** `.venv/lib/python3.13/site-packages/data_designer/config/models.py`
+
+**Model Configuration:**
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelConfig</span><span class="p">,</span> <span class="n">ChatCompletionInferenceParams</span>
+
+<span class="n">model_config</span> <span class="o">=</span> <span class="n">ModelConfig</span><span class="p">(</span>
+    <span class="n">alias</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">my</span><span class="o">-</span><span class="n">claude</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>  <span class="c1"># User-defined alias referenced in columns</span>
+    <span class="n">model</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">claude</span><span class="o">-</span><span class="mf">3.5</span><span class="o">-</span><span class="n">sonnet</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">inference_parameters</span><span class="o">=</span><span class="n">ChatCompletionInferenceParams</span><span class="p">(</span>
+        <span class="n">temperature</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
+        <span class="n">top_p</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span>
+        <span class="n">max_tokens</span><span class="o">=</span><span class="mi">2000</span>
+    <span class="p">),</span>
+    <span class="n">provider</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># Optional custom provider</span>
+    <span class="n">skip_health_check</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+
+<span class="n">builder</span><span class="o">.</span><span class="n">add_model_config</span><span class="p">(</span><span class="n">model_config</span><span class="p">)</span>
+</code></pre></div>
+
+**Inference Parameter Types:**
+- `ChatCompletionInferenceParams`: For LLM generation (temperature, top_p, max_tokens, dynamic distributions)
+- `EmbeddingInferenceParams`: For embeddings (encoding_format, dimensions)
+- `ImageInferenceParams`: For image generation (extra_body for model-specific options)
+
+**Model Properties:**
+- `alias`: User-defined reference used in columns (e.g., `model_alias=&quot;my-claude&quot;`)
+- `model`: Model identifier (e.g., &quot;claude-3.5-sonnet&quot;)
+- `inference_parameters`: Supports fixed values or distributions for sampling
+- `generation_type`: Auto-determined from inference_parameters (chat-completion, embedding, or image)
+
+### 5. Available Sampler Types
+
+**Location:** `.venv/lib/python3.13/site-packages/data_designer/config/sampler_params.py`
+
+**All Sampler Types (SamplerType enum):**
+
+1. **Statistical Distributions:**
+   - `uniform`: Continuous uniform distribution
+   - `gaussian`: Normal/Gaussian distribution
+   - `binomial`: Binomial distribution (success count)
+   - `bernoulli`: Binary (0/1) outcome
+   - `bernoulli_mixture`: Mixed zero-inflation with continuous distribution
+   - `poisson`: Poisson count distribution
+   - `scipy`: Any scipy.stats distribution
+
+2. **Categorical/Discrete:**
+   - `category`: Discrete categories with optional weights
+   - `subcategory`: Hierarchical sampling based on parent category
+
+3. **Temporal:**
+   - `datetime`: Uniform datetime sampling within range
+   - `timedelta`: Time offset relative to reference column
+
+4. **Special:**
+   - `uuid`: UUID generation (with optional prefix/formatting)
+   - `person`: Synthetic person data with demographic filtering (from managed datasets or Faker)
+   - `person_from_faker`: Pure Faker-based person generation
+
+### 6. `data-designer validate` CLI Command
+
+**Location:** `.venv/lib/python3.13/site-packages/data_designer/cli/commands/validate.py`
+
+**Usage:**
+<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>validate<span class="w"> </span><span class="p">&amp;</span>lt<span class="p">;</span>config_source<span class="p">&amp;</span>gt<span class="p">;</span>
+</code></pre></div>
+
+**What it validates:**
+- Checks configuration is well-formed
+- Resolves all references (models, columns, seed datasets, etc.)
+- Validates model aliases are defined
+- Validates column dependencies and required columns
+- Checks constraint validity
+- Validates processor configurations
+
+**Accepted Config Sources:**
+1. **YAML/JSON files**: Local paths or HTTP(S) URLs
+2. **Python modules**: `.py` files that define a `load_config_builder()` function
+
+**Controller Implementation:**
+<div class="language-python highlight"><pre><span></span><code><span class="c1"># In GenerationController.run_validate()</span>
+<span class="n">data_designer</span> <span class="o">=</span> <span class="n">DataDesigner</span><span class="p">()</span>
+<span class="n">data_designer</span><span class="o">.</span><span class="n">validate</span><span class="p">(</span><span class="n">config_builder</span><span class="p">)</span>
+</code></pre></div>
+
+Exits with code 0 on success, code 1 on validation failure.
+
+### 7. `load_config_builder` Function Pattern
+
+**Location:** `.venv/lib/python3.13/site-packages/data_designer/cli/utils/config_loader.py`
+
+**Function Signature Required:**
+<div class="language-python highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">load_config_builder</span><span class="p">()</span> <span class="o">-&amp;</span><span class="n">gt</span><span class="p">;</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">:</span>
+    <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Must</span> <span class="k">return</span> <span class="n">a</span> <span class="n">DataDesignerConfigBuilder</span> <span class="n">instance</span><span class="o">.&amp;</span><span class="n">quot</span><span class="p">;</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span>
+    <span class="o">...</span>
+</code></pre></div>
+
+**What it should return:**
+- A `DataDesignerConfigBuilder` instance (not BuilderConfig, not DataDesignerConfig)
+- The builder is used by the CLI to access the full configuration
+
+**Validation Requirements:**
+1. The `.py` file **must** define `load_config_builder()` function
+2. Function must be callable and return exactly a `DataDesignerConfigBuilder`
+3. The CLI will call this function and validate the returned builder
+4. The parent directory of the `.py` file is temporarily added to sys.path to support local imports
+
+**Example Pattern:**
+<div class="language-python highlight"><pre><span></span><code><span class="c1"># my_config.py</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataDesignerConfigBuilder</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">load_config_builder</span><span class="p">()</span> <span class="o">-&amp;</span><span class="n">gt</span><span class="p">;</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">:</span>
+    <span class="n">builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">()</span>
+
+    <span class="c1"># Add model</span>
+    <span class="n">builder</span><span class="o">.</span><span class="n">add_model_config</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+    <span class="c1"># Add columns</span>
+    <span class="n">builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">builder</span>
+
+<span class="c1"># CLI usage:</span>
+<span class="c1"># data-designer validate my_config.py</span>
+</code></pre></div>
+
+### 8. LLM-as-Judge Column Configuration
+
+**Location:** `.venv/lib/python3.13/site-packages/data_designer/config/column_configs.py`
+
+**Class:** `LLMJudgeColumnConfig` (extends `LLMTextColumnConfig`)
+
+**Configuration Example:**
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLMJudgeColumnConfig</span><span class="p">,</span> <span class="n">Score</span>
+
+<span class="n">judge_col</span> <span class="o">=</span> <span class="n">LLMJudgeColumnConfig</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">quality_assessment</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">prompt</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Evaluate</span> <span class="n">the</span> <span class="n">quality</span> <span class="n">of</span><span class="p">:</span> <span class="p">{{</span> <span class="n">generated_text</span> <span class="p">}}</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">model_alias</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">claude</span><span class="o">-</span><span class="mf">3.5</span><span class="o">-</span><span class="n">sonnet</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">system_prompt</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">You</span> <span class="n">are</span> <span class="n">a</span> <span class="n">quality</span> <span class="n">evaluator</span><span class="o">...&amp;</span><span class="n">quot</span><span class="p">;,</span>
+    <span class="n">scores</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">Score</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Relevance</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+            <span class="n">description</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">How</span> <span class="n">relevant</span> <span class="ow">is</span> <span class="n">the</span> <span class="n">content</span> <span class="n">to</span> <span class="n">the</span> <span class="n">topic</span><span class="err">?</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+            <span class="n">options</span><span class="o">=</span><span class="p">{</span>
+                <span class="mi">1</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Not</span> <span class="n">relevant</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+                <span class="mi">2</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Somewhat</span> <span class="n">relevant</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+                <span class="mi">3</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Highly</span> <span class="n">relevant</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">),</span>
+        <span class="n">Score</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Fluency</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+            <span class="n">description</span><span class="o">=&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">How</span> <span class="n">fluent</span> <span class="ow">and</span> <span class="n">natural</span> <span class="ow">is</span> <span class="n">the</span> <span class="n">writing</span><span class="err">?</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+            <span class="n">options</span><span class="o">=</span><span class="p">{</span>
+                <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">poor</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Difficult</span> <span class="n">to</span> <span class="n">understand</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+                <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">good</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Clear</span> <span class="ow">and</span> <span class="n">readable</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;,</span>
+                <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">excellent</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span><span class="n">Excellent</span> <span class="n">quality</span><span class="o">&amp;</span><span class="n">quot</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+    <span class="p">],</span>
+    <span class="n">with_trace</span><span class="o">=</span><span class="n">TraceType</span><span class="o">.</span><span class="n">ALL_MESSAGES</span><span class="p">,</span>
+    <span class="n">extract_reasoning_content</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+
+<span class="n">builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">judge_col</span><span class="p">)</span>
+</code></pre></div>
+
+**Key Features:**
+- Inherits all LLMTextColumnConfig capabilities (prompts, traces, reasoning extraction, tool calling)
+- `scores`: List of `Score` objects defining evaluation dimensions
+- Each score has: name, description, options (dict of value → description)
+- Can reference other columns in prompts via Jinja2 templating
+- Supports system prompts and tool aliases for complex evaluations
+
+### Key File Locations Summary
+
+| Component | File Path |
+|-----------|-----------|
+| Config Builder | `.../data_designer/config/config_builder.py` |
+| Column Types | `.../data_designer/config/column_types.py` |
+| Column Configs | `.../data_designer/config/column_configs.py` |
+| Model Config | `.../data_designer/config/models.py` |
+| Sampler Params | `.../data_designer/config/sampler_params.py` |
+| Validator Params | `.../data_designer/config/validator_params.py` |
+| Code Languages | `.../data_designer/config/utils/code_lang.py` |
+| Validate CLI | `.../data_designer/cli/commands/validate.py` |
+| Config Loader | `.../data_designer/cli/utils/config_loader.py` |
+| Main Interface | `.../data_designer/interface/data_designer.py` |
+| Data Config | `.../data_designer/config/data_designer_config.py` |
+agentId: af6f4be5db40ad2af (use SendMessage with to: &#x27;af6f4be5db40ad2af&#x27; to continue this agent)
+&lt;usage&gt;total_tokens: 87439
+tool_uses: 25
+duration_ms: 75309&lt;/usage&gt;</div></details>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Let me check a few specific details about the column configs and validation column.</em></span>
+</div>
+<div class="st-step">
+<span class="st-num">4</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/column_configs.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Now let me check the validator params and the config builder&#x27;s `add_column` method, plus the `__init__` exports.</em></span>
+</div>
+<div class="st-step">
+<span class="st-num">5</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/validator_params.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">6</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/__init__.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Let me check the sampler params for category type and the config builder&#x27;s `add_column` signature.</em></span>
+</div>
+<div class="st-step">
+<span class="st-num">7</span>
+<span class="st-tool grep">Grep</span>
+<span class="st-desc">
+<code>class CategorySamplerParams</code><details class="st-expand"><summary><span class="st-arrow">&#9654;</span> results (1,072 chars)</summary><div>45:class CategorySamplerParams(ConfigBase):
+46-    &quot;&quot;&quot;Parameters for categorical sampling with optional probability weighting.
+47-
+48-    Samples values from a discrete set of categories. When weights are provided, values are
+49-    sampled according to their assigned probabilities. Without weights, uniform sampling is used.
+50-
+51-    Attributes:
+52-        values: List of possible categorical values to sample from. Can contain strings, integers,
+53-            or floats. Must contain at least one value.
+54-        weights: Optional unnormalized probability weights for each value. If provided, must be
+55-            the same length as `values`. Weights are automatically normalized to sum to 1.0.
+56-            Larger weights result in higher sampling probability for the corresponding value.
+57-    &quot;&quot;&quot;
+58-
+59-    values: list[str | int | float] = Field(
+60-        ...,
+61-        min_length=1,
+62-        description=&quot;List of possible categorical values that can be sampled from.&quot;,
+63-    )
+64-    weights: list[float] | None = Field(
+65-        default=None,</div></details>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">8</span>
+<span class="st-tool grep">Grep</span>
+<span class="st-desc">
+<code>def add_column</code><details class="st-expand"><summary><span class="st-arrow">&#9654;</span> results (1,590 chars)</summary><div>267:    def add_column(
+268-        self,
+269-        column_config: ColumnConfigT | None = None,
+270-        *,
+271-        name: str | None = None,
+272-        column_type: DataDesignerColumnType | None = None,
+273-        **kwargs,
+274-    ) -&gt; Self:
+275-        &quot;&quot;&quot;Add a Data Designer column configuration to the current Data Designer configuration.
+276-
+277-        If no column config object is provided, you must provide the `name`, `column_type`, and any
+278-        additional keyword arguments that are required by the column config constructor.
+279-
+280-        Args:
+281-            column_config: Data Designer column config object to add.
+282-            name: Name of the column to add. This is only used if `column_config` is not provided.
+283-            column_type: Column type to add. This is only used if `column_config` is not provided.
+284-            **kwargs: Additional keyword arguments to pass to the column constructor.
+285-
+286-        Returns:
+287-            The current Data Designer config builder instance.
+288-
+289-        Raises:
+290-            BuilderConfigurationError: If the column name collides with an existing seed dataset column.
+291-        &quot;&quot;&quot;
+292-        if column_config is None:
+293-            if name is None or column_type is None:
+294-                raise BuilderConfigurationError(
+295-                    &quot;🛑 You must provide either a &#x27;column_config&#x27; object or &#x27;name&#x27; *and* &#x27;column_type&#x27; &quot;
+296-                    f&quot;with additional keyword arguments. You provided {column_config=}, {name=}, and {column_type=}.&quot;
+297-                )</div></details>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Now I have everything I need. Let me write the config file.</em></span>
+</div>
+<div class="st-step">
+<span class="st-num">9</span>
+<span class="st-tool write">Write</span>
+<span class="st-desc">
+<code>config.py</code><details class="st-expand"><summary><span class="st-arrow">&#9654;</span> written content (6,872 chars)</summary><div>from data_designer.config import (
+    CategorySamplerParams,
+    CodeLang,
+    CodeValidatorParams,
+    DataDesignerConfigBuilder,
+    LLMCodeColumnConfig,
+    LLMJudgeColumnConfig,
+    LLMTextColumnConfig,
+    SamplerColumnConfig,
+    Score,
+    ValidationColumnConfig,
+    ValidatorType,
+)
+
+
+def load_config_builder() -&gt; DataDesignerConfigBuilder:
+    builder = DataDesignerConfigBuilder()
+
+    # --- Difficulty level ---
+    builder.add_column(
+        SamplerColumnConfig(
+            name=&quot;difficulty&quot;,
+            sampler_type=&quot;category&quot;,
+            params=CategorySamplerParams(
+                values=[&quot;beginner&quot;, &quot;intermediate&quot;, &quot;advanced&quot;],
+                weights=[0.35, 0.40, 0.25],
+            ),
+        )
+    )
+
+    # --- Subtopic ---
+    builder.add_column(
+        SamplerColumnConfig(
+            name=&quot;subtopic&quot;,
+            sampler_type=&quot;category&quot;,
+            params=CategorySamplerParams(
+                values=[
+                    &quot;data cleaning&quot;,
+                    &quot;exploratory analysis&quot;,
+                    &quot;aggregation and groupby operations&quot;,
+                    &quot;visualization with matplotlib/seaborn&quot;,
+                    &quot;statistical testing&quot;,
+                    &quot;feature engineering&quot;,
+                    &quot;working with messy or missing data&quot;,
+                ],
+            ),
+        )
+    )
+
+    # --- Natural language instruction ---
+    builder.add_column(
+        LLMTextColumnConfig(
+            name=&quot;instruction&quot;,
+            model_alias=&quot;nvidia-text&quot;,
+            prompt=(
+                &quot;Write a clear, specific natural-language instruction for a {{ difficulty }}-level &quot;
+                &quot;Python data science task in the area of {{ subtopic }}.\n\n&quot;
+                &quot;The instruction should describe a concrete problem that a data scientist might encounter &quot;
+                &quot;and should be solvable in a single self-contained Python script. &quot;
+                &quot;Do NOT include any code in your response — only the task description.\n\n&quot;
+                &quot;Vary the complexity to match the difficulty level:\n&quot;
+                &quot;- beginner: simple operations using pandas, basic plots, straightforward cleaning\n&quot;
+                &quot;- intermediate: multi-step workflows, combining libraries, moderate data manipulation\n&quot;
+                &quot;- advanced: complex pipelines, statistical modeling, performance optimization, &quot;
+                &quot;advanced visualization techniques\n\n&quot;
+                &quot;Return only the instruction text, nothing else.&quot;
+            ),
+        )
+    )
+
+    # --- Python solution ---
+    builder.add_column(
+        LLMCodeColumnConfig(
+            name=&quot;solution&quot;,
+            model_alias=&quot;nvidia-reasoning&quot;,
+            code_lang=CodeLang.PYTHON,
+            prompt=(
+                &quot;Write a complete, self-contained Python solution for the following &quot;
+                &quot;{{ difficulty }}-level data science task:\n\n&quot;
+                &quot;{{ instruction }}\n\n&quot;
+                &quot;Requirements:\n&quot;
+                &quot;- The code must be syntactically valid and runnable as-is.\n&quot;
+                &quot;- Include all necessary imports.\n&quot;
+                &quot;- Generate or define any sample data needed (do not load from external files).\n&quot;
+                &quot;- Use appropriate libraries (pandas, numpy, matplotlib, seaborn, scipy, &quot;
+                &quot;scikit-learn, etc.) as needed.\n&quot;
+                &quot;- Add brief inline comments explaining key steps.\n&quot;
+                &quot;- Follow Python best practices and PEP 8 style.\n&quot;
+            ),
+        )
+    )
+
+    # --- Code validation ---
+    builder.add_column(
+        ValidationColumnConfig(
+            name=&quot;code_validation&quot;,
+            target_columns=[&quot;solution&quot;],
+            validator_type=ValidatorType.CODE,
+            validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+        )
+    )
+
+    # --- LLM-as-judge evaluation ---
+    builder.add_column(
+        LLMJudgeColumnConfig(
+            name=&quot;quality_score&quot;,
+            model_alias=&quot;nvidia-reasoning&quot;,
+            prompt=(
+                &quot;Evaluate the following Python data science solution against its instruction.\n\n&quot;
+                &quot;**Difficulty:** {{ difficulty }}\n&quot;
+                &quot;**Subtopic:** {{ subtopic }}\n\n&quot;
+                &quot;**Instruction:**\n{{ instruction }}\n\n&quot;
+                &quot;**Solution:**\n```python\n{{ solution }}\n```\n\n&quot;
+                &quot;Score the solution on each dimension below. Be rigorous but fair.&quot;
+            ),
+            scores=[
+                Score(
+                    name=&quot;correctness&quot;,
+                    description=(
+                        &quot;Does the code correctly implement what the instruction asks for? &quot;
+                        &quot;Consider logical correctness, proper use of libraries, and whether &quot;
+                        &quot;the output would match expectations.&quot;
+                    ),
+                    options={
+                        1: &quot;Completely wrong or does not address the instruction&quot;,
+                        2: &quot;Major errors that would produce incorrect results&quot;,
+                        3: &quot;Partially correct but has notable issues&quot;,
+                        4: &quot;Mostly correct with minor issues&quot;,
+                        5: &quot;Fully correct and complete implementation&quot;,
+                    },
+                ),
+                Score(
+                    name=&quot;code_quality&quot;,
+                    description=(
+                        &quot;Assess the code style, readability, and Pythonic practices. &quot;
+                        &quot;Consider variable naming, structure, comments, and adherence &quot;
+                        &quot;to best practices.&quot;
+                    ),
+                    options={
+                        1: &quot;Very poor quality, unreadable or badly structured&quot;,
+                        2: &quot;Below average, multiple style issues&quot;,
+                        3: &quot;Acceptable but could be improved&quot;,
+                        4: &quot;Good quality, clean and well-structured&quot;,
+                        5: &quot;Excellent quality, exemplary Python code&quot;,
+                    },
+                ),
+                Score(
+                    name=&quot;instruction_clarity&quot;,
+                    description=(
+                        &quot;How clear and well-defined is the original instruction? &quot;
+                        &quot;Consider whether the task is unambiguous, specific enough to implement, &quot;
+                        &quot;and appropriately scoped for the stated difficulty level.&quot;
+                    ),
+                    options={
+                        1: &quot;Vague or incomprehensible instruction&quot;,
+                        2: &quot;Unclear, missing important details&quot;,
+                        3: &quot;Adequate but could be more specific&quot;,
+                        4: &quot;Clear and well-defined&quot;,
+                        5: &quot;Excellent clarity, perfectly scoped for difficulty level&quot;,
+                    },
+                ),
+            ],
+        )
+    )
+
+    return builder
+</div></details><div>File created successfully at: ./config.py</div>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Now let me validate it.</em></span>
+</div>
+<div class="st-step ok">
+<span class="st-num">10</span>
+<span class="st-tool bash">Bash</span>
+<span class="st-desc">
+<code>.venv/bin/data-designer validate config.py</code><div>  ────────────────────────── Data Designer Validate ──────────────────────────
+
+  Config: config.py
+
+[21:25:04] [INFO] ✅ Validation passed
+  ✅  Configuration is valid</div>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc">
+<details class="st-expand"><summary><span class="st-arrow">&#9654;</span> message (999 chars)</summary><div>The configuration validates successfully. Here&#x27;s what the pipeline does:
+
+1. **`difficulty`** — Sampler column that randomly picks from beginner (35%), intermediate (40%), advanced (25%)
+2. **`subtopic`** — Sampler column that uniformly samples from 7 data science subtopics (data cleaning, exploratory analysis, aggregation/groupby, visualization, statistical testing, feature engineering, messy/missing data)
+3. **`instruction`** — LLM text column (`nvidia-text`) that generates a natural language task description conditioned on the difficulty and subtopic
+4. **`solution`** — LLM code column (`nvidia-reasoning`) that generates a complete, self-contained Python solution for the instruction
+5. **`code_validation`** — Validation column that checks the generated Python code for syntactic correctness
+6. **`quality_score`** — LLM judge column (`nvidia-reasoning`) that scores each (instruction, solution) pair on three dimensions (correctness, code quality, instruction clarity) using a 1–5 scale</div></details>
+</span>
+</div>
+</div>
+</details>
+
+<p>While this session started from a clear context, real sessions often don't start that way. There's prior context from the user's other work, back-and-forth as they iterate with the agent on the design, maybe a second or third run. Every token spent on exploration is context budget that can't go toward the actual task. Lean context is essential for multi-turn sessions.</p>
+<hr />
+<h2 id="shortening-the-path-data-designers-agent-cli-and-skill"><strong>Shortening the Path: Data Designer's Agent CLI and Skill</strong></h2>
+<p>Data Designer's CLI was previously only used for model configuration and downloading assets. But agents are first-class users now, and they already know how to run commands and read stdout. We saw an opportunity to extend the CLI with commands designed specifically for agent consumption. The <code>data-designer</code> skill leverages these new commands with workflows for interactive and autopilot dataset generation.</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="c1"># Bootstrap all code-derived agent context</span>
+data-designer<span class="w"> </span>agent<span class="w"> </span>context
+
+<span class="c1"># Validate a config script</span>
+data-designer<span class="w"> </span>validate<span class="w"> </span>&lt;file-path&gt;
+
+<span class="c1"># Generate a small sample to inspect and iterate on</span>
+data-designer<span class="w"> </span>preview<span class="w"> </span>&lt;file-path&gt;
+
+<span class="c1"># Generate the full dataset</span>
+data-designer<span class="w"> </span>create<span class="w"> </span>&lt;file-path&gt;<span class="w"> </span>--num-records<span class="w"> </span>&lt;N&gt;<span class="w"> </span>--dataset-name<span class="w"> </span>&lt;name&gt;
+</code></pre></div>
+<p><code>agent context</code> dynamically generates a structured reference from the library's source code. Column types, sampler parameters, validator configs, constraints, processors, available model aliases with their providers, installed persona datasets, and the exact files to read for needed context — everything the subagent spent 25 tool calls piecing together, delivered in one read. Because the output is derived from the code at runtime, it stays in sync as the API evolves.</p>
+<p>The other three commands standardize config validation and dataset generation. <code>validate</code> catches config errors before any generation tokens are spent. <code>preview</code> generates a small sample to inspect and iterate on (the agent can enter this self-improvement loop on its own). <code>create</code> runs the full generation. Everything downstream of the configuration is Data Designer's domain. DAG construction, batching, execution. The agent never touches it.</p>
+<h3 id="coding-best-practices-still-matter">Coding best practices still matter</h3>
+<p>Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability and maintainability, turns out to be exactly what agents need – a small, predictable set of files that fully describes the API surface. <code>agent context</code> exploits this boundary. It dumps the config layer and nothing else. If your library has a similar separation, you're already most of the way there. You just need to surface it.</p>
+<h3 id="the-skill-in-action">The Skill in action</h3>
+<p>Let's see the <a href="https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/skills/data-designer">skill</a> in action. Same dataset task as before, but this time the prompt is just the dataset description. No package path, no <code>config list</code>, no validate command. The skill provides all of that.</p>
+<details open="open">
+<summary><strong>The prompt</strong></summary>
+<div class="language-text highlight"><pre><span></span><code>I need to generate a text-to-python dataset focused on data science and analytics for
+supervised fine-tuning (SFT) a code LLM.
+
+Each record should include at least:
+- A natural language instruction describing a data science task in Python.
+- A difficulty level sampled from beginner, intermediate, and advanced.
+- A subtopic sampled from areas like data cleaning, exploratory analysis, aggregation
+  and groupby operations, visualization with matplotlib/seaborn, statistical testing,
+  feature engineering, and working with messy or missing data.
+- A complete Python solution generated by an LLM that correctly implements the instruction.
+  The code should be syntactically valid and self-contained.
+- A code validation column that checks the generated solution for syntactic
+  correctness and reports any issues found.
+- An LLM-as-a-judge column that scores each (instruction, solution) pair on correctness,
+  code quality, and instruction clarity. Use a 1-5 scale and return structured results.
+
+The instructions should be realistic and diverse — vary the complexity, libraries used,
+and required operations to match the difficulty level.
+</code></pre></div>
+</details>
+<style>
+/* ── Nuke ALL Material-injected pseudo-elements on our details ── */
+.md-typeset details.session-trace > summary,
+.md-typeset .st-body details > summary {
+    padding-left: 0 !important;   /* Material adds 2.4em for its icon */
+    position: relative;
+}
+.md-typeset details.session-trace > summary::before,
+.md-typeset details.session-trace > summary::after,
+.md-typeset .st-body details > summary::before,
+.md-typeset .st-body details > summary::after {
+    display: none !important;
+    content: none !important;
+}
+
+/* ── Arrow icon (real <span>, not pseudo-element) ── */
+.st-arrow {
+    display: inline-block;
+    font-size: .55em;
+    transition: transform .2s;
+    flex-shrink: 0;
+    color: var(--md-default-fg-color--light);
+}
+details[open] > summary > .st-arrow { transform: rotate(90deg); }
+
+/* ── Session trace container ── */
+.md-typeset details.session-trace { border: 1px solid var(--md-default-fg-color--lightest); border-radius: .4rem; margin: .6rem 0; overflow: hidden; }
+.md-typeset details.session-trace > summary { padding: .65rem 1rem !important; background: var(--md-code-bg-color); cursor: pointer; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; list-style: none; user-select: none; font-size: .85rem; }
+.st-badge { padding: .1rem .4rem; border-radius: .2rem; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.st-badge.skill { background: #76B900; color: #000; }
+.st-badge.baseline { background: #f59e0b; color: #000; }
+.st-name { font-weight: 600; }
+.st-stats { display: inline-flex; gap: .3rem; flex-wrap: wrap; margin-left: auto; }
+.st-stat { padding: .08rem .4rem; border-radius: 1rem; font-size: .68rem; font-family: var(--md-code-font-family); background: var(--md-default-fg-color--lightest); white-space: nowrap; }
+.st-stat.err { background: rgba(239,68,68,.15); color: #ef4444; }
+.st-stat.zero { background: rgba(118,185,0,.12); color: #76B900; }
+
+/* ── Trace body / steps ── */
+.st-body { padding: .25rem 0; }
+.st-step { padding: .4rem 1rem; display: flex; gap: .6rem; align-items: baseline; border-top: 1px solid var(--md-default-fg-color--lightest); border-left: 3px solid transparent; font-size: .84rem; }
+.st-step:first-child { border-top: none; }
+.st-step.err { background: rgba(239,68,68,.06); border-left-color: #ef4444; }
+.st-step.ok { border-left-color: #76B900; }
+.st-num { min-width: 1.5rem; font-size: .7rem; color: var(--md-default-fg-color--lighter); font-family: var(--md-code-font-family); text-align: right; flex-shrink: 0; }
+.st-tool { padding: .05rem .35rem; border-radius: .2rem; font-size: .68rem; font-family: var(--md-code-font-family); font-weight: 600; min-width: 2.8rem; text-align: center; flex-shrink: 0; white-space: nowrap; }
+.st-tool.bash { background: #3b82f6; color: #fff; }
+.st-tool.read { background: #8b5cf6; color: #fff; }
+.st-tool.write { background: #10b981; color: #fff; }
+.st-tool.edit { background: #f59e0b; color: #000; }
+.st-tool.grep { background: #ec4899; color: #fff; }
+.st-tool.glob { background: #a855f7; color: #fff; }
+.st-tool.agent { background: #06b6d4; color: #000; }
+.st-tool.msg { background: transparent; border: 1px solid var(--md-default-fg-color--lighter); color: var(--md-default-fg-color--light); font-weight: 500; font-style: italic; }
+.st-desc { flex: 1; min-width: 0; }
+.st-desc code { font-size: .78rem; }
+
+/* ── Inner collapsible blocks ── */
+.md-typeset .st-body details.st-expand { margin: .25rem 0 .1rem; border: none; box-shadow: none; }
+.md-typeset .st-body details.st-expand > summary { cursor: pointer; color: var(--md-default-fg-color--light); font-size: .76rem; padding: .15rem 0 !important; list-style: none; min-height: 0; font-weight: normal; }
+.md-typeset .st-body details.st-expand > summary:hover { color: var(--md-default-fg-color); }
+.md-typeset .st-body details.st-expand > div { margin-top: .2rem; padding: .5rem .75rem; background: var(--md-code-bg-color); border-radius: .25rem; font-size: .73rem; font-family: var(--md-code-font-family); max-height: 30rem; overflow: auto; line-height: 1.45; white-space: pre; }
+</style>
+
+<!-- ── 1. Typical Skill Session ── -->
+<details class="session-trace" open>
+<summary>
+<span class="st-arrow">&#9654;</span>
+<span class="st-badge skill">Skill</span>
+<span class="st-name">Typical Skill Session</span>
+<span class="st-stats">
+<span class="st-stat">9 tools</span>
+<span class="st-stat zero">0 errors</span>
+<span class="st-stat">92s</span>
+</span>
+</summary>
+<div class="st-body">
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>I&#x27;ll start by learning about the Data Designer library to understand the available column types, samplers, validators, and processors.</em></span>
+</div>
+<div class="st-step">
+<span class="st-num">1</span>
+<span class="st-tool bash">Bash</span>
+<span class="st-desc">
+<code>data-designer agent context 2&gt;&amp;1</code><details class="st-expand"><summary><span class="st-arrow">&#9654;</span> output (7,427 chars)</summary><div>Data Designer v0.5.4rc2
+
+## Config Module
+
+The config module contains all user-facing configuration types. Do not search other modules in the library.
+config_root: .venv/lib/python3.13/site-packages/data_designer/config
+
+builder: {config_root}/config_builder.py
+base: {config_root}/base.py (read for inherited fields shared by columns and processors)
+All config types are accessible via: import data_designer.config as dd
+
+## Types
+
+### columns
+file: {config_root}/column_configs.py
+
+type                       description
+-------------------------  ---------------------------------------------------------------------------------
+CustomColumnConfig         Configuration for custom user-defined column generators.
+EmbeddingColumnConfig      Configuration for embedding generation columns.
+ExpressionColumnConfig     Configuration for derived columns using Jinja2 expressions.
+ImageColumnConfig          Configuration for image generation columns.
+LLMCodeColumnConfig        Configuration for code generation columns using Large Language Models.
+LLMJudgeColumnConfig       Configuration for LLM-as-a-judge quality assessment and scoring columns.
+LLMStructuredColumnConfig  Configuration for structured JSON generation columns using Large Language Models.
+LLMTextColumnConfig        Configuration for text generation columns using Large Language Models.
+SamplerColumnConfig        Configuration for columns generated using numerical samplers.
+SeedDatasetColumnConfig    Configuration for columns sourced from seed datasets.
+ValidationColumnConfig     Configuration for validation columns that validate existing columns.
+
+### constraints
+file: {config_root}/sampler_constraints.py
+
+type                        description
+--------------------------  --------------------------------------------------------------------------
+ColumnInequalityConstraint  Constrain a sampler column to be less/greater than another sampler column.
+ScalarInequalityConstraint  Constrain a sampler column to be less/greater than a scalar value.
+
+### processors
+file: {config_root}/processors.py
+
+type                            description
+------------------------------  ---------------------------------------------------------------------------------
+DropColumnsProcessorConfig      Drop columns from the output dataset (prefer ``drop=True`` in the column config).
+SchemaTransformProcessorConfig  Configuration for transforming the dataset schema using Jinja2 templates.
+
+### samplers
+file: {config_root}/sampler_params.py
+
+type                           description
+-----------------------------  -------------------------------------------------------------------------------------
+BernoulliSamplerParams         Parameters for sampling from a Bernoulli distribution.
+BernoulliMixtureSamplerParams  Parameters for sampling from a Bernoulli mixture distribution.
+BinomialSamplerParams          Parameters for sampling from a Binomial distribution.
+CategorySamplerParams          Parameters for categorical sampling with optional probability weighting.
+DatetimeSamplerParams          Parameters for uniform datetime sampling within a specified range.
+GaussianSamplerParams          Parameters for sampling from a Gaussian (Normal) distribution.
+PersonSamplerParams            Parameters for sampling synthetic person data with demographic attributes.
+PersonFromFakerSamplerParams   Parameters for sampling synthetic person data with demographic attributes from Faker.
+PoissonSamplerParams           Parameters for sampling from a Poisson distribution.
+ScipySamplerParams             Parameters for sampling from any scipy.stats continuous or discrete distribution.
+SubcategorySamplerParams       Parameters for subcategory sampling conditioned on a parent category column.
+TimeDeltaSamplerParams         Parameters for sampling time deltas relative to a reference datetime column.
+UniformSamplerParams           Parameters for sampling from a continuous Uniform distribution.
+UUIDSamplerParams              Parameters for generating UUID (Universally Unique Identifier) values.
+
+### validators
+file: {config_root}/validator_params.py
+
+type                          description
+----------------------------  -----------------------------------------------------------------------------------------------------
+CodeValidatorParams           Configuration for code validation. Supports Python and SQL code validation.
+LocalCallableValidatorParams  Configuration for local callable validation. Expects a function to be passed that validates the data.
+RemoteValidatorParams         Configuration for remote validation. Sends data to a remote endpoint for validation.
+
+## Model Aliases
+
+default_provider: nvidia
+
+model_alias       model                              generation_type  provider
+----------------  ---------------------------------  ---------------  --------
+nvidia-embedding  nvidia/llama-3.2-nv-embedqa-1b-v2  embedding        nvidia
+nvidia-reasoning  openai/gpt-oss-20b                 chat-completion  nvidia
+nvidia-text       nvidia/nemotron-3-nano-30b-a3b     chat-completion  nvidia
+nvidia-vision     nvidia/nemotron-nano-12b-v2-vl     chat-completion  nvidia
+openai-embedding  text-embedding-3-large             embedding        openai
+openai-reasoning  openai/openai/gpt-5.2              chat-completion  openai
+openai-text       us/azure/openai/gpt-4.1            chat-completion  openai
+openai-vision     openai/openai/gpt-5.2              chat-completion  openai
+
+## Persona Datasets
+
+locale      size     installed
+----------  -------  ---------
+en_IN       2.39 GB  True
+en_SG       0.30 GB  True
+en_US       1.24 GB  True
+hi_Deva_IN  4.14 GB  True
+hi_Latn_IN  2.7 GB   True
+ja_JP       1.69 GB  True
+pt_BR       2.33 GB  True
+
+## Commands
+
+command_pattern                             description
+------------------------------------------  -------------------------------------------------------------------
+data-designer agent context                 Prints output from all agent subcommands to bootstrap context.
+data-designer agent types [family]          Type names, descriptions, and source files for one or all families.
+data-designer agent state model-aliases     Model aliases and usability status.
+data-designer agent state persona-datasets  Persona locales and install status.</div></details>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Now let me inspect the specific config schemas I&#x27;ll need.</em></span>
+</div>
+<div class="st-step">
+<span class="st-num">2</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/base.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">3</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/column_configs.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">4</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/sampler_params.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">5</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/validator_params.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">6</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/config_builder.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">7</span>
+<span class="st-tool read">Read</span>
+<span class="st-desc">
+<code>data_designer/config/processors.py</code>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc">
+<details class="st-expand"><summary><span class="st-arrow">&#9654;</span> message (863 chars)</summary><div>Now I have a complete understanding of the library. Here are my key design decisions:
+
+**Schema:**
+1. `difficulty` — Category sampler: beginner, intermediate, advanced (equal weights)
+2. `subtopic` — Category sampler: 7 data science subtopics
+3. `instruction` — LLM text column: generates a natural language task description conditioned on difficulty + subtopic
+4. `solution` — LLM code column (Python): generates a complete solution conditioned on instruction + difficulty + subtopic
+5. `code_validation` — Validation column (code validator, Python): checks syntactic correctness of the solution
+6. `quality_score` — LLM judge column: scores correctness, code quality, and instruction clarity on 1-5 scale
+
+**Diversity axes:** difficulty x subtopic combinations ensure broad coverage. The LLM prompts emphasize varying libraries, complexity, and operation types.</div></details>
+</span>
+</div>
+<div class="st-step">
+<span class="st-num">8</span>
+<span class="st-tool write">Write</span>
+<span class="st-desc">
+<code>text_to_python.py</code><details class="st-expand"><summary><span class="st-arrow">&#9654;</span> written content (7,540 chars)</summary><div># /// script
+# dependencies = [
+#   &quot;data-designer&quot;,
+# ]
+# ///
+import data_designer.config as dd
+
+
+def load_config_builder() -&gt; dd.DataDesignerConfigBuilder:
+    config_builder = dd.DataDesignerConfigBuilder()
+
+    # 1. Difficulty level
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name=&quot;difficulty&quot;,
+            sampler_type=&quot;category&quot;,
+            params=dd.CategorySamplerParams(
+                values=[&quot;beginner&quot;, &quot;intermediate&quot;, &quot;advanced&quot;],
+            ),
+        )
+    )
+
+    # 2. Subtopic
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name=&quot;subtopic&quot;,
+            sampler_type=&quot;category&quot;,
+            params=dd.CategorySamplerParams(
+                values=[
+                    &quot;data cleaning&quot;,
+                    &quot;exploratory analysis&quot;,
+                    &quot;aggregation and groupby operations&quot;,
+                    &quot;visualization with matplotlib/seaborn&quot;,
+                    &quot;statistical testing&quot;,
+                    &quot;feature engineering&quot;,
+                    &quot;working with messy or missing data&quot;,
+                ],
+            ),
+        )
+    )
+
+    # 3. Natural language instruction
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name=&quot;instruction&quot;,
+            model_alias=&quot;nvidia-text&quot;,
+            system_prompt=(
+                &quot;You are an expert data science educator who writes clear, realistic Python coding tasks. &quot;
+                &quot;Your instructions should be specific enough that a developer can implement a complete solution &quot;
+                &quot;without ambiguity. Vary the libraries used (pandas, numpy, scipy, sklearn, matplotlib, seaborn, etc.) &quot;
+                &quot;and the operations required to match the difficulty level.&quot;
+            ),
+            prompt=(
+                &quot;Write a single, self-contained Python coding instruction for a {{ difficulty }}-level data science task &quot;
+                &quot;in the subtopic of &#x27;{{ subtopic }}&#x27;.\n\n&quot;
+                &quot;Requirements:\n&quot;
+                &quot;- The task should be realistic and something a data scientist would actually encounter.\n&quot;
+                &quot;- For beginner tasks, focus on simple operations with clear steps.\n&quot;
+                &quot;- For intermediate tasks, combine multiple operations or require domain knowledge.\n&quot;
+                &quot;- For advanced tasks, involve complex logic, performance considerations, or sophisticated techniques.\n&quot;
+                &quot;- The instruction should describe what the code should do, including any expected input/output behavior.\n&quot;
+                &quot;- Do NOT include the solution — only the task description.\n\n&quot;
+                &quot;Return only the instruction text, nothing else.&quot;
+            ),
+        )
+    )
+
+    # 4. Python solution
+    config_builder.add_column(
+        dd.LLMCodeColumnConfig(
+            name=&quot;solution&quot;,
+            model_alias=&quot;nvidia-text&quot;,
+            code_lang=&quot;python&quot;,
+            system_prompt=(
+                &quot;You are an expert Python data scientist. Write clean, well-structured, and correct Python code. &quot;
+                &quot;The code must be completely self-contained — include all necessary imports, sample data creation, &quot;
+                &quot;and function definitions. Do not rely on external files or databases. &quot;
+                &quot;Use realistic variable names and follow PEP 8 conventions.&quot;
+            ),
+            prompt=(
+                &quot;Write a complete, self-contained Python solution for the following {{ difficulty }}-level &quot;
+                &quot;data science task in the area of &#x27;{{ subtopic }}&#x27;.\n\n&quot;
+                &quot;Task:\n{{ instruction }}\n\n&quot;
+                &quot;Requirements:\n&quot;
+                &quot;- Include all necessary imports at the top.\n&quot;
+                &quot;- Create any sample/mock data needed so the code runs independently.\n&quot;
+                &quot;- The code must be syntactically valid and runnable as-is.\n&quot;
+                &quot;- Match the complexity to the {{ difficulty }} level.\n&quot;
+                &quot;- Add brief inline comments explaining key steps.\n\n&quot;
+                &quot;Return only the Python code.&quot;
+            ),
+        )
+    )
+
+    # 5. Code validation
+    config_builder.add_column(
+        dd.ValidationColumnConfig(
+            name=&quot;code_validation&quot;,
+            target_columns=[&quot;solution&quot;],
+            validator_type=&quot;code&quot;,
+            validator_params=dd.CodeValidatorParams(code_lang=&quot;python&quot;),
+        )
+    )
+
+    # 6. LLM-as-a-judge quality scoring
+    config_builder.add_column(
+        dd.LLMJudgeColumnConfig(
+            name=&quot;quality_score&quot;,
+            model_alias=&quot;nvidia-text&quot;,
+            prompt=(
+                &quot;Evaluate the following Python data science coding task and its solution.\n\n&quot;
+                &quot;Difficulty: {{ difficulty }}\n&quot;
+                &quot;Subtopic: {{ subtopic }}\n\n&quot;
+                &quot;Instruction:\n{{ instruction }}\n\n&quot;
+                &quot;Solution:\n{{ solution }}\n\n&quot;
+                &quot;Score each dimension below on a 1-5 scale using the provided rubrics.&quot;
+            ),
+            scores=[
+                dd.Score(
+                    name=&quot;correctness&quot;,
+                    description=(
+                        &quot;Does the solution correctly implement what the instruction asks for? &quot;
+                        &quot;Consider whether the code logic is sound, handles edge cases appropriately, &quot;
+                        &quot;and would produce the expected output.&quot;
+                    ),
+                    options={
+                        1: &quot;Completely incorrect or does not address the instruction.&quot;,
+                        2: &quot;Major logical errors; partially addresses the instruction.&quot;,
+                        3: &quot;Mostly correct with minor bugs or missing edge cases.&quot;,
+                        4: &quot;Correct implementation with only trivial issues.&quot;,
+                        5: &quot;Fully correct, handles edge cases, and produces expected output.&quot;,
+                    },
+                ),
+                dd.Score(
+                    name=&quot;code_quality&quot;,
+                    description=(
+                        &quot;Assess the code quality including readability, proper use of libraries, &quot;
+                        &quot;PEP 8 compliance, appropriate variable naming, and idiomatic Python/pandas usage.&quot;
+                    ),
+                    options={
+                        1: &quot;Very poor quality: unreadable, no structure, bad naming.&quot;,
+                        2: &quot;Below average: some structure but many style issues.&quot;,
+                        3: &quot;Acceptable: readable but could improve in idiom or style.&quot;,
+                        4: &quot;Good: clean, well-structured, follows conventions.&quot;,
+                        5: &quot;Excellent: idiomatic, elegant, and highly readable.&quot;,
+                    },
+                ),
+                dd.Score(
+                    name=&quot;instruction_clarity&quot;,
+                    description=(
+                        &quot;How clear and unambiguous is the instruction? Could a competent developer &quot;
+                        &quot;implement the solution from the instruction alone without guessing?&quot;
+                    ),
+                    options={
+                        1: &quot;Extremely vague or incomprehensible.&quot;,
+                        2: &quot;Unclear with significant ambiguity.&quot;,
+                        3: &quot;Understandable but some details are missing or ambiguous.&quot;,
+                        4: &quot;Clear with only minor room for interpretation.&quot;,
+                        5: &quot;Crystal clear, specific, and unambiguous.&quot;,
+                    },
+                ),
+            ],
+        )
+    )
+
+    return config_builder
+</div></details><div>File created successfully at: ./text_to_python.py</div>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc"><em>Now let me validate the config.</em></span>
+</div>
+<div class="st-step ok">
+<span class="st-num">9</span>
+<span class="st-tool bash">Bash</span>
+<span class="st-desc">
+<code>data-designer validate text_to_python.py 2&gt;&amp;1</code><div>  ────────────────────────── Data Designer Validate ──────────────────────────
+
+  Config: text_to_python.py
+
+[22:15:26] [INFO] ✅ Validation passed
+  ✅  Configuration is valid</div>
+</span>
+</div>
+<div class="st-step">
+<span class="st-tool msg">Agent</span>
+<span class="st-desc">
+<details class="st-expand"><summary><span class="st-arrow">&#9654;</span> message (1,025 chars)</summary><div>Validation passed. Here&#x27;s a summary of the dataset pipeline:
+
+| Column | Type | Description |
+|---|---|---|
+| `difficulty` | Category sampler | beginner, intermediate, advanced (uniform) |
+| `subtopic` | Category sampler | 7 data science subtopics (data cleaning, exploratory analysis, aggregation/groupby, visualization, statistical testing, feature engineering, messy/missing data) |
+| `instruction` | LLM text | Natural language task description conditioned on difficulty + subtopic |
+| `solution` | LLM code (Python) | Complete self-contained Python solution for the instruction |
+| `code_validation` | Code validator | Checks the solution for syntactic correctness |
+| `quality_score` | LLM judge | Scores correctness, code_quality, and instruction_clarity (1-5 scale with structured reasoning) |
+
+To generate the dataset, run:
+
+<div class="language-text highlight"><pre><span></span><code>data-designer create text_to_python.py --num-records &amp;lt;N&amp;gt; --dataset-name text-to-python
+</code></pre></div>
+
+Note: generation can take a long time for large record counts (50+), so choose `N` accordingly.</div></details>
+</span>
+</div>
+</div>
+</details>
+
+<p>The skill session followed a direct, linear path: <code>agent context</code> → read 6 config files → write config → validate. <strong>9 tools, 0 errors, 92 seconds, ~210k tokens.</strong> Compare that to the baseline: <strong>35 tools, 1 error, 159 seconds, ~1.4M tokens.</strong></p>
+<p>Of course, these are individual sessions, and there's variance in both directions. Sometimes the baseline finds a lucky path and performs closer to the skill. Sometimes the skill takes a wrong turn. That said, the examples above are representative of the typical (median) outcomes we observed. To see whether the pattern holds, we ran <strong>228 sessions each</strong> for the skill and baseline, as described in the next section.</p>
+<hr />
+<h2 id="measuring-the-difference"><strong>Measuring the Difference</strong></h2>
+<p><img alt="Data Designer Skill Benchmark" src="../assets/data-designer-got-skills/hero_benchmark_figure.png" width="100%" /></p>
+<p>Evaluating agent skills is harder than it might seem. Behavior is non-deterministic, sensitive to context, and varies with prompt wording. Environment isolation is critical — coding agents explore their surroundings before they start working, so if a baseline session can discover the skill files on disk, it will use them. We observed this failure mode early on and had to ensure each session got a fully isolated environment. <a href="https://blog.langchain.com/evaluating-skills/">LangChain's writeup</a> on evaluating skills is an excellent read that covers many of the same challenges.</p>
+<p>In our experiment setup, each session started from a clean slate (new directory, fresh git history, clean venv with no skill files present for baseline runs). We used the text-to-python use case across three prompt detail levels (low, medium, high), half at high reasoning effort and half at low. Claude Code was run in headless mode (i.e., <code>claude -p &lt;prompt&gt;</code>). Each session ends when the agent produces a validated configuration — we stop at <code>data-designer validate</code> rather than running full generation, both for easier automation and because once the config is valid, generation is just a simple <code>data-designer create</code> away. The main results are shown in the figure above and are summarized below.</p>
+<ul>
+<li>
+<p>⚡ <strong>Our skill and agent CLI use ~80% fewer tokens (panel a).</strong> The skill replaces source-code exploration with directed context. Output tokens fall <strong>65%</strong>, tool calls <strong>72%</strong>, errors <strong>90%</strong>, wall clock time <strong>47%</strong>. Every downstream metric improves.</p>
+</li>
+<li>
+<p>📈 <strong>Beyond the efficiency gains, the skill also produces higher-quality results (panel b).</strong> We used an LLM judge (GPT-5.3 Codex) on a 1–5 scale. Mean quality score went from <strong>4.0 → 4.7</strong>. The standout is feature utilization — how well the agent uses the library's capabilities — which jumped <strong>3.1 → 4.6</strong>. The skill surfaces capabilities like diversity axes, sampler types, and validators directly in the context.</p>
+</li>
+<li>
+<p>🛡️ <strong>Errors are nearly eliminated at high reasoning effort (panel c).</strong> Mean errors per session drop from <strong>1.18 → 0.04</strong> when reasoning effort is high, and <strong>1.67 → 0.25</strong> when it's low. Fewer errors mean fewer recovery loops, fewer tokens burned on retries, less chance of the agent going down a dead end. The table below breaks down where the errors come from. The skill nearly wipes out file/path and import errors, and cuts config validation failures by more than two-thirds.</p>
+<figure markdown="span">
+<p><strong>Error Breakdown by Category</strong></p>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Total</th>
+<th>%</th>
+<th>Baseline</th>
+<th>Skill</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>File/Path Not Found</strong></td>
+<td>228</td>
+<td>63.5%</td>
+<td>216</td>
+<td>12</td>
+</tr>
+<tr>
+<td><strong>Config Validation Failures</strong></td>
+<td>92</td>
+<td>25.6%</td>
+<td>70</td>
+<td>22</td>
+</tr>
+<tr>
+<td><strong>Import Errors</strong></td>
+<td>32</td>
+<td>8.9%</td>
+<td>32</td>
+<td>0</td>
+</tr>
+<tr>
+<td><strong>Tool/Environment Issues</strong></td>
+<td>7</td>
+<td>1.9%</td>
+<td>7</td>
+<td>0</td>
+</tr>
+</tbody>
+</table>
+</figure>
+</li>
+<li>
+<p>⏱️ <strong>Wall-clock time is cut roughly in half (panel d).</strong> <strong>193s → 101s</strong> with high reasoning, <strong>172s → 92s</strong> with low. Less exploration, fewer errors, fewer retries. The time savings follow naturally.</p>
+</li>
+</ul>
+<hr />
+<h2 id="getting-started"><strong>Getting Started</strong></h2>
+<p>First, you will need to install Data Designer and set up your model providers. The <a href="https://github.com/NVIDIA-NeMo/DataDesigner#quick-start">quickstart guide</a> in our README walks through this. We recommend using a virtual environment to manage dependencies.</p>
+<p>Next, install the skill. Note that while the skill should work with other coding agents that support skills, our development and testing has focused on Claude Code at this stage.</p>
+<p><strong>Install via <a href="https://skills.sh">skills.sh</a>:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code>npx<span class="w"> </span>skills<span class="w"> </span>add<span class="w"> </span>NVIDIA-NeMo/DataDesigner
+</code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>When prompted, make sure to select <strong>Claude Code</strong> as an additional agent.</p>
+</div>
+<p>After installation, open Claude Code and type <code>/data-designer</code>, or just tell it you want to generate a dataset along with a description of what you want and the skill will kick in.</p>
+<p>The skill has two modes. In interactive mode (the default), the agent asks clarifying questions and has you make key design decisions (diversity axes, sampling strategies, model selection). You review sample records, give feedback, and iterate until it's right.</p>
+<p>Autopilot mode is the opposite. The agent reads your description, makes its own design decisions (and tells you what they are), then validates and generates without waiting. To enter this mode, just tell the agent to "be opinionated", "surprise me", or imply that you don't want to be involved in the design process.</p>
+<p>Both produce the same artifact. A standalone Python script calling Data Designer's public API. Re-runnable, modifiable, version-controllable.</p>
+<hr />
+<h2 id="whats-next"><strong>What's Next</strong></h2>
+<p>Everything described in this post is live, and we're paying close attention to how people use it. Feedback from early adopters is very welcome and will help us shape what comes next.</p>
+<p>On the automation side, the agent already asks if you want it to review the generated dataset and suggest improvements. We're working on closing that loop (generate config, preview, review, improve, repeat) so the agent runs a few iterations on its own before handing you the result.</p>
+<p>We also plan to add domain-specific SDG references that the agent can draw on for specialized use cases (healthcare, finance, legal, etc.). The goal is for the agent to bring domain expertise to dataset design alongside library knowledge.</p>
+<p>Stay tuned.</p>
+<p>👋 Thanks for reading and happy dataset building!</p>
+<hr />
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+  
+
+
+
+      
+    </article>
+  </div>
+
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+        
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../search-agent-sft-data-teaching-llms-to-browse-the-web/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Search Agent SFT Data: Teaching LLMs to Browse the Web">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Search Agent SFT Data: Teaching LLMs to Browse the Web
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../owning-the-model-stack-adaptive-concurrency-ftw/" class="md-footer__link md-footer__link--next" aria-label="Next: Owning the Model Stack: Adaptive Concurrency FTW!">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Owning the Model Stack: Adaptive Concurrency FTW!
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.path", "navigation.footer", "navigation.indexes", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../js/toc-toggle.js"></script>
+      
+    
+  </body>
+</html>
