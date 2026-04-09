@@ -1551,3 +1551,74 @@ async def test_scheduler_downstream_interleaves_with_upstream() -> None:
         f"First judge dispatched at {first_judge_dispatched:.4f}, "
         f"last gen dispatched at {last_gen_dispatched:.4f}."
     )
+
+
+class MockCellGeneratorWithSideEffect(ColumnGenerator[ExpressionColumnConfig]):
+    """Cell generator that produces a side-effect column alongside its primary output."""
+
+    def __init__(self, *args: Any, side_effect_col: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._side_effect_col = side_effect_col
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        data[self.config.name] = f"primary_{data.get('seed', '?')}"
+        data[self._side_effect_col] = f"side_effect_{data.get('seed', '?')}"
+        return data
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_side_effect_columns_written_to_buffer() -> None:
+    """Side-effect columns (e.g. __reasoning_content) are persisted to the buffer.
+
+    Reproduces the bug where a generator produces extra columns (like trace or
+    reasoning_content) that aren't tracked in _instance_to_columns. Downstream
+    columns that reference these side-effect values must find them in the buffer.
+    """
+    provider = _mock_provider()
+    side_effect_col = "answer__reasoning_content"
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="answer", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="judge", prompt=f"{{{{ {side_effect_col} }}}}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "answer": GenerationStrategy.CELL_BY_CELL,
+        "judge": GenerationStrategy.CELL_BY_CELL,
+    }
+
+    answer_gen = MockCellGeneratorWithSideEffect(
+        config=_expr_config("answer"),
+        resource_provider=provider,
+        side_effect_col=side_effect_col,
+    )
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "answer": answer_gen,
+        "judge": MockCellGenerator(config=_expr_config("judge"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_manager = RowGroupBufferManager(MagicMock())
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+    )
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, 3, ["seed", "answer", "judge"])
+    for ri in range(3):
+        row = buffer_manager.get_row(0, ri)
+        assert side_effect_col in row, f"Side-effect column missing from row {ri}"
+        assert row[side_effect_col].startswith("side_effect_")

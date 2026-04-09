@@ -794,8 +794,15 @@ class AsyncTaskScheduler:
         # Write back to buffer
         if self._buffer_manager is not None and not self._tracker.is_dropped(task.row_group, task.row_index):
             output_cols = self._instance_to_columns.get(id(generator), [task.column])
+            written: set[str] = set()
             for col in output_cols:
                 if col in result:
+                    self._buffer_manager.update_cell(task.row_group, task.row_index, col, result[col])
+                    written.add(col)
+            # Also persist side-effect columns (e.g. __trace, __reasoning_content)
+            # produced by the generator but not tracked in _instance_to_columns.
+            for col in result.keys() - written:
+                if col not in row_data:
                     self._buffer_manager.update_cell(task.row_group, task.row_index, col, result[col])
 
         return result
@@ -824,13 +831,20 @@ class AsyncTaskScheduler:
                     f"Batch generator for '{task.column}' returned {len(result_df)} rows "
                     f"but {active_rows} were expected (rg={task.row_group})."
                 )
+            # Include side-effect columns (e.g. __trace, __reasoning_content)
+            # that the generator produced but aren't tracked in _instance_to_columns.
+            all_write_cols = list(output_cols)
+            existing_cols = set(batch_df.columns) if batch_df is not None else set()
+            for col in result_df.columns:
+                if col not in all_write_cols and col not in existing_cols:
+                    all_write_cols.append(col)
             result_idx = 0
             for ri in range(rg_size):
                 if ri in pre_dropped:
                     continue
                 # Skip writing to rows dropped by concurrent tasks during the await
                 if not self._buffer_manager.is_dropped(task.row_group, ri):
-                    for col in output_cols:
+                    for col in all_write_cols:
                         if col in result_df.columns:
                             self._buffer_manager.update_cell(task.row_group, ri, col, result_df.iloc[result_idx][col])
                 result_idx += 1
