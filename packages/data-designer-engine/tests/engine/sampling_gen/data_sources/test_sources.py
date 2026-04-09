@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
@@ -166,13 +167,10 @@ def test_datetime_format_mixin_postproc_same_month_records():
 
 def test_datetime_format_mixin_postproc_stdlib_fromisoformat():
     """Output must be parseable by Python stdlib datetime.fromisoformat, not just pandas."""
-    from datetime import datetime
-
     series = lazy.pd.Series(lazy.pd.to_datetime(["2024-06-15 14:30:00", "2025-01-01 00:00:00"]))
     result = DatetimeFormatMixin.postproc(series, None)
     for val in result:
-        parsed = datetime.fromisoformat(val)
-        assert isinstance(parsed, datetime)
+        datetime.fromisoformat(val)
 
 
 def test_datetime_format_mixin_postproc_round_trip_preserves_values():
