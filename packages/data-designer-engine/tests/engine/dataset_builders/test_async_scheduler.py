@@ -1583,7 +1583,9 @@ async def test_scheduler_side_effect_columns_written_to_buffer() -> None:
 
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
-        LLMTextColumnConfig(name="answer", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(
+            name="answer", prompt="{{ seed }}", model_alias=MODEL_ALIAS, extract_reasoning_content=True
+        ),
         LLMTextColumnConfig(name="judge", prompt=f"{{{{ {side_effect_col} }}}}", model_alias=MODEL_ALIAS),
     ]
     strategies = {
@@ -1614,6 +1616,7 @@ async def test_scheduler_side_effect_columns_written_to_buffer() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_manager,
+        side_effect_map={side_effect_col: "answer"},
     )
     await scheduler.run()
 

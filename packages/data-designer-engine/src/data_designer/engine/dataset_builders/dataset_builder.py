@@ -325,14 +325,19 @@ class DatasetBuilder:
         """
         strategies: dict[str, GenerationStrategy] = {}
         gen_map: dict[str, ColumnGenerator] = {}
+        side_effect_map: dict[str, str] = {}
         for gen in generators:
             if isinstance(gen.config, MultiColumnConfig):
                 for sub in gen.config.columns:
                     strategies[sub.name] = gen.get_generation_strategy()
                     gen_map[sub.name] = gen
+                    for se_col in sub.side_effect_columns:
+                        side_effect_map[se_col] = sub.name
             else:
                 strategies[gen.config.name] = gen.get_generation_strategy()
                 gen_map[gen.config.name] = gen
+                for se_col in gen.config.side_effect_columns:
+                    side_effect_map[se_col] = gen.config.name
 
         graph = ExecutionGraph.create(self._column_configs, strategies)
 
@@ -379,6 +384,7 @@ class DatasetBuilder:
             tracker=tracker,
             row_groups=row_groups,
             buffer_manager=buffer_manager,
+            side_effect_map=side_effect_map,
             max_submitted_tasks=DEFAULT_TASK_POOL_SIZE,
             max_llm_wait_tasks=max(DEFAULT_TASK_POOL_SIZE, LLM_WAIT_POOL_MULTIPLIER * aggregate),
             on_finalize_row_group=on_finalize_row_group,
