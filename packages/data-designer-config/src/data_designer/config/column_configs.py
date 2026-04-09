@@ -185,14 +185,17 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     @property
     def required_columns(self) -> list[str]:
-        """Get columns referenced in the prompt and system_prompt templates.
+        """Get columns referenced in prompt templates and multi-modal context.
 
         Returns:
-            List of unique column names referenced in Jinja2 templates.
+            List of unique column names referenced in Jinja2 templates
+            and multi-modal context configurations.
         """
         required_cols = list(extract_keywords_from_jinja2_template(self.prompt))
         if self.system_prompt:
             required_cols.extend(list(extract_keywords_from_jinja2_template(self.system_prompt)))
+        if self.multi_modal_context:
+            required_cols.extend(ctx.column_name for ctx in self.multi_modal_context)
         return list(set(required_cols))
 
     @property
@@ -593,12 +596,16 @@ class ImageColumnConfig(SingleColumnConfig):
 
     @property
     def required_columns(self) -> list[str]:
-        """Get columns referenced in the prompt template.
+        """Get columns referenced in the prompt template and multi-modal context.
 
         Returns:
-            List of unique column names referenced in Jinja2 templates.
+            List of unique column names referenced in Jinja2 templates
+            and multi-modal context configurations.
         """
-        return list(extract_keywords_from_jinja2_template(self.prompt))
+        required_cols = list(extract_keywords_from_jinja2_template(self.prompt))
+        if self.multi_modal_context:
+            required_cols.extend(ctx.column_name for ctx in self.multi_modal_context)
+        return list(set(required_cols))
 
     @model_validator(mode="after")
     def assert_prompt_valid_jinja(self) -> Self:
