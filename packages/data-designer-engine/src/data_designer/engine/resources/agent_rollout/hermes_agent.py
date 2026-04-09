@@ -16,6 +16,7 @@ from data_designer.engine.resources.agent_rollout.utils import (
     coerce_optional_str,
     load_json_object,
     load_jsonl_rows,
+    normalize_message_content,
     normalize_message_role,
     require_string,
     stringify_json_value,
@@ -244,7 +245,7 @@ def normalize_hermes_messages(
             normalized_messages.append(
                 build_message(
                     role="tool",
-                    content=_normalize_message_content(raw_message.get("content")),
+                    content=normalize_message_content(raw_message.get("content")),
                     tool_call_id=require_string(
                         raw_message.get("tool_call_id"),
                         f"Hermes tool message tool_call_id #{message_index} in {file_path}",
@@ -253,7 +254,7 @@ def normalize_hermes_messages(
             )
             continue
 
-        content = _normalize_message_content(raw_message.get("content"))
+        content = normalize_message_content(raw_message.get("content"))
         reasoning_content = coerce_optional_str(raw_message.get("reasoning"))
         tool_calls = normalize_hermes_tool_calls(
             raw_message.get("tool_calls"),
@@ -411,22 +412,6 @@ def _require_message_list(raw_messages: Any, *, file_path: Path, context: str) -
     if not isinstance(raw_messages, list):
         raise AgentRolloutSeedParseError(f"{context} at {file_path} is missing a 'messages' list")
     return raw_messages
-
-
-def _normalize_message_content(content: Any) -> Any:
-    """Coerce Hermes message content into the normalized content shape.
-
-    Args:
-        content: Raw Hermes message content.
-
-    Returns:
-        A string or content-block list compatible with ``build_message``.
-    """
-    if content is None:
-        return ""
-    if isinstance(content, (str, list)):
-        return content
-    return stringify_json_value(content)
 
 
 def _extract_finish_reasons(raw_messages: list[dict[str, Any]]) -> list[str]:
