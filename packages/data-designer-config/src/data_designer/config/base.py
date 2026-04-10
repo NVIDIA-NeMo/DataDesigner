@@ -125,10 +125,12 @@ class SingleColumnConfig(ConfigBase, ABC):
                     "allow_resize changes buffer size during generation (1:N / N:1), which "
                     "breaks index-based skip tracking and merge-back."
                 )
-            if self.name in self.skip.columns:
+            self_refs = {self.name} | set(self.side_effect_columns)
+            if not self_refs.isdisjoint(self.skip.columns):
+                offending = self_refs & set(self.skip.columns)
                 raise ValueError(
-                    f"skip.when expression for column '{self.name}' references itself. "
-                    "A column cannot gate its own generation."
+                    f"skip.when expression for column '{self.name}' references itself "
+                    f"(via {offending!r}). A column cannot gate its own generation."
                 )
         return self
 

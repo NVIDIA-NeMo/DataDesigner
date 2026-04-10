@@ -14,6 +14,7 @@ from jinja2.exceptions import SecurityError, TemplateSyntaxError, UndefinedError
 from jinja2.nativetypes import NativeEnvironment
 from jinja2.sandbox import SandboxedEnvironment
 
+from data_designer.engine.dataset_builders.utils.skip_tracker import SKIPPED_COLUMNS_RECORD_KEY
 from data_designer.engine.processing.utils import deserialize_json_values
 
 if TYPE_CHECKING:
@@ -59,6 +60,11 @@ def evaluate_skip_when(expression: str, record: dict) -> bool:
         return True
 
 
+def get_skipped_column_names(record: dict) -> set[str]:
+    """Return a *copy* of skipped producer column names for this row (empty if unset)."""
+    return set(record.get(SKIPPED_COLUMNS_RECORD_KEY, set()))
+
+
 def should_skip_by_propagation(
     required_columns: list[str],
     skipped_columns_for_row: set[str],
@@ -69,6 +75,32 @@ def should_skip_by_propagation(
     config *before* calling this function (see ``ExecutionGraph.should_propagate_skip``).
     """
     return not skipped_columns_for_row.isdisjoint(required_columns)
+
+
+def should_skip_column_for_record(
+    record: dict,
+    *,
+    propagate_skip: bool,
+    required_columns: list[str],
+    skip_config_when: str | None,
+) -> bool:
+    """Unified skip decision for a single cell/record.
+
+    Shared by both the sync and async engines so the logic stays in sync.
+    Checks propagation first (cheaper), then the expression gate.
+
+    Args:
+        record: Current row dict (may contain ``__internal_skipped_columns``).
+        propagate_skip: Whether this column auto-skips on upstream skips.
+        required_columns: Config-level data dependencies for *column*.
+        skip_config_when: The ``skip.when`` Jinja2 expression, or ``None``.
+    """
+    skipped_cols = get_skipped_column_names(record)
+    if propagate_skip and should_skip_by_propagation(required_columns, skipped_cols):
+        return True
+    if skip_config_when is not None:
+        return evaluate_skip_when(skip_config_when, record)
+    return False
 
 
 @lru_cache(maxsize=64)

@@ -15,11 +15,6 @@ from typing import Final
 SKIPPED_COLUMNS_RECORD_KEY: Final[str] = "__internal_skipped_columns"
 
 
-def get_skipped_column_names(record: dict) -> set[str]:
-    """Return a *copy* of skipped producer column names for this row (empty if unset)."""
-    return set(record.get(SKIPPED_COLUMNS_RECORD_KEY, set()))
-
-
 def apply_skip_to_record(
     record: dict,
     *,

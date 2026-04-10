@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import pytest
 
+from data_designer.engine.dataset_builders.utils.skip_evaluator import get_skipped_column_names
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
     apply_skip_to_record,
-    get_skipped_column_names,
     restore_skip_metadata,
     strip_skip_metadata_for_dataframe_row,
     strip_skip_metadata_from_records,

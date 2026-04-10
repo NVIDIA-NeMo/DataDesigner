@@ -1096,7 +1096,6 @@ def test_allow_resize_column_not_blocked_by_upstream_skip(stub_resource_provider
             generator_function=_make_resize_full_expand(2, "expanded", "copy"),
             generation_strategy=GenerationStrategy.FULL_COLUMN,
             allow_resize=True,
-            propagate_skip=False,
         )
     )
 

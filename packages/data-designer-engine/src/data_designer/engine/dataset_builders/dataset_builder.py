@@ -38,11 +38,10 @@ from data_designer.engine.dataset_builders.utils.dataset_batch_manager import Da
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
-from data_designer.engine.dataset_builders.utils.skip_evaluator import evaluate_skip_when, should_skip_by_propagation
+from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
     apply_skip_to_record,
-    get_skipped_column_names,
     restore_skip_metadata,
     strip_skip_metadata_from_records,
 )
@@ -548,18 +547,13 @@ class DatasetBuilder:
 
     def _should_skip_cell(self, column_name: str, record: dict) -> bool:
         """Decide whether a single cell should be skipped (propagation or expression gate)."""
-        skipped_cols = get_skipped_column_names(record)
-
-        if self._graph.should_propagate_skip(column_name):
-            required = self._graph.get_required_columns(column_name)
-            if should_skip_by_propagation(required, skipped_cols):
-                return True
-
         skip_config = self._graph.get_skip_config(column_name)
-        if skip_config is not None:
-            return evaluate_skip_when(skip_config.when, record)
-
-        return False
+        return should_skip_column_for_record(
+            record,
+            propagate_skip=self._graph.should_propagate_skip(column_name),
+            required_columns=self._graph.get_required_columns(column_name),
+            skip_config_when=skip_config.when if skip_config is not None else None,
+        )
 
     def _write_skip_to_record(self, column_name: str, record: dict) -> None:
         """Write skip metadata and the skip value into *record* in-place."""

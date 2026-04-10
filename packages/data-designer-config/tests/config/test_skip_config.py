@@ -103,3 +103,17 @@ def test_skip_self_reference_rejected() -> None:
             model_alias="default",
             skip=SkipConfig(when="{{ foo == 0 }}"),
         )
+
+
+def test_skip_side_effect_self_reference_rejected() -> None:
+    """Referencing a column's own side-effect (e.g. trace) in skip.when is a self-reference."""
+    from data_designer.config.column_configs import TraceType
+
+    with pytest.raises(ValidationError, match="references itself"):
+        LLMTextColumnConfig(
+            name="review",
+            prompt="test {{ bar }}",
+            model_alias="default",
+            with_trace=TraceType.ALL_MESSAGES,
+            skip=SkipConfig(when="{{ review__trace == 'x' }}"),
+        )
