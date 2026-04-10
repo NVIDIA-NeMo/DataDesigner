@@ -138,6 +138,17 @@ jobs:
               gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/close-body.md
               gh pr close "$PR_NUM" --repo "$REPO"
 
+              # Signal linked issues so the triage workflow picks them up.
+              PR_BODY=$(gh pr view "$PR_NUM" --repo "$REPO" --json body -q '.body' 2>/dev/null || echo "")
+              LINKED_ISSUE=$(echo "$PR_BODY" | grep -ioP '(?:fixes|closes|resolves)\s+#\K\d+' | head -1 || true)
+              if [ -n "$LINKED_ISSUE" ]; then
+                ISSUE_STATE=$(gh api "repos/${REPO}/issues/${LINKED_ISSUE}" --jq '.state' 2>/dev/null || echo "")
+                if [ "$ISSUE_STATE" = "open" ]; then
+                  gh issue edit "$LINKED_ISSUE" --repo "$REPO" --add-label "needs-attention" 2>/dev/null || true
+                  echo "  Added needs-attention label to issue #${LINKED_ISSUE}"
+                fi
+              fi
+
             elif [ "$DAYS_INACTIVE" -ge "$REMIND_DAYS" ] && [ "$HAS_REMINDER" -eq 0 ]; then
               echo "  Posting reminder on PR #${PR_NUM} (inactive ${DAYS_INACTIVE} days)"
 
