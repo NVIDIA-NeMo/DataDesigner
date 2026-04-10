@@ -7,7 +7,19 @@ updates:
     commit-message:
       prefix: "ci"
   - package-ecosystem: pip
-    directory: /
+    directory: /packages/data-designer-config
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore"
+  - package-ecosystem: pip
+    directory: /packages/data-designer-engine
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore"
+  - package-ecosystem: pip
+    directory: /packages/data-designer
     schedule:
       interval: weekly
     commit-message:
