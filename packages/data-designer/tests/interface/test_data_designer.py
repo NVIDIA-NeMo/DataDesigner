@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -20,7 +21,7 @@ from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
-from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
+from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
     AgentRolloutFormat,
@@ -700,6 +701,36 @@ def test_preview_raises_generation_error_when_dataset_is_empty(
     ):
         with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
             data_designer.preview(stub_sampler_only_config_builder, num_records=1)
+
+
+def test_preview_datetime_single_record_returns_iso8601(
+    stub_artifact_path, stub_model_providers, stub_model_configs, stub_managed_assets_path
+):
+    """Regression test for #484: single-record datetime preview must return ISO-8601, not a bare year."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="ts",
+            sampler_type=SamplerType.DATETIME,
+            params=DatetimeSamplerParams(start="2024-01-01", end="2026-06-30", unit="h"),
+        ),
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    result = data_designer.preview(config_builder, num_records=1)
+    ts_value = result.dataset["ts"].iloc[0]
+
+    # Must be a full ISO-8601 timestamp, not a bare year like "2025".
+    assert "T" in ts_value, f"Expected ISO-8601 timestamp, got: {ts_value!r}"
+    parsed = datetime.fromisoformat(ts_value)
+    assert parsed.year >= 2024
+    assert parsed.year <= 2026
 
 
 def test_preview_with_dropped_columns(

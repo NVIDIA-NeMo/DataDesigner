@@ -6,7 +6,6 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
-      - "packages/*/src/data_designer/**"
       - ".github/workflows/docs-preview.yml"
 
 jobs:
