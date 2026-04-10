@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from data_designer.config.column_configs import (
@@ -156,17 +158,20 @@ def test_side_effect_name_collision_prefers_real_column() -> None:
     assert graph.get_downstream_columns("summary") == set()
 
 
-def test_side_effect_collision_first_writer_wins() -> None:
-    """When two producers declare the same side-effect, the first registration wins."""
+def test_side_effect_collision_first_writer_wins(caplog: pytest.LogCaptureFixture) -> None:
+    """When two producers declare the same side-effect, the first registration wins and a warning is logged."""
     graph = ExecutionGraph()
     graph.add_column("producer_a", GenerationStrategy.CELL_BY_CELL)
     graph.add_column("producer_b", GenerationStrategy.CELL_BY_CELL)
     graph.add_column("consumer", GenerationStrategy.CELL_BY_CELL)
 
     graph.set_side_effect("shared_se", "producer_a")
-    graph.set_side_effect("shared_se", "producer_b")  # should be ignored
+    with caplog.at_level(logging.WARNING):
+        graph.set_side_effect("shared_se", "producer_b")  # should be ignored with warning
 
     assert graph.resolve_side_effect("shared_se") == "producer_a"
+    assert "already mapped to producer 'producer_a'" in caplog.text
+    assert "ignoring duplicate registration from 'producer_b'" in caplog.text
 
     # consumer depends on shared_se -> should resolve to producer_a, not producer_b
     resolved = graph.resolve_side_effect("shared_se")

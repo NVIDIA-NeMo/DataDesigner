@@ -125,22 +125,23 @@ class AsyncTaskScheduler:
         self._early_shutdown = False
 
         # Multi-column dedup: group output columns by generator identity.
-        # _instance_to_columns holds only real (graph-registered) columns and
-        # is used for completion tracking.  _instance_to_write_columns extends
-        # that with side-effect columns for buffer writes only.
-        instance_to_columns: dict[int, list[str]] = {}
+        # _gen_instance_to_columns holds only real (graph-registered) columns
+        # and is used for completion tracking.
+        # _gen_instance_to_columns_including_side_effects extends that with
+        # side-effect columns for buffer writes only.
+        gen_instance_to_columns: dict[int, list[str]] = {}
         for col, gen in generators.items():
-            instance_to_columns.setdefault(id(gen), []).append(col)
-        self._instance_to_columns = instance_to_columns
+            gen_instance_to_columns.setdefault(id(gen), []).append(col)
+        self._gen_instance_to_columns = gen_instance_to_columns
 
         seen_cols: set[str] = {col for col in generators}
-        instance_to_write_columns: dict[int, list[str]] = {k: list(v) for k, v in instance_to_columns.items()}
+        gen_instance_to_columns_incl_se: dict[int, list[str]] = {k: list(v) for k, v in gen_instance_to_columns.items()}
         for col, gen in generators.items():
             for side_effect_col in getattr(gen.config, "side_effect_columns", []):
                 if side_effect_col not in seen_cols:
-                    instance_to_write_columns.setdefault(id(gen), []).append(side_effect_col)
+                    gen_instance_to_columns_incl_se.setdefault(id(gen), []).append(side_effect_col)
                     seen_cols.add(side_effect_col)
-        self._instance_to_write_columns = instance_to_write_columns
+        self._gen_instance_to_columns_including_side_effects = gen_instance_to_columns_incl_se
 
         # Stateful generator tracking: instance_id → asyncio.Lock
         self._stateful_locks: dict[int, asyncio.Lock] = {}
@@ -358,7 +359,7 @@ class AsyncTaskScheduler:
                     self._dispatched.discard(
                         Task(column=task.column, row_group=task.row_group, row_index=None, task_type="batch")
                     )
-                    for sibling in self._instance_to_columns.get(gid, []):
+                    for sibling in self._gen_instance_to_columns.get(gid, []):
                         if sibling != task.column:
                             self._dispatched.discard(
                                 Task(column=sibling, row_group=task.row_group, row_index=None, task_type="from_scratch")
@@ -379,7 +380,7 @@ class AsyncTaskScheduler:
                     )
                     # Re-mark sibling columns as dispatched to mirror _dispatch_seeds
                     # and prevent _drain_frontier from re-dispatching them.
-                    for sibling in self._instance_to_columns.get(gid, []):
+                    for sibling in self._gen_instance_to_columns.get(gid, []):
                         if sibling != task.column:
                             self._dispatched.add(
                                 Task(column=sibling, row_group=task.row_group, row_index=None, task_type="from_scratch")
@@ -621,7 +622,7 @@ class AsyncTaskScheduler:
             self._dispatched.add(task)
             self._dispatched.add(batch_alias)
             # Also mark all sibling output columns as dispatched (multi-column dedup)
-            for sibling_col in self._instance_to_columns.get(gid, []):
+            for sibling_col in self._gen_instance_to_columns.get(gid, []):
                 if sibling_col != col:
                     self._dispatched.add(
                         Task(column=sibling_col, row_group=rg_id, row_index=None, task_type="from_scratch")
@@ -666,7 +667,7 @@ class AsyncTaskScheduler:
             trace.dispatched_at = time.perf_counter()
 
         generator = self._generators[task.column]
-        output_cols = self._instance_to_columns.get(id(generator), [task.column])
+        output_cols = self._gen_instance_to_columns.get(id(generator), [task.column])
         retryable = False
         # When True, skip removing from _dispatched so the task isn't re-dispatched
         # from the frontier (it was never completed, so it stays in the frontier).
@@ -768,7 +769,7 @@ class AsyncTaskScheduler:
 
         # Write results to buffer (include side-effect columns)
         if self._buffer_manager is not None:
-            write_cols = self._instance_to_write_columns.get(id(generator), [task.column])
+            write_cols = self._gen_instance_to_columns_including_side_effects.get(id(generator), [task.column])
             for col in write_cols:
                 if col in result_df.columns:
                     values = result_df[col].tolist()
@@ -794,7 +795,7 @@ class AsyncTaskScheduler:
 
         # Write back to buffer (include side-effect columns)
         if self._buffer_manager is not None and not self._tracker.is_dropped(task.row_group, task.row_index):
-            write_cols = self._instance_to_write_columns.get(id(generator), [task.column])
+            write_cols = self._gen_instance_to_columns_including_side_effects.get(id(generator), [task.column])
             for col in write_cols:
                 if col in result:
                     self._buffer_manager.update_cell(task.row_group, task.row_index, col, result[col])
@@ -818,7 +819,7 @@ class AsyncTaskScheduler:
 
         # Merge result columns back to buffer (include side-effect columns)
         if self._buffer_manager is not None:
-            write_cols = self._instance_to_write_columns.get(id(generator), [task.column])
+            write_cols = self._gen_instance_to_columns_including_side_effects.get(id(generator), [task.column])
             active_rows = rg_size - len(pre_dropped)
             if len(result_df) != active_rows:
                 raise ValueError(

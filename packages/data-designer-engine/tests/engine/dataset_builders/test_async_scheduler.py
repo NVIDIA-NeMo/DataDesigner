@@ -1433,9 +1433,10 @@ async def test_scheduler_rg_semaphore_deadlock_with_transient_failures() -> None
 
 
 def test_side_effect_columns_separated_from_completion_tracking() -> None:
-    """Side-effect columns must appear in _instance_to_write_columns (buffer writes)
-    but NOT in _instance_to_columns (completion tracking), because they are not
-    registered in the execution graph and would cause KeyError in CompletionTracker.
+    """Side-effect columns must appear in _gen_instance_to_columns_including_side_effects
+    (buffer writes) but NOT in _gen_instance_to_columns (completion tracking), because
+    they are not registered in the execution graph and would cause KeyError in
+    CompletionTracker.
     """
     graph = ExecutionGraph()
     graph.add_column("seed", GenerationStrategy.FULL_COLUMN)
@@ -1465,12 +1466,12 @@ def test_side_effect_columns_separated_from_completion_tracking() -> None:
     cell_id = id(cell_gen)
 
     # Completion tracking dict: only real columns
-    assert "side_a" not in scheduler._instance_to_columns.get(cell_id, [])
-    assert "side_b" not in scheduler._instance_to_columns.get(cell_id, [])
-    assert "primary" in scheduler._instance_to_columns.get(cell_id, [])
+    assert "side_a" not in scheduler._gen_instance_to_columns.get(cell_id, [])
+    assert "side_b" not in scheduler._gen_instance_to_columns.get(cell_id, [])
+    assert "primary" in scheduler._gen_instance_to_columns.get(cell_id, [])
 
     # Buffer write dict: includes side-effect columns
-    write_cols = scheduler._instance_to_write_columns.get(cell_id, [])
+    write_cols = scheduler._gen_instance_to_columns_including_side_effects.get(cell_id, [])
     assert "primary" in write_cols
     assert "side_a" in write_cols
     assert "side_b" in write_cols

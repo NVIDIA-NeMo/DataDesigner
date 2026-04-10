@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 
@@ -13,6 +14,8 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
 )
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionGraph:
@@ -114,6 +117,13 @@ class ExecutionGraph:
         """
         if side_effect_col not in self._side_effect_map:
             self._side_effect_map[side_effect_col] = producer
+        elif self._side_effect_map[side_effect_col] != producer:
+            logger.warning(
+                "Side-effect column %r already mapped to producer %r; ignoring duplicate registration from %r",
+                side_effect_col,
+                self._side_effect_map[side_effect_col],
+                producer,
+            )
 
     def resolve_side_effect(self, column: str) -> str:
         """Resolve a column name through the side-effect map.
