@@ -9,6 +9,7 @@ from data_designer.engine.dataset_builders.utils.skip_evaluator import get_skipp
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
     apply_skip_to_record,
+    prepare_records_for_skip_metadata_round_trip,
     restore_skip_metadata,
     strip_skip_metadata_for_dataframe_row,
     strip_skip_metadata_from_records,
@@ -131,32 +132,75 @@ def test_strip_skip_metadata_from_records(rows: list[dict], expected: list[dict]
     assert strip_skip_metadata_from_records(rows) == expected
 
 
-def test_restore_skip_metadata_copies_metadata() -> None:
-    old = [
+def test_prepare_records_for_skip_metadata_round_trip_without_metadata() -> None:
+    rows = [{"a": 1}, {"a": 2}]
+    prepared_rows, restore_context = prepare_records_for_skip_metadata_round_trip(rows)
+    assert restore_context is None
+    assert prepared_rows == rows
+    assert prepared_rows is not rows
+
+
+def test_prepare_records_for_skip_metadata_round_trip_injects_restore_ids() -> None:
+    rows = [
         {"a": 1, SKIPPED_COLUMNS_RECORD_KEY: {"col_x"}},
         {"a": 2},
         {"a": 3, SKIPPED_COLUMNS_RECORD_KEY: {"col_y", "col_z"}},
     ]
-    new = [{"a": 10}, {"a": 20}, {"a": 30}]
-    restore_skip_metadata(old, new)
-    assert new[0][SKIPPED_COLUMNS_RECORD_KEY] == {"col_x"}
-    assert SKIPPED_COLUMNS_RECORD_KEY not in new[1]
-    assert new[2][SKIPPED_COLUMNS_RECORD_KEY] == {"col_y", "col_z"}
+    prepared_rows, restore_context = prepare_records_for_skip_metadata_round_trip(rows)
+    assert restore_context is not None
+    assert SKIPPED_COLUMNS_RECORD_KEY not in prepared_rows[0]
+    assert restore_context.restore_id_column in prepared_rows[0]
+    assert restore_context.skipped_columns_by_source_id == {
+        "0": {"col_x"},
+        "2": {"col_y", "col_z"},
+    }
 
 
-def test_restore_skip_metadata_handles_length_mismatch() -> None:
+def test_restore_skip_metadata_uses_restore_ids_after_reorder() -> None:
     old = [
         {"a": 1, SKIPPED_COLUMNS_RECORD_KEY: {"col_x"}},
-        {"a": 2, SKIPPED_COLUMNS_RECORD_KEY: {"col_y"}},
+        {"a": 2},
+        {"a": 3, SKIPPED_COLUMNS_RECORD_KEY: {"col_z"}},
     ]
-    new = [{"a": 10}]
-    restore_skip_metadata(old, new)
-    assert new[0][SKIPPED_COLUMNS_RECORD_KEY] == {"col_x"}
+    prepared_rows, restore_context = prepare_records_for_skip_metadata_round_trip(old)
+    assert restore_context is not None
+    restore_id_column = restore_context.restore_id_column
+
+    new = [
+        {"a": 30, restore_id_column: prepared_rows[2][restore_id_column]},
+        {"a": 10, restore_id_column: prepared_rows[0][restore_id_column]},
+        {"a": 20, restore_id_column: prepared_rows[1][restore_id_column]},
+    ]
+    restore_skip_metadata(new, context=restore_context, allow_resize=False)
+
+    assert new[0][SKIPPED_COLUMNS_RECORD_KEY] == {"col_z"}
+    assert new[1][SKIPPED_COLUMNS_RECORD_KEY] == {"col_x"}
+    assert SKIPPED_COLUMNS_RECORD_KEY not in new[2]
 
 
-def test_restore_skip_metadata_no_metadata() -> None:
+def test_restore_skip_metadata_allow_resize_handles_filtered_rows() -> None:
     old = [{"a": 1}, {"a": 2}]
-    new = [{"a": 10}, {"a": 20}]
-    restore_skip_metadata(old, new)
+    prepared_rows, restore_context = prepare_records_for_skip_metadata_round_trip(old)
+    assert restore_context is None
+
+    old = [
+        {"a": 1, SKIPPED_COLUMNS_RECORD_KEY: {"col_x"}},
+        {"a": 2},
+    ]
+    prepared_rows, restore_context = prepare_records_for_skip_metadata_round_trip(old)
+    assert restore_context is not None
+    restore_id_column = restore_context.restore_id_column
+
+    new = [{"a": 20, restore_id_column: prepared_rows[1][restore_id_column]}]
+    restore_skip_metadata(new, context=restore_context, allow_resize=True)
+
     assert SKIPPED_COLUMNS_RECORD_KEY not in new[0]
-    assert SKIPPED_COLUMNS_RECORD_KEY not in new[1]
+
+
+def test_restore_skip_metadata_rejects_missing_restore_id_column() -> None:
+    old = [{"a": 1, SKIPPED_COLUMNS_RECORD_KEY: {"col_x"}}]
+    _prepared_rows, restore_context = prepare_records_for_skip_metadata_round_trip(old)
+    assert restore_context is not None
+
+    with pytest.raises(ValueError, match="must preserve the internal column"):
+        restore_skip_metadata([{"a": 10}], context=restore_context, allow_resize=False)

@@ -806,6 +806,12 @@ def _resize_full_keep_first(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @custom_column_generator(required_columns=["seed_id"])
+def _resize_full_drop_seed_one(df: pd.DataFrame) -> pd.DataFrame:
+    """FULL_COLUMN: drop the row with seed_id == 1."""
+    return df[df["seed_id"] != 1].reset_index(drop=True).assign(filtered=True)
+
+
+@custom_column_generator(required_columns=["seed_id"])
 def _resize_cell_expand(row: dict) -> list[dict]:
     """CELL_BY_CELL: one row -> two rows (doubled)."""
     return [
@@ -1126,6 +1132,49 @@ def test_skip_propagation_resolves_side_effect_dependencies_in_sync_builder(
             )
         else:
             assert row["analysis"] == "generated_analysis", f"seed_id={row['seed_id']}: analysis should be generated"
+
+
+def test_skip_metadata_restore_preserves_row_identity_across_allow_resize_full_column(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+):
+    """Filtering out a skipped row must not transfer its skip provenance to surviving rows."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator("review", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id == 1 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="filtered",
+            generator_function=_resize_full_drop_seed_one,
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            allow_resize=True,
+            propagate_skip=False,
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="analysis",
+            generator_function=_make_label_generator("analysis", "review"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    assert result["seed_id"].tolist() == [2, 3, 4, 5]
+    assert result["analysis"].tolist() == ["generated_analysis"] * 4
 
 
 def test_allow_resize_column_not_blocked_by_upstream_skip(stub_resource_provider, stub_model_configs, seed_data_setup):

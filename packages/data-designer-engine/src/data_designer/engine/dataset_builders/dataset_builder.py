@@ -42,6 +42,7 @@ from data_designer.engine.dataset_builders.utils.skip_evaluator import should_sk
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
     apply_skip_to_record,
+    prepare_records_for_skip_metadata_round_trip,
     restore_skip_metadata,
     strip_skip_metadata_from_records,
 )
@@ -579,11 +580,19 @@ class DatasetBuilder:
         original_count = self.batch_manager.num_records_in_buffer
         allow_resize = generator.config.allow_resize if not isinstance(generator.config, MultiColumnConfig) else False
         old_records = [record for _, record in self.batch_manager.iter_current_batch()]
+        input_records, restore_context = prepare_records_for_skip_metadata_round_trip(old_records)
 
-        df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
+        df = generator.generate(lazy.pd.DataFrame(input_records))
         self._log_resize_if_changed(self._column_display_name(generator.config), original_count, len(df), allow_resize)
         new_records = df.to_dict(orient="records")
-        restore_skip_metadata(old_records, new_records)
+        if restore_context is not None:
+            try:
+                restore_skip_metadata(new_records, context=restore_context, allow_resize=allow_resize)
+            except ValueError as exc:
+                raise DatasetGenerationError(
+                    f"Unable to restore skip provenance after FULL_COLUMN generation for "
+                    f"{self._column_display_name(generator.config)}: {exc}"
+                ) from exc
         self.batch_manager.replace_buffer(new_records, allow_resize=allow_resize)
 
     def _run_full_column_generator_with_skip(self, generator: ColumnGenerator, column_name: str) -> None:
