@@ -74,7 +74,6 @@ class ExecutionGraph:
                 for se_col in sub.side_effect_columns:
                     graph.set_side_effect(se_col, name)
 
-                graph.set_required_columns(name, list(sub.required_columns))
                 graph.set_propagate_skip(name, sub.propagate_skip)
                 if sub.skip is not None:
                     graph.set_skip_config(name, sub.skip)
@@ -90,6 +89,7 @@ class ExecutionGraph:
 
             for sub in sub_configs:
                 name = sub.name
+                resolved_required: list[str] = []
                 for req in sub.required_columns:
                     resolved = graph.resolve_side_effect(req)
                     if resolved not in known_columns:
@@ -98,7 +98,10 @@ class ExecutionGraph:
                         )
                     if resolved == name:
                         continue
+                    if resolved not in resolved_required:
+                        resolved_required.append(resolved)
                     graph.add_edge(upstream=resolved, downstream=name)
+                graph.set_required_columns(name, resolved_required)
 
                 if sub.skip is not None:
                     for skip_col in sub.skip.columns:
@@ -135,7 +138,7 @@ class ExecutionGraph:
         self._producer_to_side_effect_map.setdefault(producer, []).append(side_effect_col)
 
     def set_required_columns(self, column: str, required: list[str]) -> None:
-        """Store the config-level ``required_columns`` for *column*."""
+        """Store producer-resolved ``required_columns`` for skip propagation."""
         self._required_columns[column] = required
 
     def set_propagate_skip(self, column: str, propagate: bool) -> None:
@@ -165,7 +168,7 @@ class ExecutionGraph:
         return set(self._downstream.get(column, set()))
 
     def get_required_columns(self, column: str) -> list[str]:
-        """Config-level ``required_columns`` for *column* (data dependencies only)."""
+        """Producer-resolved ``required_columns`` for *column* (data dependencies only)."""
         return list(self._required_columns.get(column, []))
 
     def get_skip_config(self, column: str) -> SkipConfig | None:

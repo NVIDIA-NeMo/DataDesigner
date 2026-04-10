@@ -112,6 +112,7 @@ def test_side_effect_column_resolution() -> None:
 
     assert graph.get_upstream_columns("trace_len") == {"summary"}
     assert graph.get_downstream_columns("summary") == {"trace_len"}
+    assert graph.get_required_columns("trace_len") == ["summary"]
 
 
 def test_reasoning_content_side_effect() -> None:

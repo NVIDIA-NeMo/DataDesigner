@@ -11,6 +11,7 @@ import pytest
 
 import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import CustomColumnConfig, LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
@@ -962,6 +963,21 @@ def _make_label_generator(label: str, *required: str):
     return fn
 
 
+def _make_label_generator_with_side_effect(label: str, side_effect_label: str, *required: str):
+    """FULL_COLUMN generator that adds a column plus one side-effect column."""
+
+    @custom_column_generator(required_columns=list(required), side_effect_columns=[side_effect_label])
+    def fn(df: pd.DataFrame) -> pd.DataFrame:
+        return df.assign(
+            **{
+                label: f"generated_{label}",
+                side_effect_label: f"generated_{side_effect_label}",
+            }
+        )
+
+    return fn
+
+
 def test_skip_metadata_preserved_across_non_skip_aware_full_column(
     stub_resource_provider, stub_model_configs, seed_data_setup
 ):
@@ -972,8 +988,6 @@ def test_skip_metadata_preserved_across_non_skip_aware_full_column(
     Before the fix, summary's replace_buffer erased __internal_skipped_columns,
     causing complaint to generate for rows that should have been skipped.
     """
-    from data_designer.config.base import SkipConfig
-
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
 
@@ -1031,8 +1045,6 @@ def test_skip_metadata_preserved_when_no_rows_skipped_for_current_column(
     own expression (it has none). The has_skipped=False fallthrough must still
     preserve review's skip metadata so propagation works.
     """
-    from data_designer.config.base import SkipConfig
-
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
 
@@ -1069,6 +1081,53 @@ def test_skip_metadata_preserved_when_no_rows_skipped_for_current_column(
             assert row["analysis"] == "generated_analysis", f"seed_id={row['seed_id']}: analysis should be generated"
 
 
+def test_skip_propagation_resolves_side_effect_dependencies_in_sync_builder(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+):
+    """A downstream dependency on a skipped side-effect should auto-skip.
+
+    Scenario: review(skip.when, produces review_side_effect) ->
+    analysis(required_columns=[review_side_effect], propagate_skip=True).
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator_with_side_effect("review", "review_side_effect", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="analysis",
+            generator_function=_make_label_generator("analysis", "review_side_effect"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    skipped_ids = {1, 2}
+    for _, row in result.iterrows():
+        if row["seed_id"] in skipped_ids:
+            assert row["review_side_effect"] is None or lazy.pd.isna(row["review_side_effect"]), (
+                f"seed_id={row['seed_id']}: review_side_effect should be cleared when review is skipped"
+            )
+            assert row["analysis"] is None or lazy.pd.isna(row["analysis"]), (
+                f"seed_id={row['seed_id']}: analysis should propagate skip from review"
+            )
+        else:
+            assert row["analysis"] == "generated_analysis", f"seed_id={row['seed_id']}: analysis should be generated"
+
+
 def test_allow_resize_column_not_blocked_by_upstream_skip(stub_resource_provider, stub_model_configs, seed_data_setup):
     """An allow_resize=True column depending on a skippable upstream must not
     enter the skip-aware branch (which enforces 1:1 row counts).
@@ -1077,8 +1136,6 @@ def test_allow_resize_column_not_blocked_by_upstream_skip(stub_resource_provider
     with propagate_skip=True and required_columns pointing to a skippable
     upstream, causing a DatasetGenerationError on the row-count check.
     """
-    from data_designer.config.base import SkipConfig
-
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
 
