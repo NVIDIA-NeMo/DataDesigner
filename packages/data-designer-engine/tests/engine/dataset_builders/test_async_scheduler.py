@@ -1475,3 +1475,124 @@ def test_side_effect_columns_separated_from_completion_tracking() -> None:
     assert "primary" in write_cols
     assert "side_a" in write_cols
     assert "side_b" in write_cols
+
+
+# -- TrackingSemaphore tests ---------------------------------------------------
+
+
+def test_tracking_semaphore_try_acquire() -> None:
+    """try_acquire returns True when permits are available, False when exhausted."""
+    from data_designer.engine.dataset_builders.async_scheduler import TrackingSemaphore
+
+    sem = TrackingSemaphore(2)
+    assert sem.available_permits == 2
+
+    assert sem.try_acquire() is True
+    assert sem.available_permits == 1
+
+    assert sem.try_acquire() is True
+    assert sem.available_permits == 0
+
+    assert sem.try_acquire() is False
+    assert sem.available_permits == 0
+
+    sem.release()
+    assert sem.available_permits == 1
+    assert sem.try_acquire() is True
+    assert sem.available_permits == 0
+
+
+# -- Pipeline parallelism (stale dispatch fix, issue #504) ---------------------
+
+
+class SlowCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Cell-by-cell generator with configurable async delay."""
+
+    def __init__(self, *args: Any, delay: float = 0.05, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._delay = delay
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        data[self.config.name] = f"gen_{data.get('seed', '?')}"
+        return data
+
+    async def agenerate(self, data: dict) -> dict:
+        await asyncio.sleep(self._delay)
+        return self.generate(data)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_downstream_interleaves_with_upstream() -> None:
+    """Downstream judge tasks begin before all upstream gen tasks complete (issue #504).
+
+    Mirrors the reported pipeline topology:
+
+        topic (sampler, instant)
+        ├── gen_a (slow, 50ms) → judge_a (instant)
+        ├── gen_b (slow, 50ms) → judge_b (instant)
+        └── gen_c (slow, 50ms) → judge_c (instant)
+
+    With a small semaphore (4) and 10 records, the 30 gen tasks (3 cols x 10 rows)
+    saturate the semaphore. The dispatch loop must re-query the frontier when the
+    semaphore is full so that judge tasks from completed gen rows are picked up
+    before all gen tasks finish.
+    """
+    provider = _mock_provider()
+    gen_names = ["gen_a", "gen_b", "gen_c"]
+    judge_names = ["judge_a", "judge_b", "judge_c"]
+
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        *[LLMTextColumnConfig(name=g, prompt="{{ topic }}", model_alias=MODEL_ALIAS) for g in gen_names],
+        *[
+            LLMTextColumnConfig(name=j, prompt=f"{{{{ {g} }}}}", model_alias=MODEL_ALIAS)
+            for j, g in zip(judge_names, gen_names)
+        ],
+    ]
+    all_col_names = ["topic", *gen_names, *judge_names]
+    strategies: dict[str, GenerationStrategy] = {"topic": GenerationStrategy.FULL_COLUMN}
+    strategies.update({c: GenerationStrategy.CELL_BY_CELL for c in gen_names + judge_names})
+
+    generators: dict[str, ColumnGenerator] = {
+        "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+    }
+    for g in gen_names:
+        generators[g] = SlowCellGenerator(config=_expr_config(g), resource_provider=provider, delay=0.05)
+    for j in judge_names:
+        generators[j] = MockCellGenerator(config=_expr_config(j), resource_provider=provider)
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 10)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_manager = RowGroupBufferManager(graph.columns)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        max_submitted_tasks=4,
+        trace=True,
+    )
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    assert tracker.is_row_group_complete(0, 10, all_col_names)
+
+    gen_traces = [t for t in scheduler.traces if t.column in gen_names]
+    judge_traces = [t for t in scheduler.traces if t.column in judge_names]
+    assert len(gen_traces) == 30  # 3 cols x 10 rows
+    assert len(judge_traces) == 30
+
+    last_gen_dispatched = max(t.dispatched_at for t in gen_traces)
+    first_judge_dispatched = min(t.dispatched_at for t in judge_traces)
+
+    assert first_judge_dispatched < last_gen_dispatched, (
+        "Judge tasks should begin before all gen tasks are dispatched. "
+        f"First judge dispatched at {first_judge_dispatched:.4f}, "
+        f"last gen dispatched at {last_gen_dispatched:.4f}."
+    )

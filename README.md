@@ -22,6 +22,16 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 
 ---
 
+### ⚠️ Security Notice: LiteLLM Supply-Chain Incident (2026-03-24)
+
+On March 24, 2026, malicious versions of `litellm` ([1.82.7 and 1.82.8](https://github.com/BerriAI/litellm/issues/24518)) were published to PyPI containing a credential stealer. The compromised packages were available for [approximately five hours](https://www.okta.com/blog/threat-intelligence/litellm-supply-chain-attack--an-explainer-for-identity-pros/) (10:39 – 16:00 UTC) before being removed.
+
+The only Data Designer releases that could resolve to these versions are **v0.2.2** (Dec 2025) and **v0.2.3** (Jan 2026), which carried a looser `litellm<2` upper bound. These are nearly three months old and have been superseded by eight subsequent releases — both have been yanked from PyPI as a precaution. All other releases (v0.3.0 – v0.5.3) pinned `litellm` to `>=1.73.6,<1.80.12` and were never compatible with 1.82.x. Starting with v0.5.4, `litellm` is no longer a dependency.
+
+To have been impacted through Data Designer, you would need to have had one of these two old versions explicitly pinned *and* run a fresh `pip install` or dependency-cache update that resolved `litellm` during the five-hour window on March 24. If you believe you may be affected, see [BerriAI's incident report](https://github.com/BerriAI/litellm/issues/24518) for remediation steps.
+
+---
+
 ## Quick Start
 
 ### 1. Install

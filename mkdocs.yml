@@ -9,6 +9,7 @@ nav:
   - Concepts:
       - Columns: concepts/columns.md
       - Seed Datasets: concepts/seed-datasets.md
+      - Agent Rollout Ingestion: concepts/agent-rollout-ingestion.md
       - Models:
           - Default Model Settings: concepts/models/default-model-settings.md
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
@@ -74,6 +75,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - "Async All the Way Down": devnotes/posts/async-all-the-way-down.md
       - Owning the Model Stack: devnotes/posts/owning-the-model-stack.md
       - Data Designer Got Skills: devnotes/posts/data-designer-got-skills.md
       - Search Agent: devnotes/posts/search-agent.md

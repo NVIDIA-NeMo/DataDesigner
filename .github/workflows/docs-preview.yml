@@ -1,0 +1,106 @@
+name: Docs preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs-preview.yml"
+
+permissions: {}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.5"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install docs dependencies
+        run: uv sync --all-packages --group docs
+
+      - name: Create notebook stubs
+        run: |
+          mkdir -p docs/notebooks
+          cp docs/notebook_source/_README.md docs/notebooks/README.md
+
+          for src in docs/notebook_source/*.py; do
+            name=$(basename "$src" .py)
+            cat > "docs/notebooks/${name}.ipynb" <<'STUB'
+          {
+            "cells": [
+              {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                  "# Notebook preview not available\n",
+                  "\n",
+                  "Tutorial notebooks are built during the release process and are not\n",
+                  "included in PR previews. Run the notebook locally with:\n",
+                  "\n",
+                  "```bash\n",
+                  "make convert-execute-notebooks\n",
+                  "make serve-docs-locally\n",
+                  "```"
+                ]
+              }
+            ],
+            "metadata": {
+              "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3"
+              },
+              "language_info": {
+                "name": "python",
+                "version": "3.11.0"
+              }
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5
+          }
+          STUB
+          done
+
+      - name: Build docs
+        run: uv run mkdocs build
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site/ --project-name=dd-docs-preview --branch=pr-${{ github.event.pull_request.number }}
+
+      - name: Find existing comment
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "<!-- docs-preview -->"
+
+      - name: Post or update PR comment
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            <!-- docs-preview -->
+            **Docs preview:** ${{ steps.deploy.outputs.deployment-url }}
+
+            > Notebook tutorials are placeholder-only in previews.

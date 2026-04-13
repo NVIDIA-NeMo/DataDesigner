@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+  - package-ecosystem: pip
+    directory: /packages/data-designer-config
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore"
+  - package-ecosystem: pip
+    directory: /packages/data-designer-engine
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore"
+  - package-ecosystem: pip
+    directory: /packages/data-designer
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore"
