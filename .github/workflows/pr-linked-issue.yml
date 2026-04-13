@@ -30,8 +30,9 @@ jobs:
         id: author
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          USER="${{ github.event.pull_request.user.login }}"
+          USER="$PR_AUTHOR"
 
           # Bots that are always allowed (match DCO allowlist pattern).
           if [ "$USER" = "dependabot[bot]" ]; then
@@ -63,7 +64,8 @@ jobs:
           fi
 
           # Case-insensitive match for Fixes #N, Closes #N, Resolves #N.
-          ISSUE_NUM=$(echo "$PR_BODY" | grep -ioP '(?:fixes|closes|resolves)\s+#\K\d+' | head -1 || true)
+          printf '%s' "$PR_BODY" > /tmp/pr-body-raw.txt
+          ISSUE_NUM=$(grep -ioP '(?:fixes|closes|resolves)\s+#\K\d+' /tmp/pr-body-raw.txt | head -1 || true)
           echo "issue_num=${ISSUE_NUM}" >> "$GITHUB_OUTPUT"
           echo "Parsed issue number: ${ISSUE_NUM:-<none>}"
 
@@ -232,24 +234,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBERS: ${{ steps.find-prs.outputs.prs }}
         run: |
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-          for PR_NUM in ${{ steps.find-prs.outputs.prs }}; do
+          for PR_NUM in $PR_NUMBERS; do
             echo "Re-triggering check for PR #${PR_NUM}..."
 
-            # Read current PR body.
-            CURRENT_BODY=$(gh pr view "$PR_NUM" --repo "${{ github.repository }}" --json body -q '.body')
+            # Read current PR body to a file to avoid shell expansion issues.
+            gh pr view "$PR_NUM" --repo "${{ github.repository }}" --json body -q '.body' > /tmp/current-body.txt
 
             # Append or update hidden timestamp to trigger the 'edited' event,
             # which re-runs the check job.
             MARKER="<!-- triaged-recheck"
-            if echo "$CURRENT_BODY" | grep -q "$MARKER"; then
-              echo "$CURRENT_BODY" \
-                | sed "s|<!-- triaged-recheck[^>]*-->|<!-- triaged-recheck: ${TIMESTAMP} -->|" \
-                > /tmp/pr-body.md
+            if grep -q "$MARKER" /tmp/current-body.txt; then
+              sed "s|<!-- triaged-recheck[^>]*-->|<!-- triaged-recheck: ${TIMESTAMP} -->|" \
+                /tmp/current-body.txt > /tmp/pr-body.md
             else
-              printf '%s\n<!-- triaged-recheck: %s -->' "$CURRENT_BODY" "$TIMESTAMP" > /tmp/pr-body.md
+              cp /tmp/current-body.txt /tmp/pr-body.md
+              printf '\n<!-- triaged-recheck: %s -->' "$TIMESTAMP" >> /tmp/pr-body.md
             fi
 
             gh pr edit "$PR_NUM" --repo "${{ github.repository }}" --body-file /tmp/pr-body.md

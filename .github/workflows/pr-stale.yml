@@ -155,8 +155,8 @@ jobs:
               gh pr close "$PR_NUM" --repo "$REPO"
 
               # Signal linked issues so the triage workflow picks them up.
-              PR_BODY=$(gh pr view "$PR_NUM" --repo "$REPO" --json body -q '.body' 2>/dev/null || echo "")
-              LINKED_ISSUE=$(echo "$PR_BODY" | grep -ioP '(?:fixes|closes|resolves)\s+#\K\d+' | head -1 || true)
+              gh pr view "$PR_NUM" --repo "$REPO" --json body -q '.body' > /tmp/pr-body-raw.txt 2>/dev/null || true
+              LINKED_ISSUE=$(grep -ioP '(?:fixes|closes|resolves)\s+#\K\d+' /tmp/pr-body-raw.txt | head -1 || true)
               if [ -n "$LINKED_ISSUE" ]; then
                 ISSUE_STATE=$(gh api "repos/${REPO}/issues/${LINKED_ISSUE}" --jq '.state' 2>/dev/null || echo "")
                 if [ "$ISSUE_STATE" = "open" ]; then
