@@ -14,6 +14,8 @@ on:
   schedule:
     - cron: "0 12 * * MON"
 
+permissions: {}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,9 +27,9 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.TEST_OPENROUTER_API_KEY }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           version: "0.9.5"
       - name: Set up Python
@@ -35,7 +37,7 @@ jobs:
       - name: Restore notebook cache
         if: inputs.use_cache
         id: cache
-        uses: actions/cache@v5
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
           path: .notebook-cache
           key: notebooks-${{ hashFiles('docs/notebook_source/*.py') }}
@@ -80,7 +82,7 @@ jobs:
       - name: Convert and execute notebooks
         run: make convert-execute-notebooks ${{ inputs.use_cache && 'USE_CACHE=1' || '' }}
       - name: Upload notebooks as artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: notebooks
           path: docs/notebooks
