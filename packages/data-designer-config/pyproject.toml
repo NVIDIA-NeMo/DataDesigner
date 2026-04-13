@@ -29,7 +29,7 @@ dependencies = [
     "python-json-logger>=3,<4",
     "pyyaml>=6.0.1,<7",
     "requests>=2.33,<3",
-    "rich>=13.7.1,<15",
+    "rich>=13.7.1,<16",
 ]
 
 [build-system]
