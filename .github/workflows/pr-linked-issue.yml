@@ -179,7 +179,7 @@ jobs:
           echo "$BODY" > /tmp/comment-body.md
 
       - name: Post or update comment
-        if: steps.comment.outputs.body != ''
+        if: steps.comment.outputs.status == 'fail'
         uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}

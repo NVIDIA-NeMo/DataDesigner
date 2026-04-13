@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: read
+  issues: write
 
 jobs:
   stale-check:
@@ -116,9 +116,25 @@ jobs:
             DAYS_INACTIVE=$(( (NOW - LAST_ACTIVITY_EPOCH) / 86400 ))
             echo "  Days inactive: ${DAYS_INACTIVE} (remind=${REMIND_DAYS}, close=${CLOSE_DAYS}, collab=${IS_COLLAB})"
 
-            # Check for existing reminder comment.
-            HAS_REMINDER=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments" \
-              --jq "[.[] | select(.body | contains(\"${REMINDER_MARKER}\"))] | length" 2>/dev/null || echo 0)
+            # Check for existing reminder comment and when it was posted.
+            REMINDER_JSON=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments" \
+              --jq "[.[] | select(.body | contains(\"${REMINDER_MARKER}\"))] | last // empty" 2>/dev/null || echo "")
+
+            HAS_REMINDER=0
+            if [ -n "$REMINDER_JSON" ]; then
+              HAS_REMINDER=1
+              REMINDER_ID=$(echo "$REMINDER_JSON" | jq -r '.id')
+              REMINDER_DATE=$(echo "$REMINDER_JSON" | jq -r '.created_at')
+              REMINDER_EPOCH=$(date -u -d "$REMINDER_DATE" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$REMINDER_DATE" +%s 2>/dev/null || echo 0)
+
+              # If activity happened after the reminder, the author responded.
+              # Delete the stale reminder so the cycle restarts cleanly.
+              if [ "$LAST_ACTIVITY_EPOCH" -gt "$REMINDER_EPOCH" ]; then
+                echo "  Activity after reminder - deleting stale reminder, resetting timer"
+                gh api -X DELETE "repos/${REPO}/issues/comments/${REMINDER_ID}" 2>/dev/null || true
+                HAS_REMINDER=0
+              fi
+            fi
 
             if [ "$DAYS_INACTIVE" -ge "$CLOSE_DAYS" ] && [ "$HAS_REMINDER" -gt 0 ]; then
               echo "  Closing PR #${PR_NUM} (inactive ${DAYS_INACTIVE} days, reminder was posted)"
