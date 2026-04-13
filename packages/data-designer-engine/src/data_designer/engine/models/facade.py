@@ -10,6 +10,7 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
+from data_designer.config.utils.constants import ATTRIBUTION_TITLE
 from data_designer.config.utils.image_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
@@ -30,6 +31,7 @@ from data_designer.engine.models.errors import (
     get_exception_primary_cause,
 )
 from data_designer.engine.models.parsers.errors import ParserException
+from data_designer.engine.models.telemetry import TELEMETRY_ENABLED
 from data_designer.engine.models.usage import ImageUsageStats, ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 
@@ -157,6 +159,12 @@ class ModelFacade:
             kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
         if self.model_provider.extra_headers:
             kwargs["extra_headers"] = {**kwargs.get("extra_headers", {}), **self.model_provider.extra_headers}
+        # Inject framework-level attribution header when telemetry is enabled.
+        # Applied last so that user-supplied or provider-level headers take precedence.
+        if TELEMETRY_ENABLED:
+            headers = kwargs.get("extra_headers", {})
+            if "X-Title" not in headers:
+                kwargs["extra_headers"] = {"X-Title": ATTRIBUTION_TITLE, **headers}
         return kwargs
 
     # --- completion / acompletion ---

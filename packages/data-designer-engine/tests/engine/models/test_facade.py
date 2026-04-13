@@ -202,13 +202,21 @@ def test_usage_stats_property(stub_model_facade: ModelFacade) -> None:
 
 
 def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:
-    # Model config generate kwargs are used as base, and purpose is removed
+    # Model config generate kwargs are used as base, and purpose is removed.
+    # When telemetry is enabled (default), X-Title is injected.
     result = stub_model_facade.consolidate_kwargs(purpose="test")
-    assert result == stub_model_configs[0].inference_parameters.generate_kwargs
+    assert result == {
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+        "extra_headers": {"X-Title": "NeMo Data Designer"},
+    }
 
     # kwargs overrides model config generate kwargs
     result = stub_model_facade.consolidate_kwargs(temperature=0.01, purpose="test")
-    assert result == {**stub_model_configs[0].inference_parameters.generate_kwargs, "temperature": 0.01}
+    assert result == {
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+        "temperature": 0.01,
+        "extra_headers": {"X-Title": "NeMo Data Designer"},
+    }
 
     # Provider extra_body overrides all other kwargs
     stub_model_facade.model_provider.extra_body = {"foo_provider": "bar_provider"}
@@ -216,6 +224,7 @@ def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: Mo
     assert result == {
         **stub_model_configs[0].inference_parameters.generate_kwargs,
         "extra_body": {"foo_provider": "bar_provider", "foo": "bar"},
+        "extra_headers": {"X-Title": "NeMo Data Designer"},
     }
 
     # Provider extra_headers merges with caller headers (provider takes precedence)
@@ -224,8 +233,29 @@ def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: Mo
     result = stub_model_facade.consolidate_kwargs(extra_headers={"hello": "caller", "X-Trace-ID": "abc"})
     assert result == {
         **stub_model_configs[0].inference_parameters.generate_kwargs,
-        "extra_headers": {"hello": "world", "hola": "mundo", "X-Trace-ID": "abc"},
+        "extra_headers": {"X-Title": "NeMo Data Designer", "hello": "world", "hola": "mundo", "X-Trace-ID": "abc"},
     }
+
+
+@patch("data_designer.engine.models.facade.TELEMETRY_ENABLED", False)
+def test_consolidate_kwargs_telemetry_disabled(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:
+    """Framework attribution headers are omitted when telemetry is disabled."""
+    result = stub_model_facade.consolidate_kwargs()
+    assert "extra_headers" not in result
+
+    # Provider extra_headers still applied even with telemetry off
+    stub_model_facade.model_provider.extra_headers = {"Custom": "header"}
+    result = stub_model_facade.consolidate_kwargs()
+    assert result["extra_headers"] == {"Custom": "header"}
+
+
+def test_consolidate_kwargs_user_x_title_override(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """User-supplied X-Title via provider extra_headers takes precedence over framework default."""
+    stub_model_facade.model_provider.extra_headers = {"X-Title": "My Custom App"}
+    result = stub_model_facade.consolidate_kwargs()
+    assert result["extra_headers"]["X-Title"] == "My Custom App"
 
 
 @pytest.mark.parametrize(

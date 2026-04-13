@@ -298,6 +298,15 @@ OPENROUTER_PROVIDER_NAME = "openrouter"
 
 OPENROUTER_API_KEY_ENV_VAR_NAME = "OPENROUTER_API_KEY"
 
+ATTRIBUTION_TITLE = "NeMo Data Designer"
+ATTRIBUTION_REFERER = "https://github.com/NVIDIA-NeMo/DataDesigner"
+
+OPENROUTER_ATTRIBUTION_HEADERS: dict[str, str] = {
+    "HTTP-Referer": ATTRIBUTION_REFERER,
+    "X-OpenRouter-Title": ATTRIBUTION_TITLE,
+    "X-OpenRouter-Categories": "programming-app",
+}
+
 PREDEFINED_PROVIDERS = [
     {
         "name": NVIDIA_PROVIDER_NAME,
@@ -316,6 +325,7 @@ PREDEFINED_PROVIDERS = [
         "endpoint": "https://openrouter.ai/api/v1",
         "provider_type": "openai",
         "api_key": OPENROUTER_API_KEY_ENV_VAR_NAME,
+        "extra_headers": OPENROUTER_ATTRIBUTION_HEADERS,
     },
 ]
 
