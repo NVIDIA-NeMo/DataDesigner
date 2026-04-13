@@ -190,6 +190,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         num_records: int = DEFAULT_NUM_RECORDS,
         dataset_name: str = "dataset",
+        resume: bool = False,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -207,6 +208,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
                 with the name "awesome_dataset_2025-01-01_12-00-00".
+            resume: If True, resume generation from the last completed batch found in the
+                existing dataset directory. The run parameters (num_records, buffer_size) must
+                match those of the original run. Any in-flight partial results from the
+                interrupted run are discarded. Not supported when DATA_DESIGNER_ASYNC_ENGINE
+                is enabled.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -218,11 +224,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         logger.info("🎨 Creating Data Designer dataset")
 
-        resource_provider = self._create_resource_provider(dataset_name, config_builder)
+        resource_provider = self._create_resource_provider(dataset_name, config_builder, resume=resume)
 
         try:
             builder = self._create_dataset_builder(config_builder.build(), resource_provider)
-            builder.build(num_records=num_records)
+            builder.build(num_records=num_records, resume=resume)
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
@@ -448,7 +454,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def _create_resource_provider(
-        self, dataset_name: str, config_builder: DataDesignerConfigBuilder
+        self, dataset_name: str, config_builder: DataDesignerConfigBuilder, *, resume: bool = False
     ) -> ResourceProvider:
         ArtifactStorage.mkdir_if_needed(self._artifact_path)
 
@@ -457,7 +463,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             seed_dataset_source = seed_config.source
 
         return create_resource_provider(
-            artifact_storage=ArtifactStorage(artifact_path=self._artifact_path, dataset_name=dataset_name),
+            artifact_storage=ArtifactStorage(
+                artifact_path=self._artifact_path, dataset_name=dataset_name, resume=resume
+            ),
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,
             model_provider_registry=self._model_provider_registry,
