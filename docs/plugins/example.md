@@ -4,7 +4,7 @@
 
 # Example Plugin: Column Generator
 
-Data Designer supports two plugin types: **column generators** and **seed readers**. This page walks through a complete column generator example.
+Data Designer supports three plugin types: **column generators**, **seed readers**, and **processors**. This page walks through a complete column generator example. For filesystem-backed seed reader plugins, see [FileSystemSeedReader Plugins](filesystem_seed_reader.md).
 
 A Data Designer plugin is implemented as a Python package with three main components:
 

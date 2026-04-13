@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from data_designer.config.column_configs import (
     EmbeddingColumnConfig,
     ExpressionColumnConfig,
+    ImageColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
     LLMStructuredColumnConfig,
@@ -26,6 +27,7 @@ from data_designer.config.column_types import (
     is_plugin_column_type,
 )
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import (
     CategorySamplerParams,
     GaussianSamplerParams,
@@ -120,6 +122,36 @@ def test_llm_text_column_config():
             model_alias=stub_model_alias,
             system_prompt="test_system_prompt {{some_other_column",
         )
+
+
+def test_llm_text_column_config_required_columns_includes_multi_modal_context():
+    config = LLMTextColumnConfig(
+        name="test_llm_text",
+        prompt="Classify this image: {{ description }}",
+        model_alias=stub_model_alias,
+        multi_modal_context=[ImageContext(column_name="image_base64")],
+    )
+    assert set(config.required_columns) == {"description", "image_base64"}
+
+
+def test_llm_text_column_config_required_columns_deduplicates_multi_modal_and_prompt():
+    config = LLMTextColumnConfig(
+        name="test_llm_text",
+        prompt="Classify this: {{ image_col }}",
+        model_alias=stub_model_alias,
+        multi_modal_context=[ImageContext(column_name="image_col")],
+    )
+    assert config.required_columns == ["image_col"]
+
+
+def test_image_column_config_required_columns_includes_multi_modal_context():
+    config = ImageColumnConfig(
+        name="test_image",
+        prompt="Generate based on {{ style }}",
+        model_alias=stub_model_alias,
+        multi_modal_context=[ImageContext(column_name="reference_image")],
+    )
+    assert set(config.required_columns) == {"style", "reference_image"}
 
 
 def test_llm_text_column_config_with_trace_serialization() -> None:
@@ -265,6 +297,29 @@ def test_validation_column_config():
     assert validation_column_config.required_columns == ["test_column"]
     assert validation_column_config.side_effect_columns == []
     assert validation_column_config.batch_size == 5
+
+
+def test_validation_column_config_injects_validator_type_into_params_dict() -> None:
+    validation_column_config = ValidationColumnConfig(
+        name="test_validation",
+        target_columns=["test_column"],
+        validator_type="code",
+        validator_params={"code_lang": "python"},
+    )
+
+    assert isinstance(validation_column_config.validator_params, CodeValidatorParams)
+    assert validation_column_config.validator_params.validator_type == "code"
+    assert validation_column_config.validator_params.code_lang == CodeLang.PYTHON
+
+
+def test_validation_column_config_schema_uses_validator_discriminator() -> None:
+    schema = ValidationColumnConfig.model_json_schema()
+    validator_params = schema["properties"]["validator_params"]
+
+    assert validator_params["discriminator"]["propertyName"] == "validator_type"
+    assert "code" in validator_params["discriminator"]["mapping"]
+    assert "local_callable" in validator_params["discriminator"]["mapping"]
+    assert "remote" in validator_params["discriminator"]["mapping"]
 
 
 def test_embedding_column_config():

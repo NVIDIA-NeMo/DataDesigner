@@ -212,4 +212,5 @@ The `extract_reasoning_content` option is available on all LLM column types:
 
 ## See Also
 
+- **[Agent Rollout Ingestion](agent-rollout-ingestion.md)**: Import external agent traces from disk into normalized seed rows
 - **[Safety and Limits](mcp/safety-and-limits.md)**: Understand turn limits and timeout behavior

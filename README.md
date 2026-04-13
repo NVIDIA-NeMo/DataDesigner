@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10 - 3.13](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/150+_Billion-Tokens_Generated-76b900.svg?logo=nvidia&logoColor=white)
+[![Python 3.10 - 3.13](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/250+_Billion-Tokens_Generated-76b900.svg?logo=nvidia&logoColor=white)
 
 **Generate high-quality synthetic datasets from scratch or using your own seed data.**
 
@@ -19,6 +19,16 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 - **Validate quality** with built-in Python, SQL, and custom local and remote validators
 - **Score outputs** using LLM-as-a-judge for quality assessment
 - **Iterate quickly** with preview mode before full-scale generation
+
+---
+
+### ⚠️ Security Notice: LiteLLM Supply-Chain Incident (2026-03-24)
+
+On March 24, 2026, malicious versions of `litellm` ([1.82.7 and 1.82.8](https://github.com/BerriAI/litellm/issues/24518)) were published to PyPI containing a credential stealer. The compromised packages were available for [approximately five hours](https://www.okta.com/blog/threat-intelligence/litellm-supply-chain-attack--an-explainer-for-identity-pros/) (10:39 – 16:00 UTC) before being removed.
+
+The only Data Designer releases that could resolve to these versions are **v0.2.2** (Dec 2025) and **v0.2.3** (Jan 2026), which carried a looser `litellm<2` upper bound. These are nearly three months old and have been superseded by eight subsequent releases — both have been yanked from PyPI as a precaution. All other releases (v0.3.0 – v0.5.3) pinned `litellm` to `>=1.73.6,<1.80.12` and were never compatible with 1.82.x. Starting with v0.5.4, `litellm` is no longer a dependency.
+
+To have been impacted through Data Designer, you would need to have had one of these two old versions explicitly pinned *and* run a fresh `pip install` or dependency-cache update that resolved `litellm` during the five-hour window on March 24. If you believe you may be affected, see [BerriAI's incident report](https://github.com/BerriAI/litellm/issues/24518) for remediation steps.
 
 ---
 
@@ -110,9 +120,23 @@ data-designer config models    # Set up your model configurations
 data-designer config list      # View current settings
 ```
 
+### 🤖 Agent Skill
+
+Data Designer has a [skill](https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/data-designer-got-skills/) for coding agents. Just describe the dataset you want, and your agent handles schema design, validation, and generation. While the skill should work with other coding agents that support skills, our development and testing has focused on [Claude Code](https://code.claude.com) at this stage.
+
+**Install via [skills.sh](https://skills.sh)** (be sure to select Claude Code as an additional agent):
+
+```bash
+npx skills add NVIDIA-NeMo/DataDesigner
+```
+
+After installation, type `/data-designer` or describe the dataset you want and the skill will kick in.
+
 ### 🤝 Get involved
 
-- **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/latest/CONTRIBUTING)** – Help improve Data Designer
+This repository supports agent-assisted development — see [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended workflow.
+
+- **[Contributing Guide](CONTRIBUTING.md)** – How to contribute, including agent-assisted workflows
 - **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or make a feature request
 
 ---
@@ -148,11 +172,11 @@ To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
 
 ### Top Models
 
-This chart represents the breakdown of models used for Data Designer across all synthetic data generation jobs from 1/24/2026 to 2/24/2026.
+This chart represents the breakdown of models used for Data Designer across all synthetic data generation jobs from 2/23/2026 to 3/23/2026.
 
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
-_Last updated on 2/24/2026_
+_Last updated on 3/23/2026_
 
 ---
 

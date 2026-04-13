@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # IMPORTANT: This module must NOT import from any data_designer submodules (i.e., data_designer.*).
-# These base abstractions are foundational and should only depend on pydantic and Python builtins.
 
 from __future__ import annotations
 
@@ -25,7 +24,7 @@ class SingleColumnConfig(ConfigBase, ABC):
     """Abstract base class for all single-column configuration types.
 
     This class serves as the foundation for all column configurations in DataDesigner,
-    defining shared fields and properties across all column types.
+    defining shared fields and properties across all column type.
 
     Attributes:
         name: Unique name of the column to be generated.

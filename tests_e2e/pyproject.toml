@@ -12,12 +12,13 @@ data-designer = { path = "../packages/data-designer" }
 
 [dependency-groups]
 dev = [
-  "pytest>=9.0.2,<10",
+  "pytest>=9.0.3,<10",
 ]
 
 [project.entry-points."data_designer.plugins"]
 demo-column-generator = "data_designer_e2e_tests.plugins.column_generator.plugin:column_generator_plugin"
 demo-seed-reader = "data_designer_e2e_tests.plugins.seed_reader.plugin:seed_reader_plugin"
+demo-filesystem-seed-reader = "data_designer_e2e_tests.plugins.filesystem_seed_reader.plugin:filesystem_seed_reader_plugin"
 regex-filter = "data_designer_e2e_tests.plugins.regex_filter.plugin:regex_filter_plugin"
 
 [tool.pytest.ini_options]
@@ -30,6 +31,11 @@ env = [
 [tool.uv]
 package = true
 required-version = ">=0.7.10"
+# Minimum versions for transitive dependencies with known security vulnerabilities.
+constraint-dependencies = [
+  "aiohttp>=3.13.5",
+  "cryptography>=46.0.7",
+]
 
 [build-system]
 requires = ["hatchling"]

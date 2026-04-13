@@ -1,0 +1,204 @@
+name: "Agentic CI: PR Review"
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, labeled]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: agentic-ci-pr-review-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    # Decide whether the review job should run. Uses the collaborator API
+    # instead of author_association (which is unreliable when org membership
+    # is private).
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      - name: Check permissions
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # workflow_dispatch callers already have write access.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Only the agent-review label should trigger a run.
+          if [ "${{ github.event.action }}" = "labeled" ] && [ "${{ github.event.label.name }}" != "agent-review" ]; then
+            echo "Skipping: labeled event but not agent-review"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip drafts unless agent-review label is being added.
+          if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            if [ "${{ github.event.action }}" != "labeled" ] || [ "${{ github.event.label.name }}" != "agent-review" ]; then
+              echo "Skipping: draft PR"
+              echo "allowed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # For labeled events, check the sender (who added the label) so
+          # maintainers can authorize reviews on external PRs.
+          # For other events, check the PR author.
+          if [ "${{ github.event.action }}" = "labeled" ]; then
+            USER="${{ github.event.sender.login }}"
+            echo "Checking sender (labeler): ${USER}"
+          else
+            USER="${{ github.event.pull_request.user.login }}"
+            echo "Checking PR author: ${USER}"
+          fi
+
+          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${USER}/permission" --jq '.permission' 2>/dev/null || echo "none")
+          echo "permission=${PERMISSION}"
+
+          if [ "$PERMISSION" = "admin" ] || [ "$PERMISSION" = "write" ]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipping: ${USER} does not have write access (permission=${PERMISSION})"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  review:
+    needs: gate
+    if: needs.gate.outputs.allowed == 'true'
+    runs-on: [self-hosted, agentic-ci]
+    timeout-minutes: 15
+    steps:
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate PR number
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid PR number: ${PR_NUMBER}"
+            exit 1
+          fi
+
+      - name: Check required config
+        env:
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          if [ -z "$AGENTIC_CI_MODEL" ]; then
+            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            exit 1
+          fi
+
+      - name: Resolve head SHA
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q '.headRefOid')
+          else
+            SHA="${{ github.event.pull_request.head.sha }}"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ steps.head.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Pre-flight checks
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          if ! command -v claude &> /dev/null; then
+            echo "::error::claude CLI not found in PATH"
+            exit 1
+          fi
+          echo "Claude CLI version: $(claude --version 2>&1 || true)"
+
+          # Quick API check (custom endpoint only)
+          if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
+              exit 1
+            fi
+            echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+          fi
+
+      - name: Run PR review recipe
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          DISABLE_PROMPT_CACHING: "1"
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -o pipefail
+
+          # Build the prompt from _runner.md + recipe, substituting template vars.
+          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
+          RECIPE_BODY=$(cat .agents/recipes/pr-review/recipe.md \
+            | sed '1,/^---$/{ /^---$/,/^---$/d }')
+
+          PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}" \
+            | sed "s/{{pr_number}}/${PR_NUMBER}/g")
+
+          claude \
+            --model "$AGENTIC_CI_MODEL" \
+            -p "$PROMPT" \
+            --max-turns 30 \
+            --output-format text \
+            --verbose \
+            2>&1 | tee /tmp/claude-review-log.txt || true
+        continue-on-error: true
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          if [ -s "/tmp/review-${PR_NUMBER}.md" ]; then
+            gh pr comment "$PR_NUMBER" --body-file "/tmp/review-${PR_NUMBER}.md"
+          else
+            echo "::warning::Review file not created by agent."
+          fi
+
+      - name: Remove agent-review label
+        if: github.event.action == 'labeled' && github.event.label.name == 'agent-review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          gh pr edit "$PR_NUMBER" --remove-label "agent-review"

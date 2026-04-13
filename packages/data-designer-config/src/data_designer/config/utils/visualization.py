@@ -34,6 +34,7 @@ from data_designer.config.utils.constants import (
     DEFAULT_DISPLAY_WIDTH,
     NVIDIA_API_KEY_ENV_VAR_NAME,
     OPENAI_API_KEY_ENV_VAR_NAME,
+    TRACE_COLUMN_POSTFIX,
 )
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.image_helpers import (
@@ -43,6 +44,8 @@ from data_designer.config.utils.image_helpers import (
     is_image_url,
     load_image_path_to_base64,
 )
+from data_designer.config.utils.misc import is_notebook_environment
+from data_designer.config.utils.trace_renderer import TraceMessage, TraceRenderer
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -61,6 +64,24 @@ _DEDICATED_DISPLAY_COL_TYPES = {
     DataDesignerColumnType.LLM_JUDGE,
 }
 
+_LLM_COLUMN_TYPES = [
+    DataDesignerColumnType.LLM_TEXT,
+    DataDesignerColumnType.LLM_CODE,
+    DataDesignerColumnType.LLM_STRUCTURED,
+    DataDesignerColumnType.LLM_JUDGE,
+]
+
+
+def _display_notebook_html(html_content: str) -> bool:
+    """Display raw HTML in a Jupyter notebook. Returns True if displayed."""
+    try:
+        from IPython.display import HTML, display
+
+        display(HTML(html_content))
+        return True
+    except ImportError:
+        return False
+
 
 def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
     """Display image with caption in Jupyter notebook if available.
@@ -72,26 +93,21 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
     Returns:
         True if image was displayed, False otherwise.
     """
+    if not is_notebook_environment():
+        return False
+
     try:
-        # Check if we're in a Jupyter environment
-        from IPython.display import HTML, display
-
-        get_ipython()  # This will raise NameError if not in IPython/Jupyter
-
-        # Escape column name to prevent HTML injection
         escaped_col_name = html.escape(col_name)
 
         # URLs: render directly as <img src='url'>
         if is_image_url(image_data):
             escaped_url = html.escape(image_data)
-            html_content = f"""
+            return _display_notebook_html(f"""
             <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
                 <div style='margin-bottom: 10px;'><strong>🖼️ {escaped_col_name}</strong></div>
                 <img src='{escaped_url}'/>
             </div>
-            """
-            display(HTML(html_content))
-            return True
+            """)
 
         # File paths: load from disk and convert to base64
         if is_image_path(image_data) and not image_data.startswith("data:image/"):
@@ -108,18 +124,12 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
         # Extract base64 from data URI if present
         img_base64 = extract_base64_from_data_uri(base64_data)
 
-        # Create HTML with caption and image in left-aligned container
-        html_content = f"""
+        return _display_notebook_html(f"""
         <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
             <div style='margin-bottom: 10px;'><strong>🖼️ {escaped_col_name}</strong></div>
             <img src='data:image/png;base64,{img_base64}'/>
         </div>
-        """
-        display(HTML(html_content))
-        return True
-    except (ImportError, NameError):
-        # Not in a notebook environment
-        return False
+        """)
     except Exception as e:
         console.print(f"[yellow]⚠️ Could not display image for column '{col_name}': {e}[/yellow]")
         return False
@@ -173,6 +183,7 @@ class WithRecordSamplerMixin:
         background_color: str | None = None,
         processors_to_display: list[str] | None = None,
         hide_seed_columns: bool = False,
+        include_traces: bool = True,
         save_path: str | Path | None = None,
         theme: Literal["dark", "light"] = "dark",
         display_width: int = DEFAULT_DISPLAY_WIDTH,
@@ -188,6 +199,8 @@ class WithRecordSamplerMixin:
                 documentation from `rich` for information about available background colors.
             processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
             hide_seed_columns: If True, seed columns will not be displayed separately.
+            include_traces: If True (default), render LLM conversation traces when trace
+                columns are present. Set to False to suppress trace display.
             save_path: Optional path to save the rendered output as an HTML or SVG file.
             theme: Color theme for saved HTML files (dark or light).
             display_width: Width of the rendered output in characters.
@@ -228,6 +241,7 @@ class WithRecordSamplerMixin:
             syntax_highlighting_theme=syntax_highlighting_theme,
             record_index=i,
             seed_column_names=seed_column_names,
+            include_traces=include_traces,
             save_path=save_path,
             theme=theme,
             display_width=display_width,
@@ -264,6 +278,7 @@ def display_sample_record(
     syntax_highlighting_theme: str = "dracula",
     record_index: int | None = None,
     seed_column_names: list[str] | None = None,
+    include_traces: bool = True,
     save_path: str | Path | None = None,
     theme: Literal["dark", "light"] = "dark",
     display_width: int = DEFAULT_DISPLAY_WIDTH,
@@ -283,6 +298,17 @@ def display_sample_record(
         )
 
     render_list = []
+    in_notebook = is_notebook_environment()
+
+    if record_index is not None:
+        if in_notebook:
+            _display_notebook_html(
+                f"<div style='text-align:center;font-family:Menlo,Monaco,Consolas,monospace;"
+                f"font-size:12px;color:#666;margin:8px 0;'>[index: {record_index}]</div>"
+            )
+        else:
+            render_list.append(Text(f"[index: {record_index}]", justify="center"))
+
     table_kws = dict(show_lines=True, expand=True)
 
     # Display seed columns if seed_column_names is provided and not empty
@@ -316,17 +342,23 @@ def display_sample_record(
                             table.add_row(output_col, convert_to_row_element(record[output_col]))
         render_list.append(pad_console_element(table))
 
+    traces_to_display_later: list[tuple[str, list[TraceMessage]]] = []
+    trace_renderer = TraceRenderer()
+    if include_traces:
+        for col_type in _LLM_COLUMN_TYPES:
+            for col in config_builder.get_columns_of_type(col_type):
+                for side_col in col.side_effect_columns:
+                    if side_col.endswith(TRACE_COLUMN_POSTFIX) and side_col in record:
+                        traces: list[TraceMessage] = record[side_col]
+                        if isinstance(traces, list) and len(traces) > 0:
+                            if not in_notebook or save_path is not None:
+                                render_list.append(pad_console_element(trace_renderer.render_rich(traces, side_col)))
+                            traces_to_display_later.append((side_col, traces))
+
     # Collect image generation columns (will be displayed at the end)
     image_columns = config_builder.get_columns_of_type(DataDesignerColumnType.IMAGE)
     images_to_display_later = []
     if len(image_columns) > 0:
-        # Check if we're in a notebook to decide display style
-        try:
-            get_ipython()
-            in_notebook = True
-        except NameError:
-            in_notebook = False
-
         # Create table for image columns
         table = Table(title="Images", **table_kws)
         table.add_column("Name")
@@ -408,7 +440,7 @@ def display_sample_record(
                         } | validation_output
 
                 table.add_row(col.name, convert_to_row_element(value_to_display))
-        render_list.append(pad_console_element(table, (1, 0, 1, 0)))
+        render_list.append(pad_console_element(table))
 
     llm_judge_columns = config_builder.get_columns_of_type(DataDesignerColumnType.LLM_JUDGE)
     if len(llm_judge_columns) > 0:
@@ -423,7 +455,7 @@ def display_sample_record(
                 table.add_column(measure)
                 row.append(f"score: {results['score']}\nreasoning: {results['reasoning']}")
             table.add_row(*row)
-            render_list.append(pad_console_element(table, (1, 0, 1, 0)))
+            render_list.append(pad_console_element(table))
 
     if processor_data_to_display and len(processor_data_to_display) > 0:
         for processor_name, processor_data in processor_data_to_display.items():
@@ -432,11 +464,7 @@ def display_sample_record(
             table.add_column("Value")
             for col, value in processor_data.items():
                 table.add_row(col, convert_to_row_element(value))
-        render_list.append(pad_console_element(table, (1, 0, 1, 0)))
-
-    if record_index is not None:
-        index_label = Text(f"[index: {record_index}]", justify="center")
-        render_list.append(index_label)
+        render_list.append(pad_console_element(table))
 
     if save_path is not None:
         recording_console = Console(record=True, width=display_width, file=io.StringIO())
@@ -447,6 +475,11 @@ def display_sample_record(
         capped_width = min(terminal_width, display_width)
         display_console = Console(width=capped_width)
         display_console.print(Group(*render_list), markup=False)
+
+    # Display traces as HTML in notebook
+    if in_notebook and include_traces and len(traces_to_display_later) > 0:
+        for col_name, trace_data in traces_to_display_later:
+            trace_renderer.render_notebook_html(trace_data, col_name)
 
     # Display images at the bottom with captions (only in notebook)
     if len(images_to_display_later) > 0:

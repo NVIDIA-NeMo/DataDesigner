@@ -1,236 +1,105 @@
 # 🎨✨ Contributing to NeMo Data Designer 🎨✨
 
-Thank you for your interest in contributing to Data Designer!
+The skills and workflows in this repository are for **developing** DataDesigner. If you're looking to **use** DataDesigner to build datasets, see the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) instead.
 
-We welcome contributions from the community and sincerely appreciate your efforts to improve the project. Whether you're fixing a typo, reporting a bug, proposing a new feature, or implementing a major enhancement, your work helps make Data Designer better for everyone 🎉.
+---
 
-This guide will help you get started with the contribution process.
+This project uses agent-assisted development. Contributors are expected to use agents for investigation, planning, and implementation. The repository includes [skills and guidance](.agents/) that make agents effective contributors.
 
-## Table of Contents
+Agents accelerate work; humans stay accountable. People make design decisions and own quality — agents help get there faster.
 
-- [Getting Started](#getting-started)
-- [Ways to Contribute](#ways-to-contribute)
-- [Feature Requests](#feature-requests)
-- [Development Guide](#development-guide)
-- [Submitting Changes](#submitting-changes)
-- [Code of Conduct](#code-of-conduct)
-- [Signing off on your work](#signing-off-on-your-work)
+## How to Contribute
 
+1. **Open an issue** using the appropriate [issue template](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new/choose).
+2. **Include investigation output.** If you used an agent, paste its diagnostics. If you didn't, include the troubleshooting you tried.
+3. **For non-trivial changes, create a plan document** at `plans/<issue-number>/` before building. Have your agent draft the plan — it should describe the approach, trade-offs considered, affected subsystems, and a delivery strategy. See existing plans in [`plans/`](plans/) for reference. Submit the plan in a PR for review.
+4. **Once the plan is approved, implement** using agent-assisted development. See [DEVELOPMENT.md](DEVELOPMENT.md) for local setup and workflow.
 
-## Getting Started
-👋 Welcome to the Data Designer community! We're excited to have you here.
+## Before You Open an Issue
 
-Whether you're new to the project or ready to dive in, the resources below will help you get oriented and productive quickly:
+- Clone the repo and point your agent at it
+- Have the agent search docs and existing issues (the `search-docs` and `search-github` skills can help)
+- If the agent can't resolve it, include the diagnostics in your issue
+- If you didn't use an agent, include the troubleshooting you already tried
 
-1. **[README.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/README.md)** – best place to start to learn the basics of the project
+## When to Open an Issue
 
-2. **[AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md)** – context and instructions to help AI coding agents work on Data Designer (it's also useful for human developers!)
+- Real bugs — reproduced or agent-confirmed
+- Feature proposals with design context
+- Problems that `search-docs` / `search-github` couldn't resolve
 
-3. **[Documentation](https://nvidia-nemo.github.io/DataDesigner/)** – detailed documentation on Data Designer's capabilities and usage
+## When NOT to Open an Issue
 
-## Ways to Contribute
+- Questions about how things work — an agent can answer these from the codebase
+- Configuration problems — an agent can diagnose these
+- "How do I..." requests — try the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) first
 
-There are many ways to contribute to Data Designer:
+---
 
-### 🐛 Bug Fixes
+## Development Skills
 
-Found a bug? Before reporting, please
-1. Verify you're using the latest version: `uv pip install --upgrade data-designer`
-2. Search for duplicates in the [issue tracker](https://github.com/NVIDIA-NeMo/DataDesigner/issues)
+The repository includes skills for common development tasks. These are located in [`.agents/skills/`](.agents/skills/) and are automatically discovered by agent harnesses.
 
-When [creating a bug report](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new), please include:
-- Data Designer version
-- Python version and operating system
-- Minimal reproducible example
-- Expected vs. actual behavior
-- Full error messages and stack traces
+| Category      | Skills                             | Purpose                                |
+| ------------- | ---------------------------------- | -------------------------------------- |
+| Investigation | `search-docs`, `search-github`     | Find information, check for duplicates |
+| Development   | `commit`, `create-pr`, `update-pr` | Standard development cycle             |
+| Review        | `review-code`                      | Multi-pass code review                 |
 
-If you are interested in fixing the bug yourself, that's AWESOME! Please follow the [development guide](#development-guide) to get started.
+---
 
-### ✨ Feature Implementation
-Want to add new functionality? Great! Please review [our development approach](#feature-requests) and open a feature request to discuss the idea and get feedback before investing significant time on the implementation.
+## Pull Requests
 
-### 📖 Documentation Improvements
-Documentation is crucial for user adoption. Contributions that clarify usage, add examples, or fix typos are highly valued.
-
-### 💡 Examples and Tutorials
-Share your use cases! Example notebooks and tutorials help others understand how to leverage Data Designer effectively.
-
-### 🧪 Test Coverage
-Help us improve test coverage by adding tests for untested code paths or edge cases.
-
-## Feature Requests
-Data Designer is designed to be as flexible and extensible as possible, and we welcome your ideas for pushing its capabilities even further! To keep the core library maintainable, while also supporting innovation, we take an incremental approach when adding new features – we explore what's already possible, extend through plugins when needed, and integrate the most broadly useful features into the core library:
-
-### How We Grow Data Designer
-1. 🧗 **Explore what's possible**: Can your use case be achieved with current features? We've designed Data Designer to be composable – sometimes creative combinations of existing tools can accomplish what you need. Check out our examples or open an issue if you'd like help exploring this!
-
-2. 🔌 **Extend through plugins**: If existing features aren't quite enough, consider implementing your idea as a plugin that extends the core library. Plugins let you experiment and share functionality while keeping the core library focused.
-
-3. ⚙️ **Integrate into the core library**: If your feature or plugin proves broadly useful and aligns with Data Designer's goals, we'd love to integrate it into the core library! We're happy to discuss whether it's a good fit and how to move forward together.
-
-This approach helps us grow thoughtfully while keeping Data Designer focused and maintainable.
-
-### Submitting a Feature Request
-Open a [new issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new) with:
-
-- **Clear title**: Concise description of the feature
-- **Use case**: Explain what problem this solves and why it's important
-- **Proposed solution**: Describe how you envision the feature working
-- **Alternatives considered**: Other approaches you've thought about
-- **Examples**: Code examples or mockups of how users would interact with the feature
-- **Willingness to implement**: Are you interested in implementing this yourself?
-
-## Development Guide
-Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency management. If you don't have uv installed, follow their [installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
-
-### Initial Setup
-0. **Create or find an issue**
-
-    Before starting work, ensure there's an issue tracking your contribution:
-
-    - For bug fixes: Search [existing issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues) or [create a new one](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new)
-    - For new features: Open a [feature request](#feature-requests) to discuss the approach first
-    - Comment on the issue to let maintainers know you're working on it
-
-1. **Fork and clone the repository**
-
-    Start by [forking the Data Designer repository](https://github.com/NVIDIA-NeMo/DataDesigner/fork), then clone your fork and add the upstream remote:
-
-    ```bash
-    git clone https://github.com/YOUR_GITHUB_USERNAME/DataDesigner.git
-
-    cd DataDesigner
-
-    git remote add upstream https://github.com/NVIDIA-NeMo/DataDesigner.git
-    ```
-
-2. **Install dependencies**
-
-    ```bash
-    # Install project with dev dependencies
-    make install-dev
-
-    # Or, if you use Jupyter / IPython for development
-    make install-dev-notebooks
-    ```
-
-3. **Verify your setup**
-
-    ```bash
-    make test && make check-all
-    ```
-
-    If no errors are reported, you're ready to develop 🚀
-
-### Making Changes
-
-1. **Create a feature branch**
-
-    ```bash
-    git checkout main
-    git pull upstream main
-    git checkout -b <username>/<type-of-change>/<issue-number>-<short-description>
-    ```
-
-    Example types of change:
-
-    - `feat` for new features
-    - `fix` for bug fixes
-    - `docs` for documentation updates
-    - `test` for testing changes
-    - `refactor` for code refactoring
-    - `chore` for chore tasks
-    - `style` for style changes
-    - `perf` for performance improvements
-
-    Example branch name:
-
-    - `johnnygreco/feat/123-add-xyz-generator` for a new feature by @johnnygreco, addressing issue #123
-
-2. **Develop your changes**
-
-    Please follow the patterns and conventions used throughout the codebase, as well as those outlined in [AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md).
-
-3. **Test and validate**
-
-    ```bash
-    make check-all-fix  # Format code and fix linting issues
-    make test           # Run all tests
-    make coverage       # Check test coverage (must be >90%)
-    ```
-
-    **Writing tests**: Place tests in [tests/](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/tests/) mirroring the source structure. Use fixtures from [tests/conftest.py](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/tests/conftest.py), mock external services with `unittest.mock` or `pytest-httpx`, and test both success and failure cases. See [AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md) for patterns and examples.
-
-4. **Commit your work**
-
-    Write clear, descriptive commit messages, optionally including a brief summary (50 characters or less) and reference issue numbers when applicable (e.g., "Fixes #123").
-
-    ```bash
-    git commit -m "Add XYZ generator for synthetic data" -m "Fixes #123"
-    ```
-
-5. **Stay up to date**
-
-    Regularly sync your branch with upstream changes:
-
-    ```bash
-    git fetch upstream
-    git merge upstream/main
-    ```
-
-## Submitting Changes
-
-### Before Submitting
-
-Ensure your changes meet the following criteria:
-
-- All tests pass (`make test`)
-- Code is formatted and linted (`make check-all-fix`)
-- New functionality includes tests
-- Documentation is updated (README, docstrings, examples)
-- License headers are present on all new files
-- Commit messages are clear and descriptive
-
-### Creating a Pull Request
-
-1. **Push your changes** to your fork:
-
-    ```bash
-    git push origin <username>/<type-of-change>/<issue-number>-<short-description>
-    ```
-
-2. **Open a pull request** on GitHub from your fork to the main repository
-
-3. **Respond to review feedback** update your PR as needed
+- PRs should link to the issue they address (`Fixes #NNN` or `Closes #NNN`)
+- Use the `create-pr` skill for well-formatted PR descriptions, or follow the PR template
+- Ensure all checks pass before requesting review:
+  ```bash
+  make check-all-fix
+  make test
+  ```
+- Run a self-review before opening the PR using the `review-code` skill. Address any critical or warning-level findings before requesting human review. If you have access to multiple models, run the review with different models across passes — different models surface different issues, and a single pass rarely catches everything.
 
 ### Pull Request Review Process
 
+- PRs receive an automated CI code review. You must address all critical and warning-level findings from the automated review before requesting human review.
 - Maintainers will review your PR and may request changes
 - Address feedback by pushing additional commits to your branch
-- Reply to the feedback comment with a link to the commit that addresses it.
+- Reply to each comment before resolving it. If the comment resulted in a code change, include the commit hash that addresses it. Do not resolve comments without a response.
 - Once approved, a maintainer will merge your PR
-- Your contribution will be included in the next release!
 
-## Code of Conduct
-Data Designer follows the Contributor Covenant Code of Conduct. We are committed to providing a welcoming and inclusive environment for all contributors.
+---
 
-**Please read our complete [Code of Conduct](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/CODE_OF_CONDUCT.md)** for full details on our standards and expectations.
+## Commit Messages
 
-### License File Headers
-All code files that are added to this repository must include the appropriate NVIDIA copyright header:
+- Use imperative mood ("add feature" not "added feature")
+- Keep the subject line under 50 characters (hard limit: 72)
+- Reference issue numbers when applicable (`Fixes #123`)
+
+---
+
+## License Headers
+
+All code files must include the NVIDIA copyright header:
 
 ```python
-# SPDX-FileCopyrightText: Copyright (c) {YEAR} NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 ```
 
 Use `make update-license-headers` to add headers automatically.
 
-## Signing off on your work
+## Signing Off on Your Work (DCO)
 
-When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project license. All contributors are asked to sign the Data Designer [Developer Certificate of Origin (DCO)](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/DCO) when submitting their first pull request. The process is automated by a bot that will comment on the pull request. Our DCO is the same as the Linux Foundation requires its contributors to sign.
+When contributing, you must agree that you have authored 100% of the content, that you have the necessary rights to the content, and that the content you contribute may be provided under the project license. All contributors are asked to sign the [Developer Certificate of Origin (DCO)](DCO) when submitting their first pull request. The process is automated by a bot that will comment on the pull request.
+
+## Code of Conduct
+
+Data Designer follows the Contributor Covenant Code of Conduct. Please read our complete [Code of Conduct](CODE_OF_CONDUCT.md) for full details.
 
 ---
 
-Thank you for contributing to NeMo Data Designer! Your efforts help make synthetic data generation more accessible and powerful for everyone. 🎨✨
+## Reference
+
+- [AGENTS.md](AGENTS.md) — architecture, layering, design principles
+- [STYLEGUIDE.md](STYLEGUIDE.md) — code style, naming, imports, type annotations
+- [DEVELOPMENT.md](DEVELOPMENT.md) — local setup, testing, day-to-day workflow

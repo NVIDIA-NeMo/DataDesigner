@@ -19,7 +19,7 @@ def _stub_model_registry() -> ModelRegistry:
     return ModelRegistry(
         secret_resolver=Mock(),
         model_provider_registry=Mock(),
-        model_facade_factory=lambda *_args, **_kwargs: Mock(),
+        model_facade_factory=lambda *_args: Mock(),
         model_configs=[],
     )
 

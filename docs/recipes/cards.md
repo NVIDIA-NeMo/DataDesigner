@@ -99,6 +99,24 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](qa_and_chat/multi_turn_chat.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/qa_and_chat/multi_turn_chat.py){ .md-button download="multi_turn_chat.py" }
 
+-   :material-source-branch:{ .lg .middle } **Agent Rollout Trace Distillation**
+
+    Read agent rollout traces from disk and turn each imported rollout into a structured workflow record inside a Data Designer pipeline.
+
+    ---
+
+    **Demonstrates:**
+
+    - `AgentRolloutSeedSource` across ATIF, Claude Code, Codex, and Hermes Agent rollout formats
+    - Using normalized trace columns in generation prompts
+    - Distilling agent traces into reusable structured records
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](trace_ingestion/agent_rollout_distillation.md){ .md-button }
+    [:material-file-document-outline: Ingestion Guide](../concepts/agent-rollout-ingestion.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/trace_ingestion/agent_rollout_distillation.py){ .md-button download="agent_rollout_distillation.py" }
+
 
 -   :material-tools:{ .lg .middle } **Basic MCP Tool Use**
 
@@ -153,5 +171,23 @@ Each recipe is a self-contained example that can be run independently.
 
     [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/search_agent.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/search_agent.py){ .md-button download="search_agent.py" }
+
+-   :material-file-document-multiple:{ .lg .middle } **Markdown Section Seed Reader**
+
+    Define a custom `FileSystemSeedReader` inline and turn Markdown files into one seed row per heading section.
+
+    ---
+
+    **Demonstrates:**
+
+    - Single-file custom seed reader pattern
+    - `hydrate_row()` fanout from `1 -> N`
+    - Manifest-based file selection semantics
+    - `DirectorySeedSource` customization without a new `seed_type`
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](plugin_development/markdown_seed_reader.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/plugin_development/markdown_seed_reader.py){ .md-button download="markdown_seed_reader.py" }
 
 </div>

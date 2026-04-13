@@ -9,6 +9,7 @@ nav:
   - Concepts:
       - Columns: concepts/columns.md
       - Seed Datasets: concepts/seed-datasets.md
+      - Agent Rollout Ingestion: concepts/agent-rollout-ingestion.md
       - Models:
           - Default Model Settings: concepts/models/default-model-settings.md
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
@@ -44,9 +45,13 @@ nav:
           - Text to Python: recipes/code_generation/text_to_python.md
           - Text to SQL: recipes/code_generation/text_to_sql.md
           - "Nemotron Super Text to SQL": recipes/code_generation/enterprise_text_to_sql.md
+      - Plugin Development:
+          - Markdown Section Seed Reader Plugin: recipes/plugin_development/markdown_seed_reader.md
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
+      - Trace Ingestion:
+          - Agent Rollout Trace Distillation: recipes/trace_ingestion/agent_rollout_distillation.md
       - MCP and Tool Use:
           - "Basic MCP Tool Use": recipes/mcp_and_tooluse/basic_mcp.md
           - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
@@ -54,6 +59,7 @@ nav:
   - Plugins:
       - Overview: plugins/overview.md
       - Example Plugin: plugins/example.md
+      - FileSystemSeedReader Plugins: plugins/filesystem_seed_reader.md
       - Available Plugin List: plugins/available.md
   - Code Reference:
       - models: code_reference/models.md
@@ -69,6 +75,9 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - "Async All the Way Down": devnotes/posts/async-all-the-way-down.md
+      - Owning the Model Stack: devnotes/posts/owning-the-model-stack.md
+      - Data Designer Got Skills: devnotes/posts/data-designer-got-skills.md
       - Search Agent: devnotes/posts/search-agent.md
       - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
       - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
