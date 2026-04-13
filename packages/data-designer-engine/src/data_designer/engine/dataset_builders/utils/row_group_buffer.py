@@ -27,13 +27,18 @@ class RowGroupBufferManager:
     exclusively by the async scheduler.
     """
 
-    def __init__(self, artifact_storage: ArtifactStorage) -> None:
+    def __init__(
+        self,
+        artifact_storage: ArtifactStorage,
+        initial_actual_num_records: int = 0,
+        initial_total_num_batches: int = 0,
+    ) -> None:
         self._buffers: dict[int, list[dict]] = {}
         self._row_group_sizes: dict[int, int] = {}
         self._dropped: dict[int, set[int]] = {}
         self._artifact_storage = artifact_storage
-        self._actual_num_records: int = 0
-        self._total_num_batches: int = 0
+        self._actual_num_records: int = initial_actual_num_records
+        self._total_num_batches: int = initial_total_num_batches
 
     def init_row_group(self, row_group: int, size: int) -> None:
         """Allocate a buffer for *row_group* with *size* empty rows."""

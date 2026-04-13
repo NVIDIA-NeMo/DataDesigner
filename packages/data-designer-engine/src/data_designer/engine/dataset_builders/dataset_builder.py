@@ -164,20 +164,14 @@ class DatasetBuilder:
             save_multimedia_to_disk: Whether to save generated multimedia (images, audio, video) to disk.
                 If False, multimedia is stored directly in the DataFrame (e.g., images as base64).
                 Default is True.
-            resume: If True, resume generation from the last completed batch found in the existing
-                artifact directory. The run parameters (num_records, buffer_size) must match those
-                of the original run. Any in-flight partial results from the interrupted run are
-                discarded. Not supported when DATA_DESIGNER_ASYNC_ENGINE is enabled.
+            resume: If True, resume generation from the last completed batch (sync engine) or
+                row group (async engine) found in the existing artifact directory. The run parameters
+                (num_records, buffer_size) must match those of the original run. Any in-flight
+                partial results from the interrupted run are discarded.
 
         Returns:
             Path to the generated dataset directory.
         """
-        if resume and DATA_DESIGNER_ASYNC_ENGINE:
-            raise DatasetGenerationError(
-                "🛑 resume=True is not supported when DATA_DESIGNER_ASYNC_ENGINE is enabled. "
-                "Disable the async engine or start a new run without resume=True."
-            )
-
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
         self._write_builder_config()
@@ -193,7 +187,7 @@ class DatasetBuilder:
 
         if DATA_DESIGNER_ASYNC_ENGINE:
             self._validate_async_compatibility()
-            self._build_async(generators, num_records, buffer_size, on_batch_complete)
+            self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
         elif resume:
             self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
         else:
@@ -353,12 +347,31 @@ class DatasetBuilder:
                 f"disable the async scheduler."
             )
 
+    def _find_completed_row_group_ids(self) -> set[int]:
+        """Scan the final dataset directory for already-written row group parquet files.
+
+        Returns:
+            Set of row-group IDs (batch numbers) that have a parquet file in ``parquet-files/``.
+        """
+        final_path = self.artifact_storage.final_dataset_path
+        if not final_path.exists():
+            return set()
+        ids: set[int] = set()
+        for p in final_path.glob("batch_*.parquet"):
+            try:
+                ids.add(int(p.stem.split("_", 1)[1]))
+            except (ValueError, IndexError):
+                continue
+        return ids
+
     def _build_async(
         self,
         generators: list[ColumnGenerator],
         num_records: int,
         buffer_size: int,
         on_batch_complete: Callable[[Path], None] | None = None,
+        *,
+        resume: bool = False,
     ) -> None:
         """Async task-queue builder path - dispatches tasks based on dependency readiness."""
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
@@ -366,12 +379,39 @@ class DatasetBuilder:
         settings = self._resource_provider.run_config
         trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
 
+        skip_row_groups: frozenset[int] = frozenset()
+        initial_actual_num_records = 0
+        initial_total_num_batches = 0
+
+        if resume:
+            state = self._load_resume_state(num_records, buffer_size)
+            completed_ids = self._find_completed_row_group_ids()
+            skip_row_groups = frozenset(completed_ids)
+            initial_actual_num_records = state.actual_num_records
+            initial_total_num_batches = state.num_completed_batches
+            self.artifact_storage.clear_partial_results()
+
+            total_row_groups = -(-num_records // buffer_size)  # ceiling division
+            if len(completed_ids) >= total_row_groups:
+                logger.warning(
+                    "⚠️ Dataset is already complete — all row groups were found in the existing artifact "
+                    "directory. Nothing to resume. Remove resume=True if you want to generate a new dataset."
+                )
+                return
+
+            logger.info(
+                f"▶️ Resuming async run: {len(completed_ids)} of {total_row_groups} row group(s) already "
+                f"complete ({state.actual_num_records} records), skipping them."
+            )
+
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
                 if final_path is not None and on_batch_complete:
                     on_batch_complete(final_path)
 
             buffer_manager.checkpoint_row_group(rg_id, on_complete=on_complete)
+            # Write incremental metadata after each row group so interrupted runs can be resumed.
+            buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
 
         scheduler, buffer_manager = self._prepare_async_run(
             generators,
@@ -382,6 +422,9 @@ class DatasetBuilder:
             shutdown_error_window=settings.shutdown_error_window,
             disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
+            skip_row_groups=skip_row_groups,
+            initial_actual_num_records=initial_actual_num_records,
+            initial_total_num_batches=initial_total_num_batches,
         )
 
         # Telemetry snapshot
@@ -402,7 +445,7 @@ class DatasetBuilder:
         except Exception:
             logger.debug("Failed to emit batch telemetry for async run", exc_info=True)
 
-        # Write metadata
+        # Write final metadata (overwrites the last incremental write with identical content).
         buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
 
     def _prepare_async_run(
@@ -417,6 +460,9 @@ class DatasetBuilder:
         shutdown_error_window: int = 10,
         disable_early_shutdown: bool = False,
         trace: bool = False,
+        skip_row_groups: frozenset[int] = frozenset(),
+        initial_actual_num_records: int = 0,
+        initial_total_num_batches: int = 0,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
         """Build a fully-wired scheduler and buffer manager for async generation.
 
@@ -439,18 +485,23 @@ class DatasetBuilder:
         for gen in generators:
             gen.log_pre_generation()
 
-        # Partition into row groups
+        # Partition into row groups, skipping any already completed on resume.
         row_groups: list[tuple[int, int]] = []
         remaining = num_records
         rg_id = 0
         while remaining > 0:
             size = min(buffer_size, remaining)
-            row_groups.append((rg_id, size))
+            if rg_id not in skip_row_groups:
+                row_groups.append((rg_id, size))
             remaining -= size
             rg_id += 1
 
         tracker = CompletionTracker.with_graph(graph, row_groups)
-        buffer_manager = RowGroupBufferManager(self.artifact_storage)
+        buffer_manager = RowGroupBufferManager(
+            self.artifact_storage,
+            initial_actual_num_records=initial_actual_num_records,
+            initial_total_num_batches=initial_total_num_batches,
+        )
 
         # Pre-batch processor callback: runs after seed tasks complete for a row group.
         # If it raises, the scheduler drops all rows in the row group (skips it).

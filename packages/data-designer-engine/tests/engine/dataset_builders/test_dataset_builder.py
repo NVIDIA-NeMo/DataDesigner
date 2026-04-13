@@ -1035,3 +1035,92 @@ def test_build_resume_logs_warning_when_already_complete(
         builder.build(num_records=4, resume=True)
 
     assert any("already complete" in record.message for record in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# _find_completed_row_group_ids tests
+# ---------------------------------------------------------------------------
+
+
+def test_find_completed_row_group_ids_empty_dir(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """Returns empty set when final_dataset_path does not exist."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=0, actual_num_records=0)
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+    assert builder._find_completed_row_group_ids() == set()
+
+
+def test_find_completed_row_group_ids_with_files(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """Returns correct IDs from batch_*.parquet files in parquet-files/."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+
+    parquet_dir = dataset_dir / "parquet-files"
+    parquet_dir.mkdir(parents=True)
+    (parquet_dir / "batch_00000.parquet").write_text("")
+    (parquet_dir / "batch_00002.parquet").write_text("")
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    assert builder._find_completed_row_group_ids() == {0, 2}
+
+
+def test_find_completed_row_group_ids_ignores_non_batch_files(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Non-batch files in parquet-files/ are silently ignored."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+
+    parquet_dir = dataset_dir / "parquet-files"
+    parquet_dir.mkdir(parents=True)
+    (parquet_dir / "batch_00001.parquet").write_text("")
+    (parquet_dir / "unrelated.parquet").write_text("")
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    assert builder._find_completed_row_group_ids() == {1}
+
+
+# ---------------------------------------------------------------------------
+# Async resume via _build_async tests
+# ---------------------------------------------------------------------------
+
+
+def _write_parquet_files(parquet_dir: _Path, row_group_ids: list[int]) -> None:
+    """Create stub batch_*.parquet files for the given row group IDs."""
+    parquet_dir.mkdir(parents=True, exist_ok=True)
+    for rg_id in row_group_ids:
+        (parquet_dir / f"batch_{rg_id:05d}.parquet").write_text("")
+
+
+def test_build_async_resume_logs_warning_when_already_complete(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """Async resume on a fully-complete dataset logs a warning and returns without running."""
+    dataset_dir = tmp_path / "dataset"
+    # 4 records at buffer_size=2 → 2 row groups (IDs 0 and 1)
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    with caplog.at_level(logging.WARNING):
+        with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+            with patch.object(builder, "_run_model_health_check_if_needed"):
+                builder.build(num_records=4, resume=True)
+
+    assert any("already complete" in record.message for record in caplog.records)
+
+
+def test_build_async_resume_raises_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """Async resume raises DatasetGenerationError when metadata.json is missing."""
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "builder_config.json").write_text("{}")
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with pytest.raises(DatasetGenerationError, match="metadata.json not found"):
+                builder.build(num_records=4, resume=True)
