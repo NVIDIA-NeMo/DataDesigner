@@ -20,6 +20,11 @@ permissions:
 
 jobs:
   # ── Job 1: validate linked issue on PR events ─────────────────────────
+  # SECURITY: This workflow uses pull_request_target to get write access for
+  # posting comments on fork PRs. It MUST NOT check out or execute code from
+  # the PR branch. All inputs from the PR (body, author) are read via API
+  # only. Adding actions/checkout here would run untrusted fork code with
+  # base repo write permissions.
   check:
     if: >-
       github.repository_owner == 'NVIDIA-NeMo'
