@@ -33,8 +33,8 @@ package = true
 required-version = ">=0.7.10"
 # Minimum versions for transitive dependencies with known security vulnerabilities.
 constraint-dependencies = [
-    "aiohttp>=3.13.5",
-    "cryptography>=46.0.7",
+  "aiohttp>=3.13.5",
+  "cryptography>=46.0.7",
 ]
 
 [build-system]
