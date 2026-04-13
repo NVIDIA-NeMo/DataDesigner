@@ -128,6 +128,14 @@ class GenerationController:
             output_format: If set, export the dataset to a single file in this format after
                 generation. One of 'jsonl', 'csv', 'parquet'.
         """
+        from data_designer.interface.results import SUPPORTED_EXPORT_FORMATS
+
+        if output_format is not None and output_format not in SUPPORTED_EXPORT_FORMATS:
+            print_error(
+                f"Unsupported export format: {output_format!r}. Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
+            )
+            raise typer.Exit(code=1)
+
         config_builder = self._load_config(config_source)
 
         resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
@@ -162,14 +170,6 @@ class GenerationController:
         console.print(f"  Artifacts saved to: [bold]{results.artifact_storage.base_dataset_path}[/bold]")
 
         if output_format is not None:
-            from data_designer.interface.results import SUPPORTED_EXPORT_FORMATS
-
-            if output_format not in SUPPORTED_EXPORT_FORMATS:
-                print_error(
-                    f"Unsupported export format: {output_format!r}. "
-                    f"Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
-                )
-                raise typer.Exit(code=1)
             export_path = results.artifact_storage.base_dataset_path / f"dataset.{output_format}"
             try:
                 results.export(export_path, format=output_format)  # type: ignore[arg-type]
