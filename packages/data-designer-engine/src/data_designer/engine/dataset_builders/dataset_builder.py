@@ -9,6 +9,7 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -83,6 +84,13 @@ if DATA_DESIGNER_ASYNC_ENGINE:
 _CLIENT_VERSION: str = get_library_version()
 
 
+@dataclass
+class _ResumeState:
+    num_completed_batches: int
+    actual_num_records: int
+    buffer_size: int
+
+
 class DatasetBuilder:
     def __init__(
         self,
@@ -146,6 +154,7 @@ class DatasetBuilder:
         num_records: int,
         on_batch_complete: Callable[[Path], None] | None = None,
         save_multimedia_to_disk: bool = True,
+        resume: bool = False,
     ) -> Path:
         """Build the dataset.
 
@@ -155,10 +164,20 @@ class DatasetBuilder:
             save_multimedia_to_disk: Whether to save generated multimedia (images, audio, video) to disk.
                 If False, multimedia is stored directly in the DataFrame (e.g., images as base64).
                 Default is True.
+            resume: If True, resume generation from the last completed batch found in the existing
+                artifact directory. The run parameters (num_records, buffer_size) must match those
+                of the original run. Any in-flight partial results from the interrupted run are
+                discarded. Not supported when DATA_DESIGNER_ASYNC_ENGINE is enabled.
 
         Returns:
             Path to the generated dataset directory.
         """
+        if resume and DATA_DESIGNER_ASYNC_ENGINE:
+            raise DatasetGenerationError(
+                "🛑 resume=True is not supported when DATA_DESIGNER_ASYNC_ENGINE is enabled. "
+                "Disable the async engine or start a new run without resume=True."
+            )
+
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
         self._write_builder_config()
@@ -175,6 +194,8 @@ class DatasetBuilder:
         if DATA_DESIGNER_ASYNC_ENGINE:
             self._validate_async_compatibility()
             self._build_async(generators, num_records, buffer_size, on_batch_complete)
+        elif resume:
+            self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
         else:
             group_id = uuid.uuid4().hex
             self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
@@ -193,6 +214,85 @@ class DatasetBuilder:
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return self.artifact_storage.final_dataset_path
+
+    def _load_resume_state(self, num_records: int, buffer_size: int) -> _ResumeState:
+        """Read and validate resume state from an existing metadata.json.
+
+        Raises:
+            DatasetGenerationError: If metadata is missing or incompatible with the current run parameters.
+        """
+        try:
+            metadata = self.artifact_storage.read_metadata()
+        except FileNotFoundError:
+            raise DatasetGenerationError(
+                "🛑 Cannot resume: metadata.json not found in the existing dataset directory. "
+                "Run without resume=True to start a new generation."
+            )
+
+        target = metadata.get("target_num_records")
+        if target != num_records:
+            raise DatasetGenerationError(
+                f"🛑 Cannot resume: num_records={num_records} does not match the original run's "
+                f"target_num_records={target}. Use the same num_records as the interrupted run, "
+                "or start a new run without resume=True."
+            )
+
+        meta_buffer_size = metadata.get("buffer_size")
+        if meta_buffer_size != buffer_size:
+            raise DatasetGenerationError(
+                f"🛑 Cannot resume: buffer_size={buffer_size} does not match the original run's "
+                f"buffer_size={meta_buffer_size}. Use the same buffer_size as the interrupted run, "
+                "or start a new run without resume=True."
+            )
+
+        return _ResumeState(
+            num_completed_batches=metadata["num_completed_batches"],
+            actual_num_records=metadata["actual_num_records"],
+            buffer_size=buffer_size,
+        )
+
+    def _build_with_resume(
+        self,
+        generators: list[ColumnGenerator],
+        num_records: int,
+        buffer_size: int,
+        on_batch_complete: Callable[[Path], None] | None,
+    ) -> None:
+        """Resume generation from the last completed batch."""
+        state = self._load_resume_state(num_records, buffer_size)
+
+        self.batch_manager.start(
+            num_records=num_records,
+            buffer_size=buffer_size,
+            start_batch=state.num_completed_batches,
+            initial_actual_num_records=state.actual_num_records,
+        )
+
+        if state.num_completed_batches >= self.batch_manager.num_batches:
+            logger.warning(
+                "⚠️ Dataset is already complete — all batches were found in the existing artifact directory. "
+                "Nothing to resume. Remove resume=True if you want to generate a new dataset."
+            )
+            return
+
+        logger.info(
+            f"▶️ Resuming from batch {state.num_completed_batches + 1} of {self.batch_manager.num_batches} "
+            f"({state.actual_num_records} records already generated)."
+        )
+
+        self.artifact_storage.clear_partial_results()
+
+        group_id = uuid.uuid4().hex
+        for batch_idx in range(state.num_completed_batches, self.batch_manager.num_batches):
+            logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
+            self._run_batch(
+                generators,
+                batch_mode="batch",
+                group_id=group_id,
+                current_batch_number=batch_idx,
+                on_batch_complete=on_batch_complete,
+            )
+        self.batch_manager.finish()
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._run_model_health_check_if_needed()
