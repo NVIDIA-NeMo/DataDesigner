@@ -245,13 +245,14 @@ jobs:
             # which re-runs the check job.
             MARKER="<!-- triaged-recheck"
             if echo "$CURRENT_BODY" | grep -q "$MARKER"; then
-              NEW_BODY=$(echo "$CURRENT_BODY" | sed "s|<!-- triaged-recheck[^>]*-->|<!-- triaged-recheck: ${TIMESTAMP} -->|")
+              echo "$CURRENT_BODY" \
+                | sed "s|<!-- triaged-recheck[^>]*-->|<!-- triaged-recheck: ${TIMESTAMP} -->|" \
+                > /tmp/pr-body.md
             else
-              NEW_BODY="${CURRENT_BODY}
-          <!-- triaged-recheck: ${TIMESTAMP} -->"
+              printf '%s\n<!-- triaged-recheck: %s -->' "$CURRENT_BODY" "$TIMESTAMP" > /tmp/pr-body.md
             fi
 
-            gh pr edit "$PR_NUM" --repo "${{ github.repository }}" --body "$NEW_BODY"
+            gh pr edit "$PR_NUM" --repo "${{ github.repository }}" --body-file /tmp/pr-body.md
 
             # Post a visible comment so the author knows what happened.
             gh pr comment "$PR_NUM" --repo "${{ github.repository }}" --body \
