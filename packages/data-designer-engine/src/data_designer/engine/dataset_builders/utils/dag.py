@@ -8,7 +8,7 @@ import logging
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.engine.column_generators.utils.generator_classification import column_type_used_in_execution_dag
-from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
+from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.logging import LOG_INDENT
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,18 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
         return non_dag_column_config_list
 
     side_effect_dict = {n: list(c.side_effect_columns) for n, c in dag_column_config_dict.items()}
+
+    side_effect_to_producer: dict[str, str] = {}
+    for producer, cols in side_effect_dict.items():
+        for col in cols:
+            existing = side_effect_to_producer.get(col)
+            if existing is not None and existing != producer:
+                raise ConfigCompilationError(
+                    f"Side-effect column {col!r} is already produced by {existing!r}; "
+                    f"cannot register a second producer {producer!r}. "
+                    f"Use distinct side-effect column names for each pipeline stage."
+                )
+            side_effect_to_producer[col] = producer
 
     logger.info("⛓️ Sorting column configs into a Directed Acyclic Graph")
     for name, col in dag_column_config_dict.items():
