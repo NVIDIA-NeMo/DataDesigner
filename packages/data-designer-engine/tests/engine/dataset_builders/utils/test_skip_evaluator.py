@@ -10,7 +10,9 @@ from data_designer.engine.dataset_builders.utils.skip_evaluator import (
     NativeSandboxedEnvironment,
     evaluate_skip_when,
     should_skip_by_propagation,
+    should_skip_column_for_record,
 )
+from data_designer.engine.dataset_builders.utils.skip_tracker import SKIPPED_COLUMNS_RECORD_KEY
 
 
 def test_native_sandboxed_environment_returns_native_types() -> None:
@@ -52,3 +54,95 @@ def test_evaluate_skip_when_strict_undefined_returns_true() -> None:
 )
 def test_should_skip_by_propagation(required: list[str], skipped: set[str], expected: bool) -> None:
     assert should_skip_by_propagation(required, skipped) is expected
+
+
+# -- should_skip_column_for_record (unified decision) -----------------------
+
+_UPSTREAM_SKIPPED_RECORD: dict = {SKIPPED_COLUMNS_RECORD_KEY: {"upstream_col"}, "upstream_col": None}
+
+
+@pytest.mark.parametrize(
+    ("record", "propagate_skip", "required_columns", "skip_config_when", "expected"),
+    [
+        pytest.param(
+            {"x": 1},
+            True,
+            [],
+            None,
+            False,
+            id="no-gate-no-propagation",
+        ),
+        pytest.param(
+            _UPSTREAM_SKIPPED_RECORD,
+            True,
+            ["upstream_col"],
+            None,
+            True,
+            id="propagation-triggers-on-upstream-skip",
+        ),
+        pytest.param(
+            _UPSTREAM_SKIPPED_RECORD,
+            False,
+            ["upstream_col"],
+            None,
+            False,
+            id="propagation-disabled-ignores-upstream-skip",
+        ),
+        pytest.param(
+            {"gate": 0},
+            True,
+            [],
+            "{{ gate == 0 }}",
+            True,
+            id="expression-truthy-skips",
+        ),
+        pytest.param(
+            {"gate": 1},
+            True,
+            [],
+            "{{ gate == 0 }}",
+            False,
+            id="expression-falsy-does-not-skip",
+        ),
+        pytest.param(
+            {SKIPPED_COLUMNS_RECORD_KEY: {"dep"}, "dep": None, "gate": 999},
+            True,
+            ["dep"],
+            "{{ gate == 0 }}",
+            True,
+            id="propagation-short-circuits-before-expression",
+        ),
+        pytest.param(
+            {SKIPPED_COLUMNS_RECORD_KEY: {"other"}, "gate": 0},
+            True,
+            ["dep"],
+            "{{ gate == 0 }}",
+            True,
+            id="expression-evaluated-when-propagation-does-not-trigger",
+        ),
+        pytest.param(
+            {"gate": 1},
+            True,
+            ["dep"],
+            "{{ gate == 0 }}",
+            False,
+            id="both-propagation-and-expression-false",
+        ),
+    ],
+)
+def test_should_skip_column_for_record(
+    record: dict,
+    propagate_skip: bool,
+    required_columns: list[str],
+    skip_config_when: str | None,
+    expected: bool,
+) -> None:
+    assert (
+        should_skip_column_for_record(
+            record,
+            propagate_skip=propagate_skip,
+            required_columns=required_columns,
+            skip_config_when=skip_config_when,
+        )
+        is expected
+    )

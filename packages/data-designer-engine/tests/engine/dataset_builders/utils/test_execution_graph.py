@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     GenerationStrategy,
@@ -449,3 +450,104 @@ def test_judge_column_dependency() -> None:
     graph = ExecutionGraph.create(configs, strategies)
 
     assert graph.get_upstream_columns("judge") == {"text"}
+
+
+# -- Skip metadata accessors ------------------------------------------------
+
+
+def _build_skip_pipeline_graph() -> ExecutionGraph:
+    """gate(sampler) -> review(skip.when, with_trace) -> analysis(propagate) -> summary(no propagate)."""
+    configs = [
+        SamplerColumnConfig(name="gate", sampler_type=SamplerType.CATEGORY, params={"values": [0, 1]}),
+        LLMTextColumnConfig(
+            name="review",
+            prompt="{{ gate }}",
+            model_alias=MODEL_ALIAS,
+            with_trace="last_message",
+            skip=SkipConfig(when="{{ gate == 0 }}"),
+        ),
+        LLMTextColumnConfig(
+            name="analysis",
+            prompt="{{ review }}",
+            model_alias=MODEL_ALIAS,
+            propagate_skip=True,
+        ),
+        LLMTextColumnConfig(
+            name="summary",
+            prompt="{{ analysis }}",
+            model_alias=MODEL_ALIAS,
+            propagate_skip=False,
+        ),
+    ]
+    strategies = {
+        "gate": GenerationStrategy.FULL_COLUMN,
+        "review": GenerationStrategy.CELL_BY_CELL,
+        "analysis": GenerationStrategy.CELL_BY_CELL,
+        "summary": GenerationStrategy.CELL_BY_CELL,
+    }
+    return ExecutionGraph.create(configs, strategies)
+
+
+def test_skip_config_returned_for_gated_column() -> None:
+    graph = _build_skip_pipeline_graph()
+    skip_cfg = graph.get_skip_config("review")
+    assert skip_cfg is not None
+    assert skip_cfg.when == "{{ gate == 0 }}"
+
+
+def test_skip_config_returns_none_for_ungated_column() -> None:
+    graph = _build_skip_pipeline_graph()
+    assert graph.get_skip_config("gate") is None
+    assert graph.get_skip_config("analysis") is None
+
+
+def test_should_propagate_skip_explicit_values() -> None:
+    graph = _build_skip_pipeline_graph()
+    assert graph.should_propagate_skip("analysis") is True
+    assert graph.should_propagate_skip("summary") is False
+
+
+def test_should_propagate_skip_defaults_true() -> None:
+    graph = _build_skip_pipeline_graph()
+    assert graph.should_propagate_skip("gate") is True
+    assert graph.should_propagate_skip("review") is True
+
+
+def test_get_required_columns_for_skip_pipeline() -> None:
+    graph = _build_skip_pipeline_graph()
+    assert graph.get_required_columns("review") == ["gate"]
+    assert graph.get_required_columns("analysis") == ["review"]
+    assert graph.get_required_columns("summary") == ["analysis"]
+
+
+def test_get_side_effect_columns_for_skip_pipeline() -> None:
+    graph = _build_skip_pipeline_graph()
+    assert graph.get_side_effect_columns("review") == ["review__trace"]
+    assert graph.get_side_effect_columns("analysis") == []
+
+
+def test_side_effect_dependency_resolves_to_producer() -> None:
+    graph = _build_skip_pipeline_graph()
+    assert graph.resolve_side_effect("review__trace") == "review"
+
+
+def test_skip_when_columns_create_dag_edges() -> None:
+    """skip.when referencing a column should create an edge in the DAG."""
+    configs = [
+        SamplerColumnConfig(name="gate", sampler_type=SamplerType.CATEGORY, params={"values": [0, 1]}),
+        SamplerColumnConfig(name="data", sampler_type=SamplerType.CATEGORY, params={"values": ["x"]}),
+        LLMTextColumnConfig(
+            name="output",
+            prompt="{{ data }}",
+            model_alias=MODEL_ALIAS,
+            skip=SkipConfig(when="{{ gate == 0 }}"),
+        ),
+    ]
+    strategies = {
+        "gate": GenerationStrategy.FULL_COLUMN,
+        "data": GenerationStrategy.FULL_COLUMN,
+        "output": GenerationStrategy.CELL_BY_CELL,
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    assert "gate" in graph.get_upstream_columns("output")
+    assert "data" in graph.get_upstream_columns("output")
