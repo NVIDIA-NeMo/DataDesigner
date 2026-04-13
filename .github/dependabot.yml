@@ -10,17 +10,20 @@ updates:
     directory: /packages/data-designer-config
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
     commit-message:
       prefix: "chore"
   - package-ecosystem: pip
     directory: /packages/data-designer-engine
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
     commit-message:
       prefix: "chore"
   - package-ecosystem: pip
     directory: /packages/data-designer
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
     commit-message:
       prefix: "chore"
