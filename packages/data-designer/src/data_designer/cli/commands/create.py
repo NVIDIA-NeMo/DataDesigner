@@ -7,7 +7,6 @@ import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
-from data_designer.interface.results import SUPPORTED_EXPORT_FORMATS
 
 
 def create_command(
@@ -41,8 +40,8 @@ def create_command(
         "--output-format",
         "-f",
         help=(
-            f"Export the dataset to a single file after generation. "
-            f"Supported formats: {', '.join(SUPPORTED_EXPORT_FORMATS)}. "
+            "Export the dataset to a single file after generation. "
+            "Supported formats: jsonl, csv, parquet. "
             "The file is written to <artifact-path>/<dataset-name>/dataset.<format>."
         ),
     ),
