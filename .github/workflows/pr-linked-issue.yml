@@ -224,7 +224,7 @@ jobs:
             echo "prs=" >> "$GITHUB_OUTPUT"
           else
             echo "Found PRs: ${PRS}"
-            echo "prs=${PRS}" >> "$GITHUB_OUTPUT"
+            echo "prs=$(echo "$PRS" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Re-trigger linked issue check
