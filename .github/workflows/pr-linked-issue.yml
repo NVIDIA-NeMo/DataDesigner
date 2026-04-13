@@ -98,32 +98,37 @@ jobs:
           echo "is_triaged=${TRIAGED}" >> "$GITHUB_OUTPUT"
           echo "Issue #${ISSUE_NUM} exists, triaged=${TRIAGED}"
 
-      - name: Find existing comment
-        uses: peter-evans/find-comment@v4
-        id: find-comment
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: "github-actions[bot]"
-          body-includes: "<!-- linked-issue-check -->"
-
-      - name: Build comment body
+      - name: Build comment body and post result
         id: comment
         env:
+          GH_TOKEN: ${{ github.token }}
           IS_COLLABORATOR: ${{ steps.author.outputs.is_collaborator }}
           ISSUE_NUM: ${{ steps.parse.outputs.issue_num }}
           ISSUE_EXISTS: ${{ steps.validate.outputs.issue_exists }}
           IS_TRIAGED: ${{ steps.validate.outputs.is_triaged }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
+          MARKER="<!-- linked-issue-check -->"
+
+          # Find existing bot comment with our marker.
+          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq "[.[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER}\"))] | last | .id // empty" \
+            2>/dev/null || echo "")
+
           if [ "$IS_COLLABORATOR" = "true" ]; then
-            # Collaborators pass; no comment needed.
             echo "status=pass" >> "$GITHUB_OUTPUT"
-            echo "body=" >> "$GITHUB_OUTPUT"
+            # Clean up any leftover comment from before the author became a collaborator.
+            if [ -n "$COMMENT_ID" ]; then
+              gh api -X DELETE "repos/${REPO}/issues/comments/${COMMENT_ID}" || true
+            fi
             exit 0
           fi
 
+          # Build comment body.
           if [ -z "$ISSUE_NUM" ]; then
             STATUS="fail"
-            BODY=$(cat <<'MSG'
+            cat > /tmp/comment-body.md <<'MSG'
           <!-- linked-issue-check -->
           ### Linked Issue Check
 
@@ -141,20 +146,18 @@ jobs:
           See [CONTRIBUTING.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/CONTRIBUTING.md)
           for details.
           MSG
-          )
           elif [ "$ISSUE_EXISTS" != "true" ]; then
             STATUS="fail"
-            BODY=$(cat <<MSG
+            cat > /tmp/comment-body.md <<MSG
           <!-- linked-issue-check -->
           ### Linked Issue Check
 
           The referenced issue #${ISSUE_NUM} was not found. Please check the issue
           number in your PR description.
           MSG
-          )
           elif [ "$IS_TRIAGED" != "true" ]; then
             STATUS="fail"
-            BODY=$(cat <<MSG
+            cat > /tmp/comment-body.md <<MSG
           <!-- linked-issue-check -->
           ### Linked Issue Check
 
@@ -164,37 +167,24 @@ jobs:
           You can continue working on the PR in the meantime. The check will
           re-run automatically once the issue is triaged.
           MSG
-          )
           else
             STATUS="pass"
-            BODY=$(cat <<MSG
-          <!-- linked-issue-check -->
-          ### Linked Issue Check
-
-          Linked to triaged issue #${ISSUE_NUM}.
-          MSG
-          )
           fi
 
           echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
-          # Use a temp file to avoid shell quoting issues.
-          echo "$BODY" > /tmp/comment-body.md
 
-      - name: Post or update comment
-        if: steps.comment.outputs.status == 'fail'
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          comment-id: ${{ steps.find-comment.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          edit-mode: replace
-          body-path: /tmp/comment-body.md
-
-      - name: Delete stale comment on success
-        if: steps.comment.outputs.status == 'pass' && steps.find-comment.outputs.comment-id != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api -X DELETE "repos/${{ github.repository }}/issues/comments/${{ steps.find-comment.outputs.comment-id }}" || true
+          # Post, update, or delete the comment.
+          if [ "$STATUS" = "fail" ]; then
+            if [ -n "$COMMENT_ID" ]; then
+              gh api -X PATCH "repos/${REPO}/issues/comments/${COMMENT_ID}" \
+                -f body="$(cat /tmp/comment-body.md)"
+            else
+              gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+                -f body="$(cat /tmp/comment-body.md)"
+            fi
+          elif [ -n "$COMMENT_ID" ]; then
+            gh api -X DELETE "repos/${REPO}/issues/comments/${COMMENT_ID}" || true
+          fi
 
       - name: Set check result
         if: steps.comment.outputs.status == 'fail'
