@@ -937,3 +937,101 @@ def test_allow_resize_multiple_batches(
     else:
         df = lazy.pd.read_parquet(final_path)
     assert len(df) == expected_total_rows
+
+
+# ---------------------------------------------------------------------------
+# Resume mechanism tests
+# ---------------------------------------------------------------------------
+
+
+import json as _json
+from pathlib import Path as _Path
+
+from data_designer.engine.storage.artifact_storage import ArtifactStorage as _ArtifactStorage
+
+
+def _write_metadata(dataset_dir: _Path, **fields) -> None:
+    """Write a metadata.json into an existing dataset folder."""
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    (dataset_dir / "sentinel.txt").write_text("x")  # make folder non-empty for resolved_dataset_name
+    (dataset_dir / "metadata.json").write_text(_json.dumps(fields))
+
+
+def _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, *, buffer_size: int = 2):
+    """Return a DatasetBuilder whose ArtifactStorage has resume=True."""
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=True)
+    stub_resource_provider.artifact_storage = storage
+    stub_resource_provider.run_config = RunConfig(buffer_size=buffer_size)
+    return DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+
+def test_build_resume_raises_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=True when only the folder exists (no metadata.json) raises DatasetGenerationError.
+
+    This covers the case where a run was interrupted before any batch completed — the
+    folder was created by _write_builder_config but metadata.json was never written.
+    """
+    # Pre-create the folder with content so resolved_dataset_name(resume=True) returns "dataset"
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "builder_config.json").write_text("{}")  # non-empty, no metadata
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+    with pytest.raises(DatasetGenerationError, match="metadata.json not found"):
+        builder.build(num_records=4, resume=True)
+
+
+def test_build_resume_raises_on_num_records_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=True raises when num_records differs from the original run."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=10,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="num_records=4 does not match"):
+        builder.build(num_records=4, resume=True)
+
+
+def test_build_resume_raises_on_buffer_size_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=True raises when buffer_size differs from the original run."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=3)
+    with pytest.raises(DatasetGenerationError, match="buffer_size=3 does not match"):
+        builder.build(num_records=4, resume=True)
+
+
+def test_build_resume_logs_warning_when_already_complete(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """resume=True on a fully-complete dataset logs a warning and returns without generating."""
+    dataset_dir = tmp_path / "dataset"
+    # 4 records, 2 per batch = 2 batches; num_completed_batches == 2 → already done
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with caplog.at_level(logging.WARNING):
+        builder.build(num_records=4, resume=True)
+
+    assert any("already complete" in record.message for record in caplog.records)

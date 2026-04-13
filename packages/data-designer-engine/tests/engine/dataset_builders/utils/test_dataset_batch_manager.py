@@ -451,3 +451,40 @@ def test_full_workflow(stub_batch_manager):
     # Verify all files exist
     assert stub_batch_manager.artifact_storage.metadata_file_path.exists()
     assert len(list(stub_batch_manager.artifact_storage.final_dataset_path.glob("*.parquet"))) == 3
+
+
+# ---------------------------------------------------------------------------
+# start() with resume parameters
+# ---------------------------------------------------------------------------
+
+
+def test_start_with_start_batch(stub_batch_manager):
+    """start_batch shifts _current_batch_number so the loop skips already-done batches."""
+    stub_batch_manager.start(num_records=10, buffer_size=3, start_batch=2)
+
+    assert stub_batch_manager._current_batch_number == 2
+    assert stub_batch_manager.num_batches == 4
+    assert stub_batch_manager.buffer_is_empty is True
+
+
+def test_start_with_initial_actual_num_records(stub_batch_manager):
+    """initial_actual_num_records pre-populates the running total for resumed runs."""
+    stub_batch_manager.start(num_records=10, buffer_size=3, initial_actual_num_records=6)
+
+    assert stub_batch_manager._actual_num_records == 6
+
+
+def test_start_with_start_batch_and_initial_actual_num_records(stub_batch_manager):
+    """Both resume params can be set together."""
+    stub_batch_manager.start(num_records=10, buffer_size=3, start_batch=2, initial_actual_num_records=6)
+
+    assert stub_batch_manager._current_batch_number == 2
+    assert stub_batch_manager._actual_num_records == 6
+
+
+def test_start_default_values_unchanged(stub_batch_manager):
+    """Default call (no resume params) still starts at batch 0 with 0 actual records."""
+    stub_batch_manager.start(num_records=10, buffer_size=3)
+
+    assert stub_batch_manager._current_batch_number == 0
+    assert stub_batch_manager._actual_num_records == 0
