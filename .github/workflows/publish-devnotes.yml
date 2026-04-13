@@ -10,20 +10,34 @@ on:
 permissions: {}
 
 jobs:
-  build-notebooks:
-    uses: ./.github/workflows/build-notebooks.yml
-    with:
-      use_cache: true
-    secrets: inherit
-
   deploy:
-    needs: build-notebooks
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - name: Get last deployed docs state
+        run: |
+          git fetch origin gh-pages --depth=1
+          DEPLOY_MSG=$(git log FETCH_HEAD -1 --format="%s")
+          SOURCE_SHA=$(echo "$DEPLOY_MSG" | sed -n 's/^Deployed \([0-9a-f]*\) to .*/\1/p')
+          VERSION=$(echo "$DEPLOY_MSG" | sed -n 's/^Deployed [0-9a-f]* to \([^ ]*\) .*/\1/p')
+
+          if [ -z "$SOURCE_SHA" ] || [ -z "$VERSION" ]; then
+            echo "::error::Could not parse deploy info from gh-pages. Expected: 'Deployed <sha> to <version> ...'"
+            exit 1
+          fi
+
+          echo "::notice::Last deploy: commit $SOURCE_SHA for version $VERSION"
+          echo "SOURCE_SHA=$SOURCE_SHA" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Checkout docs source and overlay devnotes
+        run: |
+          git checkout ${{ env.SOURCE_SHA }}
+          git checkout ${{ github.sha }} -- docs/devnotes/
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
@@ -32,26 +46,20 @@ jobs:
         run: uv python install 3.11
       - name: Install dependencies for docs
         run: uv sync --all-packages --group docs
-      - name: Download notebooks
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: notebooks
-          path: docs/notebooks
-      - name: Get latest release version
+      - name: Download notebooks from last docs build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null)
-          if [ -z "$LATEST_TAG" ]; then
-            echo "::error::No published release found. Publish a release first."
+          mkdir -p docs/notebooks
+          LAST_RUN_ID=$(gh run list --workflow build-docs.yml --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$LAST_RUN_ID" ]; then
+            echo "::error::No successful build-docs run found. Cannot build without notebooks."
             exit 1
           fi
-          VERSION=$(echo "$LATEST_TAG" | sed 's/^v//' | sed 's/ .*$//')
-          echo "::notice::Rebuilding docs for version $VERSION (latest)"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          gh run download "$LAST_RUN_ID" --name notebooks --dir docs/notebooks
+          echo "::notice::Downloaded notebooks from build-docs run $LAST_RUN_ID"
       - name: Setup doc deploy
         run: |
-          git fetch origin gh-pages --depth=1
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Rebuild latest docs
