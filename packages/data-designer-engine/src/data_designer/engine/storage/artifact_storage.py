@@ -47,6 +47,7 @@ class ArtifactStorage(BaseModel):
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
+    resume: bool = False
     _media_storage: MediaStorage = PrivateAttr(default=None)
 
     @property
@@ -67,12 +68,19 @@ class ArtifactStorage(BaseModel):
     def resolved_dataset_name(self) -> str:
         dataset_path = self.artifact_path / self.dataset_name
         if dataset_path.exists() and len(list(dataset_path.iterdir())) > 0:
+            if self.resume:
+                return self.dataset_name
             new_dataset_name = f"{self.dataset_name}_{datetime.now().strftime('%m-%d-%Y_%H%M%S')}"
             logger.info(
                 f"📂 Dataset path {str(dataset_path)!r} already exists. Dataset from this session"
                 f"\n\t\t     will be saved to {str(self.artifact_path / new_dataset_name)!r} instead."
             )
             return new_dataset_name
+        if self.resume:
+            raise ArtifactStorageError(
+                f"🛑 Cannot resume: no existing dataset found at {str(dataset_path)!r}. "
+                "Run without resume=True to start a new generation."
+            )
         return self.dataset_name
 
     @property
@@ -203,6 +211,11 @@ class ArtifactStorage(BaseModel):
                 )
             df = lazy.pd.concat([df, df_dropped], axis=1)
         return df
+
+    def clear_partial_results(self) -> None:
+        """Remove any in-flight partial results left over from an interrupted run."""
+        if self.partial_results_path.exists():
+            shutil.rmtree(self.partial_results_path)
 
     def move_partial_result_to_final_file_path(self, batch_number: int) -> Path:
         partial_result_path = self.create_batch_file_path(batch_number, batch_stage=BatchStage.PARTIAL_RESULT)
