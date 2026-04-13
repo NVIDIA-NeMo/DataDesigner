@@ -12,7 +12,7 @@ data-designer = { path = "../packages/data-designer" }
 
 [dependency-groups]
 dev = [
-  "pytest>=9.0.2,<10",
+  "pytest>=9.0.3,<10",
 ]
 
 [project.entry-points."data_designer.plugins"]
@@ -31,6 +31,11 @@ env = [
 [tool.uv]
 package = true
 required-version = ">=0.7.10"
+# Minimum versions for transitive dependencies with known security vulnerabilities.
+constraint-dependencies = [
+    "aiohttp>=3.13.5",
+    "cryptography>=46.0.7",
+]
 
 [build-system]
 requires = ["hatchling"]
