@@ -12,7 +12,7 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     DatasetBuilderColumnConfigT,
     MultiColumnConfig,
 )
-from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
+from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef
 
 logger = logging.getLogger(__name__)
@@ -110,20 +110,18 @@ class ExecutionGraph:
     def set_side_effect(self, side_effect_col: str, producer: str) -> None:
         """Map a side-effect column name to its producing column.
 
-        First-writer-wins: if a side-effect column is already mapped to a
-        different producer, the earlier mapping is kept.  This matches sync
-        engine semantics where earlier consumers see the first producer's
-        value.
+        Each side-effect column must have exactly one producer.  Duplicate
+        registrations from a different producer are a configuration error -
+        use distinct column names for each pipeline stage instead.
         """
-        if side_effect_col not in self._side_effect_map:
-            self._side_effect_map[side_effect_col] = producer
-        elif self._side_effect_map[side_effect_col] != producer:
-            logger.warning(
-                "Side-effect column %r already mapped to producer %r; ignoring duplicate registration from %r",
-                side_effect_col,
-                self._side_effect_map[side_effect_col],
-                producer,
+        existing = self._side_effect_map.get(side_effect_col)
+        if existing is not None and existing != producer:
+            raise ConfigCompilationError(
+                f"Side-effect column {side_effect_col!r} is already produced by {existing!r}; "
+                f"cannot register a second producer {producer!r}. "
+                f"Use distinct side-effect column names for each pipeline stage."
             )
+        self._side_effect_map[side_effect_col] = producer
 
     def resolve_side_effect(self, column: str) -> str:
         """Resolve a column name through the side-effect map.

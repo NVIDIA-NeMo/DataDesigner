@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import logging
-
 import pytest
 
 from data_designer.config.column_configs import (
@@ -21,7 +19,7 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
-from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
+from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef
 
@@ -158,25 +156,15 @@ def test_side_effect_name_collision_prefers_real_column() -> None:
     assert graph.get_downstream_columns("summary") == set()
 
 
-def test_side_effect_collision_first_writer_wins(caplog: pytest.LogCaptureFixture) -> None:
-    """When two producers declare the same side-effect, the first registration wins and a warning is logged."""
+def test_side_effect_collision_raises() -> None:
+    """Two producers for the same side-effect column is a configuration error."""
     graph = ExecutionGraph()
     graph.add_column("producer_a", GenerationStrategy.CELL_BY_CELL)
     graph.add_column("producer_b", GenerationStrategy.CELL_BY_CELL)
-    graph.add_column("consumer", GenerationStrategy.CELL_BY_CELL)
 
     graph.set_side_effect("shared_se", "producer_a")
-    with caplog.at_level(logging.WARNING):
-        graph.set_side_effect("shared_se", "producer_b")  # should be ignored with warning
-
-    assert graph.resolve_side_effect("shared_se") == "producer_a"
-    assert "already mapped to producer 'producer_a'" in caplog.text
-    assert "ignoring duplicate registration from 'producer_b'" in caplog.text
-
-    # consumer depends on shared_se -> should resolve to producer_a, not producer_b
-    resolved = graph.resolve_side_effect("shared_se")
-    graph.add_edge(upstream=resolved, downstream="consumer")
-    assert graph.get_upstream_columns("consumer") == {"producer_a"}
+    with pytest.raises(ConfigCompilationError, match="already produced by 'producer_a'"):
+        graph.set_side_effect("shared_se", "producer_b")
 
 
 # -- Validation tests -------------------------------------------------------
