@@ -185,11 +185,12 @@ class DatasetBuilder:
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
+        generated = True
         if DATA_DESIGNER_ASYNC_ENGINE:
             self._validate_async_compatibility()
-            self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
+            generated = self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
         elif resume:
-            self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
+            generated = self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
         else:
             group_id = uuid.uuid4().hex
             self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
@@ -204,7 +205,8 @@ class DatasetBuilder:
                 )
             self.batch_manager.finish()
 
-        self._processor_runner.run_after_generation(buffer_size)
+        if generated:
+            self._processor_runner.run_after_generation(buffer_size)
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return self.artifact_storage.final_dataset_path
@@ -251,8 +253,13 @@ class DatasetBuilder:
         num_records: int,
         buffer_size: int,
         on_batch_complete: Callable[[Path], None] | None,
-    ) -> None:
-        """Resume generation from the last completed batch."""
+    ) -> bool:
+        """Resume generation from the last completed batch.
+
+        Returns:
+            False if the dataset was already complete (no new records generated),
+            True after successfully generating the remaining batches.
+        """
         state = self._load_resume_state(num_records, buffer_size)
 
         self.batch_manager.start(
@@ -267,7 +274,7 @@ class DatasetBuilder:
                 "⚠️ Dataset is already complete — all batches were found in the existing artifact directory. "
                 "Nothing to resume. Remove resume=True if you want to generate a new dataset."
             )
-            return
+            return False
 
         logger.info(
             f"▶️ Resuming from batch {state.num_completed_batches + 1} of {self.batch_manager.num_batches} "
@@ -287,6 +294,7 @@ class DatasetBuilder:
                 on_batch_complete=on_batch_complete,
             )
         self.batch_manager.finish()
+        return True
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._run_model_health_check_if_needed()
@@ -372,8 +380,13 @@ class DatasetBuilder:
         on_batch_complete: Callable[[Path], None] | None = None,
         *,
         resume: bool = False,
-    ) -> None:
-        """Async task-queue builder path - dispatches tasks based on dependency readiness."""
+    ) -> bool:
+        """Async task-queue builder path - dispatches tasks based on dependency readiness.
+
+        Returns:
+            False if the dataset was already complete (no new records generated),
+            True after successfully running the scheduler.
+        """
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
 
         settings = self._resource_provider.run_config
@@ -397,7 +410,7 @@ class DatasetBuilder:
                     "⚠️ Dataset is already complete — all row groups were found in the existing artifact "
                     "directory. Nothing to resume. Remove resume=True if you want to generate a new dataset."
                 )
-                return
+                return False
 
             logger.info(
                 f"▶️ Resuming async run: {len(completed_ids)} of {total_row_groups} row group(s) already "
@@ -447,6 +460,7 @@ class DatasetBuilder:
 
         # Write final metadata (overwrites the last incremental write with identical content).
         buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
+        return True
 
     def _prepare_async_run(
         self,

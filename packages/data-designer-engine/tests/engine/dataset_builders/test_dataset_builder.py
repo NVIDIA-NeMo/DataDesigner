@@ -1037,6 +1037,26 @@ def test_build_resume_logs_warning_when_already_complete(
     assert any("already complete" in record.message for record in caplog.records)
 
 
+def test_build_resume_already_complete_does_not_run_after_generation_processors(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """When already complete, run_after_generation must NOT be called (would destroy the dataset)."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
+        builder.build(num_records=4, resume=True)
+
+    mock_after.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # _find_completed_row_group_ids tests
 # ---------------------------------------------------------------------------
@@ -1124,3 +1144,21 @@ def test_build_async_resume_raises_without_metadata(stub_resource_provider, stub
         with patch.object(builder, "_run_model_health_check_if_needed"):
             with pytest.raises(DatasetGenerationError, match="metadata.json not found"):
                 builder.build(num_records=4, resume=True)
+
+
+def test_build_async_resume_already_complete_does_not_run_after_generation_processors(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Async resume: when already complete, run_after_generation must NOT be called."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
+                builder.build(num_records=4, resume=True)
+
+    mock_after.assert_not_called()
