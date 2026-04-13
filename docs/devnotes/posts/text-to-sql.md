@@ -8,7 +8,7 @@ authors:
 
 # **Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer**
 
-<img src="images/text-to-sql-pipeline.jpg" alt="Text-to-SQL Synthetic Data Pipeline" width="800">
+<img src="assets/text-to-sql/text-to-sql-pipeline.jpg" alt="Text-to-SQL Synthetic Data Pipeline" width="800">
 
 <br>
 
@@ -426,7 +426,7 @@ The high rejection rate is a feature, not a bug. By generating 3x more data than
 
 This dataset was shipped in the SFT stage of **Nemotron Super v3**. On the [BIRD SQL benchmark](https://bird-bench.github.io/) (1,534 dev samples, 5-run average), Nemotron Super achieves **41.80% EX** (execution accuracy) --- outperforming GPT-OSS-120B at 38.25%. Including our synthetic dataset in the SFT blend raised Nemotron Super's EX on BIRD by **15 points**, from 26.77% to 41.80%.
 
-<img src="images/bird-benchmark-results.jpg" alt="BIRD SQL Benchmark Results — Nemotron Super EX improves from 26.77% to 41.80%" width="800">
+<img src="assets/text-to-sql/bird-benchmark-results.jpg" alt="BIRD SQL Benchmark Results — Nemotron Super EX improves from 26.77% to 41.80%" width="800">
 
 <br>
 
