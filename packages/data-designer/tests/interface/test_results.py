@@ -259,6 +259,77 @@ def test_load_dataset_independent_of_record_sampler_cache(stub_dataset_creation_
     stub_artifact_storage.load_dataset.assert_called_once()
 
 
+@pytest.mark.parametrize("fmt", ["jsonl", "csv", "parquet"])
+def test_export_writes_file(stub_dataset_creation_results, tmp_path, fmt):
+    """export() writes a file in the requested format."""
+    out = tmp_path / f"out.{fmt}"
+    result = stub_dataset_creation_results.export(out, format=fmt)
+    assert result == out
+    assert out.exists()
+    assert out.stat().st_size > 0
+
+
+def test_export_jsonl_content(stub_dataset_creation_results, stub_dataframe, tmp_path):
+    """JSONL export writes one JSON object per line."""
+    import json
+
+    out = tmp_path / "out.jsonl"
+    stub_dataset_creation_results.export(out, format="jsonl")
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == len(stub_dataframe)
+    # Each line must be valid JSON
+    for line in lines:
+        json.loads(line)
+
+
+def test_export_csv_content(stub_dataset_creation_results, stub_dataframe, tmp_path):
+    """CSV export has a header row and one data row per record."""
+    import data_designer.lazy_heavy_imports as lazy
+
+    out = tmp_path / "out.csv"
+    stub_dataset_creation_results.export(out, format="csv")
+    loaded = lazy.pd.read_csv(out)
+    assert list(loaded.columns) == list(stub_dataframe.columns)
+    assert len(loaded) == len(stub_dataframe)
+
+
+def test_export_parquet_content(stub_dataset_creation_results, stub_dataframe, tmp_path):
+    """Parquet export round-trips to the original DataFrame."""
+    import data_designer.lazy_heavy_imports as lazy
+
+    out = tmp_path / "out.parquet"
+    stub_dataset_creation_results.export(out, format="parquet")
+    loaded = lazy.pd.read_parquet(out)
+    lazy.pd.testing.assert_frame_equal(loaded.reset_index(drop=True), stub_dataframe.reset_index(drop=True))
+
+
+def test_export_default_format_is_jsonl(stub_dataset_creation_results, tmp_path):
+    """export() defaults to JSONL when no format is given."""
+    import json
+
+    out = tmp_path / "out.jsonl"
+    stub_dataset_creation_results.export(out)
+    lines = out.read_text(encoding="utf-8").splitlines()
+    # All lines must be valid JSON
+    for line in lines:
+        json.loads(line)
+
+
+def test_export_unsupported_format_raises(stub_dataset_creation_results, tmp_path):
+    """export() raises ValueError for unknown formats."""
+    with pytest.raises(ValueError, match="Unsupported export format"):
+        stub_dataset_creation_results.export(tmp_path / "out.xyz", format="xlsx")  # type: ignore[arg-type]
+
+
+def test_export_returns_path_object(stub_dataset_creation_results, tmp_path):
+    """export() returns a Path regardless of whether str or Path was passed."""
+    from pathlib import Path
+
+    out = tmp_path / "out.jsonl"
+    result = stub_dataset_creation_results.export(str(out))
+    assert isinstance(result, Path)
+
+
 def test_preview_results_dataset_metadata() -> None:
     """Test that PreviewResults uses DatasetMetadata in display_sample_record."""
     config_builder = MagicMock(spec=DataDesignerConfigBuilder)

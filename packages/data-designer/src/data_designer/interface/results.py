@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
+
+ExportFormat = Literal["jsonl", "csv", "parquet"]
+SUPPORTED_EXPORT_FORMATS: tuple[str, ...] = ("jsonl", "csv", "parquet")
 
 
 class DatasetCreationResults(WithRecordSamplerMixin):
@@ -94,6 +97,42 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         if not self.artifact_storage.processors_outputs_path.exists():
             raise ArtifactStorageError(f"Processor {processor_name} has no artifacts.")
         return self.artifact_storage.processors_outputs_path / processor_name
+
+    def export(self, path: Path | str, *, format: ExportFormat = "jsonl") -> Path:
+        """Export the generated dataset to a single file.
+
+        Args:
+            path: Output file path. The extension is not inferred from *format* —
+                the exact path is used as-is.
+            format: Output format. One of ``'jsonl'``, ``'csv'``, or ``'parquet'``.
+                Defaults to ``'jsonl'``.
+
+        Returns:
+            Path to the written file.
+
+        Raises:
+            ValueError: If an unsupported format is requested.
+
+        Example:
+            >>> results = data_designer.create(config, num_records=1000)
+            >>> results.export("output.jsonl")
+            PosixPath('output.jsonl')
+            >>> results.export("output.csv", format="csv")
+            PosixPath('output.csv')
+        """
+        if format not in SUPPORTED_EXPORT_FORMATS:
+            raise ValueError(
+                f"Unsupported export format: {format!r}. Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
+            )
+        path = Path(path)
+        df = self.load_dataset()
+        if format == "jsonl":
+            df.to_json(path, orient="records", lines=True, force_ascii=False)
+        elif format == "csv":
+            df.to_csv(path, index=False)
+        elif format == "parquet":
+            df.to_parquet(path, index=False)
+        return path
 
     def push_to_hub(
         self,
