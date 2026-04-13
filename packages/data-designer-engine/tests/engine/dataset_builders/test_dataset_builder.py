@@ -1162,3 +1162,30 @@ def test_build_async_resume_already_complete_does_not_run_after_generation_proce
                 builder.build(num_records=4, resume=True)
 
     mock_after.assert_not_called()
+
+
+def test_find_completed_row_group_ids_used_for_initial_total_batches(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """initial_total_num_batches uses filesystem count, not metadata count.
+
+    Simulates the crash window: 2 parquet files exist on disk but metadata still
+    records num_completed_batches=1 (write_metadata crashed after the second
+    row group was moved to parquet-files/ but before metadata was updated).
+    Verifies that _find_completed_row_group_ids() (= 2) is used, not metadata (= 1).
+    """
+    dataset_dir = tmp_path / "dataset"
+    # Metadata lags — says only 1 batch completed
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+    # Filesystem truth — 2 row groups already written
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    # Both row groups are on disk → dataset is already complete → generated=False
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
+                builder.build(num_records=4, resume=True)
+
+    # Already complete based on filesystem count (2 files ≥ 2 row groups) — no generation needed
+    mock_after.assert_not_called()

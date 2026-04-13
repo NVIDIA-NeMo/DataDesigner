@@ -401,7 +401,9 @@ class DatasetBuilder:
             completed_ids = self._find_completed_row_group_ids()
             skip_row_groups = frozenset(completed_ids)
             initial_actual_num_records = state.actual_num_records
-            initial_total_num_batches = state.num_completed_batches
+            # Use filesystem count as source of truth — metadata may lag by one row group
+            # if a crash occurred between move_partial_result_to_final_file_path and write_metadata.
+            initial_total_num_batches = len(completed_ids)
             self.artifact_storage.clear_partial_results()
 
             total_row_groups = -(-num_records // buffer_size)  # ceiling division
