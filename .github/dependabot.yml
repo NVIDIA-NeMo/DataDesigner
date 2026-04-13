@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      all-actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "ci"
   - package-ecosystem: pip
