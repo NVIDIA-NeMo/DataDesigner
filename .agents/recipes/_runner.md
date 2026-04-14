@@ -34,5 +34,6 @@ Write all output to a temp file (e.g., `/tmp/recipe-output.md`). The workflow
 will handle posting it. Do not post directly to GitHub - the workflow controls
 output routing.
 
-If your recipe produces code changes, make them on the current branch. The
-workflow will open a PR from the diff.
+If your recipe produces code changes, commit them on a new branch and use
+`/create-pr` to open a pull request. The branch name should follow the
+pattern `agentic-ci/chore/{suite}-YYYYMMDD`.
