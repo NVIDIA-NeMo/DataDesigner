@@ -93,7 +93,7 @@ Exclude:
 - Files that are themselves optional/heavy modules
 
 This directly affects startup time, which has a 3-second budget tested by
-`tests/test_import_perf.py`.
+`packages/data-designer/tests/test_import_perf.py`.
 
 ### 3. Future annotations compliance
 
