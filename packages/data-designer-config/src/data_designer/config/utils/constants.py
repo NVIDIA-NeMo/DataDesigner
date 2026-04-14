@@ -298,6 +298,17 @@ OPENROUTER_PROVIDER_NAME = "openrouter"
 
 OPENROUTER_API_KEY_ENV_VAR_NAME = "OPENROUTER_API_KEY"
 
+ATTRIBUTION_TITLE = "NeMo Data Designer"
+ATTRIBUTION_REFERER = "https://github.com/NVIDIA-NeMo/DataDesigner"
+
+OPENROUTER_ATTRIBUTION_HEADERS: dict[str, str] = {
+    "HTTP-Referer": ATTRIBUTION_REFERER,
+    "X-OpenRouter-Title": ATTRIBUTION_TITLE,
+    "X-OpenRouter-Categories": "programming-app",
+}
+
+# OpenRouter attribution is injected in the engine so telemetry opt-out can
+# suppress it cleanly for both default and existing provider configs.
 PREDEFINED_PROVIDERS = [
     {
         "name": NVIDIA_PROVIDER_NAME,

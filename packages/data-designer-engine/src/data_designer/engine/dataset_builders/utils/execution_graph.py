@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 
@@ -11,8 +12,10 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     DatasetBuilderColumnConfigT,
     MultiColumnConfig,
 )
-from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
+from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionGraph:
@@ -105,7 +108,19 @@ class ExecutionGraph:
         self._downstream.setdefault(upstream, set()).add(downstream)
 
     def set_side_effect(self, side_effect_col: str, producer: str) -> None:
-        """Map a side-effect column name to its producing column."""
+        """Map a side-effect column name to its producing column.
+
+        Each side-effect column must have exactly one producer.  Duplicate
+        registrations from a different producer are a configuration error -
+        use distinct column names for each pipeline stage instead.
+        """
+        existing = self._side_effect_map.get(side_effect_col)
+        if existing is not None and existing != producer:
+            raise ConfigCompilationError(
+                f"Side-effect column {side_effect_col!r} is already produced by {existing!r}; "
+                f"cannot register a second producer {producer!r}. "
+                f"Use distinct side-effect column names for each pipeline stage."
+            )
         self._side_effect_map[side_effect_col] = producer
 
     def resolve_side_effect(self, column: str) -> str:

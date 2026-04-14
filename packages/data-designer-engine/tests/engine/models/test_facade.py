@@ -202,13 +202,21 @@ def test_usage_stats_property(stub_model_facade: ModelFacade) -> None:
 
 
 def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:
-    # Model config generate kwargs are used as base, and purpose is removed
+    # Model config generate kwargs are used as base, and purpose is removed.
+    # When telemetry is enabled (default), X-Title is injected.
     result = stub_model_facade.consolidate_kwargs(purpose="test")
-    assert result == stub_model_configs[0].inference_parameters.generate_kwargs
+    assert result == {
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+        "extra_headers": {"X-Title": "NeMo Data Designer"},
+    }
 
     # kwargs overrides model config generate kwargs
     result = stub_model_facade.consolidate_kwargs(temperature=0.01, purpose="test")
-    assert result == {**stub_model_configs[0].inference_parameters.generate_kwargs, "temperature": 0.01}
+    assert result == {
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+        "temperature": 0.01,
+        "extra_headers": {"X-Title": "NeMo Data Designer"},
+    }
 
     # Provider extra_body overrides all other kwargs
     stub_model_facade.model_provider.extra_body = {"foo_provider": "bar_provider"}
@@ -216,6 +224,7 @@ def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: Mo
     assert result == {
         **stub_model_configs[0].inference_parameters.generate_kwargs,
         "extra_body": {"foo_provider": "bar_provider", "foo": "bar"},
+        "extra_headers": {"X-Title": "NeMo Data Designer"},
     }
 
     # Provider extra_headers merges with caller headers (provider takes precedence)
@@ -224,8 +233,117 @@ def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: Mo
     result = stub_model_facade.consolidate_kwargs(extra_headers={"hello": "caller", "X-Trace-ID": "abc"})
     assert result == {
         **stub_model_configs[0].inference_parameters.generate_kwargs,
-        "extra_headers": {"hello": "world", "hola": "mundo", "X-Trace-ID": "abc"},
+        "extra_headers": {"X-Title": "NeMo Data Designer", "hello": "world", "hola": "mundo", "X-Trace-ID": "abc"},
     }
+
+
+@patch("data_designer.engine.models.facade.TELEMETRY_ENABLED", False)
+def test_consolidate_kwargs_telemetry_disabled(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:
+    """Framework attribution headers are omitted when telemetry is disabled."""
+    result = stub_model_facade.consolidate_kwargs()
+    assert "extra_headers" not in result
+
+    # Provider extra_headers still applied even with telemetry off
+    stub_model_facade.model_provider.extra_headers = {"Custom": "header"}
+    result = stub_model_facade.consolidate_kwargs()
+    assert result["extra_headers"] == {"Custom": "header"}
+
+
+def test_consolidate_kwargs_user_x_title_override(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """User-supplied X-Title takes precedence over the framework default."""
+    stub_model_facade.model_provider.extra_headers = {"X-Title": "My Custom App"}
+    result = stub_model_facade.consolidate_kwargs()
+    assert result["extra_headers"]["X-Title"] == "My Custom App"
+
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs(extra_headers={"X-Title": "Caller App"})
+    assert result["extra_headers"]["X-Title"] == "Caller App"
+
+
+def test_consolidate_kwargs_with_explicit_none_extra_headers(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """Explicit None extra_headers does not break provider merges or framework attribution."""
+    stub_model_facade.model_provider.extra_headers = {"hello": "world"}
+    result = stub_model_facade.consolidate_kwargs(extra_headers=None)
+    assert result["extra_headers"] == {"X-Title": "NeMo Data Designer", "hello": "world"}
+
+
+def test_consolidate_kwargs_openrouter_attribution(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """OpenRouter-specific attribution headers are injected when provider is openrouter."""
+    stub_model_facade.model_provider.name = "openrouter"
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs()
+    assert result["extra_headers"] == {
+        "X-Title": "NeMo Data Designer",
+        "HTTP-Referer": "https://github.com/NVIDIA-NeMo/DataDesigner",
+        "X-OpenRouter-Title": "NeMo Data Designer",
+        "X-OpenRouter-Categories": "programming-app",
+    }
+
+
+def test_consolidate_kwargs_openrouter_user_override_preserved(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """User-supplied OpenRouter headers take precedence over framework defaults."""
+    stub_model_facade.model_provider.name = "openrouter"
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs(
+        extra_headers={"X-OpenRouter-Title": "Custom App", "X-Custom": "value"}
+    )
+    # User-supplied X-OpenRouter-Title should NOT be overwritten
+    assert result["extra_headers"]["X-OpenRouter-Title"] == "Custom App"
+    assert result["extra_headers"]["X-Custom"] == "value"
+    # Framework defaults still fill in missing keys
+    assert result["extra_headers"]["HTTP-Referer"] == "https://github.com/NVIDIA-NeMo/DataDesigner"
+    assert result["extra_headers"]["X-OpenRouter-Categories"] == "programming-app"
+    assert result["extra_headers"]["X-Title"] == "NeMo Data Designer"
+
+
+def test_consolidate_kwargs_openrouter_provider_headers_preserved(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """Provider-level OpenRouter headers override programmatic injection."""
+    stub_model_facade.model_provider.name = "openrouter"
+    stub_model_facade.model_provider.extra_headers = {
+        "HTTP-Referer": "https://custom-site.example.com",
+        "X-OpenRouter-Title": "Provider Title",
+    }
+    result = stub_model_facade.consolidate_kwargs()
+    # Provider-level values take precedence
+    assert result["extra_headers"]["HTTP-Referer"] == "https://custom-site.example.com"
+    assert result["extra_headers"]["X-OpenRouter-Title"] == "Provider Title"
+    # Framework still fills in what's missing
+    assert result["extra_headers"]["X-OpenRouter-Categories"] == "programming-app"
+    assert result["extra_headers"]["X-Title"] == "NeMo Data Designer"
+
+
+@patch("data_designer.engine.models.facade.TELEMETRY_ENABLED", False)
+def test_consolidate_kwargs_openrouter_no_attribution_when_telemetry_off(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """OpenRouter attribution headers are NOT injected when telemetry is disabled."""
+    stub_model_facade.model_provider.name = "openrouter"
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs()
+    assert "extra_headers" not in result
+
+
+def test_consolidate_kwargs_non_openrouter_no_openrouter_headers(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """Non-openrouter providers do NOT get OpenRouter-specific headers."""
+    stub_model_facade.model_provider.name = "nvidia"
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs()
+    assert result["extra_headers"] == {"X-Title": "NeMo Data Designer"}
+    assert "HTTP-Referer" not in result["extra_headers"]
+    assert "X-OpenRouter-Title" not in result["extra_headers"]
+    assert "X-OpenRouter-Categories" not in result["extra_headers"]
 
 
 @pytest.mark.parametrize(
