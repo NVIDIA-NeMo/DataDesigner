@@ -10,7 +10,11 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
-from data_designer.config.utils.constants import ATTRIBUTION_TITLE
+from data_designer.config.utils.constants import (
+    ATTRIBUTION_TITLE,
+    OPENROUTER_ATTRIBUTION_HEADERS,
+    OPENROUTER_PROVIDER_NAME,
+)
 from data_designer.config.utils.image_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
@@ -165,6 +169,14 @@ class ModelFacade:
             headers = kwargs.get("extra_headers") or {}
             if "X-Title" not in headers:
                 kwargs["extra_headers"] = {"X-Title": ATTRIBUTION_TITLE, **headers}
+            # Inject OpenRouter-specific attribution headers when the provider is
+            # OpenRouter.  This ensures attribution works even when existing users
+            # have ``extra_headers: null`` in their provider config.  Provider- or
+            # user-supplied values take precedence (only missing keys are filled).
+            if self.model_provider.name == OPENROUTER_PROVIDER_NAME:
+                headers = kwargs.get("extra_headers") or {}
+                merged = {**OPENROUTER_ATTRIBUTION_HEADERS, **headers}
+                kwargs["extra_headers"] = merged
         return kwargs
 
     # --- completion / acompletion ---
