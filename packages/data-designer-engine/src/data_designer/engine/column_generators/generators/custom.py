@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
-from data_designer.engine.column_generators.generators.base import ColumnGenerator
+from data_designer.engine.column_generators.generators.base import _SYNC_BRIDGE_TIMEOUT, ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.logging import LOG_INDENT
 
@@ -20,6 +20,57 @@ if TYPE_CHECKING:
     import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+class _AsyncBridgedModelFacade:
+    """Proxy that bridges ``model.generate()`` to ``model.agenerate()`` in async engine mode.
+
+    When a sync custom column runs inside ``asyncio.to_thread`` under the async engine,
+    the sync HTTP client is unavailable. This proxy intercepts the resulting error and
+    schedules ``agenerate()`` on the engine's persistent event loop via
+    ``run_coroutine_threadsafe``.
+
+    All other attributes are forwarded to the underlying facade unchanged.
+    """
+
+    _SYNC_CLIENT_ERROR = "Sync methods are not available on an async-mode HttpModelClient."
+
+    __slots__ = ("_facade",)
+
+    def __init__(self, facade: Any) -> None:
+        object.__setattr__(self, "_facade", facade)
+
+    def generate(self, *args: Any, **kwargs: Any) -> tuple[Any, list]:
+        facade = object.__getattribute__(self, "_facade")
+        try:
+            return facade.generate(*args, **kwargs)
+        except RuntimeError as exc:
+            if str(exc) != self._SYNC_CLIENT_ERROR:
+                raise
+
+        # We're in a worker thread (asyncio.to_thread) with no running loop.
+        # Guard against accidental use from the event loop itself (would deadlock).
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass  # No running loop - safe to bridge
+        else:
+            raise RuntimeError(
+                "model.generate() is not available in async engine mode from the event loop. "
+                "Use 'await model.agenerate()' in async custom columns."
+            )
+
+        from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
+
+        loop = ensure_async_engine_loop()
+        future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
+        return future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_facade"), name)
+
+    def __repr__(self) -> str:
+        return f"_AsyncBridgedModelFacade({object.__getattribute__(self, '_facade')!r})"
 
 
 class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
@@ -277,9 +328,13 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             return self.config.generator_function(data, self.config.generator_params, models)
 
     def _build_models_dict(self) -> dict[str, Any]:
-        """Build a dict of ModelFacade instances from model_aliases."""
+        """Build a dict of ModelFacade instances from model_aliases.
+
+        Facades are wrapped in ``_AsyncBridgedModelFacade`` so that sync custom
+        columns can call ``model.generate()`` transparently under the async engine.
+        """
         return {
-            alias: self.resource_provider.model_registry.get_model(model_alias=alias)
+            alias: _AsyncBridgedModelFacade(self.resource_provider.model_registry.get_model(model_alias=alias))
             for alias in self.config.model_aliases
         }
 
