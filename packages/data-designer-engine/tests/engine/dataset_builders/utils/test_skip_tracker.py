@@ -77,6 +77,7 @@ def test_apply_skip_to_record_clears_side_effects() -> None:
     assert record["se1"] is None
     assert record["se2"] is None
     assert record["primary"] == "pv"
+    assert record[SKIPPED_COLUMNS_RECORD_KEY] == {"primary", "se1", "se2"}
 
 
 def test_apply_skip_to_record_accumulates() -> None:

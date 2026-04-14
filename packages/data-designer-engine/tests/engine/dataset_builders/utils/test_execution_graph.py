@@ -20,7 +20,7 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
-from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
+from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef
 
@@ -156,6 +156,17 @@ def test_side_effect_name_collision_prefers_real_column() -> None:
     assert graph.get_upstream_columns("trace_len") == {"summary__trace"}
     assert graph.get_downstream_columns("summary__trace") == {"trace_len"}
     assert graph.get_downstream_columns("summary") == set()
+
+
+def test_side_effect_collision_raises() -> None:
+    """Two producers for the same side-effect column is a configuration error."""
+    graph = ExecutionGraph()
+    graph.add_column("producer_a", GenerationStrategy.CELL_BY_CELL)
+    graph.add_column("producer_b", GenerationStrategy.CELL_BY_CELL)
+
+    graph.set_side_effect("shared_se", "producer_a")
+    with pytest.raises(ConfigCompilationError, match="already produced by 'producer_a'"):
+        graph.set_side_effect("shared_se", "producer_b")
 
 
 # -- Validation tests -------------------------------------------------------

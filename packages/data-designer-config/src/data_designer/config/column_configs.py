@@ -415,6 +415,13 @@ class ExpressionColumnConfig(SingleColumnConfig):
     def side_effect_columns(self) -> list[str]:
         return []
 
+    _DTYPE_COERCERS: dict[str, type] = {
+        "int": int,
+        "float": float,
+        "str": str,
+        "bool": bool,
+    }
+
     @model_validator(mode="after")
     def assert_expression_valid_jinja(self) -> Self:
         """Validate that the expression is a valid, non-empty Jinja2 template.
@@ -432,6 +439,22 @@ class ExpressionColumnConfig(SingleColumnConfig):
                 "or remove this column if not needed."
             )
         assert_valid_jinja2_template(self.expr)
+        return self
+
+    @model_validator(mode="after")
+    def _coerce_skip_value_to_dtype(self) -> Self:
+        """Coerce ``skip.value`` to match ``dtype`` so skipped and computed rows share a type."""
+        if self.skip is None or self.skip.value is None:
+            return self
+        target_type = self._DTYPE_COERCERS.get(self.dtype)
+        if target_type is not None and not isinstance(self.skip.value, target_type):
+            try:
+                self.skip.value = target_type(self.skip.value)
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    f"Expression column '{self.name}' has dtype='{self.dtype}' but "
+                    f"skip.value={self.skip.value!r} cannot be converted to {self.dtype}: {exc}"
+                ) from exc
         return self
 
 

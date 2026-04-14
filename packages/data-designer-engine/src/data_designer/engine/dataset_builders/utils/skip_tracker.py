@@ -45,6 +45,7 @@ def apply_skip_to_record(
     record[column_name] = cell_value
     for se_col in side_effect_columns:
         record[se_col] = None
+        skipped.add(se_col)
 
 
 def strip_skip_metadata_for_dataframe_row(record: dict) -> dict:
