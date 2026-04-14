@@ -185,6 +185,17 @@ class DatasetBuilder:
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
+        if resume and not self.artifact_storage.metadata_file_path.exists():
+            # No metadata.json means the previous run was interrupted before any batch (sync) or
+            # row group (async) completed.  Nothing to resume — discard any leftover partial
+            # results and start fresh.
+            logger.info(
+                "▶️ No metadata.json found — the previous run was interrupted before any batch "
+                "completed. Starting generation from the beginning."
+            )
+            self.artifact_storage.clear_partial_results()
+            resume = False
+
         generated = True
         if DATA_DESIGNER_ASYNC_ENGINE:
             self._validate_async_compatibility()

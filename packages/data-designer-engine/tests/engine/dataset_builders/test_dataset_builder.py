@@ -968,11 +968,12 @@ def _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_p
     )
 
 
-def test_build_resume_raises_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path):
-    """resume=True when only the folder exists (no metadata.json) raises DatasetGenerationError.
+def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
+    """resume=True when only the folder exists (no metadata.json) logs an info message and starts fresh.
 
     This covers the case where a run was interrupted before any batch completed — the
     folder was created by _write_builder_config but metadata.json was never written.
+    Previously this raised DatasetGenerationError; now it silently restarts from batch 0.
     """
     # Pre-create the folder with content so resolved_dataset_name(resume=True) returns "dataset"
     dataset_dir = tmp_path / "dataset"
@@ -980,8 +981,14 @@ def test_build_resume_raises_without_metadata(stub_resource_provider, stub_test_
     (dataset_dir / "builder_config.json").write_text("{}")  # non-empty, no metadata
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
-    with pytest.raises(DatasetGenerationError, match="metadata.json not found"):
-        builder.build(num_records=4, resume=True)
+    with caplog.at_level(logging.INFO):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder, "_run_batch"):
+                with patch.object(builder.batch_manager, "finish"):
+                    # resume=False is set internally; build dispatches to the normal (non-resume) path
+                    builder.build(num_records=4, resume=True)
+
+    assert any("interrupted before any batch completed" in record.message for record in caplog.records)
 
 
 def test_build_resume_raises_on_num_records_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
@@ -1132,18 +1139,31 @@ def test_build_async_resume_logs_warning_when_already_complete(
     assert any("already complete" in record.message for record in caplog.records)
 
 
-def test_build_async_resume_raises_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path):
-    """Async resume raises DatasetGenerationError when metadata.json is missing."""
+def test_build_async_resume_starts_fresh_without_metadata(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """Async resume with no metadata.json logs an info message and starts fresh.
+
+    Previously this raised DatasetGenerationError; now it silently restarts from row group 0.
+    The log is emitted in build() before dispatching to _build_async, so mocking _build_async
+    does not suppress the message.
+    """
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
     (dataset_dir / "builder_config.json").write_text("{}")
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder, "_run_model_health_check_if_needed"):
-            with pytest.raises(DatasetGenerationError, match="metadata.json not found"):
-                builder.build(num_records=4, resume=True)
+    with caplog.at_level(logging.INFO):
+        with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+            with patch.object(builder, "_run_model_health_check_if_needed"):
+                with patch.object(builder, "_build_async", return_value=True) as mock_async:
+                    builder.build(num_records=4, resume=True)
+
+    # _build_async is called with resume=False because the no-metadata path resets the flag
+    _, kwargs = mock_async.call_args
+    assert kwargs.get("resume") is False
+    assert any("interrupted before any batch completed" in record.message for record in caplog.records)
 
 
 def test_build_async_resume_already_complete_does_not_run_after_generation_processors(
