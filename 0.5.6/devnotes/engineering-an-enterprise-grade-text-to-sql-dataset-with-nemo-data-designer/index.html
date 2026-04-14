@@ -11,10 +11,8 @@
         <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/">
       
       
-        <link rel="prev" href="../structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/">
+        <link rel="prev" href="../async-all-the-way-down/">
       
-      
-        <link rel="next" href="../search-agent-sft-data-teaching-llms-to-browse-the-web/">
       
       
         
@@ -2703,6 +2701,8 @@
       
         
       
+        
+      
     
     
     
@@ -2750,6 +2750,263 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-real-world-gap-why-academic-data-wasnt-enough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The "Real-World" Gap: Why Academic Data Wasn't Enough
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-1-seeding-diversification-controlling-diversity-at-the-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Seeding &amp; Diversification -- Controlling Diversity at the Source
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-2-generating-natural-language-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Generating Natural-Language Prompts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-3-schema-and-data-generation-with-distractor-injection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Schema and Data Generation with Distractor Injection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-4-dialect-specific-sql-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Dialect-Specific SQL Generation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-5-the-quality-waterfall" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5: The Quality Waterfall
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step 5: The Quality Waterfall">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#hard-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hard Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#five-llm-judges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Five LLM Judges
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rich-metadata-for-precision-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rich Metadata for Precision Training
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bird-benchmark-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BIRD Benchmark Results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-takeaways" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Takeaways
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#try-it-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try It Yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
               
             
               
@@ -2995,10 +3252,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_10" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_11" >
         
           
-          <label class="md-nav__link" for="__nav_7_10" id="__nav_7_10_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7_11" id="__nav_7_11_label" tabindex="0">
             
   
   
@@ -3016,8 +3273,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_10_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_10">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_11">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3368,7 +3625,7 @@
                     <li class="md-nav__item">
                       <div class="md-nav__link">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 19H5V8h14m-3-7v2H8V1H6v2H5c-1.11 0-2 .89-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-1V1m-1 11h-5v5h5z"/></svg>
-                        <time datetime="2026-03-11 00:00:00+00:00" class="md-ellipsis">March 11, 2026</time>
+                        <time datetime="2026-04-14 00:00:00+00:00" class="md-ellipsis">April 14, 2026</time>
                       </div>
                     </li>
                     
@@ -3380,7 +3637,7 @@
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 20a8 8 0 0 0 8-8 8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8m0-18a10 10 0 0 1 10 10 10 10 0 0 1-10 10C6.47 22 2 17.5 2 12A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7z"/></svg>
                           <span class="md-ellipsis">
                             
-                              28 min read
+                              27 min read
                             
                           </span>
                         </div>
@@ -3408,8 +3665,7 @@
 
 
 <h1 id="engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer"><strong>Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer</strong></h1>
-<p><img src="assets/text-to-sql/text-to-sql-pipeline.jpg" alt="Text-to-SQL Synthetic Data Pipeline" width="800"></p>
-<p><br></p>
+<p><img alt="Text-to-SQL Synthetic Data Pipeline" src="../assets/text-to-sql/text-to-sql-pipeline.jpg" width="800" /></p>
 <p>While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a> pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.</p>
 <!-- more -->
 
@@ -3952,8 +4208,7 @@
 <hr />
 <h2 id="bird-benchmark-results"><strong>BIRD Benchmark Results</strong></h2>
 <p>This dataset was shipped in the SFT stage of <strong>Nemotron Super v3</strong>. On the <a href="https://bird-bench.github.io/">BIRD SQL benchmark</a> (1,534 dev samples, 5-run average), Nemotron Super achieves <strong>41.80% EX</strong> (execution accuracy) --- outperforming GPT-OSS-120B at 38.25%. Including our synthetic dataset in the SFT blend raised Nemotron Super's EX on BIRD by <strong>15 points</strong>, from 26.77% to 41.80%.</p>
-<p><img src="assets/text-to-sql/bird-benchmark-results.jpg" alt="BIRD SQL Benchmark Results — Nemotron Super EX improves from 26.77% to 41.80%" width="800"></p>
-<p><br></p>
+<p><img alt="BIRD SQL Benchmark Results - Nemotron Super EX improves from 26.77% to 41.80%" src="../assets/text-to-sql/bird-benchmark-results.jpg" width="800" /></p>
 <table>
 <thead>
 <tr>
@@ -4011,7 +4266,7 @@
 <li><strong>Code Sandbox for semantic correctness.</strong> The current Quality Waterfall validates syntax and assesses quality (LLM judges), but it doesn't verify whether the query actually returns the right results. A natural next step would be adding Code Sandbox support to Data Designer --- executing generated SQL against a ground-truth database and comparing results to enable execution-based filtering, end-to-end verification, and hard negative mining for preference training.</li>
 <li><strong>RL on BIRD.</strong> Run reinforcement learning experiments using the <a href="https://github.com/NVIDIA-NeMo/Gym">NeMo Gym</a> RL environment for BIRD, training models to improve execution accuracy through reward signals from actual query execution.</li>
 <li><strong>Schema representation.</strong> Improve how schemas are represented in prompts to close the gap with SOTA approaches that use richer structural encodings (e.g., foreign key graphs, column descriptions, value examples).</li>
-<li><strong>More benchmarks.</strong> Incorporate additional SQL benchmarks --- <a href="https://spider2-sql.github.io/">Spider 2.0</a>, <a href="https://livesqlbench.github.io/">LiveSQLBench</a> --- to evaluate generalization beyond BIRD and drive the next iteration of the pipeline.</li>
+<li><strong>More benchmarks.</strong> Incorporate additional SQL benchmarks --- <a href="https://spider2-sql.github.io/">Spider 2.0</a>, <a href="https://livesqlbench.ai/">LiveSQLBench</a> --- to evaluate generalization beyond BIRD and drive the next iteration of the pipeline.</li>
 </ul>
 <hr />
 <h2 id="try-it-yourself"><strong>Try It Yourself</strong></h2>
@@ -5047,8 +5302,6 @@
 <li><strong>NeMo Data Designer:</strong> <a href="https://github.com/NVIDIA-NeMo/DataDesigner">github.com/NVIDIA-NeMo/DataDesigner</a></li>
 <li><strong>BIRD Benchmark:</strong> <a href="https://bird-bench.github.io/">bird-bench.github.io</a></li>
 <li><strong>Spider 2.0 Benchmark:</strong> <a href="https://spider2-sql.github.io/">spider2-sql.github.io</a></li>
-<li><strong>Structured Outputs Dev Note</strong> (related pipeline): <a href="../structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/">Structured Outputs for Nemotron</a></li>
-<li><strong>RQA Dev Note</strong> (reasoning data with Data Designer): <a href="../graduate-level-science-reasoning-data-with-nemo-data-designer/">Graduate-Level Science Reasoning Data</a></li>
 </ul>
 <hr />
 <p><em>Want to learn more about NeMo Data Designer? Check out our <a href="https://github.com/NVIDIA-NeMo/DataDesigner">documentation</a> and start building your own high-fidelity synthetic datasets today.</em></p>
@@ -5088,7 +5341,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML">
+          <a href="../async-all-the-way-down/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Async All the Way Down">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -5098,27 +5351,11 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML
+                Async All the Way Down
               </div>
             </div>
           </a>
         
-        
-          
-          <a href="../search-agent-sft-data-teaching-llms-to-browse-the-web/" class="md-footer__link md-footer__link--next" aria-label="Next: Search Agent SFT Data: Teaching LLMs to Browse the Web">
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                Next
-              </span>
-              <div class="md-ellipsis">
-                Search Agent SFT Data: Teaching LLMs to Browse the Web
-              </div>
-            </div>
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
-            </div>
-          </a>
         
       </nav>
     

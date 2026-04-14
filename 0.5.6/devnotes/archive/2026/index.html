@@ -2701,6 +2701,8 @@
       
         
       
+        
+      
     
     
     
@@ -2748,6 +2750,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -2995,10 +3025,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_10" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_11" checked>
         
           
-          <label class="md-nav__link" for="__nav_7_10" id="__nav_7_10_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7_11" id="__nav_7_11_label" tabindex="0">
             
   
   
@@ -3016,8 +3046,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_10_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_7_10">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_11_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7_11">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3098,6 +3128,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#async-all-the-way-down" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3135,17 +3176,6 @@
     <span class="md-ellipsis">
       
         Search Agent SFT Data: Teaching LLMs to Browse the Web
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
       
     </span>
   </a>
@@ -3247,6 +3277,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#async-all-the-way-down" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3284,17 +3325,6 @@
     <span class="md-ellipsis">
       
         Search Agent SFT Data: Teaching LLMs to Browse the Web
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
       
     </span>
   </a>
@@ -3359,6 +3389,51 @@
       <header class="md-typeset">
         <h1 id="2026">2026</h1>
       </header>
+      
+        <article class="md-post md-post--excerpt">
+  <header class="md-post__header">
+    
+      <nav class="md-post__authors md-typeset">
+        
+          <span class="md-author">
+            <img src="https://avatars.githubusercontent.com/u/128275431?v=4" alt="Dhruv Nathawani">
+          </span>
+        
+      </nav>
+    
+    <div class="md-post__meta md-meta">
+      <ul class="md-meta__list">
+        <li class="md-meta__item">
+          <time datetime="2026-04-14 00:00:00+00:00">April 14, 2026</time></li>
+        
+        
+          
+          <li class="md-meta__item">
+            
+              27 min read
+            
+          </li>
+        
+        
+      </ul>
+      
+    </div>
+  </header>
+  <div class="md-post__content md-typeset">
+    <h2 id="engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer"><a class="toclink" href="../../engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/"><strong>Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer</strong></a></h2>
+<p><img alt="Text-to-SQL Synthetic Data Pipeline" src="../../assets/text-to-sql/text-to-sql-pipeline.jpg" width="800" /></p>
+<p>While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a> pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.</p>
+
+    
+      <nav class="md-post__action">
+        <a href="../../engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/">
+          Continue reading
+        </a>
+      </nav>
+    
+    
+  </div>
+</article>
       
         <article class="md-post md-post--excerpt">
   <header class="md-post__header">
@@ -3530,52 +3605,6 @@
     
       <nav class="md-post__action">
         <a href="../../search-agent-sft-data-teaching-llms-to-browse-the-web/">
-          Continue reading
-        </a>
-      </nav>
-    
-    
-  </div>
-</article>
-      
-        <article class="md-post md-post--excerpt">
-  <header class="md-post__header">
-    
-      <nav class="md-post__authors md-typeset">
-        
-          <span class="md-author">
-            <img src="https://avatars.githubusercontent.com/u/128275431?v=4" alt="Dhruv Nathawani">
-          </span>
-        
-      </nav>
-    
-    <div class="md-post__meta md-meta">
-      <ul class="md-meta__list">
-        <li class="md-meta__item">
-          <time datetime="2026-03-11 00:00:00+00:00">March 11, 2026</time></li>
-        
-        
-          
-          <li class="md-meta__item">
-            
-              28 min read
-            
-          </li>
-        
-        
-      </ul>
-      
-    </div>
-  </header>
-  <div class="md-post__content md-typeset">
-    <h2 id="engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer"><a class="toclink" href="../../engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/"><strong>Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer</strong></a></h2>
-<p><img src="assets/text-to-sql/text-to-sql-pipeline.jpg" alt="Text-to-SQL Synthetic Data Pipeline" width="800"></p>
-<p><br></p>
-<p>While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a> pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.</p>
-
-    
-      <nav class="md-post__action">
-        <a href="../../engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/">
           Continue reading
         </a>
       </nav>
