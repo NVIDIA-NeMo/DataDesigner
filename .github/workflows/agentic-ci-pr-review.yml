@@ -1,7 +1,7 @@
 name: "Agentic CI: PR Review"
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, ready_for_review, labeled]
     branches: [main]
   workflow_dispatch:
@@ -80,6 +80,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.allowed == 'true'
     runs-on: [self-hosted, agentic-ci]
+    environment: agentic-ci
     timeout-minutes: 15
     steps:
       - name: Determine PR number
