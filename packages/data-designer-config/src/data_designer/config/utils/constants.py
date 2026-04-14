@@ -298,6 +298,10 @@ OPENROUTER_PROVIDER_NAME = "openrouter"
 
 OPENROUTER_API_KEY_ENV_VAR_NAME = "OPENROUTER_API_KEY"
 
+MINIMAX_PROVIDER_NAME = "minimax"
+
+MINIMAX_API_KEY_ENV_VAR_NAME = "MINIMAX_API_KEY"
+
 PREDEFINED_PROVIDERS = [
     {
         "name": NVIDIA_PROVIDER_NAME,
@@ -317,6 +321,12 @@ PREDEFINED_PROVIDERS = [
         "provider_type": "openai",
         "api_key": OPENROUTER_API_KEY_ENV_VAR_NAME,
     },
+    {
+        "name": MINIMAX_PROVIDER_NAME,
+        "endpoint": "https://api.minimax.io/v1",
+        "provider_type": "openai",
+        "api_key": MINIMAX_API_KEY_ENV_VAR_NAME,
+    },
 ]
 
 
@@ -326,6 +336,7 @@ DEFAULT_VISION_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
 DEFAULT_EMBEDDING_INFERENCE_PARAMS = {"encoding_format": "float"}
 NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS = {"temperature": 1.0, "top_p": 1.0}
 GPT5_INFERENCE_PARAMS = {"extra_body": {"reasoning_effort": "medium"}}
+MINIMAX_INFERENCE_PARAMS = {"temperature": 1.0}
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
     NVIDIA_PROVIDER_NAME: {
@@ -356,6 +367,16 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
         "embedding": {
             "model": "openai/text-embedding-3-large",
             "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS,
+        },
+    },
+    MINIMAX_PROVIDER_NAME: {
+        "text": {
+            "model": "MiniMax-M2.7",
+            "inference_parameters": MINIMAX_INFERENCE_PARAMS,
+        },
+        "reasoning": {
+            "model": "MiniMax-M2.7-highspeed",
+            "inference_parameters": MINIMAX_INFERENCE_PARAMS,
         },
     },
 }
