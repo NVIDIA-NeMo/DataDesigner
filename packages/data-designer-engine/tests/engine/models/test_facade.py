@@ -276,7 +276,7 @@ def test_consolidate_kwargs_openrouter_attribution(
 ) -> None:
     """OpenRouter-specific attribution headers are injected when provider is openrouter."""
     stub_model_facade.model_provider.name = "openrouter"
-    stub_model_facade.model_provider.extra_headers = None  # simulates existing user config
+    stub_model_facade.model_provider.extra_headers = None
     result = stub_model_facade.consolidate_kwargs()
     assert result["extra_headers"] == {
         "X-Title": "NeMo Data Designer",

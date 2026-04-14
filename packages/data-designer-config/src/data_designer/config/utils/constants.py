@@ -307,6 +307,8 @@ OPENROUTER_ATTRIBUTION_HEADERS: dict[str, str] = {
     "X-OpenRouter-Categories": "programming-app",
 }
 
+# OpenRouter attribution is injected in the engine so telemetry opt-out can
+# suppress it cleanly for both default and existing provider configs.
 PREDEFINED_PROVIDERS = [
     {
         "name": NVIDIA_PROVIDER_NAME,
@@ -325,7 +327,6 @@ PREDEFINED_PROVIDERS = [
         "endpoint": "https://openrouter.ai/api/v1",
         "provider_type": "openai",
         "api_key": OPENROUTER_API_KEY_ENV_VAR_NAME,
-        "extra_headers": OPENROUTER_ATTRIBUTION_HEADERS,
     },
 ]
 

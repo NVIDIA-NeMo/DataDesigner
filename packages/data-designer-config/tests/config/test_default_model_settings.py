@@ -110,11 +110,7 @@ def test_get_builtin_model_providers():
     assert builtin_model_providers[2].endpoint == "https://openrouter.ai/api/v1"
     assert builtin_model_providers[2].provider_type == "openai"
     assert builtin_model_providers[2].api_key == "OPENROUTER_API_KEY"
-    assert builtin_model_providers[2].extra_headers == {
-        "HTTP-Referer": "https://github.com/NVIDIA-NeMo/DataDesigner",
-        "X-OpenRouter-Title": "NeMo Data Designer",
-        "X-OpenRouter-Categories": "programming-app",
-    }
+    assert builtin_model_providers[2].extra_headers is None
 
 
 def test_get_default_model_configs_path_exists(tmp_path: Path):
