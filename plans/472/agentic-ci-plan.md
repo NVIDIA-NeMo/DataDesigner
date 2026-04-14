@@ -1,5 +1,5 @@
 ---
-date: 2026-03-30
+date: 2026-04-14
 status: in-progress
 authors:
   - andreatgretel
@@ -574,12 +574,11 @@ is clear:
 ### Phase 2: Daily Maintenance - first two suites
 
 **Deliverables:**
-- [ ] `docs-and-references/recipe.md` - docstrings, broken links, architecture refs
-- [ ] `dependencies/recipe.md` - version pinning, upgrade safety, CVEs, unused deps
-- [ ] GitHub workflow: `agentic-ci-daily.yml` with day-of-week suite rotation
-- [ ] Runner memory: `actions/cache` integration + state schema + optional audit branch
-- [ ] Recipe runner script (Python or bash) for template substitution,
-      tool selection, memory load/save, and output routing
+- [x] `docs-and-references/recipe.md` - docstrings, broken links, architecture refs
+- [x] `dependencies/recipe.md` - version pinning, upgrade safety, CVEs, unused deps
+- [x] GitHub workflow: `agentic-ci-daily.yml` with day-of-week suite rotation
+- [x] Runner memory: `actions/cache` integration + state schema
+- [x] Template substitution, memory load/save, and output routing (built into workflow)
 
 **Validation:**
 - Run each suite manually via `workflow_dispatch`
@@ -590,9 +589,9 @@ is clear:
 ### Phase 3: Remaining suites
 
 **Deliverables:**
-- [ ] `structure/recipe.md` - import boundaries, circular deps, dead exports
-- [ ] `code-quality/recipe.md` - complexity, exception hygiene, type gaps, TODOs
-- [ ] `test-health/recipe.md` - coverage deltas, hollow tests, fixtures, smoke tests
+- [x] `structure/recipe.md` - import boundaries, circular deps, dead exports
+- [x] `code-quality/recipe.md` - complexity, exception hygiene, type gaps, TODOs
+- [x] `test-health/recipe.md` - coverage deltas, hollow tests, fixtures, smoke tests
 
 **Validation:**
 - Run each suite manually, review output quality
@@ -605,7 +604,7 @@ is clear:
 **Deliverables:**
 - [ ] Recipe testing framework - way to dry-run a recipe locally before merging
 - [ ] Metrics / dashboard for recipe execution (success rate, cost, latency)
-- [ ] `CODEOWNERS` entry for `.agents/recipes/` to require review on recipe changes
+- [x] `CODEOWNERS` entry for `.agents/recipes/` to require review on recipe changes
 - [ ] Memory compaction - prune stale findings, archive old audit logs
 - [ ] Additional recipes based on team needs (notebook regen, etc.)
 
