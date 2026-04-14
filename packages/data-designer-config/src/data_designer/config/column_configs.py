@@ -423,7 +423,7 @@ class ExpressionColumnConfig(SingleColumnConfig):
     }
 
     @model_validator(mode="after")
-    def assert_expression_valid_jinja(self) -> Self:
+    def _assert_expression_valid_jinja(self) -> Self:
         """Validate that the expression is a valid, non-empty Jinja2 template.
 
         Returns:
