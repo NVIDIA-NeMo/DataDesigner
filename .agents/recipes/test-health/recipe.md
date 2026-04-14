@@ -107,9 +107,9 @@ grep -rn "^import pandas\|^from pandas\|^import numpy\|^from numpy\|^import duck
   packages/*/src/ --include='*.py'
 ```
 
-These should use `data_designer.lazy_heavy_imports`. Cross-reference with
-the structure recipe's findings if available in runner memory, but don't
-skip this check - it directly affects user experience.
+These should use `data_designer.lazy_heavy_imports`. Report the count of
+violations found, then refer to Wednesday's structure audit for the full
+breakdown. Do not duplicate the detailed analysis here.
 
 ### 4. Executable smoke checks
 
