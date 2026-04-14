@@ -41,7 +41,7 @@ Map source files to their corresponding test files:
 find packages/*/src/ -name '*.py' -not -name '__init__.py' -not -path '*/test*' | sort
 
 # Test files
-find tests/ packages/*/tests/ -name 'test_*.py' 2>/dev/null | sort
+find packages/*/tests/ -name 'test_*.py' 2>/dev/null | sort
 ```
 
 For each source module, check if a corresponding test file exists. Flag:
@@ -61,10 +61,10 @@ Scan test files for tests that assert nothing meaningful:
 ```bash
 # Tests that only check "is not None" (often meaningless if the function
 # can't return None)
-grep -rn "assert .* is not None$" tests/ --include='*.py'
+grep -rn "assert .* is not None$" packages/*/tests/ --include='*.py'
 
 # Test functions with no assert statements at all
-grep -l "def test_" tests/ --include='*.py' -r | while read f; do
+grep -l "def test_" packages/*/tests/ --include='*.py' -r | while read f; do
   # Count test functions vs assert statements
   TESTS=$(grep -c "def test_" "$f")
   ASSERTS=$(grep -c "assert " "$f")
@@ -92,12 +92,12 @@ Skip `tests_e2e/` - e2e tests have different assertion patterns.
 
 ### 3. Import performance
 
-The repo has a 3-second import budget tested by `tests/test_import_perf.py`.
-Check the current state:
+The repo has a 3-second import budget tested by
+`packages/data-designer/tests/test_import_perf.py`. Check the current state:
 
 ```bash
 # Verify the test exists and read its thresholds
-cat tests/test_import_perf.py 2>/dev/null || echo "not found"
+cat packages/data-designer/tests/test_import_perf.py 2>/dev/null || echo "not found"
 ```
 
 Also check for heavy imports that bypass the lazy loading system:
@@ -200,15 +200,18 @@ same config every day.
 
 **What to always check:**
 1. Config build round-trip: column count and names survive `.build()`
-2. Validation: `DataDesigner.validate(builder)` succeeds for valid configs
-3. Rejection: invalid inputs raise, not silently produce bad configs
+2. Rejection: invalid inputs raise, not silently produce bad configs
+
+**Limitation**: `DataDesigner(model_providers=[])` raises
+`NoModelProvidersError`, so you cannot call `DataDesigner.validate()`
+without at least one provider configured. Stick to config-layer checks
+(`DataDesignerConfigBuilder.build()`, column type resolution) which do
+not require providers.
 
 **API reference** for writing checks:
 
 ```python
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.interface.data_designer import DataDesigner
-import tempfile
 
 # Build a config - use keyword args: name, column_type, sampler_type, params
 builder = (
@@ -223,10 +226,6 @@ config = builder.build()
 assert len(config.columns) >= 2
 names = {c.name for c in config.columns}
 assert 'id' in names and 'cat' in names
-
-# Validate through the full stack (no LLM needed for sampler-only)
-dd = DataDesigner(artifact_path=tempfile.mkdtemp(), model_providers=[])
-dd.validate(builder)
 ```
 
 Run at least 2 creative checks per audit. Document what you chose and why
@@ -290,15 +289,15 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 | Check | Status | Detail |
 |-------|--------|--------|
 | Package imports | OK/FAIL | All three packages import cleanly |
-| Import timing | OK/FAIL | Xms (budget: 3s) |
+| Import timing | OK/FAIL | X.XXs (budget: 3s) |
 | Registry completeness | OK/WARN | Column types resolve to config classes |
 
 **Creative checks** (describe what you tested and why):
 
-| Check | Sampler types used | Status | Detail |
-|-------|--------------------|--------|--------|
+| Check | What was tested | Status | Detail |
+|-------|-----------------|--------|--------|
 | Config build #1 | e.g. uuid+poisson+datetime | OK/FAIL | ... |
-| Validate #1 | ... | OK/FAIL | ... |
+| Rejection #1 | e.g. gaussian with negative std | OK/FAIL | ... |
 | ... | ... | ... | ... |
 
 ### Test isolation

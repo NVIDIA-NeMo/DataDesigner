@@ -153,6 +153,7 @@ jobs:
           fi
 
       - name: Run audit recipe
+        id: audit
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
@@ -185,11 +186,10 @@ jobs:
             --max-turns 30 \
             --output-format text \
             --verbose \
-            2>&1 | tee /tmp/claude-audit-log.txt || true
-        continue-on-error: true
+            2>&1 | tee /tmp/claude-audit-log.txt
 
       - name: Update runner memory
-        if: success()
+        if: steps.audit.outcome == 'success'
         env:
           SUITE: ${{ matrix.suite }}
         run: |
