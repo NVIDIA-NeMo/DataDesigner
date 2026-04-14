@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 620" style="font-family: 'Avenir Next', 'Segoe UI', system-ui, sans-serif;">
+  <defs>
+    <marker id="ah" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#76B900"/>
+    </marker>
+    <style>
+      .title { font-size: 14px; font-weight: 700; fill: #aaa; text-anchor: middle; }
+      .n  { fill: #76B900; }
+      .nb { fill: #5bb5f0; }
+      .lbl { font-size: 8px; fill: #fff; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+      .edge { stroke: #76B900; stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+    </style>
+  </defs>
+
+  <rect width="860" height="620" rx="10" fill="#0D0D0D"/>
+
+  <!-- quadrant dividers -->
+  <line x1="430" y1="20" x2="430" y2="600" stroke="#222" stroke-width="1"/>
+  <line x1="30" y1="280" x2="830" y2="280" stroke="#222" stroke-width="1"/>
+
+  <!-- ═══ TOP-LEFT: Narrow — 4-column sequential chain ═══ -->
+  <text x="215" y="38" class="title">Narrow (sequential)</text>
+
+  <circle cx="215" cy="75"  r="22" class="n"/>
+  <text   x="215" y="75"  class="lbl">topic</text>
+  <line x1="215" y1="97" x2="215" y2="113" class="edge"/>
+
+  <circle cx="215" cy="135" r="22" class="n"/>
+  <text   x="215" y="135" class="lbl">summary</text>
+  <line x1="215" y1="157" x2="215" y2="173" class="edge"/>
+
+  <circle cx="215" cy="195" r="22" class="n"/>
+  <text   x="215" y="195" class="lbl">analysis</text>
+  <line x1="215" y1="217" x2="215" y2="233" class="edge"/>
+
+  <circle cx="215" cy="250" r="22" class="n"/>
+  <text   x="215" y="250" class="lbl">conclusion</text>
+
+  <!-- ═══ TOP-RIGHT: Wide — 5 independent columns from topic ═══ -->
+  <text x="645" y="38" class="title">Wide (parallel)</text>
+
+  <circle cx="645" cy="80" r="22" class="n"/>
+  <text   x="645" y="80" class="lbl">topic</text>
+
+  <line x1="625" y1="97"  x2="525" y2="130" class="edge"/>
+  <line x1="629" y1="99"  x2="585" y2="130" class="edge"/>
+  <line x1="645" y1="102" x2="645" y2="130" class="edge"/>
+  <line x1="661" y1="99"  x2="705" y2="130" class="edge"/>
+  <line x1="665" y1="97"  x2="765" y2="130" class="edge"/>
+
+  <circle cx="525" cy="152" r="22" class="n"/>
+  <text   x="525" y="152" class="lbl">summary</text>
+  <circle cx="585" cy="152" r="22" class="n"/>
+  <text   x="585" y="152" class="lbl">trivia</text>
+  <circle cx="645" cy="152" r="22" class="n"/>
+  <text   x="645" y="152" class="lbl">analysis</text>
+  <circle cx="708" cy="152" r="22" class="n"/>
+  <text   x="708" y="152" class="lbl">conclusion</text>
+  <circle cx="765" cy="152" r="22" class="n"/>
+  <text   x="765" y="152" class="lbl">trivia_2</text>
+
+  <!-- ═══ BOTTOM-LEFT: Deep — branch + chain ═══ -->
+  <text x="215" y="302" class="title">Deep (branching)</text>
+
+  <circle cx="215" cy="335" r="22" class="n"/>
+  <text   x="215" y="335" class="lbl">topic</text>
+
+  <line x1="197" y1="353" x2="155" y2="373" class="edge"/>
+  <line x1="233" y1="353" x2="275" y2="373" class="edge"/>
+
+  <circle cx="155" cy="395" r="22" class="n"/>
+  <text   x="155" y="395" class="lbl">summary</text>
+  <circle cx="275" cy="395" r="22" class="n"/>
+  <text   x="275" y="395" class="lbl">trivia</text>
+
+  <line x1="155" y1="417" x2="155" y2="433" class="edge"/>
+
+  <circle cx="155" cy="455" r="22" class="n"/>
+  <text   x="155" y="455" class="lbl">analysis</text>
+
+  <line x1="155" y1="477" x2="155" y2="493" class="edge"/>
+
+  <circle cx="155" cy="515" r="22" class="n"/>
+  <text   x="155" y="515" class="lbl">conclusion</text>
+
+  <!-- ═══ BOTTOM-RIGHT: Dual-model — 3 generators + 3 judges ═══ -->
+  <text x="645" y="302" class="title">Dual-model</text>
+
+  <circle cx="645" cy="340" r="22" class="n"/>
+  <text   x="645" y="340" class="lbl">topic</text>
+
+  <line x1="626" y1="358" x2="565" y2="383" class="edge"/>
+  <line x1="645" y1="362" x2="645" y2="383" class="edge"/>
+  <line x1="664" y1="358" x2="725" y2="383" class="edge"/>
+
+  <circle cx="565" cy="405" r="22" class="n"/>
+  <text   x="565" y="405" class="lbl">summary</text>
+  <circle cx="645" cy="405" r="22" class="n"/>
+  <text   x="645" y="405" class="lbl">trivia</text>
+  <circle cx="725" cy="405" r="22" class="n"/>
+  <text   x="725" y="405" class="lbl">analysis</text>
+
+  <line x1="565" y1="427" x2="565" y2="448" class="edge"/>
+  <line x1="645" y1="427" x2="645" y2="448" class="edge"/>
+  <line x1="725" y1="427" x2="725" y2="448" class="edge"/>
+
+  <circle cx="565" cy="470" r="22" class="nb"/>
+  <text   x="565" y="470" class="lbl" style="font-size:7px">judge_sum</text>
+  <circle cx="645" cy="470" r="22" class="nb"/>
+  <text   x="645" y="470" class="lbl" style="font-size:7px">judge_tri</text>
+  <circle cx="725" cy="470" r="22" class="nb"/>
+  <text   x="725" y="470" class="lbl" style="font-size:7px">judge_ana</text>
+
+  <!-- legend -->
+  <circle cx="575" cy="520" r="5" fill="#76B900"/>
+  <text x="585" y="523" font-size="9.5" fill="#999" dominant-baseline="central">Generator model</text>
+  <circle cx="700" cy="520" r="5" fill="#5bb5f0"/>
+  <text x="710" y="523" font-size="9.5" fill="#999" dominant-baseline="central">Judge model</text>
+</svg>

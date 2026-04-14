@@ -1,4 +1,8 @@
 authors:
+  amanoel:
+    name: Andre Manoel
+    description: Researcher at NVIDIA
+    avatar: https://avatars.githubusercontent.com/u/165937436?v=4
   nvidia:
     name: NVIDIA NeMo Data Designer Team
     description: NeMo Data Designer Core Team

@@ -166,12 +166,15 @@ Path: {{ relative_path }}
 - `file_name` — basename of the matched file
 - `content` — decoded text contents of the matched file
 
+!!! tip "Custom Filesystem Readers"
+    If you need custom row construction, fan-out behavior, or expensive hydration logic for any directory-backed seed source, build a custom `FileSystemSeedReader` and pass it via `DataDesigner(seed_readers=[...])`. See the [FileSystemSeedReader Plugins](../plugins/filesystem_seed_reader.md) guide.
+
 !!! note "Encoding"
     `encoding="utf-8"` is the default. Set a different Python codec name if your files use another text encoding.
 
 ### 🤖 AgentRolloutSeedSource
 
-Parse agent rollout trace files (e.g. from Claude Code or Codex) into a structured seed dataset. Each trace becomes one seed row with normalized metadata and the full message history, ready for distillation or analysis pipelines.
+Parse agent rollout trace files (e.g. from ATIF, Claude Code, Codex, or Hermes Agent) into a structured seed dataset. Each trace becomes one seed row with normalized metadata and the full message history, ready for distillation or analysis pipelines.
 
 ```python
 seed_source = dd.AgentRolloutSeedSource(
@@ -181,41 +184,15 @@ seed_source = dd.AgentRolloutSeedSource(
 config_builder.with_seed_dataset(seed_source)
 ```
 
-When `path` is omitted, built-in defaults are used:
+!!! info "Dedicated guide"
+    See [Agent Rollout Ingestion](agent-rollout-ingestion.md) for the rollout-specific guide, including:
 
-- **Claude Code** → `~/.claude/projects`
-- **Codex** → `~/.codex/sessions`
-
-You can override both the path and file pattern:
-
-```python
-seed_source = dd.AgentRolloutSeedSource(
-    format=dd.AgentRolloutFormat.CLAUDE_CODE,
-    path="my_traces/",
-    file_pattern="*.jsonl",
-)
-```
-
-`AgentRolloutSeedSource` exposes a rich set of seeded columns:
-
-- `trace_id` — unique identifier for the trace
-- `source_kind` — the rollout format (e.g. `"claude_code"`, `"codex"`)
-- `source_path` — full path to the source file
-- `root_session_id` — top-level session identifier
-- `agent_id` — agent identifier (if present)
-- `is_sidechain` — whether this trace is a delegated subtask
-- `cwd`, `project_path`, `git_branch` — workspace context
-- `started_at`, `ended_at` — trace timestamps
-- `messages` — the full message history as a list of dicts
-- `source_meta` — additional format-specific metadata
-- `message_count`, `tool_call_count` — derived summary statistics
-- `final_assistant_message` — the last assistant text in the trace
+    - supported rollout formats and default locations
+    - format-specific configuration details like `path` and `file_pattern`
+    - the full normalized seeded-column schema exposed by `AgentRolloutSeedSource`
 
 !!! tip "Trace Distillation"
     See the [Agent Rollout Trace Distillation recipe](../recipes/trace_ingestion/agent_rollout_distillation.md) for a complete example that turns agent traces into supervised fine-tuning data.
-
-!!! tip "Custom Filesystem Readers"
-    If you need custom row construction, fan-out behavior, or expensive hydration logic for any directory-backed seed source, build a custom `FileSystemSeedReader` and pass it via `DataDesigner(seed_readers=[...])`. See the [FileSystemSeedReader Plugins](../plugins/filesystem_seed_reader.md) guide.
 
 ## Sampling Strategies
 

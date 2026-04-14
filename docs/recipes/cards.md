@@ -107,13 +107,14 @@ Each recipe is a self-contained example that can be run independently.
 
     **Demonstrates:**
 
-    - `AgentRolloutSeedSource` across Claude Code and Codex rollout formats
+    - `AgentRolloutSeedSource` across ATIF, Claude Code, Codex, and Hermes Agent rollout formats
     - Using normalized trace columns in generation prompts
     - Distilling agent traces into reusable structured records
 
     ---
 
     [:material-book-open-page-variant: View Recipe](trace_ingestion/agent_rollout_distillation.md){ .md-button }
+    [:material-file-document-outline: Ingestion Guide](../concepts/agent-rollout-ingestion.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/trace_ingestion/agent_rollout_distillation.py){ .md-button download="agent_rollout_distillation.py" }
 
 

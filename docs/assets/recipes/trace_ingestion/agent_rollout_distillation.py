@@ -21,12 +21,15 @@ This recipe demonstrates:
 
 Prerequisites:
     - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-super").
-    - Agent rollout JSONL files for one of the built-in formats. `claude_code` and `codex` can use their
-      default locations when `--trace-dir` is omitted.
+    - Agent rollout files for one of the built-in formats. `atif` expects standalone JSON trajectory files and
+      requires `--trace-dir`. `claude_code`, `codex`, and `hermes_agent` can use their default locations when
+      `--trace-dir` is omitted.
 
 Run:
+    uv run agent_rollout_distillation.py --format atif --trace-dir ./atif_traces
     uv run agent_rollout_distillation.py --format claude_code
     uv run agent_rollout_distillation.py --format codex --shuffle --num-records 20
+    uv run agent_rollout_distillation.py --format hermes_agent --num-records 20
     uv run agent_rollout_distillation.py --format claude_code --num-records 32 --preview
     uv run agent_rollout_distillation.py --format codex --partition-index 0 --num-partitions 8
 """
@@ -411,8 +414,9 @@ def build_arg_parser() -> ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Optional directory containing rollout JSONL files. When omitted, `claude_code` defaults to "
-            "~/.claude/projects and `codex` defaults to ~/.codex/sessions."
+            "Optional directory containing rollout trace files. `atif` expects standalone JSON trajectory files "
+            "and requires `--trace-dir`. When omitted, `claude_code` defaults to ~/.claude/projects, "
+            "`codex` defaults to ~/.codex/sessions, and `hermes_agent` defaults to ~/.hermes/sessions."
         ),
     )
     parser.add_argument("--model-alias", type=str, default="nvidia-super")
@@ -459,6 +463,8 @@ def build_seed_source(
     trace_dir: Path | None,
     rollout_format: dd.AgentRolloutFormat,
 ) -> dd.AgentRolloutSeedSource:
+    if rollout_format == dd.AgentRolloutFormat.ATIF and trace_dir is None:
+        raise ValueError("--trace-dir is required when --format atif.")
     seed_source_kwargs: dict[str, str | dd.AgentRolloutFormat] = {"format": rollout_format}
     if trace_dir is not None:
         seed_source_kwargs["path"] = str(trace_dir)

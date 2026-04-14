@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Any
+
 import pytest
 
 from data_designer.config.column_configs import (
+    CustomColumnConfig,
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -13,12 +16,13 @@ from data_designer.config.column_configs import (
     ValidationColumnConfig,
 )
 from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.dataset_builders.utils.dag import topologically_sort_column_configs
-from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
+from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 
 MODEL_ALIAS = "stub-model-alias"
 
@@ -110,4 +114,24 @@ def test_circular_dependencies():
         )
     )
     with pytest.raises(DAGCircularDependencyError, match="cyclic dependencies"):
+        topologically_sort_column_configs(column_configs)
+
+
+def test_duplicate_side_effect_producers_raises() -> None:
+    """Two custom columns declaring the same side-effect column is a configuration error."""
+
+    @custom_column_generator(required_columns=["text"], side_effect_columns=["shared_col"])
+    def gen_a(row: dict[str, Any]) -> dict[str, Any]:
+        return row
+
+    @custom_column_generator(required_columns=["text"], side_effect_columns=["shared_col"])
+    def gen_b(row: dict[str, Any]) -> dict[str, Any]:
+        return row
+
+    column_configs = [
+        LLMTextColumnConfig(name="text", prompt="hello", model_alias=MODEL_ALIAS),
+        CustomColumnConfig(name="col_a", generator_function=gen_a),
+        CustomColumnConfig(name="col_b", generator_function=gen_b),
+    ]
+    with pytest.raises(ConfigCompilationError, match="already produced by"):
         topologically_sort_column_configs(column_configs)

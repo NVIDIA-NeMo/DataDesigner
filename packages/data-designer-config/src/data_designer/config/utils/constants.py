@@ -298,6 +298,17 @@ OPENROUTER_PROVIDER_NAME = "openrouter"
 
 OPENROUTER_API_KEY_ENV_VAR_NAME = "OPENROUTER_API_KEY"
 
+ATTRIBUTION_TITLE = "NeMo Data Designer"
+ATTRIBUTION_REFERER = "https://github.com/NVIDIA-NeMo/DataDesigner"
+
+OPENROUTER_ATTRIBUTION_HEADERS: dict[str, str] = {
+    "HTTP-Referer": ATTRIBUTION_REFERER,
+    "X-OpenRouter-Title": ATTRIBUTION_TITLE,
+    "X-OpenRouter-Categories": "programming-app",
+}
+
+# OpenRouter attribution is injected in the engine so telemetry opt-out can
+# suppress it cleanly for both default and existing provider configs.
 PREDEFINED_PROVIDERS = [
     {
         "name": NVIDIA_PROVIDER_NAME,
@@ -365,6 +376,7 @@ NEMOTRON_PERSONAS_DATASET_SIZES = {
     "en_US": "1.24 GB",
     "en_IN": "2.39 GB",
     "en_SG": "0.30 GB",
+    "fr_FR": "2.71 GB",
     "hi_Deva_IN": "4.14 GB",
     "hi_Latn_IN": "2.7 GB",
     "ja_JP": "1.69 GB",
@@ -372,6 +384,7 @@ NEMOTRON_PERSONAS_DATASET_SIZES = {
 }
 
 LOCALES_WITH_MANAGED_DATASETS = list[str](NEMOTRON_PERSONAS_DATASET_SIZES.keys())
+LOCALES_WITH_MANAGED_DATASETS_STR = ", ".join(LOCALES_WITH_MANAGED_DATASETS)
 
 NEMOTRON_PERSONAS_DATASET_PREFIX = "nemotron-personas-dataset-"
 

@@ -1,0 +1,152 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Agentic CI: Repository Triage"
+
+on:
+  schedule:
+    - cron: "0 10 * * 1"  # every Monday at 10:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: agentic-ci-issue-triage
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    if: github.repository_owner == 'NVIDIA-NeMo'
+    runs-on: [self-hosted, agentic-ci]
+    timeout-minutes: 15
+    steps:
+      - name: Check required config
+        env:
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
+        run: |
+          if [ -z "$AGENTIC_CI_MODEL" ]; then
+            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            exit 1
+          fi
+          if [ -z "$TRACKING_ISSUE" ]; then
+            echo "::error::ISSUE_TRIAGE_TRACKING_ISSUE variable is not set. Create a pinned issue and set the variable."
+            exit 1
+          fi
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Pre-flight checks
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          if ! command -v claude &> /dev/null; then
+            echo "::error::claude CLI not found in PATH"
+            exit 1
+          fi
+          echo "Claude CLI version: $(claude --version 2>&1 || true)"
+
+          if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
+              exit 1
+            fi
+            echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+          fi
+
+      - name: Run issue triage recipe
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          DISABLE_PROMPT_CACHING: "1"
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TRIAGE_TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -o pipefail
+
+          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
+          RECIPE_BODY=$(cat .agents/recipes/issue-triage/recipe.md \
+            | sed '1,/^---$/{ /^---$/,/^---$/d }')
+
+          PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}")
+
+          claude \
+            --model "$AGENTIC_CI_MODEL" \
+            -p "$PROMPT" \
+            --max-turns 30 \
+            --output-format text \
+            --verbose \
+            2>&1 | tee /tmp/claude-triage-log.txt || true
+        continue-on-error: true
+
+      - name: Fallback post if agent did not post
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
+        run: |
+          if [ ! -s "/tmp/issue-triage-report.md" ]; then
+            echo "::warning::Triage report not created by agent."
+            exit 0
+          fi
+
+          # Check if the agent already posted/updated the comment.
+          MARKER="<!-- agentic-ci-issue-triage -->"
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
+            --jq "[.[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER}\"))] | last | .id" \
+            2>/dev/null || echo "")
+
+          REPORT=$(cat /tmp/issue-triage-report.md)
+
+          # Only post if the report marker is not already in a recent comment
+          # with today's date (agent already posted).
+          TODAY=$(date -u +%Y-%m-%d)
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            EXISTING_BODY=$(gh api "repos/${{ github.repository }}/issues/comments/${EXISTING}" --jq '.body')
+            if echo "$EXISTING_BODY" | grep -q "$TODAY"; then
+              echo "Agent already posted today's report. Skipping fallback."
+              exit 0
+            fi
+            # Update existing comment.
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/${EXISTING}" \
+              -f body="$REPORT"
+            echo "Updated existing triage comment."
+          else
+            gh issue comment "$TRACKING_ISSUE" --body-file /tmp/issue-triage-report.md
+            echo "Posted new triage comment."
+          fi
+
+      - name: Write job summary
+        if: always()
+        run: |
+          if [ -s "/tmp/issue-triage-report.md" ]; then
+            cat /tmp/issue-triage-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No triage report was generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -s "/tmp/claude-triage-log.txt" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "<details><summary>Agent log</summary>" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -100 /tmp/claude-triage-log.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+          fi

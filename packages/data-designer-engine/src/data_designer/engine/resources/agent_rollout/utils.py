@@ -58,6 +58,18 @@ def load_jsonl_rows(file_path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
             yield (line_number, parsed_line)
 
 
+def load_json_object(file_path: Path) -> dict[str, Any]:
+    with file_path.open(encoding="utf-8") as file:
+        try:
+            parsed_payload = json.load(file)
+        except json.JSONDecodeError as error:
+            raise AgentRolloutSeedParseError(f"Invalid JSON in {file_path}: {error.msg}") from error
+
+    if not isinstance(parsed_payload, dict):
+        raise AgentRolloutSeedParseError(f"Expected JSON object in {file_path}, got {type(parsed_payload).__name__}")
+    return parsed_payload
+
+
 def require_string(value: Any, context: str) -> str:
     if not isinstance(value, str) or value == "":
         raise AgentRolloutSeedParseError(f"Expected non-empty string for {context}, got {value!r}")
@@ -76,6 +88,20 @@ def stringify_json_value(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value if value is not None else {}, sort_keys=True)
+
+
+def normalize_message_content(content: Any) -> Any:
+    """Coerce raw message content into the normalized content shape.
+
+    Returns ``""`` for ``None``, passes through ``str`` and ``list``
+    unchanged, and falls back to :func:`stringify_json_value` for
+    everything else.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, (str, list)):
+        return content
+    return stringify_json_value(content)
 
 
 def stringify_text_value(value: Any) -> str:
