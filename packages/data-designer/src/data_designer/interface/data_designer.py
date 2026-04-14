@@ -208,11 +208,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
                 with the name "awesome_dataset_2025-01-01_12-00-00".
-            resume: If True, resume generation from the last completed batch found in the
-                existing dataset directory. The run parameters (num_records, buffer_size) must
-                match those of the original run. Any in-flight partial results from the
-                interrupted run are discarded. Not supported when DATA_DESIGNER_ASYNC_ENGINE
-                is enabled.
+            resume: If True, resume generation from the last completed batch (sync engine)
+                or row group (async engine) found in the existing dataset directory. If no
+                progress was checkpointed yet (i.e. the run was interrupted before the first
+                batch/row-group completed), generation restarts from the beginning. The run
+                parameters (num_records, buffer_size) must match those of the original run.
+                Any in-flight partial results from the interrupted run are discarded.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
