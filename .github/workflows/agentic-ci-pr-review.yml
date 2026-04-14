@@ -133,7 +133,7 @@ jobs:
       # from the base branch so a fork PR cannot inject malicious instructions
       # while API secrets are in scope.
       - name: Checkout base branch recipes
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
           sparse-checkout: .agents/recipes
