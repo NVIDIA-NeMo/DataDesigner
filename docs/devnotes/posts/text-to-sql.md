@@ -1,5 +1,5 @@
 ---
-date: 2026-03-11
+date: 2026-04-14
 authors:
   - dnathawani
   - ymeyer
@@ -8,9 +8,7 @@ authors:
 
 # **Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer**
 
-<img src="assets/text-to-sql/text-to-sql-pipeline.jpg" alt="Text-to-SQL Synthetic Data Pipeline" width="800">
-
-<br>
+![Text-to-SQL Synthetic Data Pipeline](assets/text-to-sql/text-to-sql-pipeline.jpg){ width=800 }
 
 While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.
 
@@ -426,9 +424,7 @@ The high rejection rate is a feature, not a bug. By generating 3x more data than
 
 This dataset was shipped in the SFT stage of **Nemotron Super v3**. On the [BIRD SQL benchmark](https://bird-bench.github.io/) (1,534 dev samples, 5-run average), Nemotron Super achieves **41.80% EX** (execution accuracy) --- outperforming GPT-OSS-120B at 38.25%. Including our synthetic dataset in the SFT blend raised Nemotron Super's EX on BIRD by **15 points**, from 26.77% to 41.80%.
 
-<img src="assets/text-to-sql/bird-benchmark-results.jpg" alt="BIRD SQL Benchmark Results — Nemotron Super EX improves from 26.77% to 41.80%" width="800">
-
-<br>
+![BIRD SQL Benchmark Results - Nemotron Super EX improves from 26.77% to 41.80%](assets/text-to-sql/bird-benchmark-results.jpg){ width=800 }
 
 | Model | BIRD EX (%) |
 |-------|-------------|
@@ -465,7 +461,7 @@ This dataset was shipped in the SFT stage of **Nemotron Super v3**. On the [BIRD
 - **Code Sandbox for semantic correctness.** The current Quality Waterfall validates syntax and assesses quality (LLM judges), but it doesn't verify whether the query actually returns the right results. A natural next step would be adding Code Sandbox support to Data Designer --- executing generated SQL against a ground-truth database and comparing results to enable execution-based filtering, end-to-end verification, and hard negative mining for preference training.
 - **RL on BIRD.** Run reinforcement learning experiments using the [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) RL environment for BIRD, training models to improve execution accuracy through reward signals from actual query execution.
 - **Schema representation.** Improve how schemas are represented in prompts to close the gap with SOTA approaches that use richer structural encodings (e.g., foreign key graphs, column descriptions, value examples).
-- **More benchmarks.** Incorporate additional SQL benchmarks --- [Spider 2.0](https://spider2-sql.github.io/), [LiveSQLBench](https://livesqlbench.github.io/) --- to evaluate generalization beyond BIRD and drive the next iteration of the pipeline.
+- **More benchmarks.** Incorporate additional SQL benchmarks --- [Spider 2.0](https://spider2-sql.github.io/), [LiveSQLBench](https://livesqlbench.ai/) --- to evaluate generalization beyond BIRD and drive the next iteration of the pipeline.
 
 ---
 
@@ -590,9 +586,6 @@ Because this pipeline is encapsulated in Data Designer, the configuration can be
 - **NeMo Data Designer:** [github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner)
 - **BIRD Benchmark:** [bird-bench.github.io](https://bird-bench.github.io/)
 - **Spider 2.0 Benchmark:** [spider2-sql.github.io](https://spider2-sql.github.io/)
-- **Structured Outputs Dev Note** (related pipeline): [Structured Outputs for Nemotron](structured-outputs-from-nemotron.md)
-- **RQA Dev Note** (reasoning data with Data Designer): [Graduate-Level Science Reasoning Data](rqa.md)
-
 ---
 
 *Want to learn more about NeMo Data Designer? Check out our [documentation](https://github.com/NVIDIA-NeMo/DataDesigner) and start building your own high-fidelity synthetic datasets today.*
