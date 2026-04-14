@@ -129,6 +129,16 @@ jobs:
           ref: ${{ steps.head.outputs.sha }}
           fetch-depth: 0
 
+      # SECURITY: Recipe files define the agent's prompt. Always read them
+      # from the base branch so a fork PR cannot inject malicious instructions
+      # while API secrets are in scope.
+      - name: Checkout base branch recipes
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          sparse-checkout: .agents/recipes
+          path: base-recipes
+
       - name: Pre-flight checks
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
@@ -169,8 +179,10 @@ jobs:
           set -o pipefail
 
           # Build the prompt from _runner.md + recipe, substituting template vars.
-          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
-          RECIPE_BODY=$(cat .agents/recipes/pr-review/recipe.md \
+          # Read from base-recipes/ (checked out from the base branch) so fork
+          # PRs cannot tamper with the agent prompt.
+          RUNNER_CTX=$(cat base-recipes/.agents/recipes/_runner.md)
+          RECIPE_BODY=$(cat base-recipes/.agents/recipes/pr-review/recipe.md \
             | sed '1,/^---$/{ /^---$/,/^---$/d }')
 
           PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}" \
