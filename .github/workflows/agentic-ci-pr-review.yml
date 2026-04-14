@@ -128,6 +128,31 @@ jobs:
           ref: ${{ steps.head.outputs.sha }}
           fetch-depth: 0
 
+      - name: Install dev environment
+        run: |
+          make install-dev
+          echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install graphify
+        run: .venv/bin/python -m pip install graphifyy 2>&1 | tail -3
+
+      - name: Structural impact analysis
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CHANGED_PY=$(gh pr diff "$PR_NUMBER" --name-only | grep '\.py$' || true)
+          if [ -n "$CHANGED_PY" ]; then
+            .venv/bin/python .agents/tools/structural_impact.py \
+              --changed-files $CHANGED_PY \
+              --output "/tmp/structural-impact-${PR_NUMBER}.md"
+            echo "Structural impact analysis complete:"
+            cat "/tmp/structural-impact-${PR_NUMBER}.md"
+          else
+            echo "No Python files changed - skipping structural analysis."
+          fi
+        continue-on-error: true
+
       - name: Pre-flight checks
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}

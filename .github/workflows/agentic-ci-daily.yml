@@ -92,7 +92,9 @@ jobs:
         id: cache
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
-          path: .agentic-ci-state
+          path: |
+            .agentic-ci-state
+            graphify-out
           key: agentic-ci-state-${{ matrix.suite }}-${{ github.run_id }}
           restore-keys: |
             agentic-ci-state-${{ matrix.suite }}-
@@ -118,6 +120,10 @@ jobs:
           from data_designer.engine._version import __version__ as ev
           print(f'  config: {cv}  engine: {ev}')
           " 2>/dev/null || echo "  (version check skipped)"
+
+      - name: Install graphify
+        if: matrix.suite == 'structure'
+        run: .venv/bin/python -m pip install graphifyy 2>&1 | tail -3
 
       - name: Pre-flight checks
         env:

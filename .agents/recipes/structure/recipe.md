@@ -111,7 +111,38 @@ done
 This enables modern type syntax (`list[str]` instead of `List[str]`,
 `str | None` instead of `Optional[str]`) and defers annotation evaluation.
 
-### 4. Dead exports
+### 4. Graphify structural analysis
+
+Run the graphify-based structural analysis tool. This builds a directed AST
+graph of the entire codebase (~2s) and produces god node rankings,
+cross-package edge counts, and import direction violations that grep-based
+checks miss (e.g., inferred cross-file dependencies from class-level import
+resolution).
+
+```bash
+PREV_GRAPH=""
+if [ -f "graphify-out/graph.json" ]; then
+  PREV_GRAPH="--previous-graph graphify-out/graph.json"
+fi
+python .agents/tools/structural_impact.py --full $PREV_GRAPH \
+  --output /tmp/graphify-structure.md
+```
+
+Read `/tmp/graphify-structure.md` and incorporate relevant findings:
+
+- **God nodes**: track the top 10 most-connected entities. Compare against
+  the previous baseline in runner memory. A god node gaining 10+ connections
+  since last week signals growing coupling.
+- **Cross-package edge summary**: the table shows edge counts per direction.
+  All edges should flow interface -> engine -> config. Any VIOLATION row is a
+  finding for the import boundary section.
+- **Changes since last run**: new/removed entities and relationships since
+  the previous audit. Flag any unexpected removals of god nodes.
+
+After the audit, update `baselines` in runner memory with the current god
+node list and cross-package edge counts from `graphify-out/baselines.json`.
+
+### 5. Dead exports
 
 Find symbols in `__all__` that nothing outside their module references:
 
@@ -161,12 +192,18 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 |---------|--------|--------|----------|
 | ... | ... | ... | No external imports found |
 
+### Structural graph analysis (graphify)
+
+(Paste the content of /tmp/graphify-structure.md here)
+
 ### Summary
 
 - N import boundary violations (M new since last run)
 - N lazy import violations (M new)
 - N files missing future annotations (M new)
 - N potentially dead exports (M new)
+- God nodes: top entity has N connections (delta: +/-M from last run)
+- Cross-package edges: N total (M violations)
 ```
 
 If no findings in any category, write `NO_FINDINGS` on the first line instead.
