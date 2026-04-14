@@ -112,12 +112,18 @@ jobs:
           }
           EOF
           fi
-          if [ ! -f .agentic-ci-state/audit-log.md ]; then
-            echo "# Audit Log: ${SUITE}" > .agentic-ci-state/audit-log.md
-            echo "" >> .agentic-ci-state/audit-log.md
-          fi
           echo "Runner memory state:"
           cat .agentic-ci-state/runner-state.json
+
+      - name: Install dev environment
+        run: |
+          make install-dev
+          echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/python -c "
+          from data_designer.config._version import __version__ as cv
+          from data_designer.engine._version import __version__ as ev
+          print(f'  config: {cv}  engine: {ev}')
+          " 2>/dev/null || echo "  (version check skipped)"
 
       - name: Pre-flight checks
         env:
@@ -183,33 +189,24 @@ jobs:
         continue-on-error: true
 
       - name: Update runner memory
-        if: always()
+        if: success()
         env:
           SUITE: ${{ matrix.suite }}
         run: |
-          # Update last_run timestamp in state
-          if command -v python3 &> /dev/null; then
-            python3 -c "
-          import json, datetime
-          with open('.agentic-ci-state/runner-state.json') as f:
-              state = json.load(f)
+          # Validate the agent didn't corrupt the state file
+          python3 -c "
+          import json, datetime, sys
+          try:
+              with open('.agentic-ci-state/runner-state.json') as f:
+                  state = json.load(f)
+          except (json.JSONDecodeError, FileNotFoundError) as e:
+              print(f'::warning::runner-state.json is invalid ({e}), resetting')
+              state = {'suite': '${SUITE}', 'known_issues': [], 'baselines': {}}
           state['last_run'] = datetime.datetime.utcnow().isoformat() + 'Z'
           state['suite'] = '${SUITE}'
           with open('.agentic-ci-state/runner-state.json', 'w') as f:
               json.dump(state, f, indent=2)
           "
-          else
-            echo "python3 not available, skipping state update"
-          fi
-
-          # Append to audit log
-          echo "" >> .agentic-ci-state/audit-log.md
-          echo "## $(date -u +%Y-%m-%d)" >> .agentic-ci-state/audit-log.md
-          if [ -s "/tmp/audit-${SUITE}.md" ]; then
-            echo "Findings reported." >> .agentic-ci-state/audit-log.md
-          else
-            echo "No findings." >> .agentic-ci-state/audit-log.md
-          fi
 
       - name: Write job summary
         if: always()
