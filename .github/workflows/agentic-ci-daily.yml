@@ -103,14 +103,8 @@ jobs:
         run: |
           mkdir -p .agentic-ci-state
           if [ ! -f .agentic-ci-state/runner-state.json ]; then
-            cat > .agentic-ci-state/runner-state.json <<EOF
-          {
-            "suite": "${SUITE}",
-            "last_run": null,
-            "known_issues": [],
-            "baselines": {}
-          }
-          EOF
+            printf '{"suite":"%s","last_run":null,"known_issues":[],"baselines":{}}\n' \
+              "${SUITE}" > .agentic-ci-state/runner-state.json
           fi
           echo "Runner memory state:"
           cat .agentic-ci-state/runner-state.json
@@ -189,21 +183,24 @@ jobs:
             2>&1 | tee /tmp/claude-audit-log.txt
 
       - name: Update runner memory
-        if: steps.audit.outcome == 'success'
+        if: always()
         env:
           SUITE: ${{ matrix.suite }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
         run: |
-          # Validate the agent didn't corrupt the state file
+          # Always validate state (cache saves regardless of outcome)
           python3 -c "
-          import json, datetime, sys
+          import json, datetime, os
           try:
               with open('.agentic-ci-state/runner-state.json') as f:
                   state = json.load(f)
           except (json.JSONDecodeError, FileNotFoundError) as e:
               print(f'::warning::runner-state.json is invalid ({e}), resetting')
-              state = {'suite': '${SUITE}', 'known_issues': [], 'baselines': {}}
-          state['last_run'] = datetime.datetime.utcnow().isoformat() + 'Z'
-          state['suite'] = '${SUITE}'
+              state = {'suite': os.environ['SUITE'], 'known_issues': [], 'baselines': {}}
+          # Only stamp last_run if the audit actually succeeded
+          if os.environ.get('AUDIT_OUTCOME') == 'success':
+              state['last_run'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          state['suite'] = os.environ['SUITE']
           with open('.agentic-ci-state/runner-state.json', 'w') as f:
               json.dump(state, f, indent=2)
           "
