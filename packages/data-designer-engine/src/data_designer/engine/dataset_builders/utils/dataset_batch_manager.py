@@ -157,7 +157,14 @@ class DatasetBatchManager:
                     except OSError as e:
                         raise DatasetBatchManagementError(f"🛑 Failed to delete directory {dir_path}: {e}")
 
-    def start(self, *, num_records: int, buffer_size: int) -> None:
+    def start(
+        self,
+        *,
+        num_records: int,
+        buffer_size: int,
+        start_batch: int = 0,
+        initial_actual_num_records: int = 0,
+    ) -> None:
         if num_records <= 0:
             raise DatasetBatchManagementError("🛑 num_records must be positive.")
         if buffer_size <= 0:
@@ -168,6 +175,8 @@ class DatasetBatchManager:
         if remaining_records := num_records % buffer_size:
             self._num_records_list.append(remaining_records)
         self.reset()
+        self._current_batch_number = start_batch
+        self._actual_num_records = initial_actual_num_records
 
     def write(self) -> Path | None:
         """Write the current batch to a parquet file.
