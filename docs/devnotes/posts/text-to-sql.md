@@ -20,7 +20,7 @@ While LLMs have mastered generic coding, Text-to-SQL remains one of the most cha
 
 ## **The "Real-World" Gap: Why Academic Data Wasn't Enough**
 
-The gap between academic benchmarks and the messy reality of enterprise data warehouses is massive. On academic benchmarks like Spider (where schemas are clean, tables are few, and queries are straightforward), frontier models score above 85%. On [BIRD](https://bird-bench.github.io/) (which introduces dirty data, larger schemas, and external knowledge requirements), performance drops significantly --- and on [Spider 2.0 Lite](https://spider2-sql.github.io/) (which uses real enterprise databases with hundreds of tables, multiple dialects, and complex business logic), even the best models score below 50%.
+The gap between academic benchmarks and the messy reality of enterprise data warehouses is massive. On academic benchmarks like Spider (where schemas are clean, tables are few, and queries are straightforward), frontier models score above 85%. On [BIRD](https://bird-bench.github.io/) (which introduces dirty data, larger schemas, and external knowledge requirements), the best open models reach roughly 70% execution accuracy --- and on [Spider 2.0 Lite](https://spider2-sql.github.io/) (which uses real enterprise databases with hundreds of tables, multiple dialects, and complex business logic), even the best models score below 50%.
 
 The problem isn't model capability --- it's **training data**. Most open-source text-to-SQL datasets assume a "happy path": intuitive column names, perfect data types, and straightforward questions. Production SQL is different:
 
@@ -30,7 +30,7 @@ The problem isn't model capability --- it's **training data**. Most open-source 
 - **Industry-specific schemas.** Healthcare EHR tables look nothing like financial trading systems. The column names, relationships, and business logic are domain-specific.
 - **Complexity gradients.** Junior analysts write simple SELECTs; senior engineers write recursive CTEs with window functions. Training data needs the full spectrum.
 
-The key insight: **domain diversity and complexity coverage matter more than dataset size**.
+**Domain diversity and complexity coverage matter more than dataset size.**
 
 ---
 
@@ -117,7 +117,7 @@ Rather than relying on LLM creativity alone for diversity, the pipeline samples 
 | SQL complexity | 3 tiers | 89 concepts | Difficulty level (Beginner → Advanced) |
 | SQL task type | 12 categories | 94 concepts | What the query does (analytics, transformation, ...) |
 | Data quality | 5 challenges | 12 concepts | Dirty data to inject and clean |
-| Knowledge dependency | 3 categories | 8 concepts | Implicit reasoning required |
+| Knowledge dependency | 3 categories | 9 concepts | Implicit reasoning required |
 | Instruction style | 5 styles | -- | imperative, declarative, interrogative, contextual, abbreviated |
 | Linguistic register | 5 registers | -- | formal, conversational, technical, academic, direct |
 | Politeness level | 4 levels | -- | none, minimal, polite, very polite |
@@ -176,8 +176,8 @@ config.add_column(dd.SamplerColumnConfig(
         category="sql_complexity",
         values={
             "Beginner":     ["Basic SELECT Statements", "WHERE Clauses", "Simple Aggregations", ...],
-            "Intermediate": ["Window Functions", "Recursive CTEs", "Correlated Subqueries", ...],
-            "Advanced":     ["Frame Clauses", "Pivot/Unpivot", "Geospatial SQL", ...],
+            "Intermediate": ["Window Functions", "CASE Expressions", "Correlated Subqueries", ...],
+            "Advanced":     ["Recursive CTEs", "Frame Clauses", "Pivot/Unpivot", ...],
         },
     ),
 ))
@@ -450,7 +450,7 @@ This dataset was shipped in the SFT stage of **Nemotron Super v3**. On the [BIRD
 
 4. **Distractor tables teach schema linking.** Injecting semantically similar but irrelevant tables forces the model to *read* the schema instead of guessing from table names. This is the skill gap between academic benchmarks and production.
 
-5. **Per-dialect generation avoids lowest-common-denominator SQL.** Rather than generating ANSI SQL and hoping it works everywhere, the pipeline produces dialect-specific schemas and queries with appropriate syntax (`strftime` vs `DATE_SUB` vs `interval`, `REPLACE()` vs `regexp_replace`). Each dialect gets its own tailored prompts, validators, and judge prompts.
+5. **Per-dialect generation avoids lowest-common-denominator SQL.** Rather than generating ANSI SQL and hoping it works everywhere, the pipeline produces dialect-specific schemas and queries with appropriate syntax (`strftime` vs `DATE_SUB` vs `interval`). Each dialect gets its own tailored prompts, validators, and judge prompts.
 
 6. **Hard validators are non-negotiable for code.** LLM judges can assess quality, but they can't reliably detect syntax errors. Syntax validators catch parsing failures that the judge misses.
 
@@ -581,7 +581,7 @@ preview.display_sample_record()
 
 This dataset is the result of a cross-functional effort across the NeMo Data Designer and Nemotron teams at NVIDIA, combining expertise in synthetic data generation, SQL engineering, and large-scale model training.
 
-Because this pipeline is encapsulated in Data Designer, the configuration can be shared with any team --- allowing them to fork our baseline, swap in their own schemas or industry verticals, and generate a custom, high-fidelity dataset for their specific domain in hours, not months.
+Because this pipeline is encapsulated in Data Designer, the configuration can be shared with any team --- allowing them to fork our baseline, swap in their own schemas or industry verticals, and generate a custom, high-fidelity dataset for their specific domain.
 
 ---
 
