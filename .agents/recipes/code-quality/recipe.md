@@ -106,7 +106,63 @@ Known gap: `packages/data-designer-config/src/data_designer/custom_column.py`
 and `packages/data-designer-config/src/data_designer/analysis/` have been
 flagged before.
 
-### 4. TODO/FIXME/HACK aging
+### 4. Executable quality checks
+
+Run a few checks that exercise real code paths to catch regressions that
+static analysis misses. The workflow puts `.venv/bin` on PATH via
+`make install-dev`, so `python` resolves to the project venv.
+
+#### 4a. Error type hierarchy (fixed - run as written)
+
+Verify that the project's error types are importable and properly
+structured. Silent breakage here means third-party exceptions leak to users:
+
+```bash
+python -c "
+from data_designer.errors import DataDesignerError
+assert issubclass(DataDesignerError, Exception), 'DataDesignerError must be an Exception'
+print('OK: error hierarchy intact')
+" 2>&1 || echo "WARN: error hierarchy check failed"
+```
+
+#### 4b. Input validation checks (creative - vary each run)
+
+Verify the config builder rejects bad inputs rather than silently
+producing corrupt configs. **Design your own invalid inputs each run**
+to maximize coverage over time.
+
+Examples of things to test (pick 2-3 per run, and invent new ones):
+- Invalid `column_type` string (should raise)
+- `column_type='sampler'` without `sampler_type` (should raise)
+- Empty builder `.build()` (should handle gracefully)
+- Duplicate column names (should raise or deduplicate clearly)
+- Invalid sampler params (e.g., `gaussian` with negative `std`, `category`
+  with empty `values` list)
+- Column names with special characters or very long strings
+- Recently changed validators (check `git log --oneline -10 -- packages/*/src/data_designer/config/`)
+
+**API reference:**
+
+```python
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+
+# Test that invalid input is rejected (not silently accepted)
+try:
+    DataDesignerConfigBuilder().add_column(
+        name='x', column_type='nonexistent_type'
+    ).build()
+    print('FAIL: invalid column type was silently accepted')
+except Exception as e:
+    print(f'OK: invalid column type rejected ({type(e).__name__})')
+```
+
+The pattern: try something that should fail, print FAIL if it succeeds
+silently, print OK if it raises. A FAIL means a validation regression
+that could lead to silent data corruption.
+
+Report what you tested and why. Any FAIL is a critical finding.
+
+### 5. TODO/FIXME/HACK aging
 
 Inventory markers with their git blame age:
 
@@ -155,6 +211,14 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 **Coverage:** ~X% of public functions fully annotated (previous: Y%)
 
+### Executable quality checks
+
+| Check | Type | Status | Detail |
+|-------|------|--------|--------|
+| Error hierarchy | fixed | OK/FAIL | DataDesignerError is properly structured |
+| (describe input tested) | creative | OK/FAIL | (what was tested and why) |
+| ... | creative | ... | ... |
+
 ### TODO/FIXME/HACK inventory
 
 | File | Line | Marker | Age (days) | Commit |
@@ -168,6 +232,7 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 - N complexity hotspots (M trending up)
 - N exception hygiene issues (M new)
 - Type coverage: X% (delta: +/-N% from last run)
+- Executable checks: N/2 passed (any FAIL is critical)
 - N aging TODO/FIXME markers (M new)
 ```
 

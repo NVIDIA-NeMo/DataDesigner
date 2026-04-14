@@ -111,7 +111,132 @@ These should use `data_designer.lazy_heavy_imports`. Cross-reference with
 the structure recipe's findings if available in runner memory, but don't
 skip this check - it directly affects user experience.
 
-### 4. Test isolation verification
+### 4. Executable smoke checks
+
+Run lightweight checks that exercise real code paths. These catch silent
+data corruption, column registration gaps, and config wiring issues that
+static analysis misses. None of these require an LLM provider.
+
+**Important**: the workflow puts `.venv/bin` on PATH via `make install-dev`,
+so `python` resolves to the project venv with all packages installed.
+
+There are two kinds of smoke checks: **fixed canaries** that must run
+identically every time (deterministic regressions), and **creative checks**
+where you should vary the inputs each run to maximize coverage over time.
+
+#### Fixed canaries (run these exactly as written)
+
+**4a. Package import verification**
+
+```bash
+python -c "
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.engine.compiler import compile_data_designer_config
+from data_designer.interface.data_designer import DataDesigner
+print('OK: all packages import')
+"
+```
+
+If any import fails, this is a critical finding - it means the package
+layering is broken.
+
+**4b. Import performance timing**
+
+```bash
+python -c "
+import time
+start = time.monotonic()
+from data_designer.interface.data_designer import DataDesigner
+elapsed = time.monotonic() - start
+budget = 3.0
+status = 'OK' if elapsed < budget else 'FAIL'
+print(f'{status}: import took {elapsed:.2f}s (budget: {budget:.0f}s)')
+"
+```
+
+**4c. Column type registry completeness**
+
+```bash
+python -c "
+from data_designer.config.column_types import (
+    DataDesignerColumnType,
+    get_column_config_cls_from_type,
+)
+
+missing = []
+for ct in DataDesignerColumnType:
+    try:
+        cls = get_column_config_cls_from_type(ct)
+        if cls is None:
+            missing.append(ct.value)
+    except Exception as e:
+        missing.append(f'{ct.value} ({e})')
+
+if missing:
+    for m in missing:
+        print(f'FAIL: {m}')
+else:
+    print(f'OK: all {len(list(DataDesignerColumnType))} column types resolve to config classes')
+" 2>&1 || echo "WARN: registry check could not run"
+```
+
+#### Creative checks (vary these each run)
+
+For each run, **design your own** config build and validation checks. The
+goal is to exercise different code paths over time rather than testing the
+same config every day.
+
+**What to vary:**
+- **Sampler types**: pick a different mix each run. Available sampler types:
+  `uuid`, `category`, `subcategory`, `uniform`, `gaussian`, `bernoulli`,
+  `bernoulli_mixture`, `binomial`, `poisson`, `scipy`, `person_from_faker`,
+  `datetime`, `timedelta`. Try 2-5 columns per config.
+- **Column count**: sometimes build a single-column config, sometimes 8+
+- **Edge cases**: empty params where defaults should apply, extreme param
+  values (e.g., `gaussian` with `std=0`), columns with constraints
+- **Recently changed code**: check `git log --oneline -20 -- packages/` for
+  recently modified column types or sampler params, and prioritize testing
+  those
+
+**What to always check:**
+1. Config build round-trip: column count and names survive `.build()`
+2. Validation: `DataDesigner.validate(builder)` succeeds for valid configs
+3. Rejection: invalid inputs raise, not silently produce bad configs
+
+**API reference** for writing checks:
+
+```python
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.interface.data_designer import DataDesigner
+import tempfile
+
+# Build a config - use keyword args: name, column_type, sampler_type, params
+builder = (
+    DataDesignerConfigBuilder()
+    .add_column(name='id', column_type='sampler', sampler_type='uuid')
+    .add_column(name='cat', column_type='sampler', sampler_type='category',
+                params={'values': ['A', 'B', 'C']})
+)
+config = builder.build()
+
+# Verify columns survived the build
+assert len(config.columns) >= 2
+names = {c.name for c in config.columns}
+assert 'id' in names and 'cat' in names
+
+# Validate through the full stack (no LLM needed for sampler-only)
+dd = DataDesigner(artifact_path=tempfile.mkdtemp(), model_providers=[])
+dd.validate(builder)
+```
+
+Run at least 2 creative checks per audit. Document what you chose and why
+in the report (e.g., "tested poisson+datetime combo because poisson params
+were modified in commit abc1234").
+
+**Report smoke check results in a separate table.** If any check fails,
+that is a higher-priority finding than static analysis results.
+
+### 5. Test isolation verification
 
 The CI runs three separate test jobs: config-only, engine+config, and
 full stack. Check that test files respect these boundaries:
@@ -158,6 +283,24 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 | test_import_perf.py exists | yes/no |
 | Heavy top-level imports | N found |
 
+### Executable smoke checks
+
+**Fixed canaries:**
+
+| Check | Status | Detail |
+|-------|--------|--------|
+| Package imports | OK/FAIL | All three packages import cleanly |
+| Import timing | OK/FAIL | Xms (budget: 3s) |
+| Registry completeness | OK/WARN | Column types resolve to config classes |
+
+**Creative checks** (describe what you tested and why):
+
+| Check | Sampler types used | Status | Detail |
+|-------|--------------------|--------|--------|
+| Config build #1 | e.g. uuid+poisson+datetime | OK/FAIL | ... |
+| Validate #1 | ... | OK/FAIL | ... |
+| ... | ... | ... | ... |
+
 ### Test isolation
 
 | Test file | Violation |
@@ -169,6 +312,7 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 - N source files without tests (M new since last run)
 - N hollow tests detected (high confidence only)
 - Import perf: N heavy top-level imports
+- Smoke checks: N passed, M failed (list any FAILs - these are critical)
 - N test isolation violations
 ```
 
