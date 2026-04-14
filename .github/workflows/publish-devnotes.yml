@@ -38,47 +38,14 @@ jobs:
       - name: Checkout docs source and overlay devnotes
         run: |
           git checkout ${{ env.SOURCE_SHA }}
-          git checkout ${{ github.sha }} -- docs/devnotes/
+          git checkout ${{ github.sha }} -- docs/devnotes/ .github/scripts/patch-devnotes-nav.py
 
           # Patch the "Dev Notes" nav section from HEAD's mkdocs.yml into the
           # old source's mkdocs.yml. This keeps nav entries for new devnotes
           # without pulling in entries for non-devnotes pages that may not
           # exist in the old source checkout.
           git show ${{ github.sha }}:mkdocs.yml > /tmp/mkdocs-head.yml
-          python3 - <<'PYEOF'
-          import re
-
-          def extract_devnotes_block(text):
-              """Extract the '  - Dev Notes:' block including all indented children."""
-              lines = text.splitlines(keepends=True)
-              start = None
-              for i, line in enumerate(lines):
-                  if re.match(r'^  - Dev Notes:', line):
-                      start = i
-                      break
-              if start is None:
-                  raise SystemExit("Dev Notes nav section not found")
-              end = start + 1
-              while end < len(lines):
-                  # Stop at next top-level nav entry (2-space indent) or non-nav section
-                  if lines[end].strip() and not lines[end].startswith('      ') and not lines[end].startswith('      #'):
-                      break
-                  end += 1
-              return start, end, lines
-
-          with open("/tmp/mkdocs-head.yml") as f:
-              head_start, head_end, head_lines = extract_devnotes_block(f.read())
-          head_block = head_lines[head_start:head_end]
-
-          with open("mkdocs.yml") as f:
-              old_text = f.read()
-          old_start, old_end, old_lines = extract_devnotes_block(old_text)
-          new_lines = old_lines[:old_start] + head_block + old_lines[old_end:]
-
-          with open("mkdocs.yml", "w") as f:
-              f.writelines(new_lines)
-          print(f"Patched Dev Notes nav: replaced lines {old_start+1}-{old_end} with {len(head_block)} lines from HEAD")
-          PYEOF
+          python3 .github/scripts/patch-devnotes-nav.py /tmp/mkdocs-head.yml mkdocs.yml
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
