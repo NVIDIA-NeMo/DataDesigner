@@ -252,10 +252,23 @@ def test_consolidate_kwargs_telemetry_disabled(stub_model_configs: list[Any], st
 def test_consolidate_kwargs_user_x_title_override(
     stub_model_configs: list[Any], stub_model_facade: ModelFacade
 ) -> None:
-    """User-supplied X-Title via provider extra_headers takes precedence over framework default."""
+    """User-supplied X-Title takes precedence over the framework default."""
     stub_model_facade.model_provider.extra_headers = {"X-Title": "My Custom App"}
     result = stub_model_facade.consolidate_kwargs()
     assert result["extra_headers"]["X-Title"] == "My Custom App"
+
+    stub_model_facade.model_provider.extra_headers = None
+    result = stub_model_facade.consolidate_kwargs(extra_headers={"X-Title": "Caller App"})
+    assert result["extra_headers"]["X-Title"] == "Caller App"
+
+
+def test_consolidate_kwargs_with_explicit_none_extra_headers(
+    stub_model_configs: list[Any], stub_model_facade: ModelFacade
+) -> None:
+    """Explicit None extra_headers does not break provider merges or framework attribution."""
+    stub_model_facade.model_provider.extra_headers = {"hello": "world"}
+    result = stub_model_facade.consolidate_kwargs(extra_headers=None)
+    assert result["extra_headers"] == {"X-Title": "NeMo Data Designer", "hello": "world"}
 
 
 @pytest.mark.parametrize(

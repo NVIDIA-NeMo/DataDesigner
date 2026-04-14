@@ -158,11 +158,11 @@ class ModelFacade:
         if self.model_provider.extra_body:
             kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
         if self.model_provider.extra_headers:
-            kwargs["extra_headers"] = {**kwargs.get("extra_headers", {}), **self.model_provider.extra_headers}
+            kwargs["extra_headers"] = {**(kwargs.get("extra_headers") or {}), **self.model_provider.extra_headers}
         # Inject framework-level attribution header when telemetry is enabled.
         # Applied last so that user-supplied or provider-level headers take precedence.
         if TELEMETRY_ENABLED:
-            headers = kwargs.get("extra_headers", {})
+            headers = kwargs.get("extra_headers") or {}
             if "X-Title" not in headers:
                 kwargs["extra_headers"] = {"X-Title": ATTRIBUTION_TITLE, **headers}
         return kwargs
