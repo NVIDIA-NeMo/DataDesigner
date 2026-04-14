@@ -1209,3 +1209,54 @@ def test_find_completed_row_group_ids_used_for_initial_total_batches(
 
     # Already complete based on filesystem count (2 files ≥ 2 row groups) — no generation needed
     mock_after.assert_not_called()
+
+
+def test_initial_actual_num_records_from_filesystem_in_crash_window(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """initial_actual_num_records is derived from filesystem, not stale metadata.
+
+    Crash window scenario: row groups 0 and 1 are on disk but metadata only records
+    num_completed_batches=1 / actual_num_records=2 (write_metadata crashed after
+    the second row group was written but before it updated the file).
+
+    With 6 records and buffer_size=2 (3 row groups total), the correct
+    initial_actual_num_records is 4 (groups 0+1), not 2 (stale metadata value).
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    # Metadata lags — says only 1 batch completed with 2 records
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+    # Filesystem truth — 2 row groups already written (ids 0 and 1)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        captured["initial_total_num_batches"] = kwargs.get("initial_total_num_batches", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    # asyncio and ensure_async_engine_loop are lazy-imported in dataset_builder only when
+    # DATA_DESIGNER_ASYNC_ENGINE=True at module load time.  Inject them for the duration
+    # of this test so _build_async can proceed past the early-return path.
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=6, resume=True)
+
+    # Filesystem says 2 groups done (IDs 0+1) → 2+2 = 4 records, not stale metadata value 2
+    assert captured["initial_actual_num_records"] == 4
+    assert captured["initial_total_num_batches"] == 2

@@ -408,13 +408,16 @@ class DatasetBuilder:
         initial_total_num_batches = 0
 
         if resume:
-            state = self._load_resume_state(num_records, buffer_size)
+            self._load_resume_state(num_records, buffer_size)
             completed_ids = self._find_completed_row_group_ids()
             skip_row_groups = frozenset(completed_ids)
-            initial_actual_num_records = state.actual_num_records
-            # Use filesystem count as source of truth — metadata may lag by one row group
-            # if a crash occurred between move_partial_result_to_final_file_path and write_metadata.
+            # Use filesystem as source of truth for both counters — metadata may lag by one
+            # row group if a crash occurred between move_partial_result_to_final_file_path
+            # and write_metadata.
             initial_total_num_batches = len(completed_ids)
+            initial_actual_num_records = sum(
+                min(buffer_size, num_records - rg_id * buffer_size) for rg_id in completed_ids
+            )
             self.artifact_storage.clear_partial_results()
 
             total_row_groups = -(-num_records // buffer_size)  # ceiling division
@@ -427,7 +430,7 @@ class DatasetBuilder:
 
             logger.info(
                 f"▶️ Resuming async run: {len(completed_ids)} of {total_row_groups} row group(s) already "
-                f"complete ({state.actual_num_records} records), skipping them."
+                f"complete ({initial_actual_num_records} records), skipping them."
             )
 
         def finalize_row_group(rg_id: int) -> None:
