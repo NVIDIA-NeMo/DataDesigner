@@ -6,6 +6,7 @@ from typing import Literal
 import pytest
 from pydantic import ValidationError
 
+from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     EmbeddingColumnConfig,
     ExpressionColumnConfig,
@@ -600,3 +601,47 @@ def test_allow_resize_inherited_by_subclasses() -> None:
     """Subclasses inherit allow_resize from SingleColumnConfig."""
     assert StubColumnConfig(name="test").allow_resize is False
     assert StubColumnConfig(name="test", allow_resize=True).allow_resize is True
+
+
+@pytest.mark.parametrize(
+    ("dtype", "raw_value", "expected_value", "expected_type"),
+    [
+        pytest.param("float", 0, 0.0, float, id="int-to-float"),
+        pytest.param("int", 0.0, 0, int, id="float-to-int"),
+        pytest.param("str", 0.0, "0.0", str, id="float-to-str"),
+        pytest.param("str", 42, "42", str, id="int-to-str"),
+        pytest.param("bool", 1, True, bool, id="int-to-bool"),
+        pytest.param("float", "3.14", 3.14, float, id="str-to-float"),
+    ],
+)
+def test_expression_column_skip_value_coerced_to_dtype(
+    dtype: str, raw_value: object, expected_value: object, expected_type: type
+) -> None:
+    config = ExpressionColumnConfig(
+        name="col",
+        expr="{{ price }}",
+        dtype=dtype,
+        skip=SkipConfig(when="{{ flag }}", value=raw_value),
+    )
+    assert config.skip.value == expected_value
+    assert type(config.skip.value) is expected_type
+
+
+def test_expression_column_skip_value_none_left_alone() -> None:
+    config = ExpressionColumnConfig(
+        name="col",
+        expr="{{ price }}",
+        dtype="float",
+        skip=SkipConfig(when="{{ flag }}"),
+    )
+    assert config.skip.value is None
+
+
+def test_expression_column_skip_value_incompatible_raises() -> None:
+    with pytest.raises(ValidationError, match="cannot be converted"):
+        ExpressionColumnConfig(
+            name="col",
+            expr="{{ price }}",
+            dtype="int",
+            skip=SkipConfig(when="{{ flag }}", value="not-a-number"),
+        )
