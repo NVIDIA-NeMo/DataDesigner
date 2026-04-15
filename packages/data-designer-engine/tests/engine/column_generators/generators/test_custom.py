@@ -476,7 +476,7 @@ class TestAsyncBridgedModelFacade:
     """Tests for _AsyncBridgedModelFacade proxy used by custom columns with model access."""
 
     def test_proxy_transparent_in_sync_mode(self, stub_resource_provider, stub_model_facade) -> None:
-        """Proxy passes through generate(), forwards attributes, and is used by _build_models_dict."""
+        """Proxy passes through generate(), forwards attributes; _build_models_dict returns raw facades."""
         from data_designer.engine.column_generators.generators.custom import _AsyncBridgedModelFacade
 
         @custom_column_generator(required_columns=["input"], model_aliases=["test-model"])
@@ -491,16 +491,15 @@ class TestAsyncBridgedModelFacade:
             resource_provider=stub_resource_provider,
         )
 
+        # _build_models_dict returns raw facades (wrapping happens at the call site)
         models = generator._build_models_dict()
-        proxy = models["test-model"]
-        assert isinstance(proxy, _AsyncBridgedModelFacade)
+        assert not isinstance(models["test-model"], _AsyncBridgedModelFacade)
 
-        # generate() passes through to the underlying facade (positional and keyword args)
+        # Proxy itself passes through generate() and forwards attributes
+        proxy = _AsyncBridgedModelFacade(stub_model_facade)
         result, _ = proxy.generate("test", parser=str)
         assert result == "Generated summary text"
         stub_model_facade.generate.assert_called_once_with("test", parser=str)
-
-        # Other attributes are forwarded
         assert proxy.model_alias == "test_model"
 
     def test_bridges_to_agenerate_on_sync_client_error(self) -> None:

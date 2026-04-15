@@ -324,17 +324,13 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         elif len(params) == 2:
             return self.config.generator_function(data, self.config.generator_params)
         else:
-            models = self._build_models_dict()
+            models = {k: _AsyncBridgedModelFacade(v) for k, v in self._build_models_dict().items()}
             return self.config.generator_function(data, self.config.generator_params, models)
 
     def _build_models_dict(self) -> dict[str, Any]:
-        """Build a dict of ModelFacade instances from model_aliases.
-
-        Facades are wrapped in ``_AsyncBridgedModelFacade`` so that sync custom
-        columns can call ``model.generate()`` transparently under the async engine.
-        """
+        """Build a dict of ModelFacade instances from model_aliases."""
         return {
-            alias: _AsyncBridgedModelFacade(self.resource_provider.model_registry.get_model(model_alias=alias))
+            alias: self.resource_provider.model_registry.get_model(model_alias=alias)
             for alias in self.config.model_aliases
         }
 
