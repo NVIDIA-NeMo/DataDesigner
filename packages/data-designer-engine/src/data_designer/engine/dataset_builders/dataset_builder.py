@@ -35,8 +35,17 @@ from data_designer.engine.dataset_builders.multi_column_configs import MultiColu
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
+from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
+from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
+from data_designer.engine.dataset_builders.utils.skip_tracker import (
+    SKIPPED_COLUMNS_RECORD_KEY,
+    apply_skip_to_record,
+    prepare_records_for_skip_metadata_round_trip,
+    restore_skip_metadata,
+    strip_skip_metadata_from_records,
+)
 from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
@@ -76,7 +85,6 @@ if DATA_DESIGNER_ASYNC_ENGINE:
         ensure_async_engine_loop,
     )
     from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
-    from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
     from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
 
@@ -97,6 +105,7 @@ class DatasetBuilder:
         self._cell_resize_mode = False
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
+        self._graph: ExecutionGraph | None = None
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -137,6 +146,10 @@ class DatasetBuilder:
         return configs
 
     @functools.cached_property
+    def single_column_config_by_name(self) -> dict[str, ColumnConfigT]:
+        return {config.name: config for config in self.single_column_configs}
+
+    @functools.cached_property
     def llm_generated_column_configs(self) -> list[ColumnConfigT]:
         return [config for config in self.single_column_configs if column_type_is_model_generated(config.column_type)]
 
@@ -168,7 +181,7 @@ class DatasetBuilder:
             mode = StorageMode.DISK if save_multimedia_to_disk else StorageMode.DATAFRAME
             self.artifact_storage.set_media_storage_mode(mode)
 
-        generators = self._initialize_generators()
+        generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
@@ -202,7 +215,7 @@ class DatasetBuilder:
         if self._has_image_columns():
             self.artifact_storage.set_media_storage_mode(StorageMode.DATAFRAME)
 
-        generators = self._initialize_generators()
+        generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
         if DATA_DESIGNER_ASYNC_ENGINE:
@@ -409,13 +422,23 @@ class DatasetBuilder:
         """Check if config has any image generation columns."""
         return any(col.column_type == DataDesignerColumnType.IMAGE for col in self.single_column_configs)
 
-    def _initialize_generators(self) -> list[ColumnGenerator]:
-        return [
+    def _initialize_generators_and_graph(self) -> tuple[list[ColumnGenerator], ExecutionGraph]:
+        generators = [
             self._registry.column_generators.get_for_config_type(type(config))(
                 config=config, resource_provider=self._resource_provider
             )
             for config in self._column_configs
         ]
+        strategies: dict[str, GenerationStrategy] = {}
+        for gen in generators:
+            strategy = gen.get_generation_strategy()
+            if isinstance(gen.config, MultiColumnConfig):
+                for sub in gen.config.columns:
+                    strategies[sub.name] = strategy
+            else:
+                strategies[gen.config.name] = strategy
+        graph = ExecutionGraph.create(self._column_configs, strategies)
+        return generators, graph
 
     def _write_builder_config(self) -> None:
         self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
@@ -500,12 +523,137 @@ class DatasetBuilder:
             emoji = "💥" if new_count > original_count else "✂️"
             logger.info(f"{emoji} Column '{column_name}' resized batch: {original_count} -> {new_count} records.")
 
+    def _require_graph(self) -> ExecutionGraph:
+        """Return the initialized execution graph for the current run."""
+        graph = self._graph
+        if graph is None:
+            raise DatasetGenerationError("Execution graph accessed before generator initialization.")
+        return graph
+
+    def _column_can_skip(self, column_name: str) -> bool:
+        """Fast check: can *column_name* ever be skipped (expression gate or propagation)?
+
+        Returns ``False`` for ``allow_resize=True`` columns because 1:N generators
+        change the row count — the skip-aware merge path assumes a 1:1 mapping
+        between input and output rows and would raise on the row-count check.
+        """
+        if self._graph is None:
+            return False
+        config = self.single_column_config_by_name.get(column_name)
+        if config is not None and config.allow_resize:
+            return False
+        if self._graph.get_skip_config(column_name) is not None:
+            return True
+        return self._graph.should_propagate_skip(column_name) and bool(self._graph.get_required_columns(column_name))
+
+    def _should_skip_cell(self, column_name: str, record: dict) -> bool:
+        """Decide whether a single cell should be skipped (propagation or expression gate)."""
+        skip_config = self._graph.get_skip_config(column_name)
+        return should_skip_column_for_record(
+            record,
+            propagate_skip=self._graph.should_propagate_skip(column_name),
+            required_columns=self._graph.get_required_columns(column_name),
+            skip_config_when=skip_config.when if skip_config is not None else None,
+        )
+
+    def _write_skip_to_record(self, column_name: str, record: dict) -> None:
+        """Write skip metadata and the skip value into *record* in-place."""
+        skip_config = self._graph.get_skip_config(column_name)
+        skip_value = skip_config.value if skip_config is not None else None
+        apply_skip_to_record(
+            record,
+            column_name=column_name,
+            cell_value=skip_value,
+            side_effect_columns=self._graph.get_side_effect_columns(column_name),
+        )
+
     def _run_full_column_generator(self, generator: ColumnGenerator) -> None:
+        column_name = generator.config.name if not isinstance(generator.config, MultiColumnConfig) else None
+
+        if column_name is not None and self._column_can_skip(column_name):
+            self._run_full_column_generator_with_skip(generator, column_name)
+        else:
+            self._run_full_column_generator_without_skip(generator)
+
+    def _run_full_column_generator_without_skip(self, generator: ColumnGenerator) -> None:
+        """Run the generator on the full batch, preserving skip metadata across the replace."""
         original_count = self.batch_manager.num_records_in_buffer
-        df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
-        allow_resize = getattr(generator.config, "allow_resize", False)
+        allow_resize = generator.config.allow_resize if not isinstance(generator.config, MultiColumnConfig) else False
+        old_records = [record for _, record in self.batch_manager.iter_current_batch()]
+        input_records, restore_context = prepare_records_for_skip_metadata_round_trip(old_records)
+
+        df = generator.generate(lazy.pd.DataFrame(input_records))
         self._log_resize_if_changed(self._column_display_name(generator.config), original_count, len(df), allow_resize)
-        self.batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=allow_resize)
+        new_records = df.to_dict(orient="records")
+        if restore_context is not None:
+            try:
+                restore_skip_metadata(new_records, context=restore_context, allow_resize=allow_resize)
+            except ValueError as exc:
+                raise DatasetGenerationError(
+                    f"Unable to restore skip provenance after FULL_COLUMN generation for "
+                    f"{self._column_display_name(generator.config)}: {exc}"
+                ) from exc
+        self.batch_manager.replace_buffer(new_records, allow_resize=allow_resize)
+
+    def _run_full_column_generator_with_skip(self, generator: ColumnGenerator, column_name: str) -> None:
+        """Run a FULL_COLUMN generator with per-row skip evaluation and merge-back.
+
+        Only reachable when ``_column_can_skip`` is True, which excludes
+        ``allow_resize=True`` columns, so resize handling is not needed here.
+        """
+        active_records: list[dict] = []
+        records_with_skip_status: list[tuple[bool, dict]] = []
+        has_skipped = False
+        for _, record in self.batch_manager.iter_current_batch():
+            skipped = self._should_skip_cell(column_name, record)
+            if skipped:
+                has_skipped = True
+                self._write_skip_to_record(column_name, record)
+            else:
+                active_records.append(record)
+            records_with_skip_status.append((skipped, record))
+
+        if not has_skipped:
+            # No rows were actually skipped — use the normal path to avoid the
+            # overhead of stripping metadata, building a separate active DataFrame,
+            # and merging results back.
+            self._run_full_column_generator_without_skip(generator)
+            return
+
+        batch = self._merge_skipped_and_generated(generator, column_name, active_records, records_with_skip_status)
+        self.batch_manager.replace_buffer(batch, allow_resize=False)
+
+    def _merge_skipped_and_generated(
+        self,
+        generator: ColumnGenerator,
+        column_name: str,
+        active_records: list[dict],
+        records_with_skip_status: list[tuple[bool, dict]],
+    ) -> list[dict]:
+        """Generate only for active (non-skipped) records and merge back with skipped ones."""
+        if not active_records:
+            return [record for _, record in records_with_skip_status]
+
+        active_df = lazy.pd.DataFrame(strip_skip_metadata_from_records(active_records))
+        result_records = generator.generate(active_df).to_dict(orient="records")
+        if len(result_records) != len(active_records):
+            raise DatasetGenerationError(
+                f"Generator for '{column_name}' returned {len(result_records)} rows "
+                f"but {len(active_records)} active (non-skipped) records were expected."
+            )
+
+        result_iter = iter(result_records)
+        batch: list[dict] = []
+        for skipped, record in records_with_skip_status:
+            if skipped:
+                batch.append(record)
+                continue
+            gen_result = next(result_iter)
+            prior_skipped = record.get(SKIPPED_COLUMNS_RECORD_KEY)
+            if prior_skipped is not None:
+                gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
+            batch.append(gen_result)
+        return batch
 
     def _run_model_health_check_if_needed(self) -> None:
         model_aliases: set[str] = set()
@@ -615,16 +763,23 @@ class DatasetBuilder:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
         bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
             executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
-            work_items = [
-                (
-                    generator.agenerate(record),
-                    {"index": i, "column_name": generator.config.name},
+            work_items: list[tuple[Any, dict[str, Any]]] = []
+            for i, record in self.batch_manager.iter_current_batch():
+                if can_skip and self._should_skip_cell(generator.config.name, record):
+                    self._write_skip_to_record(generator.config.name, record)
+                    self.batch_manager.update_record(i, record)
+                    progress_tracker.record_skipped()
+                    continue
+                work_items.append(
+                    (
+                        generator.agenerate(record),
+                        {"index": i, "column_name": generator.config.name},
+                    )
                 )
-                for i, record in self.batch_manager.iter_current_batch()
-            ]
             executor.run(work_items)
             self._finalize_fan_out(progress_tracker)
 
@@ -632,10 +787,16 @@ class DatasetBuilder:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
         bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
             with ConcurrentThreadExecutor(max_workers=max_workers, **executor_kwargs) as executor:
                 for i, record in self.batch_manager.iter_current_batch():
+                    if can_skip and self._should_skip_cell(generator.config.name, record):
+                        self._write_skip_to_record(generator.config.name, record)
+                        self.batch_manager.update_record(i, record)
+                        progress_tracker.record_skipped()
+                        continue
                     executor.submit(
                         lambda record: generator.generate(record),
                         record,
