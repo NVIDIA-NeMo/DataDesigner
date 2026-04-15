@@ -543,7 +543,7 @@ def build_config(model_alias: str, dialect: str = "sqlite") -> dd.DataDesignerCo
             config_builder.add_column(
                 dd.ExpressionColumnConfig(
                     name=f"{prefix}_{rubric}_score",
-                    expr=f"{{{{ {judge_name}.{rubric}.score if {judge_name}.{rubric}.score else ' ' }}}}",
+                    expr=f"{{{{ {judge_name}.{rubric}.score if {judge_name}.{rubric}.score is not none else '' }}}}",
                 )
             )
 
