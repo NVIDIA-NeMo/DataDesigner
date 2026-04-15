@@ -324,7 +324,7 @@ analysis.to_report()
 #
 # Now that you've seen the basics of Data Designer, check out the following notebooks to learn more about:
 #
-# - [Structured outputs and jinja expressions](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)
+# - [Structured outputs, jinja expressions, and conditional generation](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)
 #
 # - [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
 #

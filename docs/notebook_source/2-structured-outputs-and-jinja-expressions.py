@@ -13,11 +13,11 @@
 # ---
 
 # %% [markdown]
-# # 🎨 Data Designer Tutorial: Structured Outputs and Jinja Expressions
+# # 🎨 Data Designer Tutorial: Structured Outputs, Jinja Expressions, and Conditional Generation
 #
 # #### 📚 What you'll learn
 #
-# In this notebook, we will continue our exploration of Data Designer, demonstrating more advanced data generation using structured outputs and Jinja expressions.
+# In this notebook, we will continue our exploration of Data Designer, demonstrating more advanced data generation using structured outputs, Jinja expressions, and conditional generation with `skip.when`.
 #
 # If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
@@ -306,6 +306,92 @@ config_builder.add_column(
 data_designer.validate(config_builder)
 
 # %% [markdown]
+# ## 🚦 Conditional generation with `skip.when`
+#
+# So far, every column is generated for every row. But sometimes an expensive LLM column only makes sense
+# for a subset of rows — for example, a detailed complaint analysis is only useful when the review is negative.
+#
+# Data Designer lets you **skip** column generation on a per-row basis using `SkipConfig`.
+# Skipped rows receive `None` by default, but you can provide a sentinel value with
+# `skip=dd.SkipConfig(when="...", value="N/A")` to write a specific value instead.
+#
+# There are three patterns to know:
+#
+# | Pattern | How | Effect |
+# |---|---|---|
+# | **Expression gate** | `skip=dd.SkipConfig(when="...")` | Skip this column when the Jinja2 expression is truthy |
+# | **Skip propagation** (default) | Downstream column depends on a skipped column | Automatically skipped too (`propagate_skip=True` by default) |
+# | **Propagation opt-out** | `propagate_skip=False` on the downstream column | Always generates, even if an upstream was skipped |
+#
+
+# %% [markdown]
+# **Pattern 1 — Expression gate.** Only generate a detailed complaint analysis when the customer gave a low rating (1 or 2 stars).
+# Rows where the rating is 3 or higher will get `None` for this column.
+#
+
+# %%
+config_builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="complaint_analysis",
+        model_alias=MODEL_ALIAS,
+        prompt=(
+            "A customer reviewed '{{ product.name }}' ({{ product_category }} / {{ product_subcategory }}).\n\n"
+            "Review: {{ customer_review.review }}\n"
+            "Rating: {{ customer_review.rating }}/5\n"
+            "Mood: {{ customer_review.customer_mood }}\n\n"
+            "Write a short root-cause analysis of why this customer is unhappy "
+            "and suggest one concrete improvement the product team could make."
+        ),
+        skip=dd.SkipConfig(when="{{ customer_review.rating > 2 }}"),
+    )
+)
+
+# %% [markdown]
+# **Pattern 2 — Skip propagation.** `action_items` depends on `complaint_analysis`.
+# When `complaint_analysis` is skipped, `action_items` auto-skips too because
+# `propagate_skip` defaults to `True`.
+#
+
+# %%
+config_builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="action_items",
+        model_alias=MODEL_ALIAS,
+        prompt=(
+            "Based on this complaint analysis:\n"
+            "{{ complaint_analysis }}\n\n"
+            "List 2-3 concrete action items for the product team."
+        ),
+    )
+)
+
+# %% [markdown]
+# **Pattern 3 — Propagation opt-out.** `review_summary` also depends on `complaint_analysis`,
+# but sets `propagate_skip=False` so it always generates. The prompt uses a Jinja conditional
+# to handle the case where `complaint_analysis` is `None`.
+#
+
+# %%
+config_builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="review_summary",
+        model_alias=MODEL_ALIAS,
+        propagate_skip=False,
+        prompt=(
+            "Summarize this product review in one sentence:\n"
+            "Product: {{ product.name }}\n"
+            "Rating: {{ customer_review.rating }}/5\n"
+            "Review: {{ customer_review.review }}\n"
+            "{% if complaint_analysis %}"
+            "Complaint analysis: {{ complaint_analysis }}\n"
+            "{% endif %}"
+        ),
+    )
+)
+
+data_designer.validate(config_builder)
+
+# %% [markdown]
 # ### 🔁 Iteration is key – preview the dataset!
 #
 # 1. Use the `preview` method to generate a sample of records quickly.
@@ -322,10 +408,14 @@ preview = data_designer.preview(config_builder, num_records=2)
 
 # %%
 # Run this cell multiple times to cycle through the 2 preview records.
+# Look for rows where complaint_analysis and action_items are None (skipped)
+# vs rows where they were generated (low-rated reviews).
 preview.display_sample_record()
 
 # %%
 # The preview dataset is available as a pandas DataFrame.
+# Notice that complaint_analysis, action_items, and review_summary columns
+# reflect the skip behavior: None for skipped rows, generated text otherwise.
 preview.dataset
 
 # %% [markdown]

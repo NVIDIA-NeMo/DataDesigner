@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import deque
+from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.dataset_builders.multi_column_configs import (
@@ -16,6 +17,9 @@ from data_designer.engine.dataset_builders.utils.errors import ConfigCompilation
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from data_designer.config.base import SkipConfig
 
 
 class ExecutionGraph:
@@ -34,6 +38,10 @@ class ExecutionGraph:
         self._columns: list[str] = []
         self._topological_order_cache: list[str] | None = None
         self._upstream_by_strategy_cache: dict[str, tuple[list[str], list[str]]] = {}
+        self._required_columns: dict[str, list[str]] = {}
+        self._skip_configs: dict[str, SkipConfig] = {}
+        self._propagate_skip: dict[str, bool] = {}
+        self._producer_to_side_effect_map: dict[str, list[str]] = {}
 
     @property
     def columns(self) -> list[str]:
@@ -55,7 +63,7 @@ class ExecutionGraph:
         """
         graph = cls()
 
-        # First pass: register all columns, strategies, and side-effect mappings
+        # First pass: register all columns, strategies, side-effect mappings, and skip metadata
         for config in column_configs:
             if isinstance(config, MultiColumnConfig):
                 sub_configs = config.columns
@@ -69,9 +77,13 @@ class ExecutionGraph:
                 for se_col in sub.side_effect_columns:
                     graph.set_side_effect(se_col, name)
 
+                graph.set_propagate_skip(name, sub.propagate_skip)
+                if sub.skip is not None:
+                    graph.set_skip_config(name, sub.skip)
+
         known_columns = set(graph.columns)
 
-        # Second pass: build edges
+        # Second pass: build edges (required_columns + skip.columns)
         for config in column_configs:
             if isinstance(config, MultiColumnConfig):
                 sub_configs = config.columns
@@ -80,6 +92,7 @@ class ExecutionGraph:
 
             for sub in sub_configs:
                 name = sub.name
+                resolved_required: list[str] = []
                 for req in sub.required_columns:
                     resolved = graph.resolve_side_effect(req)
                     if resolved not in known_columns:
@@ -87,8 +100,23 @@ class ExecutionGraph:
                             f"Column '{name}' requires '{req}' (resolved to '{resolved}') which is not a known producer."
                         )
                     if resolved == name:
-                        continue  # skip self-dependency
+                        continue
+                    if resolved not in resolved_required:
+                        resolved_required.append(resolved)
                     graph.add_edge(upstream=resolved, downstream=name)
+                graph.set_required_columns(name, resolved_required)
+
+                if sub.skip is not None:
+                    for skip_col in sub.skip.columns:
+                        resolved = graph.resolve_side_effect(skip_col)
+                        if resolved not in known_columns:
+                            raise ValueError(
+                                f"Column '{name}' skip.when references '{skip_col}' "
+                                f"(resolved to '{resolved}') which is not a known producer."
+                            )
+                        if resolved == name:
+                            continue
+                        graph.add_edge(upstream=resolved, downstream=name)
 
         # Validate acyclicity
         graph.get_topological_order()
@@ -122,6 +150,19 @@ class ExecutionGraph:
                 f"Use distinct side-effect column names for each pipeline stage."
             )
         self._side_effect_map[side_effect_col] = producer
+        self._producer_to_side_effect_map.setdefault(producer, []).append(side_effect_col)
+
+    def set_required_columns(self, column: str, required: list[str]) -> None:
+        """Store producer-resolved ``required_columns`` for skip propagation."""
+        self._required_columns[column] = required
+
+    def set_propagate_skip(self, column: str, propagate: bool) -> None:
+        """Store whether *column* should auto-skip when an upstream was skipped."""
+        self._propagate_skip[column] = propagate
+
+    def set_skip_config(self, column: str, skip_config: SkipConfig) -> None:
+        """Attach a ``SkipConfig`` to *column*."""
+        self._skip_configs[column] = skip_config
 
     def resolve_side_effect(self, column: str) -> str:
         """Resolve a column name through the side-effect map.
@@ -140,6 +181,22 @@ class ExecutionGraph:
     def get_downstream_columns(self, column: str) -> set[str]:
         """Columns that depend on *column*."""
         return set(self._downstream.get(column, set()))
+
+    def get_required_columns(self, column: str) -> list[str]:
+        """Producer-resolved ``required_columns`` for *column* (data dependencies only)."""
+        return list(self._required_columns.get(column, []))
+
+    def get_skip_config(self, column: str) -> SkipConfig | None:
+        """Return the ``SkipConfig`` for *column*, or ``None`` if not configured."""
+        return self._skip_configs.get(column)
+
+    def should_propagate_skip(self, column: str) -> bool:
+        """Whether *column* auto-skips when an upstream was skipped."""
+        return self._propagate_skip.get(column, True)
+
+    def get_side_effect_columns(self, column: str) -> list[str]:
+        """Return side-effect column names produced by *column*."""
+        return list(self._producer_to_side_effect_map.get(column, []))
 
     def get_strategy(self, column: str) -> GenerationStrategy:
         return self._strategies[column]
