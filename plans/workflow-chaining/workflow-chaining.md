@@ -4,25 +4,30 @@ authors:
   - amanoel
 ---
 
-# Plan: Workflow chaining and `allow_resize` removal
+# Plan: Workflow chaining
 
 ## Problem
 
 DataDesigner workflows are self-contained: one config, one `create()` call, one output. There is no first-class way to combine workflows in sequence, where the output of one feeds the input of the next. Users who need this must manually wire `DataFrameSeedSource` between calls.
 
-Separately, the `allow_resize` flag on column configs lets a generator change the row count mid-generation. This works in the sync engine via in-place buffer replacement, but is fundamentally incompatible with the async engine's fixed-size `CompletionTracker` grid. The async engine currently rejects `allow_resize=True` with a validation error. Pre-batch processors that resize have a similar problem: the async path handles shrinking accidentally (via drop-marking), but expansion is silently ignored.
+This matters for several use cases:
 
-These are the same problem viewed from different angles: the need to change row counts between generation steps.
+- **Filter-then-enrich**: Generate candidates, filter to high-quality rows, then generate detailed content from survivors. The second stage's row count depends on the first stage's filter output.
+- **Explode**: Generate a small set of seed entities (e.g., 100 personas), then generate many records from each (e.g., 1000 conversations). The seed reader's cycling handles the expansion, but the user must manually wire stages.
+- **Generate-then-judge**: Generate a dataset, then run a separate LLM-as-judge pass with different models or stricter prompts. Iterating on the judging config shouldn't require re-generating the base data.
+- **Multi-turn construction**: Each conversation turn has a different prompt structure and possibly a different model. Composing these as sequential stages is more natural than a single flat config.
 
 ## Proposed solution
 
-Replace the in-place resize mechanism with **workflow chaining**: a thin orchestration layer that sequences multiple generation stages, passing each stage's output as the next stage's seed dataset.
+Add **workflow chaining**: a thin orchestration layer that sequences multiple generation stages, passing each stage's output as the next stage's seed dataset. This is the primary deliverable.
 
-This is a three-part change:
+As a secondary benefit, chaining also enables the removal of `allow_resize` and simplification of the engine's resize handling.
 
-1. **Remove `allow_resize`** from the column config and all engine code that supports it.
-2. **Disallow row-count changes in pre-batch processors** (fail-fast if the processor returns a different number of rows).
-3. **Add a `Pipeline` class** in the interface layer that auto-chains stages, with support for explicit multi-stage configs.
+### Secondary benefit: `allow_resize` removal
+
+The `allow_resize` flag on column configs lets a generator change the row count mid-generation. This works in the sync engine but is fundamentally incompatible with the async engine's fixed-size `CompletionTracker` grid (currently rejected with a validation error). Pre-batch processors that resize have a similar problem.
+
+With chaining in place, resize becomes a between-stage concern rather than a mid-generation concern. This lets us remove `allow_resize` and the associated engine complexity, and disallow row-count changes in pre-batch processors. Users who need resize use a pipeline with a stage boundary at the resize point.
 
 ### Why chaining instead of fixing async resize
 
@@ -30,31 +35,7 @@ The async scheduler's `CompletionTracker` pre-allocates a (row_group x row_index
 
 ## Design
 
-### Part 1: Remove `allow_resize`
-
-**Config changes** (`data-designer-config`):
-
-- Remove `allow_resize: bool = False` from `SingleColumnConfig` (or its base class `ColumnConfigBase`).
-- Deprecation: keep the field for one release cycle with a deprecation warning, then remove.
-
-**Engine changes** (`data-designer-engine`):
-
-- Remove `_cell_resize_mode`, `_cell_resize_results`, and the resize branch in `_finalize_fan_out()` from `DatasetBuilder`.
-- Remove `allow_resize` parameter from `DatasetBatchManager.replace_buffer()`.
-- Remove `_validate_async_compatibility()` (no longer needed - nothing to reject).
-- Simplify `_run_full_column_generator()` to always enforce row-count invariance.
-
-**Migration path**: Users with `allow_resize=True` columns split their config into a pipeline with a stage boundary at the resize column. The resize column becomes the last column of its stage, and downstream columns move to the next stage.
-
-### Part 2: Fail-fast on pre-batch processor resize
-
-In `ProcessorRunner.run_pre_batch()` and `run_pre_batch_on_df()`, raise `DatasetProcessingError` if the returned DataFrame has a different row count than the input.
-
-This applies to both sync and async paths. Users who need to filter or expand between seeds and generation use the pipeline's between-stage callback instead.
-
-For users who need programmatic filtering at the seed boundary, a seed reader plugin is the escape hatch (the seed reader can filter/transform before the engine ever sees the data).
-
-### Part 3: Pipeline class
+### Part 1: Pipeline class
 
 A new `Pipeline` class in `data_designer.interface` that orchestrates multi-stage generation.
 
@@ -145,6 +126,32 @@ The connection to #525: chaining gives coarse (stage-level) checkpointing for fr
 - `num_records` requested vs actual per stage
 - Which stage's output seeded the next
 - Timestamp and duration per stage
+
+### Part 2: Remove `allow_resize`
+
+With the pipeline in place, `allow_resize` is no longer needed as an engine-internal mechanism. Resize becomes a between-stage concern.
+
+**Config changes** (`data-designer-config`):
+
+- Remove `allow_resize: bool = False` from `SingleColumnConfig` (or its base class `ColumnConfigBase`).
+- Deprecation: keep the field for one release cycle with a deprecation warning, then remove.
+
+**Engine changes** (`data-designer-engine`):
+
+- Remove `_cell_resize_mode`, `_cell_resize_results`, and the resize branch in `_finalize_fan_out()` from `DatasetBuilder`.
+- Remove `allow_resize` parameter from `DatasetBatchManager.replace_buffer()`.
+- Remove `_validate_async_compatibility()` (no longer needed - nothing to reject).
+- Simplify `_run_full_column_generator()` to always enforce row-count invariance.
+
+**Migration path**: Users with `allow_resize=True` columns split their config into a pipeline with a stage boundary at the resize column. The resize column becomes the last column of its stage, and downstream columns move to the next stage.
+
+### Part 3: Fail-fast on pre-batch processor resize
+
+In `ProcessorRunner.run_pre_batch()` and `run_pre_batch_on_df()`, raise `DatasetProcessingError` if the returned DataFrame has a different row count than the input.
+
+This applies to both sync and async paths. Users who need to filter or expand between seeds and generation use the pipeline's between-stage callback instead.
+
+For users who need programmatic filtering at the seed boundary, a seed reader plugin is the escape hatch (the seed reader can filter/transform before the engine ever sees the data).
 
 ### Where it fits in the architecture
 
