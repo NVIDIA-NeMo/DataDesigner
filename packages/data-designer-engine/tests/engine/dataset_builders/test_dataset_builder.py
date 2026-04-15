@@ -11,6 +11,7 @@ import pytest
 
 import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import CustomColumnConfig, LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
@@ -502,12 +503,17 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
 def test_fan_out_with_threads_passes_column_name_in_context(
     mock_executor_class: Mock,
     stub_resource_provider: Mock,
-    stub_test_config_builder: DataDesignerConfigBuilder,
+    stub_model_configs: dict[str, object],
 ) -> None:
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
     builder = DatasetBuilder(
-        data_designer_config=stub_test_config_builder.build(),
+        data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
+    builder.build_preview(num_records=1)
 
     mock_executor = Mock()
     mock_executor_class.return_value.__enter__ = Mock(return_value=mock_executor)
@@ -537,12 +543,17 @@ def test_fan_out_with_threads_passes_column_name_in_context(
 def test_fan_out_with_async_passes_column_name_in_context(
     mock_executor_class: Mock,
     stub_resource_provider: Mock,
-    stub_test_config_builder: DataDesignerConfigBuilder,
+    stub_model_configs: dict[str, object],
 ) -> None:
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
     builder = DatasetBuilder(
-        data_designer_config=stub_test_config_builder.build(),
+        data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
+    builder.build_preview(num_records=1)
 
     mock_executor = Mock()
 
@@ -795,6 +806,12 @@ def _resize_full_keep_first(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @custom_column_generator(required_columns=["seed_id"])
+def _resize_full_drop_seed_one(df: pd.DataFrame) -> pd.DataFrame:
+    """FULL_COLUMN: drop the row with seed_id == 1."""
+    return df[df["seed_id"] != 1].reset_index(drop=True).assign(filtered=True)
+
+
+@custom_column_generator(required_columns=["seed_id"])
 def _resize_cell_expand(row: dict) -> list[dict]:
     """CELL_BY_CELL: one row -> two rows (doubled)."""
     return [
@@ -937,3 +954,445 @@ def test_allow_resize_multiple_batches(
     else:
         df = lazy.pd.read_parquet(final_path)
     assert len(df) == expected_total_rows
+
+
+# skip metadata preservation tests
+
+
+def _make_label_generator(label: str, *required: str):
+    """FULL_COLUMN generator that adds a column with a constant label value."""
+
+    @custom_column_generator(required_columns=list(required))
+    def fn(df: pd.DataFrame) -> pd.DataFrame:
+        return df.assign(**{label: f"generated_{label}"})
+
+    return fn
+
+
+def _make_label_generator_with_side_effect(label: str, side_effect_label: str, *required: str):
+    """FULL_COLUMN generator that adds a column plus one side-effect column."""
+
+    @custom_column_generator(required_columns=list(required), side_effect_columns=[side_effect_label])
+    def fn(df: pd.DataFrame) -> pd.DataFrame:
+        return df.assign(
+            **{
+                label: f"generated_{label}",
+                side_effect_label: f"generated_{side_effect_label}",
+            }
+        )
+
+    return fn
+
+
+def test_skip_metadata_preserved_across_non_skip_aware_full_column(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+):
+    """Skip metadata must survive when a non-skip-aware FULL_COLUMN column runs
+    between a skip-setting column and a downstream propagating column.
+
+    Scenario: rating(seed) -> review(skip.when) -> summary(no skip) -> complaint(propagate_skip)
+    Before the fix, summary's replace_buffer erased __internal_skipped_columns,
+    causing complaint to generate for rows that should have been skipped.
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator("review", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="summary",
+            generator_function=_make_label_generator("summary", "text"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=False,
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="complaint",
+            generator_function=_make_label_generator("complaint", "review"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    skipped_ids = {1, 2}
+    for _, row in result.iterrows():
+        if row["seed_id"] in skipped_ids:
+            assert row["review"] is None or lazy.pd.isna(row["review"]), (
+                f"seed_id={row['seed_id']}: review should be skipped"
+            )
+            assert row["complaint"] is None or lazy.pd.isna(row["complaint"]), (
+                f"seed_id={row['seed_id']}: complaint should propagate skip from review"
+            )
+        else:
+            assert row["complaint"] == "generated_complaint", f"seed_id={row['seed_id']}: complaint should be generated"
+
+
+def test_skip_metadata_preserved_when_no_rows_skipped_for_current_column(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+):
+    """The has_skipped=False fallthrough must preserve sibling skip metadata.
+
+    Scenario: review(skip.when seed_id<3) -> analysis(propagate_skip, required_columns=[review])
+    analysis can_skip=True (via propagation) but no rows are skipped by analysis's
+    own expression (it has none). The has_skipped=False fallthrough must still
+    preserve review's skip metadata so propagation works.
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator("review", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="analysis",
+            generator_function=_make_label_generator("analysis", "review"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    skipped_ids = {1, 2}
+    for _, row in result.iterrows():
+        if row["seed_id"] in skipped_ids:
+            assert row["analysis"] is None or lazy.pd.isna(row["analysis"]), (
+                f"seed_id={row['seed_id']}: analysis should propagate skip from review"
+            )
+        else:
+            assert row["analysis"] == "generated_analysis", f"seed_id={row['seed_id']}: analysis should be generated"
+
+
+def test_skip_propagation_resolves_side_effect_dependencies_in_sync_builder(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+):
+    """A downstream dependency on a skipped side-effect should auto-skip.
+
+    Scenario: review(skip.when, produces review_side_effect) ->
+    analysis(required_columns=[review_side_effect], propagate_skip=True).
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator_with_side_effect("review", "review_side_effect", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="analysis",
+            generator_function=_make_label_generator("analysis", "review_side_effect"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    skipped_ids = {1, 2}
+    for _, row in result.iterrows():
+        if row["seed_id"] in skipped_ids:
+            assert row["review_side_effect"] is None or lazy.pd.isna(row["review_side_effect"]), (
+                f"seed_id={row['seed_id']}: review_side_effect should be cleared when review is skipped"
+            )
+            assert row["analysis"] is None or lazy.pd.isna(row["analysis"]), (
+                f"seed_id={row['seed_id']}: analysis should propagate skip from review"
+            )
+        else:
+            assert row["analysis"] == "generated_analysis", f"seed_id={row['seed_id']}: analysis should be generated"
+
+
+def test_skip_metadata_restore_preserves_row_identity_across_allow_resize_full_column(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+):
+    """Filtering out a skipped row must not transfer its skip provenance to surviving rows."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator("review", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id == 1 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="filtered",
+            generator_function=_resize_full_drop_seed_one,
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            allow_resize=True,
+            propagate_skip=False,
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="analysis",
+            generator_function=_make_label_generator("analysis", "review"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    assert result["seed_id"].tolist() == [2, 3, 4, 5]
+    assert result["analysis"].tolist() == ["generated_analysis"] * 4
+
+
+def test_allow_resize_column_not_blocked_by_upstream_skip(stub_resource_provider, stub_model_configs, seed_data_setup):
+    """An allow_resize=True column depending on a skippable upstream must not
+    enter the skip-aware branch (which enforces 1:1 row counts).
+
+    Before the fix, _column_can_skip returned True for allow_resize columns
+    with propagate_skip=True and required_columns pointing to a skippable
+    upstream, causing a DatasetGenerationError on the row-count check.
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator("review", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="expanded",
+            generator_function=_make_resize_full_expand(2, "expanded", "copy"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            allow_resize=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+    assert len(result) == 10
+
+
+def test_skip_chained_transitive_propagation_through_three_levels(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+) -> None:
+    """Skip at level 1 must propagate transitively through levels 2, 3, and 4.
+
+    Pipeline: seed_id(seed) -> L1(skip.when) -> L2(propagate) -> L3(propagate) -> L4(propagate)
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="L1",
+            generator_function=_make_label_generator("L1", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="L2",
+            generator_function=_make_label_generator("L2", "L1"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="L3",
+            generator_function=_make_label_generator("L3", "L2"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="L4",
+            generator_function=_make_label_generator("L4", "L3"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    assert len(result) == 5
+    skipped_ids = {1, 2}
+    for _, row in result.iterrows():
+        if row["seed_id"] in skipped_ids:
+            for col in ("L1", "L2", "L3", "L4"):
+                assert row[col] is None or lazy.pd.isna(row[col]), (
+                    f"seed_id={row['seed_id']}: {col} should be skipped transitively"
+                )
+        else:
+            for col in ("L1", "L2", "L3", "L4"):
+                assert row[col] == f"generated_{col}", f"seed_id={row['seed_id']}: {col} should be generated"
+
+
+def test_skip_two_independent_gates_in_same_pipeline(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+) -> None:
+    """Two columns with independent skip.when expressions; downstream propagates from both.
+
+    Pipeline: seed_id(seed) -> gate_a(skip seed_id<3) -> gate_b(skip seed_id>4) -> merge(propagate)
+    merge should be skipped when *either* gate_a or gate_b was skipped.
+    """
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="gate_a",
+            generator_function=_make_label_generator("gate_a", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="gate_b",
+            generator_function=_make_label_generator("gate_b", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id > 4 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="merge",
+            generator_function=_make_label_generator("merge", "gate_a", "gate_b"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    assert len(result) == 5
+    for _, row in result.iterrows():
+        sid = row["seed_id"]
+        if sid < 3 or sid > 4:
+            assert row["merge"] is None or lazy.pd.isna(row["merge"]), (
+                f"seed_id={sid}: merge should be skipped (gate_a or gate_b skipped)"
+            )
+        else:
+            assert row["merge"] == "generated_merge", f"seed_id={sid}: merge should be generated"
+
+
+def test_skip_custom_value_preserved_in_output(stub_resource_provider, stub_model_configs, seed_data_setup) -> None:
+    """Custom skip.value should appear in the final DataFrame instead of None."""
+    sentinel = "__SKIPPED__"
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator("review", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}", value=sentinel),
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    assert len(result) == 5
+    skipped_ids = {1, 2}
+    for _, row in result.iterrows():
+        if row["seed_id"] in skipped_ids:
+            assert row["review"] == sentinel, f"seed_id={row['seed_id']}: review should have custom skip value"
+        else:
+            assert row["review"] == "generated_review", f"seed_id={row['seed_id']}: review should be generated"
+
+
+def test_skip_row_count_preserved_across_pipeline(stub_resource_provider, stub_model_configs, seed_data_setup) -> None:
+    """Skip must never change the row count — all 5 seed rows must survive."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="review",
+            generator_function=_make_label_generator("review", "seed_id"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            skip=SkipConfig(when="{{ seed_id < 3 }}"),
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="analysis",
+            generator_function=_make_label_generator("analysis", "review"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+    config_builder.add_column(
+        CustomColumnConfig(
+            name="summary",
+            generator_function=_make_label_generator("summary", "analysis"),
+            generation_strategy=GenerationStrategy.FULL_COLUMN,
+            propagate_skip=True,
+        )
+    )
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    result = builder.build_preview(num_records=5)
+
+    assert len(result) == 5, "Skip must not change the row count"
+    assert result["seed_id"].tolist() == [1, 2, 3, 4, 5]

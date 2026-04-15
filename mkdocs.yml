@@ -34,7 +34,7 @@ nav:
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
-      - Structured Outputs and Jinja Expressions: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
+      - Structured Outputs, Jinja Expressions, and Conditional Generation: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
       - Seeding with an External Dataset: notebooks/3-seeding-with-a-dataset.ipynb
       - Providing Images as Context: notebooks/4-providing-images-as-context.ipynb
       - Generating Images: notebooks/5-generating-images.ipynb
@@ -75,6 +75,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - "Text-to-SQL for Nemotron Super": devnotes/posts/text-to-sql.md
       - "Async All the Way Down": devnotes/posts/async-all-the-way-down.md
       - Owning the Model Stack: devnotes/posts/owning-the-model-stack.md
       - Data Designer Got Skills: devnotes/posts/data-designer-got-skills.md

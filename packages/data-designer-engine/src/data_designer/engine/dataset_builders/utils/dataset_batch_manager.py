@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Callable, Container, Iterator
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
+from data_designer.engine.dataset_builders.utils.skip_tracker import strip_skip_metadata_from_records
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 
 if TYPE_CHECKING:
@@ -133,7 +134,7 @@ class DatasetBatchManager:
 
     def get_current_batch(self, *, as_dataframe: bool = False) -> pd.DataFrame | list[dict]:
         if as_dataframe:
-            return lazy.pd.DataFrame(self._buffer)
+            return lazy.pd.DataFrame(strip_skip_metadata_from_records(self._buffer))
         return self._buffer
 
     def iter_current_batch(self) -> Iterator[tuple[int, dict]]:
@@ -182,7 +183,7 @@ class DatasetBatchManager:
         try:
             file_path = self.artifact_storage.write_batch_to_parquet_file(
                 batch_number=self._current_batch_number,
-                dataframe=lazy.pd.DataFrame(self._buffer),
+                dataframe=lazy.pd.DataFrame(strip_skip_metadata_from_records(self._buffer)),
                 batch_stage=BatchStage.PARTIAL_RESULT,
             )
             return file_path
