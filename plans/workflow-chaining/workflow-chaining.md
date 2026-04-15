@@ -23,11 +23,13 @@ Add **workflow chaining**: a thin orchestration layer that sequences multiple ge
 
 As a secondary benefit, chaining also enables the removal of `allow_resize` and simplification of the engine's resize handling.
 
-### Secondary benefit: `allow_resize` removal
+### Secondary benefit: `allow_resize` removal and sync/async convergence
 
 The `allow_resize` flag on column configs lets a generator change the row count mid-generation. This works in the sync engine but is fundamentally incompatible with the async engine's fixed-size `CompletionTracker` grid (currently rejected with a validation error). Pre-batch processors that resize have a similar problem.
 
-With chaining in place, resize becomes a between-stage concern rather than a mid-generation concern. This lets us remove `allow_resize` and the associated engine complexity, and disallow row-count changes in pre-batch processors. Users who need resize use a pipeline with a stage boundary at the resize point.
+`allow_resize` is one of the remaining divergences between sync and async. Since the long-term direction is to remove the sync engine entirely, maintaining a sync-only feature is counterproductive. With chaining in place, resize becomes a between-stage concern rather than a mid-generation concern. This lets us remove `allow_resize` and the associated engine complexity, and disallow row-count changes in pre-batch processors. Users who need resize use a pipeline with a stage boundary at the resize point.
+
+Note: `allow_resize` is currently documented in custom columns, plugin examples, and agent rollout ingestion docs. Removal requires a deprecation cycle and doc updates.
 
 ### Why chaining instead of fixing async resize
 
@@ -72,11 +74,17 @@ config_convos = (
 result_2 = dd.create(config_convos, num_records=1000)
 ```
 
-This is a thin wrapper: loads the dataset, optionally filters columns, wraps in `DataFrameSeedSource`, returns a new config builder. No tracking, no provenance, no callbacks - just a quick bridge for iteration.
+This is a thin wrapper: loads the dataset into memory, optionally filters columns, wraps in `DataFrameSeedSource`, returns a new config builder. No tracking, no provenance, no callbacks - just a quick bridge for iteration. Not suitable for large datasets (loads full DataFrame into memory) or serializable configs (`DataFrameSeedSource` can't be written to YAML). For production pipelines, use the `Pipeline` class.
 
 **Auto-chaining from a single config (future):**
 
 The engine detects columns that were previously `allow_resize=True` (or a new marker like `stage_boundary=True`) and auto-splits the DAG into stages. This is a convenience layer on top of the explicit API - not required for v1.
+
+#### Stage data contract
+
+Each stage seeds from the **previous stage's final dataset** - the post-processor output with dropped columns excluded. This is the same DataFrame returned by `DatasetCreationResults.load_dataset()`.
+
+Processor outputs (named processor artifacts) and media assets (images stored on disk with relative paths in the DataFrame) are NOT automatically forwarded. If a downstream stage needs image columns from an upstream stage, the pipeline must resolve image paths relative to the upstream stage's artifact directory. This needs explicit handling - TBD in implementation.
 
 #### Between-stage callbacks
 
@@ -84,9 +92,10 @@ Users may need to transform data between stages. The pipeline supports an option
 
 ```python
 def filter_high_quality(stage_output_path: Path) -> Path:
-    df = pd.read_parquet(stage_output_path / "data")
+    df = pd.read_parquet(stage_output_path / "parquet-files")
     df = df[df["quality_score"] > 0.8]
     out = stage_output_path.parent / "filtered"
+    out.mkdir(exist_ok=True)
     df.to_parquet(out / "data.parquet")
     return out
 
@@ -98,42 +107,47 @@ pipeline.add_stage(
 )
 ```
 
-The callback receives the path to the completed stage's artifacts and returns a path to the (possibly modified) artifacts. This keeps large DataFrames on disk and gives users full control.
+The callback receives the path to the completed stage's artifact directory (containing `parquet-files/`, `metadata.json`, etc.) and returns a path that the next stage will seed from. This keeps large DataFrames on disk and gives users full control.
 
-The callback signature is `(Path) -> Path`. If the user returns the same path, no copy is made. If they return a new path, the next stage seeds from that.
+**Empty stage policy**: If a callback filters all rows (or a stage produces zero rows), the pipeline raises `DataDesignerPipelineError` by default. Stages can opt in to empty output with `allow_empty=True` on `add_stage()`, in which case the pipeline short-circuits and skips subsequent stages.
 
-#### `num_records` behavior
+#### `num_records` and seed behavior
 
 - If `num_records` is explicitly set on a stage, that value is used.
 - If omitted, defaults to the previous stage's output row count (after any between-stage callback).
 - The seed reader's existing cycling behavior handles the explode case: requesting 1000 records from a 100-row seed cycles through the seed 10 times.
+- `add_stage()` accepts optional `sampling_strategy` (ordered/shuffle) and `selection_strategy` (IndexRange/PartitionBlock) to control how the previous stage's output is sampled. Defaults to ordered.
 
 #### Artifact management
 
-Each stage writes to its own subdirectory under the pipeline's artifact path:
+The pipeline owns its directory layout directly, bypassing `ArtifactStorage`'s default auto-rename behavior (which appends timestamps to non-empty directories). Stage directories use stable, deterministic names based on stage index and name:
 
 ```
 artifacts/
   pipeline-name/
-    stage-1-personas/
+    stage-0-personas/
       parquet-files/
       metadata.json
-    stage-2-conversations/
+    stage-1-conversations/
       parquet-files/
       metadata.json
-    stage-3-judged/
+    stage-2-judged/
       parquet-files/
       metadata.json
-    pipeline-metadata.json  # stage order, configs, lineage
+    pipeline-metadata.json
 ```
+
+The pipeline creates each stage's `ArtifactStorage` with the stage directory as `dataset_name`, ensuring stable paths across reruns.
 
 #### Checkpointing and resume
 
 Each stage produces durable parquet output before the next stage starts. This provides natural checkpoint boundaries:
 
 - If stage 3 of 4 fails, stages 1 and 2 are already on disk.
-- A `resume=True` flag on `pipeline.run()` skips completed stages (detected via `pipeline-metadata.json`).
+- A `resume=True` flag on `pipeline.run()` skips completed stages.
 - Within a stage, batch-level resume (#525) can further reduce re-work.
+
+**Resume safety**: Naive "skip if directory exists" is not sufficient. Configs, model settings, callbacks, or DD version may have changed between runs. Resume must compare a fingerprint of each stage's inputs (config hash, num_records, DD version, upstream stage fingerprint) against what's recorded in `pipeline-metadata.json`. If any input changed, that stage and all downstream stages must re-run. This is a phase 3 concern but the metadata format in phase 1 should record enough information to support it.
 
 The connection to #525: chaining gives coarse (stage-level) checkpointing for free. #525 gives fine (batch-level) checkpointing within a stage. They are complementary.
 
@@ -141,9 +155,10 @@ The connection to #525: chaining gives coarse (stage-level) checkpointing for fr
 
 `pipeline-metadata.json` records:
 - Stage order, names, and configs used
+- Config fingerprint (hash) per stage for resume invalidation
 - `num_records` requested vs actual per stage
 - Which stage's output seeded the next
-- Timestamp and duration per stage
+- Timestamp, duration, and DD version per stage
 
 ### Part 2: Remove `allow_resize`
 
@@ -167,9 +182,7 @@ With the pipeline in place, `allow_resize` is no longer needed as an engine-inte
 
 In `ProcessorRunner.run_pre_batch()` and `run_pre_batch_on_df()`, raise `DatasetProcessingError` if the returned DataFrame has a different row count than the input.
 
-This applies to both sync and async paths. Users who need to filter or expand between seeds and generation use the pipeline's between-stage callback instead.
-
-For users who need programmatic filtering at the seed boundary, a seed reader plugin is the escape hatch (the seed reader can filter/transform before the engine ever sees the data).
+This applies to both sync and async paths. Users who need to filter or expand between seeds and generation use the pipeline's between-stage callback instead. Note that a seed reader plugin is NOT an equivalent escape hatch: seed readers run before any columns are generated (including samplers), so they can't filter on generated column values.
 
 ### Where it fits in the architecture
 
@@ -305,13 +318,19 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 
 ## Open questions
 
-1. **In-memory vs on-disk handoff between stages**: For small datasets, `DataFrameSeedSource` avoids disk I/O. For large datasets, writing parquet between stages is safer. Should the pipeline auto-detect based on row count, or always go through disk for consistency?
+1. **In-memory vs on-disk handoff between stages**: For small datasets, `DataFrameSeedSource` avoids disk I/O. For large datasets, writing parquet between stages is safer. Should the pipeline auto-detect based on row count, or always go through disk for consistency? (Leaning toward always-on-disk for simplicity and resume support.)
 
 2. **Preview support**: Should `pipeline.preview()` run all stages with small `num_records`? Or just preview the last stage seeded from a prior full run?
 
 3. **Config serialization**: A pipeline config can't be serialized to YAML if stages use `DataFrameSeedSource`. For persistence, stages would need symbolic references ("seed from stage X's output"). This is needed for auto-chaining (phase 4) but not for the explicit API (phases 1-3).
 
 4. **Naming**: `Pipeline` vs `Chain` vs `WorkflowChain`. `Pipeline` is the most intuitive and aligns with ML pipeline terminology.
+
+5. **Image/media column forwarding**: Images in create mode are stored as relative file paths. If a downstream stage seeds from an upstream stage that produced images, the relative paths break. Options: (a) resolve to absolute paths at stage boundary, (b) copy media assets into downstream stage's directory, (c) document as unsupported in v1.
+
+6. **Branch/fan-out semantics**: Linear chaining covers the common cases. But "generate once, judge several ways" (fan-out) currently requires building multiple pipelines that repeat stage 1. Should the pipeline support DAG-shaped stage graphs, or is that future work?
+
+7. **Downstream seeding scope**: Should downstream stages only seed from the final dataset, or should they also be able to access dropped columns or named processor outputs from upstream stages?
 
 ## Related issues
 
