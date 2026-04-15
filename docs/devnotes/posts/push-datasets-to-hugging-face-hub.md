@@ -12,7 +12,7 @@ Nah. Call `.push_to_hub()` and you've got a live dataset page on Hugging Face. D
 
 <!-- more -->
 
-![Push to Hub Hero](assets/push-datasets-to-hugging-face-hub/push-to-hub-hero.png)
+![Push to Hub Hero](assets/push-datasets-to-hugging-face-hub/push-to-hub-hero.png){ width=100% }
 
 ---
 
