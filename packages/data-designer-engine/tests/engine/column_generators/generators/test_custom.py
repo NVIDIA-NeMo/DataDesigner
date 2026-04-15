@@ -509,12 +509,15 @@ class TestAsyncBridgedModelFacade:
         from unittest.mock import patch
 
         from data_designer.engine.column_generators.generators.custom import _AsyncBridgedModelFacade
+        from data_designer.engine.models.clients.errors import SyncClientUnavailableError
 
         facade = Mock()
-        facade.generate.side_effect = RuntimeError("Sync methods are not available on an async-mode HttpModelClient.")
+        facade.generate.side_effect = SyncClientUnavailableError(
+            "Sync methods are not available on an async-mode HttpModelClient."
+        )
 
         async def fake_agenerate(*args: Any, **kwargs: Any) -> tuple:
-            return ("async_result", list(args))
+            return ("async_result", list(args), kwargs)
 
         facade.agenerate = fake_agenerate
         proxy = _AsyncBridgedModelFacade(facade)
@@ -528,15 +531,14 @@ class TestAsyncBridgedModelFacade:
                 "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
                 return_value=engine_loop,
             ):
-                # Positional prompt arg is forwarded to agenerate
                 result = proxy.generate("hello", parser=str)
-            assert result == ("async_result", ["hello"])
+            assert result == ("async_result", ["hello"], {"parser": str})
         finally:
             engine_loop.call_soon_threadsafe(engine_loop.stop)
             engine_thread.join(timeout=5)
 
     def test_non_client_mode_errors_propagate(self) -> None:
-        """Only the specific HttpModelClient sync-mode RuntimeError triggers bridging."""
+        """Only SyncClientUnavailableError triggers bridging; other errors propagate."""
         from data_designer.engine.column_generators.generators.custom import _AsyncBridgedModelFacade
 
         # ValueError - different type entirely
@@ -546,7 +548,7 @@ class TestAsyncBridgedModelFacade:
         with pytest.raises(ValueError, match="invalid prompt format"):
             proxy.generate(prompt="hello")
 
-        # RuntimeError with a different message - same type, not caught
+        # RuntimeError - same base type as SyncClientUnavailableError, but not caught
         facade = Mock()
         facade.generate.side_effect = RuntimeError("connection timed out for async request")
         proxy = _AsyncBridgedModelFacade(facade)
@@ -558,9 +560,12 @@ class TestAsyncBridgedModelFacade:
         import asyncio
 
         from data_designer.engine.column_generators.generators.custom import _AsyncBridgedModelFacade
+        from data_designer.engine.models.clients.errors import SyncClientUnavailableError
 
         facade = Mock()
-        facade.generate.side_effect = RuntimeError("Sync methods are not available on an async-mode HttpModelClient.")
+        facade.generate.side_effect = SyncClientUnavailableError(
+            "Sync methods are not available on an async-mode HttpModelClient."
+        )
         proxy = _AsyncBridgedModelFacade(facade)
 
         async def call_from_loop() -> None:

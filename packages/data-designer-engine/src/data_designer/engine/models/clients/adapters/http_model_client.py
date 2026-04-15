@@ -14,7 +14,7 @@ from data_designer.engine.models.clients.adapters.http_helpers import (
     resolve_timeout,
     wrap_transport_error,
 )
-from data_designer.engine.models.clients.errors import map_http_error_to_provider_error
+from data_designer.engine.models.clients.errors import SyncClientUnavailableError, map_http_error_to_provider_error
 from data_designer.engine.models.clients.retry import RetryConfig, RetryTransport, create_retry_transport
 
 if TYPE_CHECKING:
@@ -96,7 +96,7 @@ class HttpModelClient(ABC):
 
     def _get_sync_client(self) -> httpx.Client:
         if self._mode != ClientConcurrencyMode.SYNC:
-            raise RuntimeError("Sync methods are not available on an async-mode HttpModelClient.")
+            raise SyncClientUnavailableError("Sync methods are not available on an async-mode HttpModelClient.")
         with self._init_lock:
             if self._closed:
                 raise RuntimeError("Model client is closed.")

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import inspect
 import logging
 from typing import TYPE_CHECKING, Any
@@ -26,14 +27,12 @@ class _AsyncBridgedModelFacade:
     """Proxy that bridges ``model.generate()`` to ``model.agenerate()`` in async engine mode.
 
     When a sync custom column runs inside ``asyncio.to_thread`` under the async engine,
-    the sync HTTP client is unavailable. This proxy intercepts the resulting error and
-    schedules ``agenerate()`` on the engine's persistent event loop via
-    ``run_coroutine_threadsafe``.
+    the sync HTTP client is unavailable. This proxy intercepts the resulting
+    ``SyncClientUnavailableError`` and schedules ``agenerate()`` on the engine's persistent
+    event loop via ``run_coroutine_threadsafe``.
 
     All other attributes are forwarded to the underlying facade unchanged.
     """
-
-    _SYNC_CLIENT_ERROR = "Sync methods are not available on an async-mode HttpModelClient."
 
     __slots__ = ("_facade",)
 
@@ -41,12 +40,13 @@ class _AsyncBridgedModelFacade:
         object.__setattr__(self, "_facade", facade)
 
     def generate(self, *args: Any, **kwargs: Any) -> tuple[Any, list]:
+        from data_designer.engine.models.clients.errors import SyncClientUnavailableError
+
         facade = object.__getattribute__(self, "_facade")
         try:
             return facade.generate(*args, **kwargs)
-        except RuntimeError as exc:
-            if str(exc) != self._SYNC_CLIENT_ERROR:
-                raise
+        except SyncClientUnavailableError:
+            pass  # Fall through to async bridge
 
         # We're in a worker thread (asyncio.to_thread) with no running loop.
         # Guard against accidental use from the event loop itself (would deadlock).
@@ -64,7 +64,12 @@ class _AsyncBridgedModelFacade:
 
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
-        return future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+        try:
+            return future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            logger.warning("Async model bridge timed out after %ss; coroutine cancelled", _SYNC_BRIDGE_TIMEOUT)
+            raise TimeoutError(f"model.generate() bridge timed out after {_SYNC_BRIDGE_TIMEOUT}s") from exc
 
     def __getattr__(self, name: str) -> Any:
         return getattr(object.__getattribute__(self, "_facade"), name)
