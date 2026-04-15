@@ -11,7 +11,7 @@ from typing import Any, NoReturn
 from pydantic import BaseModel
 
 from data_designer.engine.errors import DataDesignerError
-from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind, SyncClientUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,10 @@ def handle_llm_exceptions(
         solution=f"Verify your API key for model provider and update it in your settings for model provider {model_provider_name!r}.",
     )
     match exception:
+        # Let SyncClientUnavailableError propagate so the async bridge proxy can catch it
+        case SyncClientUnavailableError():
+            raise
+
         # Canonical ProviderError from the client adapter layer
         case ProviderError():
             _raise_from_provider_error(
