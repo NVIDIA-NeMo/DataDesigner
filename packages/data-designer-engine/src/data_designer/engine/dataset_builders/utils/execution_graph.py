@@ -363,6 +363,10 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
     upstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
     downstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
 
+    # Only required_columns edges are added here. skip.columns edges are intentionally
+    # omitted: ExecutionGraph.create handles them in its own two-pass build, which is
+    # the authoritative execution-order graph. This function only needs to produce a
+    # valid topological ordering of ColumnConfigT objects for config compilation.
     logger.info("⛓️ Sorting column configs into a Directed Acyclic Graph")
     for name, col in dag_col_dict.items():
         for req in col.required_columns:
