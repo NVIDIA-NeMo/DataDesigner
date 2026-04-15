@@ -7,12 +7,14 @@ authors:
 
 # **Push Datasets to Hugging Face Hub**
 
-![Push to Hub Hero](assets/push-datasets-to-hugging-face-hub/push-to-hub-hero.png)
-
 You just generated 10k multilingual greetings (or some other cool dataset). Now what — email a parquet file?
 Nah. Call `.push_to_hub()` and you've got a live dataset page on Hugging Face. Done and dusted 🚢.
 
 <!-- more -->
+
+![Push to Hub Hero](assets/push-datasets-to-hugging-face-hub/push-to-hub-hero.png)
+
+---
 
 Here's the full flow — build a multilingual greeting dataset with a conversation
 training processor, generate it, and push it to the Hub in one go:
