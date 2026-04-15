@@ -56,6 +56,24 @@ results["conversations"].load_dataset()  # stage 2 output
 results["judged"].load_dataset()         # final output
 ```
 
+**Convenience method on results (lightweight, for notebooks):**
+
+For interactive use where a full pipeline is overkill, a `to_config_builder()` method on `DatasetCreationResults` returns a pre-seeded `DataDesignerConfigBuilder`:
+
+```python
+# Stage 1
+result = dd.create(config_personas, num_records=100)
+
+# Stage 2 - just grab the result and keep going
+config_convos = (
+    result.to_config_builder(columns=["name", "age", "background"])  # optional column selection
+    .add_column(name="conversation", column_type="llm_text", prompt="...")
+)
+result_2 = dd.create(config_convos, num_records=1000)
+```
+
+This is a thin wrapper: loads the dataset, optionally filters columns, wraps in `DataFrameSeedSource`, returns a new config builder. No tracking, no provenance, no callbacks - just a quick bridge for iteration.
+
 **Auto-chaining from a single config (future):**
 
 The engine detects columns that were previously `allow_resize=True` (or a new marker like `stage_boundary=True`) and auto-splits the DAG into stages. This is a convenience layer on top of the explicit API - not required for v1.
@@ -163,10 +181,102 @@ For users who need programmatic filtering at the seed boundary, a seed reader pl
 
 The engine does not know about pipelines. Each stage is a regular `DatasetBuilder.build()` call.
 
+## Use cases for implementation and testing
+
+These should guide the implementation and serve as the basis for tutorial notebooks.
+
+### 1. Explode: personas to conversations
+
+Generate a small, high-quality set of personas, then produce many conversations from each.
+
+```python
+# Stage 1: 100 diverse personas
+config_personas = (
+    DataDesignerConfigBuilder()
+    .add_column(name="name", column_type="sampler", sampler_type="person_name")
+    .add_column(name="age", column_type="sampler", sampler_type="uniform_int", params=...)
+    .add_column(name="background", column_type="llm_text", prompt="Write a short background for {{ name }}, age {{ age }}.")
+)
+
+# Stage 2: 1000 conversations (each persona used ~10 times via seed cycling)
+config_convos = (
+    DataDesignerConfigBuilder()
+    .add_column(name="topic", column_type="llm_text", prompt="Generate a conversation topic for {{ name }}...")
+    .add_column(name="conversation", column_type="llm_text", prompt="Write a conversation between {{ name }} and an assistant about {{ topic }}...")
+)
+
+pipeline = dd.pipeline()
+pipeline.add_stage("personas", config_personas, num_records=100)
+pipeline.add_stage("conversations", config_convos, num_records=1000)
+results = pipeline.run()
+```
+
+### 2. Filter-then-enrich
+
+Generate candidates, use a between-stage callback to filter, then enrich survivors.
+
+```python
+config_gen = ...  # generates rows with a quality_score column
+config_enrich = ...  # adds detailed analysis columns
+
+def keep_high_quality(stage_output_path: Path) -> Path:
+    df = pd.read_parquet(stage_output_path / "parquet-files")
+    df = df[df["quality_score"] > 0.8]
+    out = stage_output_path.parent / "filtered"
+    out.mkdir(exist_ok=True)
+    df.to_parquet(out / "data.parquet")
+    return out
+
+pipeline = dd.pipeline()
+pipeline.add_stage("candidates", config_gen, num_records=5000)
+pipeline.add_stage("enriched", config_enrich, after=keep_high_quality)
+results = pipeline.run()
+```
+
+### 3. Generate-then-judge with different models
+
+Iterate on the judging config without re-generating the base data.
+
+```python
+# Stage 1: generate with a fast model
+config_gen = DataDesignerConfigBuilder(model_configs=[fast_model])...
+
+# Stage 2: judge with a stronger model
+config_judge = DataDesignerConfigBuilder(model_configs=[strong_model])...
+
+pipeline = dd.pipeline()
+pipeline.add_stage("generated", config_gen, num_records=1000)
+pipeline.add_stage("judged", config_judge)
+results = pipeline.run()
+
+# Later: tweak judging config, resume from stage 1 output
+pipeline_v2 = dd.pipeline()
+pipeline_v2.add_stage("generated", config_gen, num_records=1000)
+pipeline_v2.add_stage("judged", config_judge_v2)
+results_v2 = pipeline_v2.run(resume=True)  # skips stage 1
+```
+
+### 4. Interactive notebook chaining (lightweight, no pipeline)
+
+Quick iteration using `to_config_builder()`:
+
+```python
+result = dd.create(config_personas, num_records=50)
+result.load_dataset()  # inspect, looks good
+
+# Chain into next step
+config_2 = (
+    result.to_config_builder(columns=["name", "background"])
+    .add_column(name="question", column_type="llm_text", prompt="...")
+)
+result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
+```
+
 ## Implementation phases
 
-### Phase 1: Pipeline class (can ship independently)
+### Phase 1: Pipeline class and `to_config_builder()` (can ship independently)
 
+- Add `to_config_builder()` on `DatasetCreationResults` and `PreviewResults`.
 - Add `Pipeline` class with `add_stage()`, `run()`, between-stage callbacks.
 - Add `pipeline-metadata.json` writing.
 - Add `dd.pipeline()` factory method on `DataDesigner`.
