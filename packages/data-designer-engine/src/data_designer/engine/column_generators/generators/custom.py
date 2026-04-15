@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
-from data_designer.engine.column_generators.generators.base import _SYNC_BRIDGE_TIMEOUT, ColumnGenerator
+from data_designer.engine.column_generators.generators.base import SYNC_BRIDGE_TIMEOUT, ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.logging import LOG_INDENT
 
@@ -65,11 +65,11 @@ class _AsyncBridgedModelFacade:
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
         try:
-            return future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+            return future.result(timeout=SYNC_BRIDGE_TIMEOUT)
         except concurrent.futures.TimeoutError as exc:
             future.cancel()
-            logger.warning("Async model bridge timed out after %ss; coroutine cancelled", _SYNC_BRIDGE_TIMEOUT)
-            raise TimeoutError(f"model.generate() bridge timed out after {_SYNC_BRIDGE_TIMEOUT}s") from exc
+            logger.warning("Async model bridge timed out after %ss; coroutine cancelled", SYNC_BRIDGE_TIMEOUT)
+            raise TimeoutError(f"model.generate() bridge timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
 
     def __getattr__(self, name: str) -> Any:
         return getattr(object.__getattribute__(self, "_facade"), name)
