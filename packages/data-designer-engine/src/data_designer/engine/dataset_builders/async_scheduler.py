@@ -500,6 +500,8 @@ class AsyncTaskScheduler:
                 if self._on_before_checkpoint:
                     try:
                         self._on_before_checkpoint(rg_id, rg_size)
+                    except DatasetGenerationError:
+                        raise
                     except Exception as exc:
                         raise DatasetGenerationError(
                             f"Post-batch processor failed for row group {rg_id}: {exc}"
@@ -534,6 +536,8 @@ class AsyncTaskScheduler:
                     if self._on_seeds_complete:
                         try:
                             self._on_seeds_complete(rg_id, state.size)
+                        except DatasetGenerationError:
+                            raise
                         except Exception as exc:
                             raise DatasetGenerationError(
                                 f"Pre-batch processor failed for row group {rg_id}: {exc}"

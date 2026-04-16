@@ -276,7 +276,7 @@ class DatasetBuilder:
                 "use workflow chaining instead (see issue #552)."
             )
             logger.warning(f"⚠️ {msg}")
-            warnings.warn(msg, DeprecationWarning, stacklevel=3)
+            warnings.warn(msg, DeprecationWarning, stacklevel=4)
             return False
         return True
 
@@ -389,7 +389,7 @@ class DatasetBuilder:
         buffer_manager = RowGroupBufferManager(self.artifact_storage)
 
         # Pre-batch processor callback: runs after seed tasks complete for a row group.
-        # If it raises, the scheduler drops all rows in the row group (skips it).
+        # If it raises, the scheduler propagates the error as DatasetGenerationError (fail-fast).
         def on_seeds_complete(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
             df = self._processor_runner.run_pre_batch_on_df(df, strict_row_count=True)

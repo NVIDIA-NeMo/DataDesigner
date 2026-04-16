@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -90,8 +91,6 @@ class MockFullCol(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
 )
 def test_resolve_async_compatibility(configs: list[Mock], expected: bool) -> None:
     """allow_resize=True triggers auto-fallback to sync with a deprecation warning."""
-    import warnings
-
     builder = Mock(spec=DatasetBuilder)
     builder.single_column_configs = configs
     with warnings.catch_warnings(record=True) as w:
@@ -102,6 +101,8 @@ def test_resolve_async_compatibility(configs: list[Mock], expected: bool) -> Non
         assert len(w) == 1
         assert issubclass(w[0].category, DeprecationWarning)
         assert "allow_resize" in str(w[0].message)
+    else:
+        assert len(w) == 0
 
 
 # -- _build_async integration test with mock generators -----------------------
@@ -271,8 +272,8 @@ async def test_checkpoint_produces_correct_parquet_calls() -> None:
 # -- Partial completion warning ------------------------------------------------
 
 
-def test_partial_completion_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """write_metadata followed by partial-completion check logs a warning."""
+def test_write_metadata_records_actual_and_target_counts() -> None:
+    """write_metadata records the correct actual vs target counts."""
     storage = MagicMock()
     storage.dataset_name = "test"
     storage.get_file_paths.return_value = {}
