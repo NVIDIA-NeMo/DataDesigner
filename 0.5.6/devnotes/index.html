@@ -14,7 +14,7 @@
         <link rel="prev" href="../code_reference/analysis/">
       
       
-        <link rel="next" href="engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/">
+        <link rel="next" href="push-datasets-to-hugging-face-hub/">
       
       
         
@@ -2703,6 +2703,8 @@
       
         
       
+        
+      
     
     
     
@@ -2750,6 +2752,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="push-datasets-to-hugging-face-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push Datasets to Hugging Face Hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -3023,10 +3053,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_11" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_12" >
         
           
-          <label class="md-nav__link" for="__nav_7_11" id="__nav_7_11_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7_12" id="__nav_7_12_label" tabindex="0">
             
   
   
@@ -3044,8 +3074,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_11_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_11">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_12">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3125,6 +3155,17 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#push-datasets-to-hugging-face-hub" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Push Datasets to Hugging Face Hub
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer" class="md-nav__link">
@@ -3248,6 +3289,51 @@
       <nav class="md-post__authors md-typeset">
         
           <span class="md-author">
+            <img src="https://avatars.githubusercontent.com/u/5551931?v=4" alt="Nabin Mulepati">
+          </span>
+        
+      </nav>
+    
+    <div class="md-post__meta md-meta">
+      <ul class="md-meta__list">
+        <li class="md-meta__item">
+          <time datetime="2026-04-16 00:00:00+00:00">April 16, 2026</time></li>
+        
+        
+          
+          <li class="md-meta__item">
+            
+              6 min read
+            
+          </li>
+        
+        
+      </ul>
+      
+    </div>
+  </header>
+  <div class="md-post__content md-typeset">
+    <h2 id="push-datasets-to-hugging-face-hub"><a class="toclink" href="push-datasets-to-hugging-face-hub/"><strong>Push Datasets to Hugging Face Hub</strong></a></h2>
+<p>You just generated 10k multilingual greetings (or some other cool dataset). Now what — email a parquet file?
+Nah. Call <code>.push_to_hub()</code> and you've got a live dataset page on Hugging Face. Done and dusted 🚢.</p>
+
+    
+      <nav class="md-post__action">
+        <a href="push-datasets-to-hugging-face-hub/">
+          Continue reading
+        </a>
+      </nav>
+    
+    
+  </div>
+</article>
+      
+        <article class="md-post md-post--excerpt">
+  <header class="md-post__header">
+    
+      <nav class="md-post__authors md-typeset">
+        
+          <span class="md-author">
             <img src="https://avatars.githubusercontent.com/u/128275431?v=4" alt="Dhruv Nathawani">
           </span>
         
@@ -3273,7 +3359,6 @@
   </header>
   <div class="md-post__content md-typeset">
     <h2 id="engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer"><a class="toclink" href="engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/"><strong>Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer</strong></a></h2>
-<p><img alt="Text-to-SQL Synthetic Data Pipeline" src="assets/text-to-sql/text-to-sql-pipeline.jpg" width="800" /></p>
 <p>While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a> pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.</p>
 
     
@@ -3685,13 +3770,13 @@
         
         
           
-          <a href="engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/" class="md-footer__link md-footer__link--next" aria-label="Next: Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer">
+          <a href="push-datasets-to-hugging-face-hub/" class="md-footer__link md-footer__link--next" aria-label="Next: Push Datasets to Hugging Face Hub">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+                Push Datasets to Hugging Face Hub
               </div>
             </div>
             <div class="md-footer__button md-icon">

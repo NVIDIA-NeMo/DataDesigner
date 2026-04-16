@@ -14,6 +14,8 @@
         <link rel="prev" href="../async-all-the-way-down/">
       
       
+        <link rel="next" href="../push-datasets-to-hugging-face-hub/">
+      
       
         
       
@@ -2703,6 +2705,8 @@
       
         
       
+        
+      
     
     
     
@@ -2750,6 +2754,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../push-datasets-to-hugging-face-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push Datasets to Hugging Face Hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -3252,10 +3284,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_11" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_12" >
         
           
-          <label class="md-nav__link" for="__nav_7_11" id="__nav_7_11_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7_12" id="__nav_7_12_label" tabindex="0">
             
   
   
@@ -3273,8 +3305,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_11_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_11">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_12">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3665,10 +3697,11 @@
 
 
 <h1 id="engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer"><strong>Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer</strong></h1>
-<p><img alt="Text-to-SQL Synthetic Data Pipeline" src="../assets/text-to-sql/text-to-sql-pipeline.jpg" width="800" /></p>
 <p>While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a> pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.</p>
 <!-- more -->
-
+<div style="text-align: center;">
+<p><img alt="Text-to-SQL Synthetic Data Pipeline" src="../assets/text-to-sql/text-to-sql-pipeline.jpg" width="800" /></p>
+</div>
 <hr />
 <h2 id="the-real-world-gap-why-academic-data-wasnt-enough"><strong>The "Real-World" Gap: Why Academic Data Wasn't Enough</strong></h2>
 <p>The gap between academic benchmarks and the messy reality of enterprise data warehouses is massive. On academic benchmarks like Spider (where schemas are clean, tables are few, and queries are straightforward), frontier models score above 85%. On <a href="https://bird-bench.github.io/">BIRD</a> (which introduces dirty data, larger schemas, and external knowledge requirements), the best open models reach roughly 70% execution accuracy --- and on <a href="https://spider2-sql.github.io/">Spider 2.0 Lite</a> (which uses real enterprise databases with hundreds of tables, multiple dialects, and complex business logic), even the best models score below 50%.</p>
@@ -5356,6 +5389,22 @@
             </div>
           </a>
         
+        
+          
+          <a href="../push-datasets-to-hugging-face-hub/" class="md-footer__link md-footer__link--next" aria-label="Next: Push Datasets to Hugging Face Hub">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Push Datasets to Hugging Face Hub
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
         
       </nav>
     
