@@ -75,6 +75,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - Push Datasets to Hugging Face Hub: devnotes/posts/push-datasets-to-hugging-face-hub.md
       - "Text-to-SQL for Nemotron Super": devnotes/posts/text-to-sql.md
       - "Async All the Way Down": devnotes/posts/async-all-the-way-down.md
       - Owning the Model Stack: devnotes/posts/owning-the-model-stack.md
