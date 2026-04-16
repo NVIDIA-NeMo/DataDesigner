@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -28,7 +28,6 @@ def test_model_facade_has_sync_methods() -> None:
 
 def test_async_engine_env_controls_builder_execution_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """When DATA_DESIGNER_ASYNC_ENGINE is set, _run_cell_by_cell_generator dispatches to async fan-out."""
-    import data_designer.engine.dataset_builders.dataset_builder as cwb_module
 
     mock_generator = MagicMock()
     mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
@@ -38,15 +37,15 @@ def test_async_engine_env_controls_builder_execution_path(monkeypatch: pytest.Mo
     builder._resource_provider.run_config.non_inference_max_parallel_workers = 4
 
     # Test with async enabled — uses max_parallel_requests from generator (same as sync)
-    with patch.object(cwb_module, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        DatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
-        builder._fan_out_with_async.assert_called_once_with(mock_generator, max_workers=4)
-        builder._fan_out_with_threads.assert_not_called()
+    builder._use_async = True
+    DatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
+    builder._fan_out_with_async.assert_called_once_with(mock_generator, max_workers=4)
+    builder._fan_out_with_threads.assert_not_called()
 
     builder.reset_mock()
 
     # Test with async disabled — uses max_parallel_requests from generator
-    with patch.object(cwb_module, "DATA_DESIGNER_ASYNC_ENGINE", False):
-        DatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
-        builder._fan_out_with_threads.assert_called_once_with(mock_generator, max_workers=4)
-        builder._fan_out_with_async.assert_not_called()
+    builder._use_async = False
+    DatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
+    builder._fan_out_with_threads.assert_called_once_with(mock_generator, max_workers=4)
+    builder._fan_out_with_async.assert_not_called()

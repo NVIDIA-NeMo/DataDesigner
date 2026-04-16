@@ -9,6 +9,7 @@ import logging
 import os
 import time
 import uuid
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -106,6 +107,7 @@ class DatasetBuilder:
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
+        self._use_async: bool = DATA_DESIGNER_ASYNC_ENGINE
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -185,8 +187,8 @@ class DatasetBuilder:
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
-        if DATA_DESIGNER_ASYNC_ENGINE:
-            self._validate_async_compatibility()
+        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        if self._use_async:
             self._build_async(generators, num_records, buffer_size, on_batch_complete)
         else:
             group_id = uuid.uuid4().hex
@@ -218,8 +220,8 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        if DATA_DESIGNER_ASYNC_ENGINE:
-            self._validate_async_compatibility()
+        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        if self._use_async:
             dataset = self._build_async_preview(generators, num_records)
         else:
             group_id = uuid.uuid4().hex
@@ -236,11 +238,15 @@ class DatasetBuilder:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview")
 
+        settings = self._resource_provider.run_config
+        trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
         scheduler, buffer_manager = self._prepare_async_run(
             generators,
             num_records,
             buffer_size=num_records,
             run_post_batch_in_scheduler=False,
+            trace=trace_enabled,
         )
 
         loop = ensure_async_engine_loop()
@@ -256,15 +262,23 @@ class DatasetBuilder:
         buffer_manager.free_row_group(0)
         return dataset
 
-    def _validate_async_compatibility(self) -> None:
-        """Raise if any column uses allow_resize=True with the async scheduler."""
+    def _resolve_async_compatibility(self) -> bool:
+        """Check if the async engine can be used; auto-fallback to sync if not.
+
+        Returns True if async is usable, False if allow_resize forces sync fallback.
+        """
         offending = [config.name for config in self.single_column_configs if getattr(config, "allow_resize", False)]
         if offending:
-            raise DatasetGenerationError(
-                f"allow_resize=True is not supported with DATA_DESIGNER_ASYNC_ENGINE=1. "
-                f"Offending column(s): {offending}. Either remove allow_resize=True or "
-                f"disable the async scheduler."
+            msg = (
+                f"allow_resize=True detected on column(s) {offending}. "
+                "Falling back to sync engine for this run. "
+                "allow_resize is deprecated and will be removed in a future release; "
+                "use workflow chaining instead (see issue #552)."
             )
+            logger.warning(f"⚠️ {msg}")
+            warnings.warn(msg, DeprecationWarning, stacklevel=3)
+            return False
+        return True
 
     def _build_async(
         self,
@@ -318,6 +332,15 @@ class DatasetBuilder:
         # Write metadata
         buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
 
+        # Surface partial completion
+        actual = buffer_manager.actual_num_records
+        if actual < num_records:
+            pct = actual / num_records * 100 if num_records > 0 else 0
+            logger.warning(
+                f"⚠️ Generated {actual} of {num_records} requested records ({pct:.0f}%). "
+                "The dataset may be incomplete due to errors or early shutdown."
+            )
+
     def _prepare_async_run(
         self,
         generators: list[ColumnGenerator],
@@ -369,7 +392,7 @@ class DatasetBuilder:
         # If it raises, the scheduler drops all rows in the row group (skips it).
         def on_seeds_complete(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_pre_batch_on_df(df)
+            df = self._processor_runner.run_pre_batch_on_df(df, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
             for ri in range(rg_size):
                 if buffer_manager.is_dropped(rg_id, ri) and not tracker.is_dropped(rg_id, ri):
@@ -378,7 +401,13 @@ class DatasetBuilder:
         # Post-batch processor callback: runs after all columns, before finalization.
         def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
+            original_len = len(df)
             df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
+            if len(df) != original_len:
+                raise DatasetGenerationError(
+                    f"Post-batch processor changed row count from {original_len} to {len(df)}. "
+                    "Row-count changes in post-batch processors are not supported with the async engine."
+                )
             buffer_manager.replace_dataframe(rg_id, df)
 
         # Coarse upper bound: sums all registered aliases, not just those used
@@ -505,7 +534,7 @@ class DatasetBuilder:
         max_workers = self._resource_provider.run_config.non_inference_max_parallel_workers
         if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
-        if DATA_DESIGNER_ASYNC_ENGINE:
+        if self._use_async:
             logger.info("⚡ Using async engine for concurrent execution")
             self._fan_out_with_async(generator, max_workers=max_workers)
         else:
