@@ -111,7 +111,7 @@ class RunConfig(ConfigBase):
             ``native`` uses Jinja2's built-in sandbox with the standard filter set and
             fewer Data Designer-specific restrictions. ``secure`` uses Data Designer's
             hardened sandbox with additional AST, filter, and output guards.
-            Default is ``native``.
+            Default is ``secure``.
         throttle: AIMD throttle tuning parameters.  See ``ThrottleConfig`` for details.
     """
 
@@ -126,7 +126,7 @@ class RunConfig(ConfigBase):
     progress_bar: bool = False
     progress_interval: float = Field(default=5.0, gt=0.0)
     jinja_rendering_engine: JinjaRenderingEngine = Field(
-        default=JinjaRenderingEngine.NATIVE,
+        default=JinjaRenderingEngine.SECURE,
         description=(
             "Template renderer used for engine-side Jinja evaluation. "
             "`native` uses Jinja2's built-in sandbox; `secure` uses Data Designer's hardened sandbox."

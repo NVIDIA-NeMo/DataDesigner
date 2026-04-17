@@ -120,14 +120,21 @@ def test_jinja_dataframe_to_column_scenarios(test_case, expr, df_data, mock_side
 def test_jinja_dataframe_can_switch_rendering_engines() -> None:
     df = lazy.pd.DataFrame({"items": [["a", "b"]]})
 
+    with pytest.raises(UserTemplateUnsupportedFiltersError):
+        JinjaDataFrame(
+            "items | join('-')",
+            jinja_rendering_engine=JinjaRenderingEngine.SECURE,
+        ).to_column(df)
+
     native_result = JinjaDataFrame(
         "items | join('-')",
         jinja_rendering_engine=JinjaRenderingEngine.NATIVE,
     ).to_column(df)
     assert native_result == ["a-b"]
 
+
+def test_jinja_dataframe_uses_secure_jinja_by_default() -> None:
+    df = lazy.pd.DataFrame({"items": [["a", "b"]]})
+
     with pytest.raises(UserTemplateUnsupportedFiltersError):
-        JinjaDataFrame(
-            "items | join('-')",
-            jinja_rendering_engine=JinjaRenderingEngine.SECURE,
-        ).to_column(df)
+        JinjaDataFrame("items | join('-')").to_column(df)

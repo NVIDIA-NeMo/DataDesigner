@@ -497,7 +497,7 @@ class WithJinja2UserTemplateRendering:
             return JinjaRenderingEngine(getattr(self, "_jinja_rendering_engine"))
         if hasattr(self, "_resource_provider"):
             return JinjaRenderingEngine(self._resource_provider.run_config.jinja_rendering_engine)
-        return JinjaRenderingEngine.NATIVE
+        return JinjaRenderingEngine.SECURE
 
     def _create_render_environment(
         self,

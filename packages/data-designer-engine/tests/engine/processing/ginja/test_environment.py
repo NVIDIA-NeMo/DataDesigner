@@ -213,3 +213,13 @@ def test_with_jinja2_user_template_rendering_mixin(test_case, template_1, templa
     else:
         with pytest.raises(expected_result):
             f = Foo(template_1, template_2)
+
+
+def test_with_jinja2_user_template_rendering_defaults_to_secure_mode() -> None:
+    class Foo(WithJinja2UserTemplateRendering):
+        pass
+
+    renderer = Foo()
+
+    with pytest.raises(UserTemplateUnsupportedFiltersError):
+        renderer.prepare_jinja2_template_renderer("{{ items | join('-') }}", dataset_variables=["items"])

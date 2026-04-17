@@ -129,10 +129,26 @@ def test_prompt_renderer_render_prompt_template_error():
         )
 
 
-def test_prompt_renderer_uses_native_jinja_by_default() -> None:
+def test_prompt_renderer_uses_secure_jinja_by_default() -> None:
     config = LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model")
     recipe = create_response_recipe(config)
     renderer = RecordBasedPromptRenderer(response_recipe=recipe)
+
+    with pytest.raises(PromptTemplateRenderError, match=r"\| join"):
+        renderer.render(
+            prompt_template="Joined: {{ input | join('-') }}",
+            record={"input": ["Hello", "World"]},
+            prompt_type=PromptType.USER_PROMPT,
+        )
+
+
+def test_prompt_renderer_can_opt_into_native_mode() -> None:
+    config = LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model")
+    recipe = create_response_recipe(config)
+    renderer = RecordBasedPromptRenderer(
+        response_recipe=recipe,
+        jinja_rendering_engine=JinjaRenderingEngine.NATIVE,
+    )
 
     result = renderer.render(
         prompt_template="Joined: {{ input | join('-') }}",
@@ -141,19 +157,3 @@ def test_prompt_renderer_uses_native_jinja_by_default() -> None:
     )
 
     assert result == "Joined: Hello-World"
-
-
-def test_prompt_renderer_can_opt_into_secure_mode() -> None:
-    config = LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model")
-    recipe = create_response_recipe(config)
-    renderer = RecordBasedPromptRenderer(
-        response_recipe=recipe,
-        jinja_rendering_engine=JinjaRenderingEngine.SECURE,
-    )
-
-    with pytest.raises(PromptTemplateRenderError, match=r"\| join"):
-        renderer.render(
-            prompt_template="Joined: {{ input | join('-') }}",
-            record={"input": ["Hello", "World"]},
-            prompt_type=PromptType.USER_PROMPT,
-        )

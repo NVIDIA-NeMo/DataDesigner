@@ -50,7 +50,7 @@ class DatasetGenerator:
         *,
         schema: DataSchema | None = None,
         max_rejections_factor: int = 5,
-        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.NATIVE,
+        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.SECURE,
     ):
         # This is temporary while we need the legacy and refactored code to coexist.
         if schema is not None:

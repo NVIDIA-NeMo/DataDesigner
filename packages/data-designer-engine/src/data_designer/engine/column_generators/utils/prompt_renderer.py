@@ -42,7 +42,7 @@ class RecordBasedPromptRenderer(WithJinja2UserTemplateRendering):
         response_recipe: ResponseRecipe,
         *,
         error_message_context: dict[str, str] | None = None,
-        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.NATIVE,
+        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.SECURE,
     ):
         self.response_recipe = response_recipe
         self._error_message_context = error_message_context

@@ -24,7 +24,7 @@ class JinjaDataFrame(WithJinja2UserTemplateRendering):
         self,
         expr: str,
         *,
-        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.NATIVE,
+        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.SECURE,
     ):
         self.expr = expr
         self._jinja_rendering_engine = jinja_rendering_engine
