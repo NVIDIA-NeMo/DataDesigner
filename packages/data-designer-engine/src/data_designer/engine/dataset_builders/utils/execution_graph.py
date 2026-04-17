@@ -9,12 +9,15 @@ from collections import deque
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
+from data_designer.config.column_types import ColumnConfigT
+from data_designer.engine.column_generators.utils.generator_classification import column_type_used_in_execution_dag
 from data_designer.engine.dataset_builders.multi_column_configs import (
     DatasetBuilderColumnConfigT,
     MultiColumnConfig,
 )
 from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef
+from data_designer.logging import LOG_INDENT
 
 logger = logging.getLogger(__name__)
 
@@ -330,3 +333,68 @@ class ExecutionGraph:
             for dep in sorted(self._upstream.get(col, set())):
                 lines.append(f"    {dep} --> {col}")
         return "\n".join(lines)
+
+
+def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> list[ColumnConfigT]:
+    non_dag_cols = [col for col in column_configs if not column_type_used_in_execution_dag(col.column_type)]
+    dag_col_dict = {col.name: col for col in column_configs if column_type_used_in_execution_dag(col.column_type)}
+
+    if not dag_col_dict:
+        return non_dag_cols
+
+    # side_effect_col_name -> producing column name
+    side_effect_map: dict[str, str] = {}
+    for name, col in dag_col_dict.items():
+        for se_col in col.side_effect_columns:
+            existing = side_effect_map.get(se_col)
+            if existing is not None and existing != name:
+                raise ConfigCompilationError(
+                    f"Side-effect column {se_col!r} is already produced by {existing!r}; "
+                    f"cannot register a second producer {name!r}. "
+                    f"Use distinct side-effect column names for each pipeline stage."
+                )
+            side_effect_map[se_col] = name
+
+    def resolve(col_name: str) -> str | None:
+        if col_name in dag_col_dict:
+            return col_name
+        return side_effect_map.get(col_name)
+
+    upstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
+    downstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
+
+    def _add_edge(name: str, dep: str, label: str) -> None:
+        resolved = resolve(dep)
+        if resolved is None:
+            return
+        logger.debug(f"{LOG_INDENT}🔗 `{name}` depends on `{resolved}` [{label}]")
+        upstream[name].add(resolved)
+        downstream[resolved].add(name)
+
+    logger.info("⛓️ Sorting column configs into a Directed Acyclic Graph")
+    for name, col in dag_col_dict.items():
+        for req in col.required_columns:
+            _add_edge(name, req, "required")
+        if col.skip is not None:
+            for skip_col in col.skip.columns:
+                _add_edge(name, skip_col, "skip.when")
+
+    in_degree = {name: len(ups) for name, ups in upstream.items()}
+    queue: deque[str] = deque(name for name, deg in in_degree.items() if deg == 0)
+    order: list[str] = []
+    while queue:
+        name = queue.popleft()
+        order.append(name)
+        for child in downstream.get(name, set()):
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+
+    if len(order) != len(dag_col_dict):
+        raise DAGCircularDependencyError(
+            "🛑 The Data Designer column configurations contain cyclic dependencies. Please "
+            "inspect the column configurations and ensure they can be sorted without "
+            "circular references."
+        )
+
+    return non_dag_cols + [dag_col_dict[n] for n in order]
