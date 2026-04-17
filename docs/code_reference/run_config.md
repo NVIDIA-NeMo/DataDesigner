@@ -1,7 +1,8 @@
 # Run Config
 
 The `run_config` module defines runtime settings that control dataset generation behavior,
-including early shutdown thresholds, batch sizing, and non-inference worker concurrency.
+including early shutdown thresholds, batch sizing, non-inference worker concurrency,
+and the Jinja rendering engine used by the runtime.
 
 ## Usage
 
@@ -13,6 +14,7 @@ data_designer = DataDesigner()
 data_designer.set_run_config(dd.RunConfig(
     buffer_size=500,
     max_conversation_restarts=3,
+    jinja_rendering_engine=dd.JinjaRenderingEngine.GINJA,
 ))
 ```
 

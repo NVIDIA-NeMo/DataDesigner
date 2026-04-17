@@ -6,9 +6,12 @@ from __future__ import annotations
 import ast
 from typing import TYPE_CHECKING, Any
 
+from jinja2 import meta
+from jinja2.sandbox import ImmutableSandboxedEnvironment
+
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.processing.ginja.environment import (
-    UserTemplateSandboxEnvironment,
     WithJinja2UserTemplateRendering,
 )
 
@@ -17,8 +20,14 @@ if TYPE_CHECKING:
 
 
 class JinjaDataFrame(WithJinja2UserTemplateRendering):
-    def __init__(self, expr: str):
+    def __init__(
+        self,
+        expr: str,
+        *,
+        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.NATIVE,
+    ):
         self.expr = expr
+        self._jinja_rendering_engine = jinja_rendering_engine
 
     def _jsonify(self, record) -> dict[str, Any]:
         for key, value in record.items():
@@ -61,4 +70,4 @@ class JinjaDataFrame(WithJinja2UserTemplateRendering):
 
 def extract_column_names_from_expression(expr: str) -> set[str]:
     """Extract valid column names from the given expression."""
-    return UserTemplateSandboxEnvironment().get_references("{{ " + expr + " }}")
+    return meta.find_undeclared_variables(ImmutableSandboxedEnvironment().parse("{{ " + expr + " }}"))

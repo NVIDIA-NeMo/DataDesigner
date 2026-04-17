@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.sampling_gen.data_sources.base import RadomStateT
 from data_designer.engine.sampling_gen.errors import RejectionSamplingError
 from data_designer.engine.sampling_gen.jinja_utils import JinjaDataFrame
@@ -49,6 +50,7 @@ class DatasetGenerator:
         *,
         schema: DataSchema | None = None,
         max_rejections_factor: int = 5,
+        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.NATIVE,
     ):
         # This is temporary while we need the legacy and refactored code to coexist.
         if schema is not None:
@@ -63,6 +65,7 @@ class DatasetGenerator:
 
         self.rng = check_random_state(random_state)
         self._dag = self.schema.dag.to_networkx()
+        self._jinja_rendering_engine = jinja_rendering_engine
         self._shared_sampler_kwargs = {
             "random_state": self.rng,
             "people_gen_resource": create_people_gen_resource(self.schema, person_generator_loader),
@@ -81,7 +84,10 @@ class DatasetGenerator:
 
         while needs_samples.any():
             for condition in column.conditions:
-                index = JinjaDataFrame(condition).select_index(df[needs_samples])
+                index = JinjaDataFrame(
+                    condition,
+                    jinja_rendering_engine=self._jinja_rendering_engine,
+                ).select_index(df[needs_samples])
                 src = column.get_sampler(condition, **self._shared_sampler_kwargs)
                 df = src.inject_data_column(df, name, index)
 

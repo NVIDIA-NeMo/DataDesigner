@@ -12,7 +12,9 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
     Score,
 )
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.config.utils.code_lang import CodeLang
+from data_designer.engine.column_generators.utils.errors import PromptTemplateRenderError
 from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
     RecordBasedPromptRenderer,
@@ -124,4 +126,34 @@ def test_prompt_renderer_render_prompt_template_error():
     with pytest.raises(PromptTemplateRenderError, match="Template error"):
         renderer.render(
             prompt_template="Test prompt: {{ invalid_template }}", record=data, prompt_type=PromptType.USER_PROMPT
+        )
+
+
+def test_prompt_renderer_uses_native_jinja_by_default() -> None:
+    config = LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model")
+    recipe = create_response_recipe(config)
+    renderer = RecordBasedPromptRenderer(response_recipe=recipe)
+
+    result = renderer.render(
+        prompt_template="Joined: {{ input | join('-') }}",
+        record={"input": ["Hello", "World"]},
+        prompt_type=PromptType.USER_PROMPT,
+    )
+
+    assert result == "Joined: Hello-World"
+
+
+def test_prompt_renderer_can_opt_into_ginja() -> None:
+    config = LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model")
+    recipe = create_response_recipe(config)
+    renderer = RecordBasedPromptRenderer(
+        response_recipe=recipe,
+        jinja_rendering_engine=JinjaRenderingEngine.GINJA,
+    )
+
+    with pytest.raises(PromptTemplateRenderError, match=r"\| join"):
+        renderer.render(
+            prompt_template="Joined: {{ input | join('-') }}",
+            record={"input": ["Hello", "World"]},
+            prompt_type=PromptType.USER_PROMPT,
         )

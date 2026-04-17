@@ -9,8 +9,10 @@ import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ExpressionColumnConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RunConfig
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.utils.errors import ExpressionTemplateRenderError
+from data_designer.engine.processing.ginja.exceptions import UserTemplateUnsupportedFiltersError
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
@@ -160,3 +162,26 @@ def test_generate_with_missing_columns():
         match=r"There was an error preparing the Jinja2 expression template. The following columns \['col1'\] are missing!",
     ):
         generator.generate(df)
+
+
+def test_generate_respects_run_config_jinja_rendering_engine() -> None:
+    df = lazy.pd.DataFrame({"col1": [["a", "b"]]})
+
+    native_provider = Mock(spec=ResourceProvider)
+    native_provider.run_config = RunConfig(jinja_rendering_engine=JinjaRenderingEngine.NATIVE)
+    native_generator = _create_test_generator(
+        _create_test_config("joined", "{{ col1 | join('-') }}", "str"),
+        native_provider,
+    )
+    native_result = native_generator.generate(df)
+    assert native_result["joined"].tolist() == ["a-b"]
+
+    ginja_provider = Mock(spec=ResourceProvider)
+    ginja_provider.run_config = RunConfig(jinja_rendering_engine=JinjaRenderingEngine.GINJA)
+    ginja_generator = _create_test_generator(
+        _create_test_config("joined", "{{ col1 | join('-') }}", "str"),
+        ginja_provider,
+    )
+
+    with pytest.raises(UserTemplateUnsupportedFiltersError):
+        ginja_generator.generate(df)
