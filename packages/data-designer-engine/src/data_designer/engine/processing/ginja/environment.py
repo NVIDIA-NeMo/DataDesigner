@@ -280,9 +280,11 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
             self._assert_template_ast_complexity(ast)
             self._assert_template_has_no_self_reference(ast)
             self._assert_template_has_valid_references(ast)
+        except UserTemplateError:
+            raise
         except Exception as exception:
             maybe_handle_missing_filter_exception(exception, available_jinja_filters=list(self.filters.keys()))
-            raise exception
+            raise
 
     def _assert_rendered_text_length(self, rendered_text: str) -> None:
         """Check against the length of the rendered string."""
@@ -427,9 +429,11 @@ class NativeJinjaSandboxEnvironment(ImmutableSandboxedEnvironment):
             unallowed_vars = set(template_vars) - set(self.allowed_references)
             if len(unallowed_vars) > 0:
                 raise UserTemplateError(f"Unknown variable references in Jinja template: {unallowed_vars}")
+        except UserTemplateError:
+            raise
         except Exception as exception:
             maybe_handle_missing_filter_exception(exception, available_jinja_filters=list(self.filters.keys()))
-            raise exception
+            raise
 
     def render_template(
         self,
@@ -495,10 +499,16 @@ class WithJinja2UserTemplateRendering:
     _template_render_fn: Callable
 
     def _get_jinja_rendering_engine(self) -> JinjaRenderingEngine:
-        if hasattr(self, "_jinja_rendering_engine"):
-            return JinjaRenderingEngine(getattr(self, "_jinja_rendering_engine"))
-        if hasattr(self, "_resource_provider"):
-            return JinjaRenderingEngine(self._resource_provider.run_config.jinja_rendering_engine)
+        engine = getattr(self, "_jinja_rendering_engine", None)
+        if engine is not None:
+            return JinjaRenderingEngine(engine)
+
+        resource_provider = getattr(self, "_resource_provider", None)
+        if resource_provider is not None:
+            return JinjaRenderingEngine(resource_provider.run_config.jinja_rendering_engine)
+
+        # The mixin predates the RunConfig toggle, so preserve the historical
+        # secure-by-default behavior when no explicit engine is wired in.
         return JinjaRenderingEngine.SECURE
 
     def _create_render_environment(
