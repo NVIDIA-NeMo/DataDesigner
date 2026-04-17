@@ -14,6 +14,7 @@ from data_designer.engine.resources.agent_rollout.utils import (
     build_message,
     coerce_optional_str,
     load_jsonl_rows,
+    min_max_timestamps,
     require_string,
     stringify_json_value,
     stringify_text_value,
@@ -143,6 +144,7 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         if pending_reasoning:
             source_meta["unattached_reasoning"] = list(pending_reasoning)
 
+        earliest, latest = min_max_timestamps(timestamps)
         return [
             NormalizedAgentRolloutRecord(
                 trace_id=session_id,
@@ -154,9 +156,8 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                 cwd=coerce_optional_str(session_meta.get("cwd")),
                 project_path=coerce_optional_str(session_meta.get("cwd")),
                 git_branch=coerce_optional_str(session_meta.get("git_branch")),
-                started_at=coerce_optional_str(session_meta.get("timestamp"))
-                or (min(timestamps) if timestamps else None),
-                ended_at=max(timestamps) if timestamps else None,
+                started_at=coerce_optional_str(session_meta.get("timestamp")) or earliest,
+                ended_at=latest,
                 messages=messages,
                 source_meta=source_meta,
             )
