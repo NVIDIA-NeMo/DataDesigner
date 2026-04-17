@@ -72,21 +72,23 @@ record = {
 }
 ```
 
-In a remote execution setting, that matters because rich Python objects can expose attributes, methods, or descriptors that were never meant to be reachable from user-authored templates. The relevant history here is mostly Jinja sandbox-escape CVEs rather than Python interpreter CVEs: Jinja's [sandbox security considerations](https://jinja.palletsprojects.com/en/stable/sandbox/) explicitly note that the sandbox is not a complete security boundary, and fixes for untrusted-template execution have included [`str.format` sandbox escape (CVE-2016-10745)](https://nvd.nist.gov/vuln/detail/CVE-2016-10745), [`str.format_map` sandbox escape (CVE-2019-10906)](https://github.com/advisories/GHSA-462w-v97r-4m45), [indirect `str.format` reference escape (CVE-2024-56326)](https://nvd.nist.gov/vuln/detail/CVE-2024-56326), and [`|attr`-based access to `format` (CVE-2025-27516)](https://nvd.nist.gov/vuln/detail/CVE-2025-27516). The broader `instance -> __class__ -> mro -> modules -> os` style chain is better understood as server-side template injection and sandbox-escape technique literature; PortSwigger's [server-side template injection research](https://portswigger.net/research/server-side-template-injection) is a useful reference for that model.
+In a remote execution setting, exposing rich Python objects increases the risk of attribute- and method-based sandbox escapes. Jinja's [sandbox security considerations](https://jinja.palletsprojects.com/en/stable/sandbox/) note that the sandbox is not a complete security boundary, and past escapes have included [`str.format` (CVE-2016-10745)](https://nvd.nist.gov/vuln/detail/CVE-2016-10745), [`str.format_map` (CVE-2019-10906)](https://github.com/advisories/GHSA-462w-v97r-4m45), [indirect `str.format` references (CVE-2024-56326)](https://nvd.nist.gov/vuln/detail/CVE-2024-56326), and [`|attr`-based access to `format` (CVE-2025-27516)](https://nvd.nist.gov/vuln/detail/CVE-2025-27516); PortSwigger's [server-side template injection research](https://portswigger.net/research/server-side-template-injection) covers the broader object-traversal pattern.
 
 ### Filter Allowlist
 
-`SECURE` does not expose the full Jinja filter surface. It keeps a small approved subset plus the Data Designer `jsonpath` filter.
+`SECURE` keeps only a small approved subset of Jinja filters plus the Data Designer `jsonpath` filter. If a filter is not on that allowlist, the template is rejected. Common excluded filters are:
 
-```jinja
-{{ payload | jsonpath("$.customer.name") }}
-```
+| Disallowed filters | Why they are excluded in `SECURE` |
+| --- | --- |
+| `attr`, `xmlattr` | These add dynamic attribute lookup or attribute-name construction, which widens the object-traversal surface in untrusted templates. |
+| `map`, `select`, `reject`, `selectattr`, `rejectattr`, `groupby`, `batch`, `slice`, `sum` | These make templates behave more like a data-processing language and can multiply compute across large inputs. |
+| `join`, `format`, `indent`, `wordwrap`, `center`, `filesizeformat` | These expand presentation and composition logic inside the template. `SECURE` keeps formatting logic narrow so templates stay close to interpolation. |
+| `default`, `d`, `dictsort`, `count`, `wordcount`, `pprint`, `tojson` | These encourage fallback logic, secondary data shaping, or debug-style output inside the template rather than in the engine or config layer. |
+| `safe`, `striptags`, `urlize` | These are primarily HTML-oriented output transforms and are unnecessary for server-side dataset rendering. |
 
-```jinja
-{{ items | join(", ") }}
-```
+Some omitted convenience filters, such as the `e` alias for `escape`, are excluded because `SECURE` uses a small explicit allowlist. The current implementation does not assign each omitted filter its own separate security rationale.
 
-The first example is supported. The second is broader Jinja behavior that `NATIVE` permits but `SECURE` intentionally rejects. In a shared engine, narrowing the filter surface reduces the number of operations that user templates can compose into server-side execution.
+Use `NATIVE` when full Jinja filter compatibility matters more than the additional restrictions used for untrusted template execution.
 
 ### Template Features Removed
 
@@ -132,7 +134,7 @@ Nested and recursive loops are especially risky in shared execution because they
 {% endif %}
 ```
 
-This is not about any one feature being unsafe by itself. It is about limiting how much control flow and composition untrusted templates can pack into a single server-side render operation.
+This is not about any one feature being unsafe by itself. It is about limiting how much control flow and composition untrusted templates can pack into a single server-side render operation, which helps prevent compute bombs in shared execution.
 
 ### `self` References Blocked
 

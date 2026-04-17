@@ -104,6 +104,10 @@ def test_native_jinja_sandbox_environment_supports_jsonpath_filter() -> None:
     assert env.render_template('{{ field_c | jsonpath("$.sub_a.foo[:2]") }}', TEST_RECORD) == str([1, 2])
 
 
+def test_user_template_sandbox_environment_supports_upper_filter(stub_sandbox_env) -> None:
+    assert stub_sandbox_env.safe_render("{{ field_y | upper }}", TEST_RECORD) == "FOO"
+
+
 @pytest.mark.parametrize(
     "jinja_template,expected_result",
     [

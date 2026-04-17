@@ -57,6 +57,7 @@ ALLOWED_JINJA_FILTERS = [
     "trim",
     "truncate",
     "unique",
+    "upper",
     "urlencode",
     ## Custom Filters
     "jsonpath",
