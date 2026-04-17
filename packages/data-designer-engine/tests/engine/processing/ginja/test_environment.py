@@ -3,6 +3,7 @@
 
 import pytest
 
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.processing.ginja.environment import (
     ALLOWED_JINJA_FILTERS,
     UserTemplateSandboxEnvironment,
@@ -180,6 +181,7 @@ def test_with_jinja2_user_template_rendering_mixin(test_case, template_1, templa
 
     class Foo(WithJinja2UserTemplateRendering):
         def __init__(self, template_1: str, template_2: str = None):
+            self._jinja_rendering_engine = JinjaRenderingEngine.GINJA
             if template_2 is None:
                 # Single template
                 self.prepare_jinja2_template_renderer(template_1, dataset_variables=["safe"])

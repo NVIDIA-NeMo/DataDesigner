@@ -10,7 +10,6 @@ from data_designer.config.column_configs import ImageColumnConfig
 from data_designer.config.models import ImageContext, ImageFormat, ModalityDataType
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.image import ImageCellGenerator
-from data_designer.engine.processing.ginja.exceptions import UserTemplateError
 
 
 @pytest.fixture
@@ -114,13 +113,13 @@ def test_image_cell_generator_missing_columns_error(stub_image_column_config, st
 
 
 def test_image_cell_generator_empty_prompt_error(stub_resource_provider):
-    """Test that empty rendered prompt raises UserTemplateError."""
+    """Test that empty rendered prompt raises ValueError in native mode."""
     # Create config with template that renders to empty string
     config = ImageColumnConfig(name="test_image", prompt="{{ empty }}", model_alias="test_model")
 
     generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
 
-    with pytest.raises(UserTemplateError):
+    with pytest.raises(ValueError, match="empty"):
         generator.generate(data={"empty": ""})
 
 
