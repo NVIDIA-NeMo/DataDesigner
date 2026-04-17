@@ -5,12 +5,9 @@ Data Designer can run in two very different trust models:
 - **Trusted / monolithic**: The same user or team writes the config and runs the engine.
 - **Untrusted / shared execution**: One user submits a config and a different process, service, or team executes it.
 
-That distinction matters for Jinja template rendering. In a trusted local workflow, broader template flexibility may be acceptable. In a shared-service deployment, user-supplied Jinja becomes part of the engine's remote code execution surface. A template sandbox escape would execute inside the process running Data Designer.
+That distinction matters for features that evaluate user-supplied configuration at runtime, such as Jinja template rendering. In a trusted local workflow, broader template flexibility may be acceptable. In a shared-service deployment, user-supplied Jinja becomes part of the engine's remote code execution surface. A template sandbox escape would execute inside the process running Data Designer.
 
 See [Deployment Options](deployment-options.md) for the architectures where that trust boundary changes.
-
-!!! warning "Treat untrusted Jinja as a security boundary"
-    If many users can submit configs to one engine, or if configs are accepted over an API and executed elsewhere, keep `JinjaRenderingEngine.SECURE`. In that model, Jinja templates are no longer just prompt-formatting helpers. They are untrusted user programs being evaluated by your engine.
 
 ## Jinja Rendering Modes
 
@@ -31,22 +28,31 @@ run_config = dd.RunConfig(
 | `SECURE` | Data Designer's hardened renderer built on top of Jinja2's sandbox | Shared services, microservices, internal platforms, or any deployment where config submission is separated from execution |
 | `NATIVE` | Jinja2's built-in sandbox with Data Designer's variable whitelist | Local library usage and other trusted, monolithic workflows that want broader Jinja behavior |
 
-## What Both Modes Already Do
+!!! warning "Treat untrusted Jinja as a security boundary"
+    If many users can submit configs to one engine, or if configs are accepted over an API and executed elsewhere, keep `JinjaRenderingEngine.SECURE`. In that model, Jinja templates are no longer just prompt-formatting helpers. They are untrusted user programs being evaluated by your engine.
 
-`NATIVE` is not an unrestricted Python template engine. Both modes still provide some baseline containment:
+## Compatibility Matrix
 
-- Both use Jinja2's `ImmutableSandboxedEnvironment`.
-- Both only allow references to explicitly provided dataset variables.
-- Both still reject sandboxed operations that Jinja2 itself disallows.
+`NATIVE` is not an unrestricted Python template engine. The matrix below shows what each mode permits, restricts, or adds on top of Jinja2's standard sandbox behavior.
 
-The difference is that `SECURE` adds another layer of Data Designer-specific restrictions on top of that baseline.
+| Capability | `NATIVE` | `SECURE` |
+|------|------|----------|
+| Jinja2 `ImmutableSandboxedEnvironment` baseline | Yes | Yes |
+| References to explicitly provided dataset variables only | Yes | Yes |
+| Standard Jinja built-in filter set | Yes | Subset only |
+| Data Designer `jsonpath` filter | Yes | Yes |
+| `import`, `macro`, `set`, `extends`, `block` support | Yes | No |
+| Nested or recursive `for` loops | Yes | No |
+| Unbounded AST complexity | Yes | No |
+| Template context sanitized to JSON-compatible types before render | No | Yes |
+| Empty, oversized, or built-in-like rendered output is permitted | Yes | No |
 
 ## What `SECURE` Adds on Top of Standard Jinja Sandbox
 
 The `SECURE` renderer uses a hardened environment implemented in `packages/data-designer-engine/src/data_designer/engine/processing/ginja/environment.py`. Compared with the standard Jinja sandbox, it adds several additional controls:
 
 - **Record sanitization before render**: Template context is serialized and deserialized into basic JSON-compatible types before rendering. This reduces the chance that unexpected Python objects expose attributes or callables to the template.
-- **Filter allowlist**: Only a limited set of filters is available. This includes a small set of built-in Jinja filters plus Data Designer's custom `jsonpath` filter.
+- **Filter allowlist**: Only a limited set of filters is available. This includes a small set of built-in Jinja filters and the Data Designer `jsonpath` filter.
 - **Unsupported template features removed**: `SECURE` rejects `import`, `macro`, `set`, `extends`, and `block`.
 - **Loop restrictions**: Recursive loops and nested `for` loops are rejected.
 - **AST complexity limits**: Templates are statically analyzed and rejected if they exceed the current complexity thresholds of 600 AST nodes or depth 10.

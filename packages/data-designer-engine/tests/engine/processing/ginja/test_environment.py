@@ -6,6 +6,7 @@ import pytest
 from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.processing.ginja.environment import (
     ALLOWED_JINJA_FILTERS,
+    NativeJinjaSandboxEnvironment,
     UserTemplateSandboxEnvironment,
     WithJinja2UserTemplateRendering,
     is_jinja_template,
@@ -95,6 +96,12 @@ def test_is_jinja_template(template_string, expected_result):
 )
 def test_jsonpath_jinja_filter(jsonpath_query, expected_result):
     assert jsonpath_jinja_filter(TEST_RECORD, jsonpath_query) == expected_result
+
+
+def test_native_jinja_sandbox_environment_supports_jsonpath_filter() -> None:
+    env = NativeJinjaSandboxEnvironment(allowed_references=list(TEST_RECORD.keys()))
+
+    assert env.render_template('{{ field_c | jsonpath("$.sub_a.foo[:2]") }}', TEST_RECORD) == str([1, 2])
 
 
 @pytest.mark.parametrize(

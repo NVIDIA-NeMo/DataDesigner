@@ -412,6 +412,7 @@ class NativeJinjaSandboxEnvironment(ImmutableSandboxedEnvironment):
         super().__init__(autoescape=False, **kwargs)
         self.allowed_references = allowed_references if allowed_references else []
         self._prefer_dict_key_access = prefer_dict_key_access
+        self.filters["jsonpath"] = jsonpath_jinja_filter
 
     def getattr(self, obj: Any, attribute: str) -> Any:
         if self._prefer_dict_key_access and isinstance(obj, dict) and attribute in obj:
