@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import inspect
 import logging
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
-from data_designer.engine.column_generators.generators.base import ColumnGenerator
+from data_designer.engine.column_generators.generators.base import SYNC_BRIDGE_TIMEOUT, ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.logging import LOG_INDENT
 
@@ -20,6 +21,61 @@ if TYPE_CHECKING:
     import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+class _AsyncBridgedModelFacade:
+    """Proxy that bridges ``model.generate()`` to ``model.agenerate()`` in async engine mode.
+
+    When a sync custom column runs inside ``asyncio.to_thread`` under the async engine,
+    the sync HTTP client is unavailable. This proxy intercepts the resulting
+    ``SyncClientUnavailableError`` and schedules ``agenerate()`` on the engine's persistent
+    event loop via ``run_coroutine_threadsafe``.
+
+    All other attributes are forwarded to the underlying facade unchanged.
+    """
+
+    __slots__ = ("_facade",)
+
+    def __init__(self, facade: Any) -> None:
+        object.__setattr__(self, "_facade", facade)
+
+    def generate(self, *args: Any, **kwargs: Any) -> tuple[Any, list]:
+        from data_designer.engine.models.clients.errors import SyncClientUnavailableError
+
+        facade = object.__getattribute__(self, "_facade")
+        try:
+            return facade.generate(*args, **kwargs)
+        except SyncClientUnavailableError:
+            pass  # Fall through to async bridge
+
+        # We're in a worker thread (asyncio.to_thread) with no running loop.
+        # Guard against accidental use from the event loop itself (would deadlock).
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass  # No running loop - safe to bridge
+        else:
+            raise RuntimeError(
+                "model.generate() is not available in async engine mode from the event loop. "
+                "Use 'await model.agenerate()' in async custom columns."
+            )
+
+        from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
+
+        loop = ensure_async_engine_loop()
+        future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
+        try:
+            return future.result(timeout=SYNC_BRIDGE_TIMEOUT)
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            logger.warning("Async model bridge timed out after %ss; coroutine cancelled", SYNC_BRIDGE_TIMEOUT)
+            raise TimeoutError(f"model.generate() bridge timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_facade"), name)
+
+    def __repr__(self) -> str:
+        return f"_AsyncBridgedModelFacade({object.__getattribute__(self, '_facade')!r})"
 
 
 class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
@@ -273,7 +329,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         elif len(params) == 2:
             return self.config.generator_function(data, self.config.generator_params)
         else:
-            models = self._build_models_dict()
+            models = {k: _AsyncBridgedModelFacade(v) for k, v in self._build_models_dict().items()}
             return self.config.generator_function(data, self.config.generator_params, models)
 
     def _build_models_dict(self) -> dict[str, Any]:

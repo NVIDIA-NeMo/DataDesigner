@@ -29,6 +29,10 @@ class ProviderErrorKind(str, Enum):
     UNSUPPORTED_CAPABILITY = "unsupported_capability"
 
 
+class SyncClientUnavailableError(RuntimeError):
+    """Raised when sync methods are called on an async-mode HttpModelClient."""
+
+
 class ProviderError(Exception):
     def __init__(
         self,
