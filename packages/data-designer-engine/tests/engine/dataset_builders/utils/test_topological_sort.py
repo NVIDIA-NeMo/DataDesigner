@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from typing import Any
 
 import pytest
@@ -135,3 +137,39 @@ def test_duplicate_side_effect_producers_raises() -> None:
     ]
     with pytest.raises(ConfigCompilationError, match="already produced by"):
         topologically_sort_column_configs(column_configs)
+
+
+def test_side_effect_column_ordering() -> None:
+    """A column that depends on a side-effect column is sorted after its producer."""
+
+    @custom_column_generator(required_columns=["seed"], side_effect_columns=["seed_trace"])
+    def gen_with_trace(row: dict[str, Any]) -> dict[str, Any]:
+        return row
+
+    column_configs = [
+        LLMTextColumnConfig(name="seed", prompt="generate seed", model_alias=MODEL_ALIAS),
+        ExpressionColumnConfig(name="consumer", expr="{{ seed_trace }}"),
+        CustomColumnConfig(name="producer", generator_function=gen_with_trace),
+    ]
+    sorted_configs = topologically_sort_column_configs(column_configs)
+    names = [c.name for c in sorted_configs]
+    assert names.index("producer") < names.index("consumer")
+
+
+def test_skip_when_column_ordering() -> None:
+    """A column with skip.when referencing another DAG column is sorted after that column."""
+    from data_designer.config.base import SkipConfig
+
+    column_configs = [
+        LLMTextColumnConfig(name="seed", prompt="generate seed", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(
+            name="gated",
+            prompt="generate gated",
+            model_alias=MODEL_ALIAS,
+            skip=SkipConfig(when="{{ seed == 'bad' }}"),
+        ),
+    ]
+    # gated has no required_columns referencing seed, only a skip.when dependency
+    sorted_configs = topologically_sort_column_configs(column_configs)
+    names = [c.name for c in sorted_configs]
+    assert names.index("seed") < names.index("gated")

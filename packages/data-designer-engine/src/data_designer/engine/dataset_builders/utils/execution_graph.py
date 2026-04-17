@@ -363,19 +363,21 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
     upstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
     downstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
 
-    # Only required_columns edges are added here. skip.columns edges are intentionally
-    # omitted: ExecutionGraph.create handles them in its own two-pass build, which is
-    # the authoritative execution-order graph. This function only needs to produce a
-    # valid topological ordering of ColumnConfigT objects for config compilation.
+    def _add_edge(name: str, dep: str, label: str) -> None:
+        resolved = resolve(dep)
+        if resolved is None:
+            return
+        logger.debug(f"{LOG_INDENT}🔗 `{name}` depends on `{resolved}` [{label}]")
+        upstream[name].add(resolved)
+        downstream[resolved].add(name)
+
     logger.info("⛓️ Sorting column configs into a Directed Acyclic Graph")
     for name, col in dag_col_dict.items():
         for req in col.required_columns:
-            resolved = resolve(req)
-            if resolved is None or resolved == name:
-                continue
-            logger.debug(f"{LOG_INDENT}🔗 `{name}` depends on `{resolved}`")
-            upstream[name].add(resolved)
-            downstream[resolved].add(name)
+            _add_edge(name, req, "required")
+        if col.skip is not None:
+            for skip_col in col.skip.columns:
+                _add_edge(name, skip_col, "skip.when")
 
     in_degree = {name: len(ups) for name, ups in upstream.items()}
     queue: deque[str] = deque(name for name, deg in in_degree.items() if deg == 0)
