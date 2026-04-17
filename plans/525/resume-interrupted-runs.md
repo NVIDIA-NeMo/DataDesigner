@@ -38,9 +38,9 @@ results = dd.create(config_builder, num_records=10_000, resume=True)
 | Resume state source | Read `metadata.json` written after each completed batch | Already contains `num_completed_batches`, `target_num_records`, `buffer_size`, `actual_num_records`. No new persistence needed. |
 | Partial batch at crash time | Clear `tmp-partial-parquet-files/` at resume start | Simpler and safer than merging an incomplete parquet; losing one batch is acceptable since the user is already recovering from a crash. |
 | Compatibility validation | Raise `DatasetGenerationError` if `num_records` or `buffer_size` changed | Different `num_records` changes which rows land in which batch file, breaking the numbering invariant. `buffer_size` changes the file-per-batch mapping. Both must match. |
-| Async engine | Raise `DatasetGenerationError` if `DATA_DESIGNER_ASYNC_ENGINE=1` with `resume=True` | The async path uses a row-group scheduler rather than an indexed batch loop; resume would require a different strategy. Out of scope for v1. |
+| Async engine | Supported — derives ground-truth state from the filesystem via `_find_completed_row_group_ids()` | The async path scans completed `batch_*.parquet` files rather than reading `metadata.json`, avoiding the metadata-lag crash window. Both `initial_actual_num_records` and `initial_total_num_batches` are sourced from the filesystem. Incremental `write_metadata` calls after each row group enable resumability. |
 | Already-complete runs | Detect and warn, return existing path | If `num_completed_batches == total_num_batches` the dataset is already complete; the user may have re-run by mistake. |
-| No metadata → error | Raise `DatasetGenerationError` | Resuming without a checkpoint is impossible; a clear error is better than silent fallback to a fresh run. |
+| No metadata → restart fresh | Log info message and restart from batch 0 | If `metadata.json` is missing the run was interrupted before any batch completed. Restarting silently is safer UX than forcing the user to remove `resume=True`. |
 
 ## Affected Files
 
@@ -168,7 +168,7 @@ def build(self, *, num_records, on_batch_complete=None, save_multimedia_to_disk=
 ## Trade-offs Considered
 
 - **Automatic resume detection** (no flag, detect existing folder automatically): rejected — removes user intent. A user re-running a pipeline from scratch would be surprised by silent resumption.
-- **Resume support for async engine**: deferred to a follow-up. The async scheduler's row-group model doesn't map 1:1 to batch indices; implementing it would require a separate mechanism.
+- **Resume support for async engine**: implemented (diverges from original plan). The async path scans the filesystem for completed row groups instead of relying on potentially-stale `metadata.json`, handling the crash window between `move_partial_result_to_final_file_path` and `write_metadata`.
 - **Per-column resume** (resume from column N within an interrupted batch): out of scope. Requires per-column checkpointing and state reconstruction, significantly higher complexity.
 
 ## Delivery

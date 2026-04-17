@@ -7,6 +7,7 @@ import contextlib
 import functools
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -88,7 +89,6 @@ _CLIENT_VERSION: str = get_library_version()
 class _ResumeState:
     num_completed_batches: int
     actual_num_records: int
-    buffer_size: int
 
 
 class DatasetBuilder:
@@ -255,7 +255,6 @@ class DatasetBuilder:
         return _ResumeState(
             num_completed_batches=metadata["num_completed_batches"],
             actual_num_records=metadata["actual_num_records"],
-            buffer_size=buffer_size,
         )
 
     def _build_with_resume(
@@ -377,10 +376,9 @@ class DatasetBuilder:
             return set()
         ids: set[int] = set()
         for p in final_path.glob("batch_*.parquet"):
-            try:
-                ids.add(int(p.stem.split("_", 1)[1]))
-            except (ValueError, IndexError):
-                continue
+            m = re.fullmatch(r"batch_(\d+)", p.stem)
+            if m:
+                ids.add(int(m.group(1)))
         return ids
 
     def _build_async(
@@ -408,6 +406,8 @@ class DatasetBuilder:
         initial_total_num_batches = 0
 
         if resume:
+            # Validate run-parameter compatibility only — the async path derives
+            # ground-truth state from the filesystem, not from the returned state object.
             self._load_resume_state(num_records, buffer_size)
             completed_ids = self._find_completed_row_group_ids()
             skip_row_groups = frozenset(completed_ids)

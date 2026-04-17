@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
@@ -32,6 +34,7 @@ from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.seed_reader import DataFrameSeedReader
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -944,22 +947,16 @@ def test_allow_resize_multiple_batches(
 # ---------------------------------------------------------------------------
 
 
-import json as _json
-from pathlib import Path as _Path
-
-from data_designer.engine.storage.artifact_storage import ArtifactStorage as _ArtifactStorage
-
-
-def _write_metadata(dataset_dir: _Path, **fields) -> None:
+def _write_metadata(dataset_dir: Path, **fields) -> None:
     """Write a metadata.json into an existing dataset folder."""
     dataset_dir.mkdir(parents=True, exist_ok=True)
     (dataset_dir / "sentinel.txt").write_text("x")  # make folder non-empty for resolved_dataset_name
-    (dataset_dir / "metadata.json").write_text(_json.dumps(fields))
+    (dataset_dir / "metadata.json").write_text(json.dumps(fields))
 
 
 def _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, *, buffer_size: int = 2):
     """Return a DatasetBuilder whose ArtifactStorage has resume=True."""
-    storage = _ArtifactStorage(artifact_path=tmp_path, resume=True)
+    storage = ArtifactStorage(artifact_path=tmp_path, resume=True)
     stub_resource_provider.artifact_storage = storage
     stub_resource_provider.run_config = RunConfig(buffer_size=buffer_size)
     return DatasetBuilder(
@@ -1113,7 +1110,7 @@ def test_find_completed_row_group_ids_ignores_non_batch_files(
 # ---------------------------------------------------------------------------
 
 
-def _write_parquet_files(parquet_dir: _Path, row_group_ids: list[int]) -> None:
+def _write_parquet_files(parquet_dir: Path, row_group_ids: list[int]) -> None:
     """Create stub batch_*.parquet files for the given row group IDs."""
     parquet_dir.mkdir(parents=True, exist_ok=True)
     for rg_id in row_group_ids:
