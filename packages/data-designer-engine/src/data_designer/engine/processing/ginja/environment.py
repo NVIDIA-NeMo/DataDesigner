@@ -509,7 +509,7 @@ class WithJinja2UserTemplateRendering:
         if record_str_fn is not None:
             env_kwargs["finalize"] = record_str_fn
             env_kwargs["prefer_dict_key_access"] = True
-        if self._get_jinja_rendering_engine() == JinjaRenderingEngine.GINJA:
+        if self._get_jinja_rendering_engine() == JinjaRenderingEngine.SECURE:
             return UserTemplateSandboxEnvironment(allowed_references=dataset_variables, **env_kwargs)
         return NativeJinjaSandboxEnvironment(allowed_references=dataset_variables, **env_kwargs)
 

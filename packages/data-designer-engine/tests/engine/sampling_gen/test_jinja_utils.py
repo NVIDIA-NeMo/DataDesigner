@@ -129,5 +129,5 @@ def test_jinja_dataframe_can_switch_rendering_engines() -> None:
     with pytest.raises(UserTemplateUnsupportedFiltersError):
         JinjaDataFrame(
             "items | join('-')",
-            jinja_rendering_engine=JinjaRenderingEngine.GINJA,
+            jinja_rendering_engine=JinjaRenderingEngine.SECURE,
         ).to_column(df)

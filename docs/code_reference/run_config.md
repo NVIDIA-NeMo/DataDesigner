@@ -14,7 +14,7 @@ data_designer = DataDesigner()
 data_designer.set_run_config(dd.RunConfig(
     buffer_size=500,
     max_conversation_restarts=3,
-    jinja_rendering_engine=dd.JinjaRenderingEngine.GINJA,
+    jinja_rendering_engine=dd.JinjaRenderingEngine.SECURE,
 ))
 ```
 

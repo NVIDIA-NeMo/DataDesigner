@@ -176,12 +176,12 @@ def test_generate_respects_run_config_jinja_rendering_engine() -> None:
     native_result = native_generator.generate(df)
     assert native_result["joined"].tolist() == ["a-b"]
 
-    ginja_provider = Mock(spec=ResourceProvider)
-    ginja_provider.run_config = RunConfig(jinja_rendering_engine=JinjaRenderingEngine.GINJA)
-    ginja_generator = _create_test_generator(
+    secure_provider = Mock(spec=ResourceProvider)
+    secure_provider.run_config = RunConfig(jinja_rendering_engine=JinjaRenderingEngine.SECURE)
+    secure_generator = _create_test_generator(
         _create_test_config("joined", "{{ col1 | join('-') }}", "str"),
-        ginja_provider,
+        secure_provider,
     )
 
     with pytest.raises(UserTemplateUnsupportedFiltersError):
-        ginja_generator.generate(df)
+        secure_generator.generate(df)

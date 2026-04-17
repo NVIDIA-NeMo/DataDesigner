@@ -10,6 +10,6 @@ def test_run_config_defaults_to_native_jinja_renderer() -> None:
     assert JinjaRenderingEngine(RunConfig().jinja_rendering_engine) == JinjaRenderingEngine.NATIVE
 
 
-def test_run_config_accepts_ginja_renderer() -> None:
-    run_config = RunConfig(jinja_rendering_engine=JinjaRenderingEngine.GINJA)
-    assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.GINJA
+def test_run_config_accepts_secure_renderer() -> None:
+    run_config = RunConfig(jinja_rendering_engine=JinjaRenderingEngine.SECURE)
+    assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.SECURE

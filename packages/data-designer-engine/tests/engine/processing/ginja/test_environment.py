@@ -181,7 +181,7 @@ def test_with_jinja2_user_template_rendering_mixin(test_case, template_1, templa
 
     class Foo(WithJinja2UserTemplateRendering):
         def __init__(self, template_1: str, template_2: str = None):
-            self._jinja_rendering_engine = JinjaRenderingEngine.GINJA
+            self._jinja_rendering_engine = JinjaRenderingEngine.SECURE
             if template_2 is None:
                 # Single template
                 self.prepare_jinja2_template_renderer(template_1, dataset_variables=["safe"])

@@ -16,7 +16,7 @@ class JinjaRenderingEngine(StrEnum):
     """Template renderer used by the engine for user-supplied Jinja templates."""
 
     NATIVE = "native"
-    GINJA = "ginja"
+    SECURE = "secure"
 
 
 class ThrottleConfig(ConfigBase):
@@ -109,7 +109,7 @@ class RunConfig(ConfigBase):
             consolidated log block. Must be > 0. Default is 5.0.
         jinja_rendering_engine: Template renderer used for engine-side Jinja evaluation.
             ``native`` uses Jinja2's built-in sandbox with the standard filter set and
-            fewer Data Designer-specific restrictions. ``ginja`` uses Data Designer's
+            fewer Data Designer-specific restrictions. ``secure`` uses Data Designer's
             hardened sandbox with additional AST, filter, and output guards.
             Default is ``native``.
         throttle: AIMD throttle tuning parameters.  See ``ThrottleConfig`` for details.
@@ -129,7 +129,7 @@ class RunConfig(ConfigBase):
         default=JinjaRenderingEngine.NATIVE,
         description=(
             "Template renderer used for engine-side Jinja evaluation. "
-            "`native` uses Jinja2's built-in sandbox; `ginja` uses Data Designer's hardened sandbox."
+            "`native` uses Jinja2's built-in sandbox; `secure` uses Data Designer's hardened sandbox."
         ),
     )
     throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)

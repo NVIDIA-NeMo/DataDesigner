@@ -143,12 +143,12 @@ def test_prompt_renderer_uses_native_jinja_by_default() -> None:
     assert result == "Joined: Hello-World"
 
 
-def test_prompt_renderer_can_opt_into_ginja() -> None:
+def test_prompt_renderer_can_opt_into_secure_mode() -> None:
     config = LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model")
     recipe = create_response_recipe(config)
     renderer = RecordBasedPromptRenderer(
         response_recipe=recipe,
-        jinja_rendering_engine=JinjaRenderingEngine.GINJA,
+        jinja_rendering_engine=JinjaRenderingEngine.SECURE,
     )
 
     with pytest.raises(PromptTemplateRenderError, match=r"\| join"):
