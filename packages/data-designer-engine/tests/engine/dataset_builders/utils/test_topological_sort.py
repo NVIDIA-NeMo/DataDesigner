@@ -17,6 +17,7 @@ from data_designer.config.column_configs import (
     Score,
     ValidationColumnConfig,
 )
+from data_designer.config.base import SkipConfig
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.sampler_params import SamplerType
@@ -158,8 +159,6 @@ def test_side_effect_column_ordering() -> None:
 
 def test_skip_when_column_ordering() -> None:
     """A column with skip.when referencing another DAG column is sorted after that column."""
-    from data_designer.config.base import SkipConfig
-
     column_configs = [
         LLMTextColumnConfig(name="seed", prompt="generate seed", model_alias=MODEL_ALIAS),
         LLMTextColumnConfig(
