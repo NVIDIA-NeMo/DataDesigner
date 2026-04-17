@@ -708,7 +708,6 @@ def test_create_logs_secure_jinja_rendering_mode(
     stub_model_providers: list[ModelProvider],
     stub_sampler_only_config_builder: DataDesignerConfigBuilder,
     stub_managed_assets_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     with patch.object(dd_mod, "get_default_provider_name", return_value="stub-model-provider"):
         data_designer = DataDesigner(
@@ -720,6 +719,7 @@ def test_create_logs_secure_jinja_rendering_mode(
     data_designer.set_run_config(RunConfig(jinja_rendering_engine=JinjaRenderingEngine.SECURE))
 
     with (
+        patch.object(dd_mod.logger, "info") as mock_info,
         patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method,
         patch.object(data_designer, "_create_dataset_builder") as mock_builder_method,
         patch.object(data_designer, "_create_dataset_profiler") as mock_profiler_method,
@@ -740,7 +740,7 @@ def test_create_logs_secure_jinja_rendering_mode(
 
         data_designer.create(stub_sampler_only_config_builder, num_records=1)
 
-    assert "🔒 Jinja rendering engine: secure" in capsys.readouterr().err
+    assert any("🔒 Jinja rendering engine: secure" in call.args[0] for call in mock_info.call_args_list)
 
 
 def test_preview_logs_native_jinja_rendering_mode(
@@ -748,7 +748,6 @@ def test_preview_logs_native_jinja_rendering_mode(
     stub_model_providers: list[ModelProvider],
     stub_sampler_only_config_builder: DataDesignerConfigBuilder,
     stub_managed_assets_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     with patch.object(dd_mod, "get_default_provider_name", return_value="stub-model-provider"):
         data_designer = DataDesigner(
@@ -760,6 +759,7 @@ def test_preview_logs_native_jinja_rendering_mode(
     data_designer.set_run_config(RunConfig(jinja_rendering_engine=JinjaRenderingEngine.NATIVE))
 
     with (
+        patch.object(dd_mod.logger, "info") as mock_info,
         patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method,
         patch.object(data_designer, "_create_dataset_builder") as mock_builder_method,
         patch.object(data_designer, "_create_dataset_profiler") as mock_profiler_method,
@@ -780,7 +780,7 @@ def test_preview_logs_native_jinja_rendering_mode(
 
         data_designer.preview(stub_sampler_only_config_builder, num_records=1)
 
-    assert "🏠 Jinja rendering engine: native" in capsys.readouterr().err
+    assert any("🏠 Jinja rendering engine: native" in call.args[0] for call in mock_info.call_args_list)
 
 
 def test_preview_datetime_single_record_returns_iso8601(
