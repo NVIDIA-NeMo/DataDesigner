@@ -27,6 +27,7 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler, build_llm_bound_lookup
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
@@ -611,8 +612,8 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_pre_batch_failure_marks_downstream_tasks_skipped() -> None:
-    """Pre-batch row-group drops count downstream cell tasks as skipped."""
+async def test_scheduler_pre_batch_failure_raises() -> None:
+    """Pre-batch processor failure propagates as DatasetGenerationError."""
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
@@ -643,14 +644,8 @@ async def test_scheduler_pre_batch_failure_marks_downstream_tasks_skipped() -> N
         num_records=3,
         buffer_size=3,
     )
-    await scheduler.run()
-
-    for row_index in range(3):
-        assert tracker.is_dropped(0, row_index)
-
-    assert scheduler._reporter is not None
-    assert scheduler._reporter._trackers["cell_out"].skipped == 3
-    assert scheduler._reporter._trackers["cell_out"].completed == 3
+    with pytest.raises(DatasetGenerationError, match="Pre-batch processor failed"):
+        await scheduler.run()
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -941,8 +936,8 @@ async def test_scheduler_on_finalize_skips_empty_row_group() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_pre_batch_failure_skips_row_group() -> None:
-    """Pre-batch processor failure drops all rows in the row group; other row groups continue."""
+async def test_scheduler_pre_batch_failure_propagates_across_row_groups() -> None:
+    """Pre-batch processor failure propagates even when other row groups exist."""
     provider = _mock_provider()
     seed_gen = MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)
     cell_gen = MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider)
@@ -981,12 +976,8 @@ async def test_scheduler_pre_batch_failure_skips_row_group() -> None:
         buffer_manager=buffer_mgr,
         on_seeds_complete=failing_pre_batch,
     )
-    await scheduler.run()
-
-    # Row group 0: all rows dropped due to pre-batch failure
-    assert all(tracker.is_dropped(0, ri) for ri in range(3))
-    # Row group 1: completed normally
-    assert tracker.is_row_group_complete(1, 2, ["seed", "cell_out"])
+    with pytest.raises(DatasetGenerationError, match="Pre-batch processor failed"):
+        await scheduler.run()
 
 
 class _SlowSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
@@ -1838,3 +1829,87 @@ async def test_scheduler_skip_full_column_batch() -> None:
             assert row.get("review") is None, f"row {ri}: review should be skipped (seed={seed_val})"
         else:
             assert row["review"] == "batch_val", f"row {ri}: review should be generated (seed={seed_val})"
+
+
+# -- Post-batch (on_before_checkpoint) failure propagation --------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_post_batch_failure_raises() -> None:
+    """Post-batch processor failure propagates as DatasetGenerationError."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    def fail_post_batch(rg_id: int, rg_size: int) -> None:
+        raise RuntimeError("post-batch processor exploded")
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_before_checkpoint=fail_post_batch,
+    )
+    with pytest.raises(DatasetGenerationError, match="Post-batch processor failed"):
+        await scheduler.run()
+
+
+# -- Early shutdown drains workers -------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_early_shutdown_drains_workers() -> None:
+    """Workers are cancelled after early shutdown, not left dangling."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="fail_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "fail_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "fail_col": MockFailingGenerator(config=_expr_config("fail_col"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 5)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=5,
+        num_records=5,
+        buffer_size=5,
+    )
+    await scheduler.run()
+
+    # After run() returns, no worker tasks should remain.
+    assert len(scheduler._worker_tasks) == 0

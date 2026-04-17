@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.context import current_row_group
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
     DEFAULT_REPORT_INTERVAL,
@@ -268,30 +269,25 @@ class AsyncTaskScheduler:
             try:
                 # Main dispatch loop
                 await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
-
-                # Cancel admission if still running
-                if not admission_task.done():
-                    admission_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await admission_task
-
-                if self._reporter:
-                    self._reporter.log_final()
-
-                if self._rg_states:
-                    incomplete = list(self._rg_states)
-                    logger.error(
-                        f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
-                        "These row groups were not checkpointed."
-                    )
-
-            except asyncio.CancelledError:
+            finally:
+                # Always cancel admission + drain in-flight workers, regardless
+                # of how the dispatch loop exited (normal, early shutdown,
+                # CancelledError, or processor failure).
                 if not admission_task.done():
                     admission_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await admission_task
                 await asyncio.shield(self._cancel_workers())
-                raise
+
+            if self._reporter:
+                self._reporter.log_final()
+
+            if self._rg_states:
+                incomplete = list(self._rg_states)
+                logger.error(
+                    f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
+                    "These row groups were not checkpointed."
+                )
 
     async def _main_dispatch_loop(
         self,
@@ -500,29 +496,26 @@ class AsyncTaskScheduler:
             if self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
         ]
         for rg_id, rg_size in completed:
-            dropped = False
             try:
-                del self._rg_states[rg_id]
                 if self._on_before_checkpoint:
                     try:
                         self._on_before_checkpoint(rg_id, rg_size)
-                    except Exception:
-                        # Post-batch is mandatory; drop rather than checkpoint unprocessed data.
-                        logger.error(
-                            f"on_before_checkpoint failed for row group {rg_id}, dropping row group.",
-                            exc_info=True,
-                        )
-                        self._drop_row_group(rg_id, rg_size)
-                        if self._buffer_manager:
-                            self._buffer_manager.free_row_group(rg_id)
-                        dropped = True
+                    except DatasetGenerationError:
+                        raise
+                    except Exception as exc:
+                        raise DatasetGenerationError(
+                            f"Post-batch processor failed for row group {rg_id}: {exc}"
+                        ) from exc
+                # Remove from tracking only after the callback succeeds.
+                del self._rg_states[rg_id]
                 # If all rows were dropped (e.g. seed failure), free instead of finalizing
-                if not dropped and all(self._tracker.is_dropped(rg_id, ri) for ri in range(rg_size)):
+                if all(self._tracker.is_dropped(rg_id, ri) for ri in range(rg_size)):
                     if self._buffer_manager:
                         self._buffer_manager.free_row_group(rg_id)
-                    dropped = True
-                if not dropped and self._on_finalize_row_group is not None:
+                elif self._on_finalize_row_group is not None:
                     self._on_finalize_row_group(rg_id)
+            except DatasetGenerationError:
+                raise
             except Exception:
                 logger.error(f"Failed to checkpoint row group {rg_id}.", exc_info=True)
             finally:
@@ -543,19 +536,19 @@ class AsyncTaskScheduler:
                     if self._on_seeds_complete:
                         try:
                             self._on_seeds_complete(rg_id, state.size)
-                            # The callback may drop rows (e.g. pre-batch filtering).
-                            # Record skipped tasks for any newly-dropped rows so
-                            # progress reporting stays accurate.
-                            if self._reporter:
-                                for ri in range(state.size):
-                                    if self._tracker.is_dropped(rg_id, ri):
-                                        self._record_skipped_tasks_for_row(rg_id, ri)
-                        except Exception:
-                            logger.warning(
-                                f"Pre-batch processor failed for row group {rg_id}, skipping.",
-                                exc_info=True,
-                            )
-                            self._drop_row_group(rg_id, state.size)
+                        except DatasetGenerationError:
+                            raise
+                        except Exception as exc:
+                            raise DatasetGenerationError(
+                                f"Pre-batch processor failed for row group {rg_id}: {exc}"
+                            ) from exc
+                        # The callback may drop rows (e.g. pre-batch filtering).
+                        # Record skipped tasks for any newly-dropped rows so
+                        # progress reporting stays accurate.
+                        if self._reporter:
+                            for ri in range(state.size):
+                                if self._tracker.is_dropped(rg_id, ri):
+                                    self._record_skipped_tasks_for_row(rg_id, ri)
 
     def _drop_row(self, row_group: int, row_index: int, *, exclude_columns: set[str] | None = None) -> None:
         if self._tracker.is_dropped(row_group, row_index):

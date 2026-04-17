@@ -331,6 +331,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             processor_artifacts=processor_artifacts,
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
+            task_traces=builder.task_traces or None,
         )
 
     def validate(self, config_builder: DataDesignerConfigBuilder) -> None:
