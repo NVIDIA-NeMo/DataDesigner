@@ -49,16 +49,125 @@ run_config = dd.RunConfig(
 
 ## What `SECURE` Adds on Top of Standard Jinja Sandbox
 
-The `SECURE` renderer uses a hardened environment implemented in `packages/data-designer-engine/src/data_designer/engine/processing/ginja/environment.py`. Compared with the standard Jinja sandbox, it adds several additional controls:
+The `SECURE` renderer uses a hardened environment implemented in the [renderer source file on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/blob/v0.5.6/packages/data-designer-engine/src/data_designer/engine/processing/ginja/environment.py). Compared with the standard Jinja sandbox, it adds several additional controls.
 
-- **Record sanitization before render**: Template context is serialized and deserialized into basic JSON-compatible types before rendering. This reduces the chance that unexpected Python objects expose attributes or callables to the template.
-- **Filter allowlist**: Only a limited set of filters is available. This includes a small set of built-in Jinja filters and the Data Designer `jsonpath` filter.
-- **Unsupported template features removed**: `SECURE` rejects `import`, `macro`, `set`, `extends`, and `block`.
-- **Loop restrictions**: Recursive loops and nested `for` loops are rejected.
-- **AST complexity limits**: Templates are statically analyzed and rejected if they exceed the current complexity thresholds of 600 AST nodes or depth 10.
-- **`self` references blocked**: Templates cannot reference `self`, which reduces access to template internals.
-- **Rendered output guards**: Empty output is rejected, very large output is rejected, and rendered strings that look like Python built-in or function representations are rejected.
-- **Sanitized user-facing errors**: At the engine boundary, most template errors are normalized to a generic invalid-template message instead of surfacing internal exception details.
+### Record Sanitization Before Render
+
+Before rendering, `SECURE` forces template context through a JSON-compatible serialization step. That means remote templates operate on plain data, not arbitrary Python objects.
+
+```python
+# Intended shape for remote template context
+record = {
+    "user": {
+        "name": "alice",
+        "roles": ["admin", "reviewer"],
+    }
+}
+```
+
+```python
+# Not the kind of server-side object SECURE wants to expose directly
+record = {
+    "user": SomePythonObject(...),
+}
+```
+
+In a remote execution setting, that matters because rich Python objects can expose attributes, methods, or descriptors that were never meant to be reachable from user-authored templates. The relevant history here is mostly Jinja sandbox-escape CVEs rather than Python interpreter CVEs: Jinja's [sandbox security considerations](https://jinja.palletsprojects.com/en/stable/sandbox/) explicitly note that the sandbox is not a complete security boundary, and fixes for untrusted-template execution have included [`str.format` sandbox escape (CVE-2016-10745)](https://nvd.nist.gov/vuln/detail/CVE-2016-10745), [`str.format_map` sandbox escape (CVE-2019-10906)](https://github.com/advisories/GHSA-462w-v97r-4m45), [indirect `str.format` reference escape (CVE-2024-56326)](https://nvd.nist.gov/vuln/detail/CVE-2024-56326), and [`|attr`-based access to `format` (CVE-2025-27516)](https://nvd.nist.gov/vuln/detail/CVE-2025-27516). The broader `instance -> __class__ -> mro -> modules -> os` style chain is better understood as server-side template injection and sandbox-escape technique literature; PortSwigger's [server-side template injection research](https://portswigger.net/research/server-side-template-injection) is a useful reference for that model.
+
+### Filter Allowlist
+
+`SECURE` does not expose the full Jinja filter surface. It keeps a small approved subset plus the Data Designer `jsonpath` filter.
+
+```jinja
+{{ payload | jsonpath("$.customer.name") }}
+```
+
+```jinja
+{{ items | join(", ") }}
+```
+
+The first example is supported. The second is broader Jinja behavior that `NATIVE` permits but `SECURE` intentionally rejects. In a shared engine, narrowing the filter surface reduces the number of operations that user templates can compose into server-side execution.
+
+### Template Features Removed
+
+`SECURE` rejects `import`, `macro`, `set`, `extends`, and `block`.
+
+```jinja
+{% macro render_name(name) %}{{ name }}{% endmacro %}
+{{ render_name(customer_name) }}
+```
+
+```jinja
+{% set temp = user_id %}
+{{ temp }}
+```
+
+Those features are useful in trusted authoring environments, but they also make user templates more expressive and stateful. In a remote execution model, `SECURE` intentionally narrows the language so templates stay closer to data interpolation than to a reusable programming layer.
+
+### Loop Restrictions
+
+`SECURE` rejects recursive loops and nested `for` loops.
+
+```jinja
+{% for row in rows %}
+  {% for item in row %}
+    {{ item }}
+  {% endfor %}
+{% endfor %}
+```
+
+Nested and recursive loops are especially risky in shared execution because they can amplify compute cost and output size in ways that are hard to reason about from the outside.
+
+### AST Complexity Limits
+
+`SECURE` statically analyzes the parsed Jinja AST and rejects templates that exceed the current limits of 600 nodes or depth 10.
+
+```jinja
+{% if a %}
+  {% if b %}
+    {% if c %}
+      {{ value }}
+    {% endif %}
+  {% endif %}
+{% endif %}
+```
+
+This is not about any one feature being unsafe by itself. It is about limiting how much control flow and composition untrusted templates can pack into a single server-side render operation.
+
+### `self` References Blocked
+
+`SECURE` rejects references to `self`.
+
+```jinja
+{{ self }}
+```
+
+The point is to avoid exposing template internals back to the submitter. In a remote setting, even accidental access to those internals is unnecessary surface area.
+
+### Rendered Output Guards
+
+`SECURE` validates rendered output after template execution. It rejects empty output, very large output, and strings that look like Python built-in or function representations.
+
+```jinja
+{{ "" }}
+```
+
+```text
+<built-in method ...>
+<function ...>
+```
+
+These checks matter because not all bad outcomes come from parse-time behavior. Some templates are syntactically valid but still produce output that is clearly broken, oversized, or revealing internal implementation details.
+
+### Sanitized User-Facing Errors
+
+At the engine boundary, `SECURE` normalizes most template failures into a generic invalid-template message.
+
+```text
+User provided prompt generation template is invalid.
+```
+
+That matters in remote execution because exception details can leak information about server-side implementation, supported objects, or internal execution paths that untrusted users do not need to see.
 
 These controls exist because the standard sandbox is a good baseline, but shared-service deployments need a narrower and more defensive execution model.
 
