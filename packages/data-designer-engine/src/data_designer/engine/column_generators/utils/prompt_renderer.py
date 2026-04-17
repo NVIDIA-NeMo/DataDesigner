@@ -9,6 +9,7 @@ import logging
 from data_designer.config.base import SingleColumnConfig
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.models import ModelConfig
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.misc import extract_keywords_from_jinja2_template
 from data_designer.config.utils.type_helpers import StrEnum
@@ -36,9 +37,16 @@ class PromptType(StrEnum):
 
 
 class RecordBasedPromptRenderer(WithJinja2UserTemplateRendering):
-    def __init__(self, response_recipe: ResponseRecipe, *, error_message_context: dict[str, str] | None = None):
+    def __init__(
+        self,
+        response_recipe: ResponseRecipe,
+        *,
+        error_message_context: dict[str, str] | None = None,
+        jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.SECURE,
+    ):
         self.response_recipe = response_recipe
         self._error_message_context = error_message_context
+        self._jinja_rendering_engine = jinja_rendering_engine
 
     def render(self, *, prompt_template: str | None, record: dict, prompt_type: PromptType) -> str | None:
         self._prepare_environment(prompt_template=prompt_template, record=record, prompt_type=prompt_type)

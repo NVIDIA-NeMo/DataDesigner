@@ -57,6 +57,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
                 "column_type": self.config.column_type,
                 "model_alias": self.config.model_alias,
             },
+            jinja_rendering_engine=self.resource_provider.run_config.jinja_rendering_engine,
         )
 
     def generate(self, data: dict) -> dict:

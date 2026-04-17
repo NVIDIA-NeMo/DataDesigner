@@ -3,8 +3,10 @@
 
 import pytest
 
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.processing.ginja.environment import (
     ALLOWED_JINJA_FILTERS,
+    NativeJinjaSandboxEnvironment,
     UserTemplateSandboxEnvironment,
     WithJinja2UserTemplateRendering,
     is_jinja_template,
@@ -96,6 +98,16 @@ def test_jsonpath_jinja_filter(jsonpath_query, expected_result):
     assert jsonpath_jinja_filter(TEST_RECORD, jsonpath_query) == expected_result
 
 
+def test_native_jinja_sandbox_environment_supports_jsonpath_filter() -> None:
+    env = NativeJinjaSandboxEnvironment(allowed_references=list(TEST_RECORD.keys()))
+
+    assert env.render_template('{{ field_c | jsonpath("$.sub_a.foo[:2]") }}', TEST_RECORD) == str([1, 2])
+
+
+def test_user_template_sandbox_environment_supports_upper_filter(stub_sandbox_env) -> None:
+    assert stub_sandbox_env.safe_render("{{ field_y | upper }}", TEST_RECORD) == "FOO"
+
+
 @pytest.mark.parametrize(
     "jinja_template,expected_result",
     [
@@ -180,6 +192,7 @@ def test_with_jinja2_user_template_rendering_mixin(test_case, template_1, templa
 
     class Foo(WithJinja2UserTemplateRendering):
         def __init__(self, template_1: str, template_2: str = None):
+            self._jinja_rendering_engine = JinjaRenderingEngine.SECURE
             if template_2 is None:
                 # Single template
                 self.prepare_jinja2_template_renderer(template_1, dataset_variables=["safe"])
@@ -211,3 +224,13 @@ def test_with_jinja2_user_template_rendering_mixin(test_case, template_1, templa
     else:
         with pytest.raises(expected_result):
             f = Foo(template_1, template_2)
+
+
+def test_with_jinja2_user_template_rendering_defaults_to_secure_mode() -> None:
+    class Foo(WithJinja2UserTemplateRendering):
+        pass
+
+    renderer = Foo()
+
+    with pytest.raises(UserTemplateUnsupportedFiltersError):
+        renderer.prepare_jinja2_template_renderer("{{ items | join('-') }}", dataset_variables=["items"])

@@ -20,7 +20,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import RunConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
@@ -701,6 +701,86 @@ def test_preview_raises_generation_error_when_dataset_is_empty(
     ):
         with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
             data_designer.preview(stub_sampler_only_config_builder, num_records=1)
+
+
+def test_create_logs_secure_jinja_rendering_mode(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    with patch.object(dd_mod, "get_default_provider_name", return_value="stub-model-provider"):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            model_providers=stub_model_providers,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+    data_designer.set_run_config(RunConfig(jinja_rendering_engine=JinjaRenderingEngine.SECURE))
+
+    with (
+        patch.object(dd_mod.logger, "info") as mock_info,
+        patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method,
+        patch.object(data_designer, "_create_dataset_builder") as mock_builder_method,
+        patch.object(data_designer, "_create_dataset_profiler") as mock_profiler_method,
+    ):
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.get_dataset_metadata.return_value = {}
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        mock_builder = MagicMock()
+        mock_builder.build.return_value = None
+        mock_builder.task_traces = []
+        mock_builder.artifact_storage.load_dataset_with_dropped_columns.return_value = lazy.pd.DataFrame({"col": [1]})
+        mock_builder_method.return_value = mock_builder
+
+        mock_profiler = MagicMock()
+        mock_profiler.profile_dataset.return_value = None
+        mock_profiler_method.return_value = mock_profiler
+
+        data_designer.create(stub_sampler_only_config_builder, num_records=1)
+
+    assert any("🔒 Jinja rendering engine: secure" in call.args[0] for call in mock_info.call_args_list)
+
+
+def test_preview_logs_native_jinja_rendering_mode(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    with patch.object(dd_mod, "get_default_provider_name", return_value="stub-model-provider"):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            model_providers=stub_model_providers,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+    data_designer.set_run_config(RunConfig(jinja_rendering_engine=JinjaRenderingEngine.NATIVE))
+
+    with (
+        patch.object(dd_mod.logger, "info") as mock_info,
+        patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method,
+        patch.object(data_designer, "_create_dataset_builder") as mock_builder_method,
+        patch.object(data_designer, "_create_dataset_profiler") as mock_profiler_method,
+    ):
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.get_dataset_metadata.return_value = {}
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        mock_builder = MagicMock()
+        mock_builder.build_preview.return_value = lazy.pd.DataFrame({"col": [1]})
+        mock_builder.process_preview.return_value = lazy.pd.DataFrame({"col": [1]})
+        mock_builder.artifact_storage.list_processor_names.return_value = []
+        mock_builder_method.return_value = mock_builder
+
+        mock_profiler = MagicMock()
+        mock_profiler.profile_dataset.return_value = None
+        mock_profiler_method.return_value = mock_profiler
+
+        data_designer.preview(stub_sampler_only_config_builder, num_records=1)
+
+    assert any("🏠 Jinja rendering engine: native" in call.args[0] for call in mock_info.call_args_list)
 
 
 def test_preview_datetime_single_record_returns_iso8601(
