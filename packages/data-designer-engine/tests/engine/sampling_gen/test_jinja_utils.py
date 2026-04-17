@@ -29,6 +29,7 @@ from data_designer.engine.sampling_gen.jinja_utils import JinjaDataFrame, extrac
         ("some_dude.age + 1", {"some_dude"}),
         ("'I\\'m a string' + i_am_a_var", {"i_am_a_var"}),
         ('"I am a string" + i_am_a_var', {"i_am_a_var"}),
+        ('data | jsonpath("$.key")', {"data"}),
     ],
 )
 def test_extract_column_names_from_expression(expr: str, column_names: set[str]) -> None:
