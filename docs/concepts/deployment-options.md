@@ -141,6 +141,8 @@ If you need to provide synthetic data generation as a shared service:
 - **Job management**: Queue, monitor, and manage generation jobs centrally
 - **Resource sharing**: Shared infrastructure for SDG workloads
 
+When users can submit configs containing Jinja templates to a shared engine, template rendering becomes a remote code execution concern and part of your security boundary. See [Security](security.md) for guidance on when to keep the default `JinjaRenderingEngine.SECURE` mode.
+
 ---
 
 ## 🧭 Decision Flowchart
@@ -181,3 +183,4 @@ If you need to provide synthetic data generation as a shared service:
 
 - **Library**: Continue with this documentation
 - **Microservice**: See the [NeMo Data Designer Microservice documentation](https://docs.nvidia.com/nemo/microservices/latest/design-synthetic-data-from-scratch-or-seeds/index.html){target="_blank"}
+- **Security model**: See [Security](security.md)
