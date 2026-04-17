@@ -780,7 +780,7 @@ def test_preview_logs_native_jinja_rendering_mode(
 
         data_designer.preview(stub_sampler_only_config_builder, num_records=1)
 
-    assert "🔓 Jinja rendering engine: native" in capsys.readouterr().err
+    assert "🏠 Jinja rendering engine: native" in capsys.readouterr().err
 
 
 def test_preview_datetime_single_record_returns_iso8601(

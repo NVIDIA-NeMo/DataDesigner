@@ -337,7 +337,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     def _log_jinja_rendering_engine_mode(self) -> None:
         engine = JinjaRenderingEngine(self._run_config.jinja_rendering_engine)
-        icon = "🔒" if engine == JinjaRenderingEngine.SECURE else "🔓"
+        icon = "🔒" if engine == JinjaRenderingEngine.SECURE else "🏠"
         logger.info(f"{LOG_INDENT}{icon} Jinja rendering engine: {engine.value}")
 
     def validate(self, config_builder: DataDesignerConfigBuilder) -> None:
