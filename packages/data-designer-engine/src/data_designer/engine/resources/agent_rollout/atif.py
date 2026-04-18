@@ -15,6 +15,7 @@ from data_designer.engine.resources.agent_rollout.types import AgentRolloutSeedP
 from data_designer.engine.resources.agent_rollout.utils import (
     build_message,
     coerce_optional_str,
+    min_max_timestamps,
     require_string,
     stringify_json_value,
 )
@@ -157,6 +158,7 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         project_path = coerce_optional_str(agent_extra.get("project_path")) or cwd
         git_branch = coerce_optional_str(agent_extra.get("git_branch"))
 
+        started_at, ended_at = min_max_timestamps(timestamps)
         return [
             NormalizedAgentRolloutRecord(
                 trace_id=session_id,
@@ -168,8 +170,8 @@ class AtifAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                 cwd=cwd,
                 project_path=project_path,
                 git_branch=git_branch,
-                started_at=min(timestamps) if timestamps else None,
-                ended_at=max(timestamps) if timestamps else None,
+                started_at=started_at,
+                ended_at=ended_at,
                 messages=messages,
                 source_meta=source_meta,
             )

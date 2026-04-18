@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -110,3 +111,39 @@ def stringify_text_value(value: Any) -> str:
     if isinstance(value, str):
         return value
     return str(value)
+
+
+def min_max_timestamps(timestamps: list[str]) -> tuple[str | None, str | None]:
+    """Return the chronologically earliest and latest timestamps.
+
+    Values are parsed as ISO 8601 before comparison so that mixed UTC offsets
+    and precisions order correctly (e.g. ``2025-01-01T00:30:00+01:00`` is
+    earlier than ``2025-01-01T00:00:00Z``). Naive timestamps are treated as
+    UTC. Unparseable values are skipped. The winning entries are returned in
+    their original string form.
+    """
+    parsed: list[tuple[datetime, str]] = []
+    for original in timestamps:
+        instant = parse_iso8601(original)
+        if instant is not None:
+            parsed.append((instant, original))
+    if not parsed:
+        return None, None
+    earliest = min(parsed, key=lambda pair: pair[0])[1]
+    latest = max(parsed, key=lambda pair: pair[0])[1]
+    return earliest, latest
+
+
+def parse_iso8601(value: str) -> datetime | None:
+    """Parse an ISO 8601 timestamp, treating naive values as UTC.
+
+    Returns ``None`` for strings that cannot be parsed so callers can silently
+    skip malformed entries.
+    """
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
