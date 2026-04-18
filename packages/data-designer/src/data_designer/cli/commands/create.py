@@ -35,6 +35,16 @@ def create_command(
         "-o",
         help="Path where generated artifacts will be stored. Defaults to ./artifacts.",
     ),
+    output_format: str | None = typer.Option(
+        None,
+        "--output-format",
+        "-f",
+        help=(
+            "Export the dataset to a single file after generation. "
+            "Supported formats: jsonl, csv, parquet. "
+            "The file is written to <artifact-path>/<dataset-name>/dataset.<format>."
+        ),
+    ),
 ) -> None:
     """Create a full dataset and save results to disk.
 
@@ -60,4 +70,5 @@ def create_command(
         num_records=num_records,
         dataset_name=dataset_name,
         artifact_path=artifact_path,
+        output_format=output_format,
     )

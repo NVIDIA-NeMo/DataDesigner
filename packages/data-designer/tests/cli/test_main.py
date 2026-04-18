@@ -40,4 +40,5 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
+        output_format=None,
     )
