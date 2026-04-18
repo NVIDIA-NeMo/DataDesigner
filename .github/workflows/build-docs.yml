@@ -15,6 +15,9 @@ permissions: {}
 jobs:
   build-notebooks:
     uses: ./.github/workflows/build-notebooks.yml
+    permissions:
+      actions: read
+      contents: write
     with:
       use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
     secrets: inherit

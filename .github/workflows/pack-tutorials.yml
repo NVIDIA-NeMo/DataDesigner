@@ -10,6 +10,9 @@ permissions: {}
 jobs:
   build-notebooks:
     uses: ./.github/workflows/build-notebooks.yml
+    permissions:
+      actions: read
+      contents: write
     secrets: inherit
   zip-and-upload:
     needs: build-notebooks
