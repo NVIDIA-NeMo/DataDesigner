@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     CustomColumnConfig,
     ExpressionColumnConfig,
@@ -17,7 +18,6 @@ from data_designer.config.column_configs import (
     Score,
     ValidationColumnConfig,
 )
-from data_designer.config.base import SkipConfig
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.sampler_params import SamplerType
@@ -30,7 +30,7 @@ from data_designer.engine.dataset_builders.utils.execution_graph import topologi
 MODEL_ALIAS = "stub-model-alias"
 
 
-def test_dag_construction():
+def test_dag_construction() -> None:
     column_configs = []
     column_configs.append(
         SamplerMultiColumnConfig(
@@ -95,7 +95,7 @@ def test_dag_construction():
     assert names[5] == "uses_all_the_stuff"
 
 
-def test_circular_dependencies():
+def test_circular_dependencies() -> None:
     column_configs = []
     column_configs.append(
         SamplerMultiColumnConfig(

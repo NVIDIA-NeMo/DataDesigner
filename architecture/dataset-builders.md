@@ -71,11 +71,7 @@ Both execution modes integrate skip at the same points:
 - **Sequential**: `_run_full_column_generator` and the fan-out methods (`_fan_out_with_threads`, `_fan_out_with_async`) call `_should_skip_cell` per record. Skipped rows are excluded from the generator input, then merged back with skip metadata preserved. A fast `_column_can_skip` check short-circuits the per-record evaluation when no skip config or propagation applies.
 - **Async**: `_run_cell` and `_run_batch` in `AsyncTaskScheduler` call `_should_skip_record` / `_apply_skip_to_record` with the same logic. Skipped cells report as skipped (not success) in progress tracking.
 
-DAG edges are added for `skip.when` column references (both in `dag.py` and `ExecutionGraph.create`) so skip-gate columns are generated before the gated column.
-
-### DAG (Config-Level)
-
-`dataset_builders/utils/dag.py` provides `topologically_sort_column_configs` — builds a NetworkX graph from `required_columns`, side-effect columns, and `skip.when` references, returns a topological ordering. Used by both execution modes for initial column ordering.
+DAG edges are added for `skip.when` column references in `ExecutionGraph.create` so skip-gate columns are generated before the gated column.
 
 ### DatasetBatchManager
 
@@ -118,7 +114,7 @@ DatasetBuilder.build()
 - **Dual execution engines behind one API.** The sequential engine is simpler and easier to debug; the async engine adds row-group parallelism for throughput. Users switch via an environment variable without changing their code.
 - **DAG-driven ordering** ensures columns with dependencies (e.g., a judge column that depends on a text column) are generated in the correct order, regardless of the order they appear in the config.
 - **Salvage rounds in async mode** retry failed tasks after all other tasks in a round complete, improving resilience against transient LLM failures without blocking the entire generation.
-- **Separate config-level and runtime DAGs.** The config-level DAG (`dag.py`) determines column ordering; the runtime `ExecutionGraph` adds strategy-aware dependency tracking for the async scheduler.
+- **Unified DAG construction.** `topologically_sort_column_configs` (in `execution_graph.py`) determines column ordering using Kahn's algorithm; the runtime `ExecutionGraph` adds strategy-aware dependency tracking for the async scheduler.
 
 ## Cross-References
 

@@ -335,6 +335,45 @@ class ExecutionGraph:
         return "\n".join(lines)
 
 
+def _resolve_dag_column(
+    col_name: str,
+    dag_col_dict: dict[str, ColumnConfigT],
+    side_effect_map: dict[str, str],
+) -> str | None:
+    """Resolve a column name to its DAG producer.
+
+    Returns the column itself if it is a direct DAG column, the producing
+    column if it is a declared side-effect, or ``None`` if the name is not
+    known to this DAG (e.g. a seed or sampler column).
+    """
+    if col_name in dag_col_dict:
+        return col_name
+    return side_effect_map.get(col_name)
+
+
+def _add_dag_edge(
+    name: str,
+    dep: str,
+    label: str,
+    dag_col_dict: dict[str, ColumnConfigT],
+    side_effect_map: dict[str, str],
+    upstream: dict[str, set[str]],
+    downstream: dict[str, set[str]],
+) -> None:
+    """Add a dependency edge from *dep*'s producer to *name* if the dep is a known DAG column.
+
+    Self-edges are skipped, consistent with ``ExecutionGraph.create``.
+    The *label* parameter (``"required"`` or ``"skip.when"``) is included in
+    the debug log so the source of each edge is visible during tracing.
+    """
+    resolved = _resolve_dag_column(dep, dag_col_dict, side_effect_map)
+    if resolved is None or resolved == name:
+        return
+    logger.debug(f"{LOG_INDENT}🔗 `{name}` depends on `{resolved}` [{label}]")
+    upstream[name].add(resolved)
+    downstream[resolved].add(name)
+
+
 def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> list[ColumnConfigT]:
     non_dag_cols = [col for col in column_configs if not column_type_used_in_execution_dag(col.column_type)]
     dag_col_dict = {col.name: col for col in column_configs if column_type_used_in_execution_dag(col.column_type)}
@@ -355,29 +394,16 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
                 )
             side_effect_map[se_col] = name
 
-    def resolve(col_name: str) -> str | None:
-        if col_name in dag_col_dict:
-            return col_name
-        return side_effect_map.get(col_name)
-
     upstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
     downstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
-
-    def _add_edge(name: str, dep: str, label: str) -> None:
-        resolved = resolve(dep)
-        if resolved is None:
-            return
-        logger.debug(f"{LOG_INDENT}🔗 `{name}` depends on `{resolved}` [{label}]")
-        upstream[name].add(resolved)
-        downstream[resolved].add(name)
 
     logger.info("⛓️ Sorting column configs into a Directed Acyclic Graph")
     for name, col in dag_col_dict.items():
         for req in col.required_columns:
-            _add_edge(name, req, "required")
+            _add_dag_edge(name, req, "required", dag_col_dict, side_effect_map, upstream, downstream)
         if col.skip is not None:
             for skip_col in col.skip.columns:
-                _add_edge(name, skip_col, "skip.when")
+                _add_dag_edge(name, skip_col, "skip.when", dag_col_dict, side_effect_map, upstream, downstream)
 
     in_degree = {name: len(ups) for name, ups in upstream.items()}
     queue: deque[str] = deque(name for name, deg in in_degree.items() if deg == 0)
