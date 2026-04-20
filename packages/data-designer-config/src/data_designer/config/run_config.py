@@ -9,6 +9,14 @@ from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.utils.type_helpers import StrEnum
+
+
+class JinjaRenderingEngine(StrEnum):
+    """Template renderer used by the engine for user-supplied Jinja templates."""
+
+    NATIVE = "native"
+    SECURE = "secure"
 
 
 class ThrottleConfig(ConfigBase):
@@ -99,6 +107,11 @@ class RunConfig(ConfigBase):
             Default is False.
         progress_interval: How often (in seconds) the async progress reporter emits a
             consolidated log block. Must be > 0. Default is 5.0.
+        jinja_rendering_engine: Template renderer used for engine-side Jinja evaluation.
+            ``native`` uses Jinja2's built-in sandbox with the standard filter set and
+            fewer Data Designer-specific restrictions. ``secure`` uses Data Designer's
+            hardened sandbox with additional AST, filter, and output guards.
+            Default is ``secure``.
         throttle: AIMD throttle tuning parameters.  See ``ThrottleConfig`` for details.
     """
 
@@ -112,6 +125,13 @@ class RunConfig(ConfigBase):
     async_trace: bool = False
     progress_bar: bool = False
     progress_interval: float = Field(default=5.0, gt=0.0)
+    jinja_rendering_engine: JinjaRenderingEngine = Field(
+        default=JinjaRenderingEngine.SECURE,
+        description=(
+            "Template renderer used for engine-side Jinja evaluation. "
+            "`native` uses Jinja2's built-in sandbox; `secure` uses Data Designer's hardened sandbox."
+        ),
+    )
     throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
 
     @model_validator(mode="after")

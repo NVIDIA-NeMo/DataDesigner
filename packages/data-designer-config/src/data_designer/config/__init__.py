@@ -58,7 +58,7 @@ if TYPE_CHECKING:
         ProcessorType,
         SchemaTransformProcessorConfig,
     )
-    from data_designer.config.run_config import RunConfig, ThrottleConfig  # noqa: F401
+    from data_designer.config.run_config import JinjaRenderingEngine, RunConfig, ThrottleConfig  # noqa: F401
     from data_designer.config.sampler_constraints import (  # noqa: F401
         ColumnInequalityConstraint,
         ConstraintType,
@@ -175,6 +175,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ProcessorType": (_MOD_PROCESSORS, "ProcessorType"),
     "SchemaTransformProcessorConfig": (_MOD_PROCESSORS, "SchemaTransformProcessorConfig"),
     # run_config
+    "JinjaRenderingEngine": (f"{_MOD_BASE}.run_config", "JinjaRenderingEngine"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
     # sampler_constraints

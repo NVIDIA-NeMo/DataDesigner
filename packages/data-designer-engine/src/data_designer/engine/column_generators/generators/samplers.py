@@ -56,6 +56,7 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
         return SamplingDatasetGenerator(
             sampler_columns=self.config,
             person_generator_loader=(self._person_generator_loader if self._needs_person_generator else None),
+            jinja_rendering_engine=self.resource_provider.run_config.jinja_rendering_engine,
         )
 
     def _log_person_generation_if_needed(self) -> None:

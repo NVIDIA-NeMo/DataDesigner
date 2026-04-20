@@ -1,0 +1,230 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Agentic CI: Daily Audit"
+
+on:
+  schedule:
+    - cron: "0 8 * * 1-5"  # weekdays at 08:00 UTC
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Override which suite to run (docs-and-references, dependencies, structure, code-quality, test-health, all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: agentic-ci-daily
+  cancel-in-progress: false
+
+jobs:
+  determine-suite:
+    runs-on: ubuntu-latest
+    outputs:
+      suites: ${{ steps.pick.outputs.suites }}
+    steps:
+      - name: Pick suite(s) for today
+        id: pick
+        run: |
+          OVERRIDE="${{ github.event.inputs.suite }}"
+
+          if [ -n "$OVERRIDE" ] && [ "$OVERRIDE" != "all" ]; then
+            echo "suites=[\"${OVERRIDE}\"]" >> "$GITHUB_OUTPUT"
+            echo "Running override suite: ${OVERRIDE}"
+            exit 0
+          fi
+
+          if [ "$OVERRIDE" = "all" ]; then
+            echo 'suites=["docs-and-references","dependencies","structure","code-quality","test-health"]' >> "$GITHUB_OUTPUT"
+            echo "Running all suites"
+            exit 0
+          fi
+
+          # Day-of-week rotation: 1=Mon .. 5=Fri
+          DOW=$(date -u +%u)
+          case "$DOW" in
+            1) SUITE="docs-and-references" ;;
+            2) SUITE="dependencies" ;;
+            3) SUITE="structure" ;;
+            4) SUITE="code-quality" ;;
+            5) SUITE="test-health" ;;
+            *) echo "suites=[]" >> "$GITHUB_OUTPUT"; echo "Weekend - no suite"; exit 0 ;;
+          esac
+
+          echo "suites=[\"${SUITE}\"]" >> "$GITHUB_OUTPUT"
+          echo "Running ${DOW}/weekday suite: ${SUITE}"
+
+  audit:
+    needs: determine-suite
+    if: needs.determine-suite.outputs.suites != '[]'
+    runs-on: [self-hosted, agentic-ci]
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.determine-suite.outputs.suites) }}
+
+    concurrency:
+      group: agentic-ci-daily-${{ matrix.suite }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Check required config
+        env:
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          if [ -z "$AGENTIC_CI_MODEL" ]; then
+            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            exit 1
+          fi
+
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Restore runner memory
+        id: cache
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: .agentic-ci-state
+          key: agentic-ci-state-${{ matrix.suite }}-${{ github.run_id }}
+          restore-keys: |
+            agentic-ci-state-${{ matrix.suite }}-
+
+      - name: Initialize runner memory
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          mkdir -p .agentic-ci-state
+          if [ ! -f .agentic-ci-state/runner-state.json ]; then
+            printf '{"suite":"%s","last_run":null,"known_issues":[],"baselines":{}}\n' \
+              "${SUITE}" > .agentic-ci-state/runner-state.json
+          fi
+          echo "Runner memory state:"
+          cat .agentic-ci-state/runner-state.json
+
+      - name: Install dev environment
+        run: |
+          make install-dev
+          echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/python -c "
+          from data_designer.config._version import __version__ as cv
+          from data_designer.engine._version import __version__ as ev
+          print(f'  config: {cv}  engine: {ev}')
+          " 2>/dev/null || echo "  (version check skipped)"
+
+      - name: Pre-flight checks
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          if ! command -v claude &> /dev/null; then
+            echo "::error::claude CLI not found in PATH"
+            exit 1
+          fi
+          echo "Claude CLI version: $(claude --version 2>&1 || true)"
+
+          if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
+              exit 1
+            fi
+            echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+          fi
+
+      - name: Run audit recipe
+        id: audit
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          DISABLE_PROMPT_CACHING: "1"
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -o pipefail
+
+          RECIPE_DIR=".agents/recipes/${SUITE}"
+          if [ ! -f "${RECIPE_DIR}/recipe.md" ]; then
+            echo "::error::Recipe not found: ${RECIPE_DIR}/recipe.md"
+            exit 1
+          fi
+
+          # Build prompt: _runner.md + recipe body (strip YAML frontmatter)
+          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
+          RECIPE_BODY=$(sed '1,/^---$/{ /^---$/,/^---$/d }' "${RECIPE_DIR}/recipe.md")
+
+          PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}" \
+            | sed "s|{{suite}}|${SUITE}|g" \
+            | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
+            | sed "s|{{memory_path}}|.agentic-ci-state|g")
+
+          claude \
+            --model "$AGENTIC_CI_MODEL" \
+            -p "$PROMPT" \
+            --max-turns 30 \
+            --output-format text \
+            --verbose \
+            2>&1 | tee /tmp/claude-audit-log.txt
+
+      - name: Update runner memory
+        if: always()
+        env:
+          SUITE: ${{ matrix.suite }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          # Always validate state (cache saves regardless of outcome)
+          python3 -c "
+          import json, datetime, os
+          try:
+              with open('.agentic-ci-state/runner-state.json') as f:
+                  state = json.load(f)
+          except (json.JSONDecodeError, FileNotFoundError) as e:
+              print(f'::warning::runner-state.json is invalid ({e}), resetting')
+              state = {'suite': os.environ['SUITE'], 'known_issues': [], 'baselines': {}}
+          # Only stamp last_run if the audit actually succeeded
+          if os.environ.get('AUDIT_OUTCOME') == 'success':
+              state['last_run'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          state['suite'] = os.environ['SUITE']
+          with open('.agentic-ci-state/runner-state.json', 'w') as f:
+              json.dump(state, f, indent=2)
+          "
+
+      - name: Write job summary
+        if: always()
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          echo "## Daily Audit: ${SUITE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -s "/tmp/audit-${SUITE}.md" ]; then
+            cat "/tmp/audit-${SUITE}.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -s "/tmp/claude-audit-log.txt" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "<details><summary>Agent log</summary>" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -100 /tmp/claude-audit-log.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+          fi

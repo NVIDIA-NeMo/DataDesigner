@@ -25,7 +25,7 @@ from data_designer.config.models import (
     ModelProvider,
 )
 from data_designer.config.preview_results import PreviewResults
-from data_designer.config.run_config import RunConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RunConfig
 from data_designer.config.utils.constants import (
     DEFAULT_NUM_RECORDS,
     MANAGED_ASSETS_PATH,
@@ -65,7 +65,7 @@ from data_designer.interface.errors import (
     DataDesignerProfilingError,
 )
 from data_designer.interface.results import DatasetCreationResults
-from data_designer.logging import RandomEmoji, configure_logging
+from data_designer.logging import LOG_INDENT, RandomEmoji, configure_logging
 from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
 
@@ -217,6 +217,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             DataDesignerProfilingError: If an error occurs during dataset profiling.
         """
         logger.info("🎨 Creating Data Designer dataset")
+        self._log_jinja_rendering_engine_mode()
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder)
 
@@ -288,6 +289,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             DataDesignerProfilingError: If an error occurs during preview dataset profiling.
         """
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
+        self._log_jinja_rendering_engine_mode()
 
         resource_provider = self._create_resource_provider("preview-dataset", config_builder)
         try:
@@ -332,6 +334,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
         )
+
+    def _log_jinja_rendering_engine_mode(self) -> None:
+        engine = JinjaRenderingEngine(self._run_config.jinja_rendering_engine)
+        icon = "🔒" if engine == JinjaRenderingEngine.SECURE else "🏠"
+        logger.info(f"{LOG_INDENT}{icon} Jinja rendering engine: {engine.value}")
 
     def validate(self, config_builder: DataDesignerConfigBuilder) -> None:
         """Validate the Data Designer configuration as defined by the DataDesignerConfigBuilder

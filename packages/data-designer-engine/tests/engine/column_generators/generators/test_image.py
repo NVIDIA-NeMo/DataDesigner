@@ -114,13 +114,13 @@ def test_image_cell_generator_missing_columns_error(stub_image_column_config, st
 
 
 def test_image_cell_generator_empty_prompt_error(stub_resource_provider):
-    """Test that empty rendered prompt raises UserTemplateError."""
+    """Test that empty rendered prompt is rejected by the secure renderer."""
     # Create config with template that renders to empty string
     config = ImageColumnConfig(name="test_image", prompt="{{ empty }}", model_alias="test_model")
 
     generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
 
-    with pytest.raises(UserTemplateError):
+    with pytest.raises(UserTemplateError, match="invalid"):
         generator.generate(data={"empty": ""})
 
 

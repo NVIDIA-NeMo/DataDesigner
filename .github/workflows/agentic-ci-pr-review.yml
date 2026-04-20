@@ -1,7 +1,7 @@
 name: "Agentic CI: PR Review"
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, ready_for_review, labeled]
     branches: [main]
   workflow_dispatch:
@@ -32,23 +32,30 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
         run: |
           # workflow_dispatch callers already have write access.
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "allowed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Only the agent-review label should trigger a run.
-          if [ "${{ github.event.action }}" = "labeled" ] && [ "${{ github.event.label.name }}" != "agent-review" ]; then
+          if [ "$EVENT_ACTION" = "labeled" ] && [ "$LABEL_NAME" != "agent-review" ]; then
             echo "Skipping: labeled event but not agent-review"
             echo "allowed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Skip drafts unless agent-review label is being added.
-          if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
-            if [ "${{ github.event.action }}" != "labeled" ] || [ "${{ github.event.label.name }}" != "agent-review" ]; then
+          if [ "$IS_DRAFT" = "true" ]; then
+            if [ "$EVENT_ACTION" != "labeled" ] || [ "$LABEL_NAME" != "agent-review" ]; then
               echo "Skipping: draft PR"
               echo "allowed=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -58,15 +65,15 @@ jobs:
           # For labeled events, check the sender (who added the label) so
           # maintainers can authorize reviews on external PRs.
           # For other events, check the PR author.
-          if [ "${{ github.event.action }}" = "labeled" ]; then
-            USER="${{ github.event.sender.login }}"
+          if [ "$EVENT_ACTION" = "labeled" ]; then
+            USER="$SENDER_LOGIN"
             echo "Checking sender (labeler): ${USER}"
           else
-            USER="${{ github.event.pull_request.user.login }}"
+            USER="$PR_AUTHOR"
             echo "Checking PR author: ${USER}"
           fi
 
-          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${USER}/permission" --jq '.permission' 2>/dev/null || echo "none")
+          PERMISSION=$(gh api "repos/${REPO}/collaborators/${USER}/permission" --jq '.permission' 2>/dev/null || echo "none")
           echo "permission=${PERMISSION}"
 
           if [ "$PERMISSION" = "admin" ] || [ "$PERMISSION" = "write" ]; then
@@ -80,15 +87,20 @@ jobs:
     needs: gate
     if: needs.gate.outputs.allowed == 'true'
     runs-on: [self-hosted, agentic-ci]
+    environment: agentic-ci
     timeout-minutes: 15
     steps:
       - name: Determine PR number
         id: pr
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR_NUMBER: ${{ github.event.inputs.pr_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "number=${INPUT_PR_NUMBER}" >> "$GITHUB_OUTPUT"
           else
-            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate PR number
@@ -113,12 +125,14 @@ jobs:
         id: head
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q '.headRefOid')
           else
-            SHA="${{ github.event.pull_request.head.sha }}"
+            SHA="$PR_HEAD_SHA"
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
@@ -127,6 +141,16 @@ jobs:
         with:
           ref: ${{ steps.head.outputs.sha }}
           fetch-depth: 0
+
+      # SECURITY: Recipe files define the agent's prompt. Always read them
+      # from the base branch so a fork PR cannot inject malicious instructions
+      # while API secrets are in scope.
+      - name: Checkout base branch recipes
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          sparse-checkout: .agents/recipes
+          path: base-recipes
 
       - name: Pre-flight checks
         env:
@@ -168,8 +192,10 @@ jobs:
           set -o pipefail
 
           # Build the prompt from _runner.md + recipe, substituting template vars.
-          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
-          RECIPE_BODY=$(cat .agents/recipes/pr-review/recipe.md \
+          # Read from base-recipes/ (checked out from the base branch) so fork
+          # PRs cannot tamper with the agent prompt.
+          RUNNER_CTX=$(cat base-recipes/.agents/recipes/_runner.md)
+          RECIPE_BODY=$(cat base-recipes/.agents/recipes/pr-review/recipe.md \
             | sed '1,/^---$/{ /^---$/,/^---$/d }')
 
           PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}" \

@@ -16,7 +16,7 @@ from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 _T = TypeVar("_T")
 
-_SYNC_BRIDGE_TIMEOUT = 300
+SYNC_BRIDGE_TIMEOUT = 300
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -42,11 +42,11 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
     future = pool.submit(asyncio.run, coro)
     timed_out = False
     try:
-        result = future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+        result = future.result(timeout=SYNC_BRIDGE_TIMEOUT)
     except concurrent.futures.TimeoutError as exc:
         timed_out = True
-        logger.warning(f"⚠️ Sync bridge timed out after {_SYNC_BRIDGE_TIMEOUT}s; background thread still running")
-        raise TimeoutError(f"_run_coroutine_sync timed out after {_SYNC_BRIDGE_TIMEOUT}s") from exc
+        logger.warning(f"⚠️ Sync bridge timed out after {SYNC_BRIDGE_TIMEOUT}s; background thread still running")
+        raise TimeoutError(f"_run_coroutine_sync timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
     finally:
         pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
     return result
