@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +13,7 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
+from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
@@ -271,8 +274,6 @@ def test_export_writes_file(stub_dataset_creation_results, tmp_path, fmt):
 
 def test_export_jsonl_content(stub_dataset_creation_results, stub_dataframe, tmp_path):
     """JSONL export writes one JSON object per line."""
-    import json
-
     out = tmp_path / "out.jsonl"
     stub_dataset_creation_results.export(out, format="jsonl")
     lines = out.read_text(encoding="utf-8").splitlines()
@@ -284,8 +285,6 @@ def test_export_jsonl_content(stub_dataset_creation_results, stub_dataframe, tmp
 
 def test_export_csv_content(stub_dataset_creation_results, stub_dataframe, tmp_path):
     """CSV export has a header row and one data row per record."""
-    import data_designer.lazy_heavy_imports as lazy
-
     out = tmp_path / "out.csv"
     stub_dataset_creation_results.export(out, format="csv")
     loaded = lazy.pd.read_csv(out)
@@ -295,8 +294,6 @@ def test_export_csv_content(stub_dataset_creation_results, stub_dataframe, tmp_p
 
 def test_export_parquet_content(stub_dataset_creation_results, stub_dataframe, tmp_path):
     """Parquet export round-trips to the original DataFrame."""
-    import data_designer.lazy_heavy_imports as lazy
-
     out = tmp_path / "out.parquet"
     stub_dataset_creation_results.export(out, format="parquet")
     loaded = lazy.pd.read_parquet(out)
@@ -305,8 +302,6 @@ def test_export_parquet_content(stub_dataset_creation_results, stub_dataframe, t
 
 def test_export_default_format_is_jsonl(stub_dataset_creation_results, tmp_path):
     """export() defaults to JSONL when no format is given."""
-    import json
-
     out = tmp_path / "out.jsonl"
     stub_dataset_creation_results.export(out)
     lines = out.read_text(encoding="utf-8").splitlines()
@@ -316,15 +311,13 @@ def test_export_default_format_is_jsonl(stub_dataset_creation_results, tmp_path)
 
 
 def test_export_unsupported_format_raises(stub_dataset_creation_results, tmp_path):
-    """export() raises ValueError for unknown formats."""
-    with pytest.raises(ValueError, match="Unsupported export format"):
+    """export() raises InvalidFileFormatError for unknown formats."""
+    with pytest.raises(InvalidFileFormatError, match="Unsupported export format"):
         stub_dataset_creation_results.export(tmp_path / "out.xyz", format="xlsx")  # type: ignore[arg-type]
 
 
 def test_export_returns_path_object(stub_dataset_creation_results, tmp_path):
     """export() returns a Path regardless of whether str or Path was passed."""
-    from pathlib import Path
-
     out = tmp_path / "out.jsonl"
     result = stub_dataset_creation_results.export(str(out))
     assert isinstance(result, Path)

@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, get_args
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
+from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
 
 ExportFormat = Literal["jsonl", "csv", "parquet"]
-SUPPORTED_EXPORT_FORMATS: tuple[str, ...] = ("jsonl", "csv", "parquet")
+SUPPORTED_EXPORT_FORMATS: tuple[str, ...] = get_args(ExportFormat)
 
 
 class DatasetCreationResults(WithRecordSamplerMixin):
@@ -121,13 +122,13 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             PosixPath('output.csv')
         """
         if format not in SUPPORTED_EXPORT_FORMATS:
-            raise ValueError(
+            raise InvalidFileFormatError(
                 f"Unsupported export format: {format!r}. Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
             )
         path = Path(path)
         df = self.load_dataset()
         if format == "jsonl":
-            df.to_json(path, orient="records", lines=True, force_ascii=False)
+            df.to_json(path, orient="records", lines=True, force_ascii=False, date_format="iso")
         elif format == "csv":
             df.to_csv(path, index=False)
         elif format == "parquet":

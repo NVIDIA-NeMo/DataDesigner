@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import click
 import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+from data_designer.interface.results import SUPPORTED_EXPORT_FORMATS
 
 
 def create_command(
@@ -39,6 +41,7 @@ def create_command(
         None,
         "--output-format",
         "-f",
+        click_type=click.Choice(list(SUPPORTED_EXPORT_FORMATS)),
         help=(
             "Export the dataset to a single file after generation. "
             "Supported formats: jsonl, csv, parquet. "

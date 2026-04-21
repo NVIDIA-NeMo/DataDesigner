@@ -772,3 +772,65 @@ def test_run_create_skips_report_when_analysis_is_none(mock_load_config: MagicMo
     # load_analysis() returns None, so to_report() must not be called.
     # If the code ignores the None check, an AttributeError propagates and the test fails.
     mock_results.load_analysis.assert_called_once()
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_with_output_format_happy_path(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """export() is called with the correct path and format when --output-format is given."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_create_results(5)
+    mock_dd.create.return_value = mock_results
+
+    controller = GenerationController()
+    controller.run_create(
+        config_source="config.yaml",
+        num_records=5,
+        dataset_name="dataset",
+        artifact_path=None,
+        output_format="jsonl",
+    )
+
+    mock_results.export.assert_called_once_with(
+        Path("/output/artifacts/dataset") / "dataset.jsonl",
+        format="jsonl",
+    )
+
+
+def test_run_create_invalid_output_format_exits() -> None:
+    """Bad --output-format exits with code 1 before generation starts."""
+    controller = GenerationController()
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_create(
+            config_source="config.yaml",
+            num_records=10,
+            dataset_name="dataset",
+            artifact_path=None,
+            output_format="xlsx",
+        )
+    assert exc_info.value.exit_code == 1
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_export_failure_exits(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """If export() raises, run_create exits with code 1."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_create_results(5)
+    mock_results.export.side_effect = RuntimeError("disk full")
+    mock_dd.create.return_value = mock_results
+
+    controller = GenerationController()
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_create(
+            config_source="config.yaml",
+            num_records=5,
+            dataset_name="dataset",
+            artifact_path=None,
+            output_format="csv",
+        )
+    assert exc_info.value.exit_code == 1
