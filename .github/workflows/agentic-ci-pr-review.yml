@@ -159,8 +159,8 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          CHANGED_PY=$(gh pr diff "$PR_NUMBER" --name-only | grep '\.py$' || true)
-          if [ -z "$CHANGED_PY" ]; then
+          mapfile -t CHANGED_PY < <(gh pr diff "$PR_NUMBER" --name-only | grep '\.py$' || true)
+          if [ ${#CHANGED_PY[@]} -eq 0 ]; then
             echo "No Python files changed - skipping structural analysis."
             exit 0
           fi
@@ -168,7 +168,7 @@ jobs:
           /tmp/graphify-venv/bin/python -m pip install graphifyy==0.4.23 --quiet 2>&1 | tail -3
           /tmp/graphify-venv/bin/python base-agents/.agents/tools/structural_impact.py \
             --repo-root "${{ github.workspace }}" \
-            --changed-files $CHANGED_PY \
+            --changed-files "${CHANGED_PY[@]}" \
             --output "/tmp/structural-impact-${PR_NUMBER}.md"
           echo "Structural impact analysis complete:"
           cat "/tmp/structural-impact-${PR_NUMBER}.md"
