@@ -63,11 +63,11 @@ def _rel(filepath: str) -> str:
         return filepath
 
 
-def _dedup(items: list[dict], key_a: str = "from_label", key_b: str = "to_label") -> list[dict]:
-    seen: set[tuple[str, str]] = set()
+def _dedup(items: list[dict], keys: tuple[str, ...] = ("from_label", "to_label", "relation")) -> list[dict]:
+    seen: set[tuple[str, ...]] = set()
     out: list[dict] = []
     for e in items:
-        k = (e[key_a], e[key_b])
+        k = tuple(e[field] for field in keys)
         if k not in seen:
             seen.add(k)
             out.append(e)
@@ -83,7 +83,7 @@ def _build_graph(files: list[Path]) -> dict:
 
 
 def _cross_package_edges(G, node_ids: set[str] | None = None) -> tuple[list[dict], list[dict], dict[str, int]]:
-    """Collect cross-package edges. If node_ids is given, only from those nodes.
+    """Collect cross-package edges. If node_ids is given, edges touching those nodes (either direction).
 
     Returns (cross_pkg_edges, violations, direction_counts).
     """
@@ -92,7 +92,7 @@ def _cross_package_edges(G, node_ids: set[str] | None = None) -> tuple[list[dict
     direction_counts: dict[str, int] = {}
 
     edges = (
-        ((nid, nbr, G.edges[nid, nbr]) for nid in node_ids if nid in G for nbr in G.successors(nid))
+        ((u, v, d) for u, v, d in G.edges(data=True) if u in node_ids or v in node_ids)
         if node_ids is not None
         else ((u, v, d) for u, v, d in G.edges(data=True))
     )
@@ -187,7 +187,7 @@ def _fmt_cross_pkg(items: list[dict], limit: int = 6) -> list[str]:
 # -- Modes --
 
 
-def _changed_files_mode(changed_files: list[Path]) -> str:
+def _changed_files_mode(changed_files: list[Path], deleted_files: list[Path] | None = None) -> str:
     """PR review: analyze changed files against full codebase."""
     t0 = time.monotonic()
     analysis = _build_graph(_collect_source_files())
@@ -220,6 +220,8 @@ def _changed_files_mode(changed_files: list[Path]) -> str:
     cross_pkg, violations, _ = _cross_package_edges(G, changed_node_ids)
     unique_cross, unique_violations = _dedup(cross_pkg), _dedup(violations)
 
+    n_deleted = len(deleted_files) if deleted_files else 0
+
     # Risk level.
     if affected_gods or unique_violations:
         reasons = []
@@ -236,18 +238,24 @@ def _changed_files_mode(changed_files: list[Path]) -> str:
         if high_deg:
             medium_reasons.append(f"high-connectivity entity ({high_deg[0]['label']}, {high_deg[0]['degree']} deps)")
         risk, risk_reason = "MEDIUM", "; ".join(medium_reasons)
+    elif n_deleted > 0:
+        risk, risk_reason = "MEDIUM", f"{n_deleted} file(s) deleted"
     else:
         risk, risk_reason = "LOW", "localized change"
 
     elapsed = time.monotonic() - t0
+    file_count = len(changed_files) + n_deleted
     lines = [
         f"### Structural Impact _(graphify, {elapsed:.1f}s)_",
         "",
         f"**Risk: {risk}** ({risk_reason})",
-        f"- {len(changed_files)} Python files, {len(changed_node_ids)} AST entities, "
+        f"- {file_count} Python files, {len(changed_node_ids)} AST entities, "
         f"{len(affected_communities)}/{len(communities)} clusters",
         "",
     ]
+    if n_deleted:
+        lines.append(f"- {n_deleted} Python file(s) deleted (impact not fully analyzable)")
+        lines.append("")
     lines += _fmt_violations(unique_violations, limit=5)
     lines += _fmt_gods(affected_gods, affected_only=True)
     lines += _fmt_high_impact(high_impact)
@@ -344,15 +352,16 @@ def main() -> None:
         _REPO_ROOT = Path(args.repo_root).resolve()
 
     if args.changed_files:
-        changed = [
-            p
+        all_paths = [
+            Path(raw) if Path(raw).is_absolute() else _REPO_ROOT / raw
             for raw in args.changed_files
-            for p in [Path(raw) if Path(raw).is_absolute() else _REPO_ROOT / raw]
-            if p.exists() and p.suffix == ".py"
+            if raw.endswith(".py")
         ]
+        changed = [p for p in all_paths if p.exists()]
+        deleted = [p for p in all_paths if not p.exists()]
         report = (
-            _changed_files_mode(changed)
-            if changed
+            _changed_files_mode(changed, deleted_files=deleted or None)
+            if changed or deleted
             else "### Structural Impact\n\nNo Python files changed - skipping.\n"
         )
     else:

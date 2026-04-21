@@ -154,24 +154,28 @@ jobs:
             .agents/tools
           path: base-agents
 
-      - name: Structural impact analysis
+      - name: List changed Python files
+        id: changed-py
         env:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          mapfile -t CHANGED_PY < <(gh pr diff "$PR_NUMBER" --name-only | grep '\.py$' || true)
-          if [ ${#CHANGED_PY[@]} -eq 0 ]; then
-            echo "No Python files changed - skipping structural analysis."
-            exit 0
-          fi
+          gh pr diff "$PR_NUMBER" --name-only | grep '\.py$' > /tmp/changed-py.txt || true
+          echo "count=$(wc -l < /tmp/changed-py.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Structural impact analysis
+        if: steps.changed-py.outputs.count != '0'
+        run: |
+          rm -f "/tmp/structural-impact-${{ steps.pr.outputs.number }}.md"
+          mapfile -t CHANGED_PY < /tmp/changed-py.txt
           python -m venv /tmp/graphify-venv
           /tmp/graphify-venv/bin/python -m pip install graphifyy==0.4.23 --quiet 2>&1 | tail -3
           /tmp/graphify-venv/bin/python base-agents/.agents/tools/structural_impact.py \
             --repo-root "${{ github.workspace }}" \
             --changed-files "${CHANGED_PY[@]}" \
-            --output "/tmp/structural-impact-${PR_NUMBER}.md"
+            --output "/tmp/structural-impact-${{ steps.pr.outputs.number }}.md"
           echo "Structural impact analysis complete:"
-          cat "/tmp/structural-impact-${PR_NUMBER}.md"
+          cat "/tmp/structural-impact-${{ steps.pr.outputs.number }}.md"
         continue-on-error: true
 
       - name: Pre-flight checks
