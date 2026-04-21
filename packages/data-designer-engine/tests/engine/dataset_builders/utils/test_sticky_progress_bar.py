@@ -5,14 +5,21 @@ from __future__ import annotations
 
 import io
 import logging
+import os
+import re
+import shutil
+from unittest.mock import patch
 
 import pytest
 
-from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
+from data_designer.engine.dataset_builders.utils.sticky_progress_bar import (
+    StickyProgressBar,
+)
 
 CURSOR_UP_CLEAR = "\033[A\033[2K"
 HIDE_CURSOR = "\033[?25l"
 SHOW_CURSOR = "\033[?25h"
+_ALL_ANSI_RE = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 
 
 class FakeTTY(io.StringIO):
@@ -96,28 +103,51 @@ class TestStickyProgressBar:
         finally:
             root_logger.removeHandler(handler)
 
-    def test_narrow_terminal_wrapping_counts_physical_lines(self, tty_stream: FakeTTY) -> None:
-        with StickyProgressBar(stream=tty_stream) as bar:
-            bar.add_bar("a", "column 'image_quality'", 300)
-            bar.add_bar("b", "column 'categories'", 300)
-            bar.add_bar("c", "column 'hop_chain'", 300)
-            bar.add_bar("d", "column 'verification_1'", 300)
-            bar.add_bar("e", "column 'verification_2'", 300)
-            initial_drawn = bar._drawn_lines
+    def test_wrapping_counts_physical_lines(self, tty_stream: FakeTTY) -> None:
+        narrow = os.terminal_size((40, 24))
+        with patch.object(shutil, "get_terminal_size", return_value=narrow):
+            with StickyProgressBar(stream=tty_stream) as bar:
+                bar.add_bar("a", "col_a", 100)
+                bar.add_bar("b", "col_b", 100)
 
-            for i in range(20):
-                bar.update("a", completed=i, success=i)
-                bar.update("b", completed=i, success=i)
-                bar.update("c", completed=i, success=i)
-                bar.update("d", completed=i, success=i)
-                bar.update("e", completed=i, success=i)
+                original_format = bar._format_bar
 
-            assert bar._drawn_lines == initial_drawn
+                def oversized_format(b: object, width: int, label_width: int) -> str:
+                    line = original_format(b, width, label_width)
+                    return line + "X" * 20
+
+                with patch.object(bar, "_format_bar", side_effect=oversized_format):
+                    bar.update("a", completed=5, success=5)
+
+                assert bar._drawn_lines > 2
+
+    def test_wrapping_stable_across_updates(self, tty_stream: FakeTTY) -> None:
+        narrow = os.terminal_size((40, 24))
+        with patch.object(shutil, "get_terminal_size", return_value=narrow):
+            with StickyProgressBar(stream=tty_stream) as bar:
+                bar.add_bar("a", "col_a", 100)
+                bar.add_bar("b", "col_b", 100)
+                initial_drawn = bar._drawn_lines
+
+                for i in range(20):
+                    bar.update("a", completed=i, success=i)
+                    bar.update("b", completed=i, success=i)
+
+                assert bar._drawn_lines == initial_drawn
 
     def test_narrow_terminal_graceful_degradation(self, tty_stream: FakeTTY) -> None:
-        with StickyProgressBar(stream=tty_stream) as bar:
-            bar.add_bar("a", "column 'verification_1'", 300)
-            bar.update("a", completed=50, success=50)
+        narrow = os.terminal_size((30, 24))
+        with patch.object(shutil, "get_terminal_size", return_value=narrow):
+            with StickyProgressBar(stream=tty_stream) as bar:
+                bar.add_bar("a", "column 'verification_1'", 300)
+                bar.update("a", completed=50, success=50)
+
+                assert bar._drawn_lines == 1
+
+                output = tty_stream.getvalue()
+                clean = _ALL_ANSI_RE.sub("", output).replace("\r", "")
+                for line in clean.split("\n"):
+                    assert len(line) <= 29
 
     def test_update_many_single_redraw(self, tty_stream: FakeTTY) -> None:
         with StickyProgressBar(stream=tty_stream) as bar:
