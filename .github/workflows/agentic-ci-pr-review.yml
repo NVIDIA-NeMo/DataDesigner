@@ -165,7 +165,7 @@ jobs:
             exit 0
           fi
           python -m venv /tmp/graphify-venv
-          /tmp/graphify-venv/bin/python -m pip install graphifyy --quiet 2>&1 | tail -3
+          /tmp/graphify-venv/bin/python -m pip install graphifyy==0.4.23 --quiet 2>&1 | tail -3
           /tmp/graphify-venv/bin/python base-agents/.agents/tools/structural_impact.py \
             --repo-root "${{ github.workspace }}" \
             --changed-files $CHANGED_PY \

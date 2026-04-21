@@ -67,7 +67,7 @@ def _dedup(items: list[dict], key_a: str = "from_label", key_b: str = "to_label"
     seen: set[tuple[str, str]] = set()
     out: list[dict] = []
     for e in items:
-        k = (e[key_a][:30], e[key_b][:30])
+        k = (e[key_a], e[key_b])
         if k not in seen:
             seen.add(k)
             out.append(e)
