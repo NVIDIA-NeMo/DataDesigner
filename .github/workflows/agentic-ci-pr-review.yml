@@ -142,23 +142,17 @@ jobs:
           ref: ${{ steps.head.outputs.sha }}
           fetch-depth: 0
 
-      # SECURITY: Recipe files define the agent's prompt. Always read them
-      # from the base branch so a fork PR cannot inject malicious instructions
-      # while API secrets are in scope.
-      - name: Checkout base branch recipes
+      # SECURITY: Recipe and tool files define the agent's prompt and run
+      # with secrets in scope. Always read them from the base branch so a
+      # fork PR cannot inject malicious instructions or code.
+      - name: Checkout base branch agent files
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
-          sparse-checkout: .agents/recipes
-          path: base-recipes
-
-      - name: Install dev environment
-        run: |
-          make install-dev
-          echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
-
-      - name: Install graphify
-        run: .venv/bin/python -m pip install graphifyy 2>&1 | tail -3
+          sparse-checkout: |
+            .agents/recipes
+            .agents/tools
+          path: base-agents
 
       - name: Structural impact analysis
         env:
@@ -166,15 +160,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           CHANGED_PY=$(gh pr diff "$PR_NUMBER" --name-only | grep '\.py$' || true)
-          if [ -n "$CHANGED_PY" ]; then
-            .venv/bin/python .agents/tools/structural_impact.py \
-              --changed-files $CHANGED_PY \
-              --output "/tmp/structural-impact-${PR_NUMBER}.md"
-            echo "Structural impact analysis complete:"
-            cat "/tmp/structural-impact-${PR_NUMBER}.md"
-          else
+          if [ -z "$CHANGED_PY" ]; then
             echo "No Python files changed - skipping structural analysis."
+            exit 0
           fi
+          python -m venv /tmp/graphify-venv
+          /tmp/graphify-venv/bin/python -m pip install graphifyy --quiet 2>&1 | tail -3
+          /tmp/graphify-venv/bin/python base-agents/.agents/tools/structural_impact.py \
+            --repo-root "${{ github.workspace }}" \
+            --changed-files $CHANGED_PY \
+            --output "/tmp/structural-impact-${PR_NUMBER}.md"
+          echo "Structural impact analysis complete:"
+          cat "/tmp/structural-impact-${PR_NUMBER}.md"
         continue-on-error: true
 
       - name: Pre-flight checks
@@ -217,10 +214,10 @@ jobs:
           set -o pipefail
 
           # Build the prompt from _runner.md + recipe, substituting template vars.
-          # Read from base-recipes/ (checked out from the base branch) so fork
+          # Read from base-agents/ (checked out from the base branch) so fork
           # PRs cannot tamper with the agent prompt.
-          RUNNER_CTX=$(cat base-recipes/.agents/recipes/_runner.md)
-          RECIPE_BODY=$(cat base-recipes/.agents/recipes/pr-review/recipe.md \
+          RUNNER_CTX=$(cat base-agents/.agents/recipes/_runner.md)
+          RECIPE_BODY=$(cat base-agents/.agents/recipes/pr-review/recipe.md \
             | sed '1,/^---$/{ /^---$/,/^---$/d }')
 
           PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}" \

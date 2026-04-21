@@ -6,7 +6,7 @@
 Usage:
   python .agents/tools/structural_impact.py --changed-files file1.py file2.py
   python .agents/tools/structural_impact.py --full [--previous-graph graphify-out/graph.json]
-  python .agents/tools/structural_impact.py --changed-files file1.py --output /tmp/report.md
+  python .agents/tools/structural_impact.py --changed-files file1.py --repo-root /path/to/repo --output /tmp/report.md
 """
 
 from __future__ import annotations
@@ -21,15 +21,16 @@ from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
 from graphify.extract import extract
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_REPO_ROOT_DEFAULT = Path(__file__).resolve().parent.parent.parent
+_REPO_ROOT = _REPO_ROOT_DEFAULT
 
 # DD layering: interface -> engine -> config (left depends on right).
 _LEGAL_DIRECTIONS = {("interface", "engine"), ("interface", "config"), ("engine", "config")}
 
-_PACKAGE_DIRS = [
-    _REPO_ROOT / "packages" / "data-designer-engine" / "src" / "data_designer" / "engine",
-    _REPO_ROOT / "packages" / "data-designer-config" / "src" / "data_designer" / "config",
-    _REPO_ROOT / "packages" / "data-designer" / "src" / "data_designer",
+_PACKAGE_SUBDIRS = [
+    Path("packages") / "data-designer-engine" / "src" / "data_designer" / "engine",
+    Path("packages") / "data-designer-config" / "src" / "data_designer" / "config",
+    Path("packages") / "data-designer" / "src" / "data_designer",
 ]
 
 _STDLIB_LABELS = {"ABC", "BaseModel", "Enum", "Field"}
@@ -37,7 +38,7 @@ _STDLIB_LABELS = {"ABC", "BaseModel", "Enum", "Field"}
 
 def _collect_source_files() -> list[Path]:
     files: list[Path] = []
-    for d in _PACKAGE_DIRS:
+    for d in [_REPO_ROOT / sub for sub in _PACKAGE_SUBDIRS]:
         if d.exists():
             files.extend(p for p in d.rglob("*.py") if not any(part.startswith(".") for part in p.relative_to(d).parts))
     return sorted(files)
@@ -145,7 +146,7 @@ def _fmt_gods(gods: list[dict], affected_only: bool = False) -> list[str]:
     if affected_only:
         lines = ["#### Core Abstractions Modified"]
         for g in gods:
-            lines.append(f"- `{g['label']}` - #{g['rank']} most connected ({g['edges']} deps)")
+            lines.append(f"- `{g['label']}` - #{g['rank']} most connected ({g['degree']} deps)")
     else:
         lines = [
             "#### God Nodes (most connected entities)",
@@ -154,7 +155,7 @@ def _fmt_gods(gods: list[dict], affected_only: bool = False) -> list[str]:
             "|------|--------|-------------|",
         ]
         for g in gods:
-            lines.append(f"| {g['rank']} | `{g['label']}` | {g['edges']} |")
+            lines.append(f"| {g['rank']} | `{g['label']}` | {g['degree']} |")
     lines.append("")
     return lines
 
@@ -309,9 +310,9 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
                 "total_nodes": G.number_of_nodes(),
                 "total_edges": G.number_of_edges(),
                 "total_communities": len(communities),
-                "god_nodes": [{"label": g["label"], "edges": g["edges"]} for g in gods[:10]],
+                "god_nodes": [{"label": g["label"], "degree": g["degree"]} for g in gods[:10]],
                 "cross_package_edges": direction_counts,
-                "violation_count": len(violations),
+                "violation_count": len(unique_violations),
             },
             indent=2,
         ),
@@ -321,13 +322,19 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
 
 
 def main() -> None:
+    global _REPO_ROOT
+
     parser = argparse.ArgumentParser(description="Structural impact analysis via graphify")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--changed-files", nargs="+", help="PR review mode: list of changed Python files")
     group.add_argument("--full", action="store_true", help="Full analysis mode for the structure audit")
     parser.add_argument("--previous-graph", help="Path to previous graph.json for diff (full mode only)")
     parser.add_argument("--output", help="Write output to file instead of stdout")
+    parser.add_argument("--repo-root", help="Override repo root (when script runs from a different checkout)")
     args = parser.parse_args()
+
+    if args.repo_root:
+        _REPO_ROOT = Path(args.repo_root).resolve()
 
     if args.changed_files:
         changed = [
