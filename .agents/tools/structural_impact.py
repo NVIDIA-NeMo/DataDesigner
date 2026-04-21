@@ -193,7 +193,8 @@ def _changed_files_mode(changed_files: list[Path]) -> str:
     analysis = _build_graph(_collect_source_files())
     G, communities, gods = analysis["graph"], analysis["communities"], analysis["god_nodes"]
 
-    changed_node_ids = {n["id"] for n in extract(changed_files)["nodes"]}
+    changed_paths = {str(p.resolve()) for p in changed_files}
+    changed_node_ids = {nid for nid in G.nodes() if G.nodes[nid].get("source_file") in changed_paths}
 
     node_to_community = {n: cid for cid, nodes in communities.items() for n in nodes}
     affected_gods = [{"rank": gods.index(g) + 1, **g} for g in gods if g["id"] in changed_node_ids]
@@ -228,7 +229,13 @@ def _changed_files_mode(changed_files: list[Path]) -> str:
             reasons.append(f"{len(unique_violations)} import direction violation(s)")
         risk, risk_reason = "HIGH", "; ".join(reasons)
     elif len(affected_communities) > 3 or any(h["degree"] > 20 for h in high_impact):
-        risk, risk_reason = "MEDIUM", f"{len(affected_communities)} clusters affected"
+        medium_reasons = []
+        if len(affected_communities) > 3:
+            medium_reasons.append(f"{len(affected_communities)} clusters affected")
+        high_deg = [h for h in high_impact if h["degree"] > 20]
+        if high_deg:
+            medium_reasons.append(f"high-connectivity entity ({high_deg[0]['label']}, {high_deg[0]['degree']} deps)")
+        risk, risk_reason = "MEDIUM", "; ".join(medium_reasons)
     else:
         risk, risk_reason = "LOW", "localized change"
 
