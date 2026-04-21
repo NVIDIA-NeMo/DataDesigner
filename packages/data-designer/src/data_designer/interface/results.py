@@ -112,7 +112,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             Path to the written file.
 
         Raises:
-            ValueError: If an unsupported format is requested.
+            InvalidFileFormatError: If an unsupported format is requested.
 
         Example:
             >>> results = data_designer.create(config, num_records=1000)
