@@ -31,7 +31,7 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.errors import DatasetGenerationError
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
@@ -59,6 +59,7 @@ from data_designer.engine.storage.media_storage import StorageMode
 if TYPE_CHECKING:
     import pandas as pd
 
+    from data_designer.config.run_config import RunConfig
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
@@ -90,6 +91,10 @@ if DATA_DESIGNER_ASYNC_ENGINE:
 
 
 _CLIENT_VERSION: str = get_library_version()
+
+
+def _is_async_trace_enabled(settings: RunConfig) -> bool:
+    return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
 
 
 class DatasetBuilder:
@@ -239,7 +244,7 @@ class DatasetBuilder:
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview")
 
         settings = self._resource_provider.run_config
-        trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+        trace_enabled = _is_async_trace_enabled(settings)
 
         scheduler, buffer_manager = self._prepare_async_run(
             generators,
@@ -291,7 +296,7 @@ class DatasetBuilder:
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
 
         settings = self._resource_provider.run_config
-        trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+        trace_enabled = _is_async_trace_enabled(settings)
 
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
@@ -404,7 +409,7 @@ class DatasetBuilder:
             original_len = len(df)
             df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
             if len(df) != original_len:
-                raise DatasetGenerationError(
+                raise DatasetProcessingError(
                     f"Post-batch processor changed row count from {original_len} to {len(df)}. "
                     "Row-count changes in post-batch processors are not supported with the async engine."
                 )
