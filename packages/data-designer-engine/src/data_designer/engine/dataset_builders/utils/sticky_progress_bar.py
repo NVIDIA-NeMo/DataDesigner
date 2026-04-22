@@ -69,6 +69,10 @@ class StickyProgressBar:
     def is_active(self) -> bool:
         return self._active
 
+    @property
+    def drawn_lines(self) -> int:
+        return self._drawn_lines
+
     # -- context manager --
 
     def __enter__(self) -> StickyProgressBar:

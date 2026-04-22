@@ -53,26 +53,25 @@ def test_hides_and_shows_cursor(tty_stream: FakeTTY) -> None:
 
 
 def test_drawn_lines_tracks_add_and_remove(tty_stream: FakeTTY) -> None:
-    # Multiple interleaved checkpoints - no public proxy without restructuring
     with StickyProgressBar(stream=tty_stream) as bar:
         bar.add_bar("a", "col_a", 10)
         bar.add_bar("b", "col_b", 10)
         bar.add_bar("c", "col_c", 10)
-        assert bar._drawn_lines == 3
+        assert bar.drawn_lines == 3
 
         bar.remove_bar("a")
-        assert bar._drawn_lines == 2
+        assert bar.drawn_lines == 2
 
         bar.add_bar("d", "col_d", 10)
-        assert bar._drawn_lines == 3
+        assert bar.drawn_lines == 3
 
         bar.update("b", completed=5, success=5)
-        assert bar._drawn_lines == 3
+        assert bar.drawn_lines == 3
 
         bar.remove_bar("b")
         bar.remove_bar("c")
         bar.remove_bar("d")
-        assert bar._drawn_lines == 0
+        assert bar.drawn_lines == 0
 
 
 def test_drawn_lines_stable_across_many_updates(tty_stream: FakeTTY) -> None:
@@ -236,8 +235,7 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
             reporter.record_success("col_a")
             assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 3
 
-            # No bars left after log_final - no public trigger to verify via output
             reporter.log_final()
-            assert bar._drawn_lines == 0
+            assert bar.drawn_lines == 0
     finally:
         root_logger.removeHandler(handler)
