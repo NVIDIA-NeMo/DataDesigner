@@ -1912,4 +1912,4 @@ async def test_early_shutdown_drains_workers() -> None:
     await scheduler.run()
 
     # After run() returns, no worker tasks should remain.
-    assert len(scheduler._worker_tasks) == 0
+    assert scheduler.active_worker_count == 0

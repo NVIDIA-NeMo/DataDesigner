@@ -31,7 +31,7 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
@@ -406,13 +406,7 @@ class DatasetBuilder:
         # Post-batch processor callback: runs after all columns, before finalization.
         def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
-            original_len = len(df)
-            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
-            if len(df) != original_len:
-                raise DatasetProcessingError(
-                    f"Post-batch processor changed row count from {original_len} to {len(df)}. "
-                    "Row-count changes in post-batch processors are not supported with the async engine."
-                )
+            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
 
         # Coarse upper bound: sums all registered aliases, not just those used

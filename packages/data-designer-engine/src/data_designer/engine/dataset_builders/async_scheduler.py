@@ -217,6 +217,10 @@ class AsyncTaskScheduler:
             progress_bar=self._progress_bar,
         )
 
+    @property
+    def active_worker_count(self) -> int:
+        return sum(1 for t in self._worker_tasks if not t.done())
+
     def _spawn_worker(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task:
         """Create a tracked worker task that auto-removes itself on completion."""
         task = asyncio.create_task(coro)
@@ -266,9 +270,13 @@ class AsyncTaskScheduler:
             # Launch admission as a background task so it interleaves with dispatch.
             admission_task = asyncio.create_task(self._admit_row_groups())
 
+            dispatch_error: BaseException | None = None
             try:
                 # Main dispatch loop
                 await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
+            except BaseException as exc:
+                dispatch_error = exc
+                raise
             finally:
                 # Always cancel admission + drain in-flight workers, regardless
                 # of how the dispatch loop exited (normal, early shutdown,
@@ -282,7 +290,7 @@ class AsyncTaskScheduler:
             if self._reporter:
                 self._reporter.log_final()
 
-            if self._rg_states:
+            if self._rg_states and dispatch_error is None:
                 incomplete = list(self._rg_states)
                 logger.error(
                     f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "

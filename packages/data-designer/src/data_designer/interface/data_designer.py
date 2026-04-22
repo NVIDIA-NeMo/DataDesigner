@@ -223,6 +223,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         try:
             builder = self._create_dataset_builder(config_builder.build(), resource_provider)
             builder.build(num_records=num_records)
+        except DeprecationWarning:
+            raise
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
@@ -294,6 +296,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             builder = self._create_dataset_builder(config_builder.build(), resource_provider)
             raw_dataset = builder.build_preview(num_records=num_records)
             processed_dataset = builder.process_preview(raw_dataset)
+        except DeprecationWarning:
+            raise
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}") from e
 

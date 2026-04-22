@@ -90,9 +90,26 @@ class ProcessorRunner:
             )
         return df
 
-    def run_post_batch(self, df: pd.DataFrame, current_batch_number: int | None) -> pd.DataFrame:
-        """Run process_after_batch() on processors that implement it."""
-        return self._run_stage(df, ProcessorStage.POST_BATCH, current_batch_number=current_batch_number)
+    def run_post_batch(
+        self, df: pd.DataFrame, current_batch_number: int | None, *, strict_row_count: bool = False
+    ) -> pd.DataFrame:
+        """Run process_after_batch() on processors that implement it.
+
+        Args:
+            df: Input DataFrame.
+            current_batch_number: Batch index passed to processors.
+            strict_row_count: If True, raise ``DatasetProcessingError`` when a
+                processor changes the row count. Used by the async engine where
+                row-count changes are not supported.
+        """
+        original_len = len(df)
+        df = self._run_stage(df, ProcessorStage.POST_BATCH, current_batch_number=current_batch_number)
+        if strict_row_count and len(df) != original_len:
+            raise DatasetProcessingError(
+                f"Post-batch processor changed row count from {original_len} to {len(df)}. "
+                "Row-count changes in post-batch processors are not supported with the async engine."
+            )
+        return df
 
     def run_after_generation_on_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """Run process_after_generation() on a DataFrame (for preview mode)."""

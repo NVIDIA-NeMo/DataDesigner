@@ -5,8 +5,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.models.facade import ModelFacade
@@ -26,7 +24,7 @@ def test_model_facade_has_sync_methods() -> None:
     assert hasattr(ModelFacade, "generate_text_embeddings")
 
 
-def test_async_engine_env_controls_builder_execution_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_async_engine_env_controls_builder_execution_path() -> None:
     """When DATA_DESIGNER_ASYNC_ENGINE is set, _run_cell_by_cell_generator dispatches to async fan-out."""
 
     mock_generator = MagicMock()
