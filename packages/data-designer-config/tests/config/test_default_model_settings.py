@@ -59,7 +59,7 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[0].model == "nvidia/nemotron-3-nano-30b-a3b"
     assert builtin_model_configs[0].provider == "nvidia"
     assert builtin_model_configs[1].alias == "nvidia-reasoning"
-    assert builtin_model_configs[1].model == "openai/gpt-oss-20b"
+    assert builtin_model_configs[1].model == "nvidia/nemotron-3-super-120b-a12b"
     assert builtin_model_configs[1].provider == "nvidia"
     assert builtin_model_configs[2].alias == "nvidia-vision"
     assert builtin_model_configs[2].model == "nvidia/nemotron-nano-12b-v2-vl"
