@@ -336,7 +336,11 @@ DEFAULT_REASONING_INFERENCE_PARAMS = {"temperature": 0.35, "top_p": 0.95}
 DEFAULT_VISION_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
 DEFAULT_EMBEDDING_INFERENCE_PARAMS = {"encoding_format": "float"}
 NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS = {"temperature": 1.0, "top_p": 1.0}
-NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS = {"temperature": 1.0, "top_p": 0.95}
+NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS = {
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "extra_body": {"reasoning_effort": "medium"},
+}
 GPT5_INFERENCE_PARAMS = {"extra_body": {"reasoning_effort": "medium"}}
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
