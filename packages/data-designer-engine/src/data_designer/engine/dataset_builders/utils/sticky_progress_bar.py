@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import sys
 import time
@@ -13,6 +14,7 @@ from typing import TextIO
 
 BAR_FILLED = "█"
 BAR_EMPTY = "░"
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 
 def _compute_stats_width(total: int) -> int:
@@ -67,6 +69,10 @@ class StickyProgressBar:
     def is_active(self) -> bool:
         return self._active
 
+    @property
+    def drawn_lines(self) -> int:
+        return self._drawn_lines
+
     # -- context manager --
 
     def __enter__(self) -> StickyProgressBar:
@@ -107,6 +113,16 @@ class StickyProgressBar:
                 bar.failed = failed
                 if self._active:
                     self._redraw()
+
+    def update_many(self, updates: dict[str, tuple[int, int, int]]) -> None:
+        with self._lock:
+            for key, (completed, success, failed) in updates.items():
+                if bar := self._bars.get(key):
+                    bar.completed = completed
+                    bar.success = success
+                    bar.failed = failed
+            if self._active:
+                self._redraw()
 
     def remove_bar(self, key: str) -> None:
         with self._lock:
@@ -163,15 +179,19 @@ class StickyProgressBar:
         for bar in self._bars.values():
             line = self._format_bar(bar, width, max_label)
             self._write(line + "\n")
-            self._drawn_lines += 1
+            visible = len(_ANSI_RE.sub("", line))
+            if width > 0 and visible > width:
+                self._drawn_lines += (visible + width - 1) // width
+            else:
+                self._drawn_lines += 1
 
     def _format_bar(self, bar: _BarState, width: int, label_width: int) -> str:
         completed = min(bar.completed, bar.total)
         pct = (completed / bar.total * 100) if bar.total > 0 else 100.0
         elapsed = time.perf_counter() - bar.start_time
-        rate = bar.completed / elapsed if elapsed > 0 else 0.0
+        rate = min(bar.completed / elapsed if elapsed > 0 else 0.0, 9999.9)
         remaining = max(0, bar.total - completed)
-        eta = f"{remaining / rate:.0f}s" if rate > 0 else "?"
+        eta = f"{min(remaining / rate, 999):.0f}s" if rate > 0 else "?"
 
         label = bar.label.ljust(label_width)
         total_w = len(str(bar.total))
@@ -179,7 +199,10 @@ class StickyProgressBar:
         stats = f" {pct:3.0f}% | {count_str} | {rate:6.1f} rec/s | eta {eta:>4s} | {bar.failed:>{total_w}} failed"
         stats = stats.ljust(bar.stats_width)
 
-        bar_width = max(10, width - len(label) - bar.stats_width - 4)
+        bar_width = width - len(label) - bar.stats_width - 4
+        if bar_width < 1:
+            return f"  {label} {stats}"[: max(0, width - 1)]
+
         filled = int(bar_width * pct / 100)
         empty = bar_width - filled
 
