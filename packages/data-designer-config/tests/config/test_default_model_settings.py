@@ -30,9 +30,9 @@ def test_get_default_inference_parameters():
         top_p=0.95,
     )
     assert get_default_inference_parameters(
-        "reasoning", {"temperature": 0.35, "top_p": 0.95}
+        "reasoning", {"temperature": 1.0, "top_p": 0.95}
     ) == ChatCompletionInferenceParams(
-        temperature=0.35,
+        temperature=1.0,
         top_p=0.95,
     )
     assert get_default_inference_parameters(

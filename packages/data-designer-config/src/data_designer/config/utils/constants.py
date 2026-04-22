@@ -336,6 +336,7 @@ DEFAULT_REASONING_INFERENCE_PARAMS = {"temperature": 0.35, "top_p": 0.95}
 DEFAULT_VISION_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
 DEFAULT_EMBEDDING_INFERENCE_PARAMS = {"encoding_format": "float"}
 NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS = {"temperature": 1.0, "top_p": 1.0}
+NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS = {"temperature": 1.0, "top_p": 0.95}
 GPT5_INFERENCE_PARAMS = {"extra_body": {"reasoning_effort": "medium"}}
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
@@ -346,7 +347,7 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
         },
         "reasoning": {
             "model": "nvidia/nemotron-3-super-120b-a12b",
-            "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS,
+            "inference_parameters": NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS,
         },
         "vision": {"model": "nvidia/nemotron-nano-12b-v2-vl", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
         "embedding": {
