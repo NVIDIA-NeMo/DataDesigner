@@ -11,8 +11,8 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     SamplerMultiColumnConfig,
     SeedDatasetMultiColumnConfig,
 )
-from data_designer.engine.dataset_builders.utils.dag import topologically_sort_column_configs
 from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError
+from data_designer.engine.dataset_builders.utils.execution_graph import topologically_sort_column_configs
 
 
 def compile_dataset_builder_column_configs(config: DataDesignerConfig) -> list[DatasetBuilderColumnConfigT]:

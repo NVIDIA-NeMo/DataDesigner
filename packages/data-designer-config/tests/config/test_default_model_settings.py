@@ -30,10 +30,11 @@ def test_get_default_inference_parameters():
         top_p=0.95,
     )
     assert get_default_inference_parameters(
-        "reasoning", {"temperature": 0.35, "top_p": 0.95}
+        "reasoning", {"temperature": 1.0, "top_p": 0.95, "extra_body": {"reasoning_effort": "medium"}}
     ) == ChatCompletionInferenceParams(
-        temperature=0.35,
+        temperature=1.0,
         top_p=0.95,
+        extra_body={"reasoning_effort": "medium"},
     )
     assert get_default_inference_parameters(
         "vision", {"temperature": 0.85, "top_p": 0.95}
@@ -59,7 +60,7 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[0].model == "nvidia/nemotron-3-nano-30b-a3b"
     assert builtin_model_configs[0].provider == "nvidia"
     assert builtin_model_configs[1].alias == "nvidia-reasoning"
-    assert builtin_model_configs[1].model == "openai/gpt-oss-20b"
+    assert builtin_model_configs[1].model == "nvidia/nemotron-3-super-120b-a12b"
     assert builtin_model_configs[1].provider == "nvidia"
     assert builtin_model_configs[2].alias == "nvidia-vision"
     assert builtin_model_configs[2].model == "nvidia/nemotron-nano-12b-v2-vl"

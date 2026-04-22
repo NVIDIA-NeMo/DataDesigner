@@ -8,6 +8,8 @@ from unittest.mock import Mock
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.run_config import JinjaRenderingEngine
+from data_designer.engine.processing.ginja.exceptions import UserTemplateUnsupportedFiltersError
 from data_designer.engine.sampling_gen.jinja_utils import JinjaDataFrame, extract_column_names_from_expression
 
 
@@ -27,6 +29,7 @@ from data_designer.engine.sampling_gen.jinja_utils import JinjaDataFrame, extrac
         ("some_dude.age + 1", {"some_dude"}),
         ("'I\\'m a string' + i_am_a_var", {"i_am_a_var"}),
         ('"I am a string" + i_am_a_var', {"i_am_a_var"}),
+        ('data | jsonpath("$.key")', {"data"}),
     ],
 )
 def test_extract_column_names_from_expression(expr: str, column_names: set[str]) -> None:
@@ -113,3 +116,26 @@ def test_jinja_dataframe_to_column_scenarios(test_case, expr, df_data, mock_side
     jdf.render_template = Mock(side_effect=mock_side_effect)
     result = jdf.to_column(df)
     assert result == expected_result
+
+
+def test_jinja_dataframe_can_switch_rendering_engines() -> None:
+    df = lazy.pd.DataFrame({"items": [["a", "b"]]})
+
+    with pytest.raises(UserTemplateUnsupportedFiltersError):
+        JinjaDataFrame(
+            "items | join('-')",
+            jinja_rendering_engine=JinjaRenderingEngine.SECURE,
+        ).to_column(df)
+
+    native_result = JinjaDataFrame(
+        "items | join('-')",
+        jinja_rendering_engine=JinjaRenderingEngine.NATIVE,
+    ).to_column(df)
+    assert native_result == ["a-b"]
+
+
+def test_jinja_dataframe_uses_secure_jinja_by_default() -> None:
+    df = lazy.pd.DataFrame({"items": [["a", "b"]]})
+
+    with pytest.raises(UserTemplateUnsupportedFiltersError):
+        JinjaDataFrame("items | join('-')").to_column(df)

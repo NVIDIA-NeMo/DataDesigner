@@ -15,6 +15,7 @@ from jinja2.nodes import Template
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 from jsonpath_rust_bindings import Finder
 
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.processing.ginja.ast import (
     ast_count_name_references,
     ast_descendant_count,
@@ -56,6 +57,7 @@ ALLOWED_JINJA_FILTERS = [
     "trim",
     "truncate",
     "unique",
+    "upper",
     "urlencode",
     ## Custom Filters
     "jsonpath",
@@ -278,9 +280,11 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
             self._assert_template_ast_complexity(ast)
             self._assert_template_has_no_self_reference(ast)
             self._assert_template_has_valid_references(ast)
+        except UserTemplateError:
+            raise
         except Exception as exception:
             maybe_handle_missing_filter_exception(exception, available_jinja_filters=list(self.filters.keys()))
-            raise exception
+            raise
 
     def _assert_rendered_text_length(self, rendered_text: str) -> None:
         """Check against the length of the rendered string."""
@@ -369,6 +373,18 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
 
         return rendered_text
 
+    def render_template(
+        self,
+        user_template: str,
+        record: dict,
+        skip_template_validation: bool = False,
+    ) -> str:
+        return self.safe_render(
+            user_template,
+            record,
+            skip_template_validation=skip_template_validation,
+        )
+
     def get_references(self, user_template: str) -> set[str]:
         """Get all referenced variables from the provided template.
 
@@ -382,6 +398,60 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         """
         ast = self.parse(user_template)
         return meta.find_undeclared_variables(ast)
+
+
+class NativeJinjaSandboxEnvironment(ImmutableSandboxedEnvironment):
+    """Jinja2's built-in sandbox with Data Designer's reference whitelist."""
+
+    allowed_references: list[str]
+    _prefer_dict_key_access: bool
+
+    def __init__(
+        self,
+        allowed_references: list[str] | None = None,
+        prefer_dict_key_access: bool = False,
+        **kwargs,
+    ):
+        super().__init__(autoescape=False, **kwargs)
+        self.allowed_references = allowed_references if allowed_references else []
+        self._prefer_dict_key_access = prefer_dict_key_access
+        self.filters["jsonpath"] = jsonpath_jinja_filter
+
+    def getattr(self, obj: Any, attribute: str) -> Any:
+        if self._prefer_dict_key_access and isinstance(obj, dict) and attribute in obj:
+            return obj[attribute]
+        return super().getattr(obj, attribute)
+
+    def validate_template(self, user_template: str) -> None:
+        try:
+            ast = self.parse(user_template)
+            template_vars = meta.find_undeclared_variables(ast)
+            unallowed_vars = set(template_vars) - set(self.allowed_references)
+            if len(unallowed_vars) > 0:
+                raise UserTemplateError(f"Unknown variable references in Jinja template: {unallowed_vars}")
+        except UserTemplateError:
+            raise
+        except Exception as exception:
+            maybe_handle_missing_filter_exception(exception, available_jinja_filters=list(self.filters.keys()))
+            raise
+
+    def render_template(
+        self,
+        user_template: str,
+        record: dict,
+        skip_template_validation: bool = False,
+    ) -> str:
+        if not skip_template_validation:
+            self.validate_template(user_template)
+
+        try:
+            template = self.from_string(user_template)
+            return template.render(record)
+        except SecurityError as exception:
+            raise UserTemplateError("Non-permitted operations in Jinja template.") from exception
+        except Exception as exception:
+            maybe_handle_missing_filter_exception(exception, available_jinja_filters=list(self.filters.keys()))
+            raise UserTemplateError(str(exception)) from exception
 
 
 def sanitize_user_exceptions(func):
@@ -428,6 +498,33 @@ class WithJinja2UserTemplateRendering:
 
     _template_render_fn: Callable
 
+    def _get_jinja_rendering_engine(self) -> JinjaRenderingEngine:
+        engine = getattr(self, "_jinja_rendering_engine", None)
+        if engine is not None:
+            return JinjaRenderingEngine(engine)
+
+        resource_provider = getattr(self, "_resource_provider", None)
+        if resource_provider is not None:
+            return JinjaRenderingEngine(resource_provider.run_config.jinja_rendering_engine)
+
+        # The mixin predates the RunConfig toggle, so preserve the historical
+        # secure-by-default behavior when no explicit engine is wired in.
+        return JinjaRenderingEngine.SECURE
+
+    def _create_render_environment(
+        self,
+        *,
+        dataset_variables: list[str],
+        record_str_fn: Callable[[Any], str] | None = None,
+    ) -> UserTemplateSandboxEnvironment | NativeJinjaSandboxEnvironment:
+        env_kwargs: dict[str, Any] = {}
+        if record_str_fn is not None:
+            env_kwargs["finalize"] = record_str_fn
+            env_kwargs["prefer_dict_key_access"] = True
+        if self._get_jinja_rendering_engine() == JinjaRenderingEngine.SECURE:
+            return UserTemplateSandboxEnvironment(allowed_references=dataset_variables, **env_kwargs)
+        return NativeJinjaSandboxEnvironment(allowed_references=dataset_variables, **env_kwargs)
+
     @sanitize_user_exceptions
     def prepare_jinja2_template_renderer(
         self,
@@ -445,14 +542,13 @@ class WithJinja2UserTemplateRendering:
                 and enables dict-key-priority attribute lookup for nested dot access
                 ({{ col.sub.field }}).
         """
-        env_kwargs: dict[str, Any] = {}
-        if record_str_fn is not None:
-            env_kwargs["finalize"] = record_str_fn
-            env_kwargs["prefer_dict_key_access"] = True
-        jinja_render_env = UserTemplateSandboxEnvironment(allowed_references=dataset_variables, **env_kwargs)
+        jinja_render_env = self._create_render_environment(
+            dataset_variables=dataset_variables,
+            record_str_fn=record_str_fn,
+        )
         jinja_render_env.validate_template(prompt_template)
         self._template_render_fn = partial(
-            jinja_render_env.safe_render,
+            jinja_render_env.render_template,
             prompt_template,
             skip_template_validation=True,
         )
@@ -470,10 +566,10 @@ class WithJinja2UserTemplateRendering:
     ) -> None:
         if not self._template_prepared_in_multi_template_renderer(template_name):
             self._create_render_func_registry()
-            jinja_render_env = UserTemplateSandboxEnvironment(allowed_references=dataset_variables)
+            jinja_render_env = self._create_render_environment(dataset_variables=dataset_variables)
             jinja_render_env.validate_template(prompt_template)
             self._render_func_registry[template_name] = partial(
-                jinja_render_env.safe_render,
+                jinja_render_env.render_template,
                 prompt_template,
                 skip_template_validation=True,
             )

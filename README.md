@@ -156,17 +156,17 @@ Specifically, a model name that is defined a `ModelConfig` object, is what will 
 ```python
 ModelConfig(
     alias="nv-reasoning",
-    model="openai/gpt-oss-20b",
+    model="nvidia/nemotron-3-super-120b-a12b",
     provider="nvidia",
     inference_parameters=ChatCompletionInferenceParams(
-        temperature=0.3,
-        top_p=0.9,
+        temperature=1.0,
+        top_p=0.95,
         max_tokens=4096,
     ),
 )
 ```
 
-The value `openai/gpt-oss-20b` would be collected.
+The value `nvidia/nemotron-3-super-120b-a12b` would be collected.
 
 To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
 
