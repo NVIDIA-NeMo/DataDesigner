@@ -272,26 +272,10 @@ async def test_checkpoint_produces_correct_parquet_calls() -> None:
 # -- Partial completion warning ------------------------------------------------
 
 
-def test_write_metadata_records_actual_and_target_counts() -> None:
-    """write_metadata records the correct actual vs target counts."""
-    storage = MagicMock()
-    storage.dataset_name = "test"
-    storage.get_file_paths.return_value = {}
-
-    buffer_manager = RowGroupBufferManager(storage)
-    # Simulate 3 records checkpointed out of a 10-record target
-    buffer_manager._actual_num_records = 3
-
-    buffer_manager.write_metadata(target_num_records=10, buffer_size=5)
-
-    written = storage.write_metadata.call_args[0][0]
-    assert written["actual_num_records"] == 3
-    assert written["target_num_records"] == 10
-
-
 @pytest.mark.asyncio(loop_scope="session")
 async def test_dropped_rows_reduce_actual_record_count() -> None:
-    """When all rows in a row group are dropped, actual_num_records reflects the shortfall."""
+    """When all rows in a row group are dropped, actual_num_records reflects the shortfall
+    and write_metadata records the correct actual vs target counts."""
     provider = _mock_provider()
     seed_gen = MockSeed(config=_expr_config("seed"), resource_provider=provider)
 
@@ -330,3 +314,8 @@ async def test_dropped_rows_reduce_actual_record_count() -> None:
     await scheduler.run()
 
     assert buffer_manager.actual_num_records < num_records
+
+    buffer_manager.write_metadata(target_num_records=num_records, buffer_size=3)
+    written = storage.write_metadata.call_args[0][0]
+    assert written["actual_num_records"] == buffer_manager.actual_num_records
+    assert written["target_num_records"] == num_records
