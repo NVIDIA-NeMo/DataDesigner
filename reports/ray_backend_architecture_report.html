@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DataDesigner Ray Backend Architecture and Performance Report</title>
+  <style>
+    :root {
+      --ink: #172126;
+      --muted: #5d6b73;
+      --paper: #f8f3e8;
+      --panel: #fffaf0;
+      --line: #d7c9ac;
+      --rust: #b5532f;
+      --teal: #1d6f73;
+      --navy: #153b50;
+      --gold: #d7962d;
+      --green: #417b4a;
+      --red: #a74444;
+      --code: #263238;
+      --code-bg: #eef2ed;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 18% 0%, rgba(215, 150, 45, 0.18), transparent 26rem),
+        radial-gradient(circle at 92% 8%, rgba(29, 111, 115, 0.18), transparent 22rem),
+        linear-gradient(180deg, #fbf4e3 0%, #f6efe4 48%, #efe7d7 100%);
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      line-height: 1.55;
+    }
+
+    main {
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 48px 28px 80px;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.1;
+      margin: 0;
+      color: var(--navy);
+    }
+
+    h1 {
+      font-size: clamp(2.4rem, 6vw, 5.4rem);
+      letter-spacing: -0.055em;
+      max-width: 980px;
+    }
+
+    h2 {
+      font-size: clamp(1.8rem, 3vw, 2.7rem);
+      letter-spacing: -0.035em;
+      margin-bottom: 16px;
+    }
+
+    h3 {
+      font-size: 1.2rem;
+      margin: 26px 0 10px;
+    }
+
+    p { margin: 10px 0 0; }
+
+    a { color: var(--teal); }
+
+    .kicker {
+      font: 700 0.82rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--rust);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      margin-bottom: 18px;
+    }
+
+    .hero {
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      background: rgba(255, 250, 240, 0.74);
+      box-shadow: 0 28px 80px rgba(49, 37, 17, 0.12);
+      padding: 42px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -80px;
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      border: 52px solid rgba(181, 83, 47, 0.10);
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 1.18rem;
+      max-width: 820px;
+      margin-top: 22px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 26px;
+    }
+
+    .pill {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.48);
+      padding: 7px 12px;
+      font: 600 0.84rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--navy);
+    }
+
+    section {
+      margin-top: 34px;
+      padding: 30px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 250, 240, 0.82);
+      box-shadow: 0 18px 46px rgba(49, 37, 17, 0.07);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 18px;
+    }
+
+    .card {
+      grid-column: span 4;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.44);
+    }
+
+    .card.wide { grid-column: span 6; }
+    .card.full { grid-column: 1 / -1; }
+
+    .callout {
+      border-left: 6px solid var(--teal);
+      background: rgba(29, 111, 115, 0.08);
+      padding: 16px 18px;
+      border-radius: 14px;
+      margin-top: 18px;
+    }
+
+    .warning {
+      border-left-color: var(--rust);
+      background: rgba(181, 83, 47, 0.09);
+    }
+
+    .success {
+      border-left-color: var(--green);
+      background: rgba(65, 123, 74, 0.09);
+    }
+
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    code {
+      background: var(--code-bg);
+      color: var(--code);
+      padding: 0.12rem 0.32rem;
+      border-radius: 6px;
+      font-size: 0.92em;
+    }
+
+    pre {
+      margin: 16px 0 0;
+      padding: 18px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      border-radius: 16px;
+      border: 1px solid #c8d2c6;
+      background: #eef2ed;
+      color: #263238;
+      font-size: 0.88rem;
+    }
+
+    ul, ol { padding-left: 1.25rem; }
+    li { margin: 7px 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      font-size: 0.95rem;
+      background: rgba(255, 255, 255, 0.48);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      padding: 12px 14px;
+      vertical-align: top;
+    }
+
+    th {
+      background: rgba(21, 59, 80, 0.08);
+      color: var(--navy);
+      font: 700 0.78rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .metric {
+      font: 800 2.1rem/1.05 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--teal);
+      letter-spacing: -0.05em;
+      margin-top: 8px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .diagram {
+      width: 100%;
+      min-height: 260px;
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #fffdf7;
+      overflow: hidden;
+    }
+
+    svg { display: block; width: 100%; height: auto; }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 210px 1fr 92px;
+      gap: 12px;
+      align-items: center;
+      margin: 12px 0;
+      font: 600 0.9rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .bar-track {
+      height: 16px;
+      border-radius: 99px;
+      background: rgba(21, 59, 80, 0.11);
+      overflow: hidden;
+    }
+
+    .bar {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--teal), var(--gold));
+    }
+
+    .muted { color: var(--muted); }
+    .good { color: var(--green); font-weight: 700; }
+    .bad { color: var(--red); font-weight: 700; }
+
+    @media (max-width: 820px) {
+      main { padding: 24px 14px 48px; }
+      .hero, section { padding: 22px; border-radius: 18px; }
+      .card, .card.wide { grid-column: 1 / -1; }
+      .bar-row { grid-template-columns: 1fr; gap: 6px; }
+      table { font-size: 0.84rem; }
+      th, td { padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <article class="hero">
+    <div class="kicker">Architecture and Performance Report</div>
+    <h1>Ray In-Memory Backend for DataDesigner</h1>
+    <p class="subtitle">
+      This report summarizes the implementation, architectural decisions, benchmark results, and remaining
+      optimization work for adding an optional Ray-backed execution path that accepts Ray-resident inputs
+      and returns Ray-resident outputs without changing default local behavior.
+    </p>
+    <div class="meta">
+      <span class="pill">worktree: /Users/eric/src/DataDesigner-ray-backend</span>
+      <span class="pill">branch: feat/ray-backend</span>
+      <span class="pill">date: 2026-04-23</span>
+      <span class="pill">Ray: 2.55.1</span>
+      <span class="pill">Python: 3.13</span>
+    </div>
+  </article>
+
+  <section>
+    <h2>Executive Summary</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Implemented</h3>
+        <p>
+          A new optional <code>RayBackend</code> execution path plugs into <code>DataDesigner</code>
+          through a small backend protocol. Users can pass a Ray Dataset or Ray ObjectRef sequence as
+          <code>input_dataset</code> and receive either a Ray Dataset or Arrow ObjectRefs back.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Default Behavior</h3>
+        <p>
+          The local path remains the default. Ray is imported lazily and is only installed through
+          <code>data-designer[ray]</code>. Without a backend, <code>create()</code> keeps the existing
+          local artifact-backed behavior.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Performance Takeaway</h3>
+        <p>
+          Ray is slower for tiny cheap jobs because setup overhead dominates. For API-bound LLM jobs,
+          Ray is already competitive locally and should improve with larger block sizes, real clusters,
+          and worker/client reuse.
+        </p>
+      </div>
+    </div>
+    <div class="callout success">
+      <strong>Important fix from benchmarking:</strong> running local seeded jobs before Ray jobs initially exposed
+      a serialization failure from cached DuckDB connections inside seed readers. The Ray backend now clones seed
+      readers into clean unattached worker copies before sending them to Ray workers.
+    </div>
+  </section>
+
+  <section>
+    <h2>What Changed</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Area</th>
+          <th>Files</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Backend abstraction</td>
+          <td><code>packages/data-designer/src/data_designer/interface/backends.py</code></td>
+          <td>Defines <code>DataDesignerBackend</code>, a protocol that lets the public interface delegate non-local data-plane execution without coupling to Ray.</td>
+        </tr>
+        <tr>
+          <td>Interface hook</td>
+          <td><code>packages/data-designer/src/data_designer/interface/data_designer.py</code></td>
+          <td>Adds <code>backend=...</code> and <code>input_dataset=...</code>. Local behavior is unchanged unless a backend is supplied.</td>
+        </tr>
+        <tr>
+          <td>Ray integration</td>
+          <td><code>packages/data-designer/src/data_designer/integrations/ray/backend.py</code></td>
+          <td>Maps DataDesigner generation over Ray Data blocks, builds worker-local resources, runs the async engine, and returns Ray-resident outputs.</td>
+        </tr>
+        <tr>
+          <td>Async selection</td>
+          <td><code>packages/data-designer-engine/src/data_designer/engine/dataset_builders/dataset_builder.py</code></td>
+          <td>Adds explicit <code>use_async</code> selection so Ray workers can start from the async execution path independent of process environment.</td>
+        </tr>
+        <tr>
+          <td>Packaging</td>
+          <td><code>packages/data-designer/pyproject.toml</code>, <code>uv.lock</code></td>
+          <td>Adds <code>data-designer[ray]</code> with <code>ray[data]&gt;=2.54.0,&lt;3</code>.</td>
+        </tr>
+        <tr>
+          <td>Tests</td>
+          <td><code>packages/data-designer/tests/integrations/ray/test_backend.py</code></td>
+          <td>Covers lazy import, in-memory Ray Dataset seed, pandas ObjectRef seed, Arrow ref output, no-backend guard, and seed-reader state isolation.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Layering and Modularization</h2>
+    <p>
+      The implementation preserves the repository's structural layering: interface depends on engine, engine depends
+      on config, and config remains independent of both. Ray is an optional integration owned by the interface package,
+      not a dependency of config or engine.
+    </p>
+    <div class="diagram" aria-label="Layering diagram">
+      <svg viewBox="0 0 1100 340" role="img">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#153b50"></path>
+          </marker>
+        </defs>
+        <rect x="40" y="58" width="220" height="92" rx="18" fill="#fff4d9" stroke="#d7c9ac" stroke-width="2"></rect>
+        <text x="150" y="94" text-anchor="middle" font-size="20" font-weight="700" fill="#153b50">data-designer</text>
+        <text x="150" y="122" text-anchor="middle" font-size="14" fill="#5d6b73">interface + integrations</text>
+
+        <rect x="440" y="58" width="220" height="92" rx="18" fill="#e7f3ee" stroke="#b9cdbd" stroke-width="2"></rect>
+        <text x="550" y="94" text-anchor="middle" font-size="20" font-weight="700" fill="#153b50">engine</text>
+        <text x="550" y="122" text-anchor="middle" font-size="14" fill="#5d6b73">DAG + async builder</text>
+
+        <rect x="840" y="58" width="220" height="92" rx="18" fill="#e9f1f7" stroke="#b7c9d4" stroke-width="2"></rect>
+        <text x="950" y="94" text-anchor="middle" font-size="20" font-weight="700" fill="#153b50">config</text>
+        <text x="950" y="122" text-anchor="middle" font-size="14" fill="#5d6b73">declarative objects</text>
+
+        <path d="M260 104 C330 104 370 104 440 104" stroke="#153b50" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+        <path d="M660 104 C730 104 770 104 840 104" stroke="#153b50" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+
+        <rect x="40" y="220" width="250" height="72" rx="16" fill="#f5e2d8" stroke="#c99783" stroke-width="2"></rect>
+        <text x="165" y="250" text-anchor="middle" font-size="18" font-weight="700" fill="#153b50">RayBackend</text>
+        <text x="165" y="274" text-anchor="middle" font-size="13" fill="#5d6b73">optional, lazy Ray import</text>
+
+        <path d="M165 220 C160 190 154 170 150 150" stroke="#b5532f" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+        <text x="330" y="242" font-size="14" fill="#5d6b73">No reverse imports. No Ray dependency in config or engine.</text>
+        <text x="330" y="268" font-size="14" fill="#5d6b73">Backend is selected by the user at the interface boundary.</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Execution Architecture</h2>
+    <p>
+      The local path still compiles config, builds artifacts, profiles the output, and returns a local
+      <code>DatasetCreationResults</code>. The Ray path converts the input data plane into Ray Data blocks,
+      executes each block with worker-local engine resources, and keeps the result in Ray.
+    </p>
+    <div class="diagram" aria-label="Local and Ray execution flow">
+      <svg viewBox="0 0 1100 520" role="img">
+        <defs>
+          <marker id="flowArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#1d6f73"></path>
+          </marker>
+          <style>
+            .box { fill: #fffdf7; stroke: #d7c9ac; stroke-width: 2; }
+            .ray { fill: #e7f3ee; stroke: #9ec0a8; stroke-width: 2; }
+            .local { fill: #fff4d9; stroke: #d7b96f; stroke-width: 2; }
+            .label { fill: #153b50; font-size: 16px; font-weight: 700; }
+            .sub { fill: #5d6b73; font-size: 13px; }
+            .arrow { stroke: #1d6f73; stroke-width: 3; fill: none; marker-end: url(#flowArrow); }
+          </style>
+        </defs>
+
+        <text x="110" y="42" class="label">Local Backend</text>
+        <rect x="42" y="70" width="250" height="64" rx="14" class="local"></rect>
+        <text x="167" y="98" text-anchor="middle" class="label">DataDesigner.create</text>
+        <text x="167" y="119" text-anchor="middle" class="sub">no backend</text>
+        <rect x="42" y="166" width="250" height="64" rx="14" class="local"></rect>
+        <text x="167" y="194" text-anchor="middle" class="label">DatasetBuilder</text>
+        <text x="167" y="215" text-anchor="middle" class="sub">sync or async engine</text>
+        <rect x="42" y="262" width="250" height="64" rx="14" class="local"></rect>
+        <text x="167" y="290" text-anchor="middle" class="label">ArtifactStorage</text>
+        <text x="167" y="311" text-anchor="middle" class="sub">parquet + profiler</text>
+        <rect x="42" y="358" width="250" height="64" rx="14" class="local"></rect>
+        <text x="167" y="386" text-anchor="middle" class="label">DatasetCreationResults</text>
+        <text x="167" y="407" text-anchor="middle" class="sub">pandas on load</text>
+        <path d="M167 134 L167 166" class="arrow"></path>
+        <path d="M167 230 L167 262" class="arrow"></path>
+        <path d="M167 326 L167 358" class="arrow"></path>
+
+        <text x="720" y="42" class="label">Ray Backend</text>
+        <rect x="440" y="70" width="260" height="64" rx="14" class="ray"></rect>
+        <text x="570" y="98" text-anchor="middle" class="label">DataDesigner.create</text>
+        <text x="570" y="119" text-anchor="middle" class="sub">backend=RayBackend()</text>
+        <rect x="800" y="70" width="260" height="64" rx="14" class="ray"></rect>
+        <text x="930" y="98" text-anchor="middle" class="label">Ray Dataset / refs</text>
+        <text x="930" y="119" text-anchor="middle" class="sub">input data already resident</text>
+
+        <rect x="620" y="166" width="260" height="64" rx="14" class="ray"></rect>
+        <text x="750" y="194" text-anchor="middle" class="label">Ray Data map_batches</text>
+        <text x="750" y="215" text-anchor="middle" class="sub">one DataDesigner run per block</text>
+
+        <rect x="620" y="262" width="260" height="64" rx="14" class="ray"></rect>
+        <text x="750" y="290" text-anchor="middle" class="label">Async DatasetBuilder</text>
+        <text x="750" y="311" text-anchor="middle" class="sub">worker-local temp resources</text>
+
+        <rect x="620" y="358" width="260" height="64" rx="14" class="ray"></rect>
+        <text x="750" y="386" text-anchor="middle" class="label">Ray-resident output</text>
+        <text x="750" y="407" text-anchor="middle" class="sub">Dataset or Arrow ObjectRefs</text>
+
+        <path d="M700 102 L800 102" class="arrow"></path>
+        <path d="M570 134 C570 160 620 152 682 166" class="arrow"></path>
+        <path d="M930 134 C930 160 880 152 818 166" class="arrow"></path>
+        <path d="M750 230 L750 262" class="arrow"></path>
+        <path d="M750 326 L750 358" class="arrow"></path>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ray Worker Boundary</h2>
+    <p>
+      The most important architectural boundary is the worker payload. Anything sent through Ray must be
+      serializable and should be data-like. The backend now copies only the necessary interface state and removes
+      attachment state from seed readers before serialization.
+    </p>
+    <div class="diagram" aria-label="Ray worker lifecycle">
+      <svg viewBox="0 0 1100 360" role="img">
+        <defs>
+          <marker id="workerArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#b5532f"></path>
+          </marker>
+          <style>
+            .wbox { fill: #fffdf7; stroke: #d7c9ac; stroke-width: 2; }
+            .hot { fill: #f5e2d8; stroke: #c99783; stroke-width: 2; }
+            .txt { fill: #153b50; font-size: 15px; font-weight: 700; }
+            .small { fill: #5d6b73; font-size: 12px; }
+            .warr { stroke: #b5532f; stroke-width: 3; fill: none; marker-end: url(#workerArrow); }
+          </style>
+        </defs>
+        <rect x="42" y="72" width="190" height="70" rx="14" class="wbox"></rect>
+        <text x="137" y="101" text-anchor="middle" class="txt">Pandas block</text>
+        <text x="137" y="123" text-anchor="middle" class="small">from Ray Data</text>
+
+        <rect x="282" y="72" width="190" height="70" rx="14" class="hot"></rect>
+        <text x="377" y="101" text-anchor="middle" class="txt">Deep-copy config</text>
+        <text x="377" y="123" text-anchor="middle" class="small">block-local builder</text>
+
+        <rect x="522" y="72" width="190" height="70" rx="14" class="hot"></rect>
+        <text x="617" y="101" text-anchor="middle" class="txt">Attach seed</text>
+        <text x="617" y="123" text-anchor="middle" class="small">DataFrameSeedSource</text>
+
+        <rect x="762" y="72" width="190" height="70" rx="14" class="wbox"></rect>
+        <text x="857" y="101" text-anchor="middle" class="txt">Temp resources</text>
+        <text x="857" y="123" text-anchor="middle" class="small">artifact + registries</text>
+
+        <rect x="282" y="218" width="190" height="70" rx="14" class="wbox"></rect>
+        <text x="377" y="247" text-anchor="middle" class="txt">build_preview</text>
+        <text x="377" y="269" text-anchor="middle" class="small">use_async=True</text>
+
+        <rect x="522" y="218" width="190" height="70" rx="14" class="wbox"></rect>
+        <text x="617" y="247" text-anchor="middle" class="txt">process_preview</text>
+        <text x="617" y="269" text-anchor="middle" class="small">post processors on block</text>
+
+        <rect x="762" y="218" width="190" height="70" rx="14" class="wbox"></rect>
+        <text x="857" y="247" text-anchor="middle" class="txt">Return DataFrame</text>
+        <text x="857" y="269" text-anchor="middle" class="small">Ray stores block</text>
+
+        <path d="M232 107 L282 107" class="warr"></path>
+        <path d="M472 107 L522 107" class="warr"></path>
+        <path d="M712 107 L762 107" class="warr"></path>
+        <path d="M857 142 C857 188 472 170 377 218" class="warr"></path>
+        <path d="M472 253 L522 253" class="warr"></path>
+        <path d="M712 253 L762 253" class="warr"></path>
+      </svg>
+    </div>
+    <div class="callout">
+      <strong>Serialization rule:</strong> worker options must contain plain config/state, not open handles.
+      The benchmark found DuckDB connections retained inside seed readers. The fix clones readers and clears
+      <code>source</code>, <code>secret_resolver</code>, and <code>_duckdb_conn</code> before Ray sees them.
+    </div>
+  </section>
+
+  <section>
+    <h2>Public API Shape</h2>
+    <p>
+      The intended user path is simple: existing local users do nothing. Ray users install the extra, initialize or
+      connect to Ray, and pass the backend plus an in-memory Ray input handle.
+    </p>
+    <pre>import ray
+from data_designer.interface.data_designer import DataDesigner
+from data_designer.integrations.ray import RayBackend
+
+ray.init(address="auto")  # or an existing local/session cluster
+
+designer = DataDesigner(
+    artifact_path="artifacts",
+    model_providers=[...],
+    backend=RayBackend(batch_size=1024),
+)
+
+results = designer.create(config_builder, input_dataset=ray_dataset)
+ray_dataset_out = results.load_dataset()</pre>
+    <p>
+      Supported input forms are Ray Dataset, Arrow ObjectRefs, and pandas DataFrame ObjectRefs. Supported output forms
+      are Ray Dataset and Arrow ObjectRefs.
+    </p>
+  </section>
+
+  <section>
+    <h2>Benchmark Methodology</h2>
+    <div class="grid">
+      <div class="card wide">
+        <h3>Environment</h3>
+        <ul>
+          <li>Worktree: <code>/Users/eric/src/DataDesigner-ray-backend</code></li>
+          <li>Python: <code>3.13.0</code></li>
+          <li>Ray: <code>2.55.1</code>, local Ray instance</li>
+          <li>Engine: <code>DATA_DESIGNER_ASYNC_ENGINE=1</code></li>
+          <li>Configured providers: <code>nvidia</code>, <code>openai</code>, <code>openrouter</code></li>
+          <li>Missing configured provider credential: <code>openrouter</code></li>
+        </ul>
+      </div>
+      <div class="card wide">
+        <h3>Workloads</h3>
+        <ul>
+          <li><strong>Sampler + expression:</strong> 10,000 rows, no model calls, intended to expose orchestration overhead.</li>
+          <li><strong>NVIDIA LLM:</strong> 8 seeded rows, <code>nvidia-text</code>, <code>nvidia/nemotron-3-nano-30b-a3b</code>, <code>max_tokens=16</code>.</li>
+          <li><strong>OpenAI LLM:</strong> 4 seeded rows, <code>openai-text</code>, <code>gpt-4.1</code>, <code>max_tokens=16</code>.</li>
+          <li>Ray startup was excluded from measured sections. Ray Dataset timings include pulling to pandas on the driver unless noted as Arrow refs.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout warning">
+      <strong>Caveat:</strong> the LLM runs are intentionally small to limit API cost. These are smoke-scale
+      performance tests, not statistically stable throughput claims. Network latency and provider scheduling noise
+      are material at this size.
+    </div>
+  </section>
+
+  <section>
+    <h2>Performance Results</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Workload</th>
+          <th>Backend</th>
+          <th>Rows</th>
+          <th>Seconds</th>
+          <th>Rows/sec</th>
+          <th>Interpretation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Sampler + expression</td>
+          <td>Local</td>
+          <td>10,000</td>
+          <td>1.292</td>
+          <td>7,741</td>
+          <td>Fast local path; minimal orchestration overhead.</td>
+        </tr>
+        <tr>
+          <td>Sampler + expression</td>
+          <td>Ray Dataset</td>
+          <td>10,000</td>
+          <td>3.045</td>
+          <td>3,284</td>
+          <td>Ray is 2.36x slower for this cheap workload because block scheduling dominates.</td>
+        </tr>
+        <tr>
+          <td>NVIDIA LLM</td>
+          <td>Local</td>
+          <td>8</td>
+          <td>1.954</td>
+          <td>4.09</td>
+          <td>Configured default provider path. Includes local artifact/profiler result path.</td>
+        </tr>
+        <tr>
+          <td>NVIDIA LLM</td>
+          <td>Ray Dataset</td>
+          <td>8</td>
+          <td>2.172</td>
+          <td>3.68</td>
+          <td>About 11% slower at tiny local scale; expected to improve with larger partitions and real cluster parallelism.</td>
+        </tr>
+        <tr>
+          <td>NVIDIA LLM</td>
+          <td>Ray Arrow refs</td>
+          <td>8</td>
+          <td>4.346</td>
+          <td>1.84</td>
+          <td>Returned 2 in-memory refs. This run was slower due to API variance; it validates the ObjectRef path.</td>
+        </tr>
+        <tr>
+          <td>OpenAI LLM</td>
+          <td>Local</td>
+          <td>4</td>
+          <td>4.784</td>
+          <td>0.84</td>
+          <td>Configured <code>gpt-4.1</code> path produced non-empty outputs.</td>
+        </tr>
+        <tr>
+          <td>OpenAI LLM</td>
+          <td>Ray Dataset</td>
+          <td>4</td>
+          <td>4.190</td>
+          <td>0.95</td>
+          <td>About 12% faster in this run, but small-N variance is high.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Rows/sec Comparison</h3>
+    <div class="bar-row">
+      <div>Local sampler</div>
+      <div class="bar-track"><div class="bar" style="width: 100%"></div></div>
+      <div>7,741</div>
+    </div>
+    <div class="bar-row">
+      <div>Ray sampler</div>
+      <div class="bar-track"><div class="bar" style="width: 42%"></div></div>
+      <div>3,284</div>
+    </div>
+    <div class="bar-row">
+      <div>Local NVIDIA LLM</div>
+      <div class="bar-track"><div class="bar" style="width: 53%"></div></div>
+      <div>4.09</div>
+    </div>
+    <div class="bar-row">
+      <div>Ray NVIDIA LLM</div>
+      <div class="bar-track"><div class="bar" style="width: 48%"></div></div>
+      <div>3.68</div>
+    </div>
+    <div class="bar-row">
+      <div>Local OpenAI LLM</div>
+      <div class="bar-track"><div class="bar" style="width: 11%"></div></div>
+      <div>0.84</div>
+    </div>
+    <div class="bar-row">
+      <div>Ray OpenAI LLM</div>
+      <div class="bar-track"><div class="bar" style="width: 12%"></div></div>
+      <div>0.95</div>
+    </div>
+
+    <div class="callout">
+      <strong>Observation:</strong> the NVIDIA endpoint returned empty content for the short prompt while still
+      reporting successful requests and token usage. The OpenAI run produced non-empty values. The NVIDIA timing
+      is still useful for exercising the configured provider path and network/model stack, but not for output-quality assessment.
+    </div>
+  </section>
+
+  <section>
+    <h2>What We Learned</h2>
+    <div class="grid">
+      <div class="card wide">
+        <h3>Ray helps when work is large enough</h3>
+        <p>
+          For cheap sampler/expression jobs, Ray overhead is too high. For LLM jobs, model latency dominates enough
+          that Ray is close even on a local instance. On a real cluster and with larger record counts, the Ray path
+          should become more attractive.
+        </p>
+      </div>
+      <div class="card wide">
+        <h3>State boundaries matter</h3>
+        <p>
+          DataDesigner has stateful readers and resource providers optimized for a local process. Ray forces us to
+          separate configuration from execution state. The seed-reader clone fix is the first concrete example of
+          the right architectural direction.
+        </p>
+      </div>
+      <div class="card wide">
+        <h3>Returning refs works</h3>
+        <p>
+          The Ray backend can return Arrow ObjectRefs, so the output can remain in Ray object store instead of
+          materializing on the driver. This is essential for large-data jobs.
+        </p>
+      </div>
+      <div class="card wide">
+        <h3>Order semantics differ</h3>
+        <p>
+          Ray Data does not guarantee the same output ordering as the local path under all execution plans. If stable
+          order is required, the backend should inject and preserve an internal row id.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Current Limitations</h2>
+    <ol>
+      <li><strong>Per-block setup cost:</strong> each Ray block currently creates temp artifact storage, resource providers, registries, and a DatasetBuilder.</li>
+      <li><strong>Per-block model health checks:</strong> workers may repeat checks that should be a driver preflight or cached per worker.</li>
+      <li><strong>No actor reuse:</strong> <code>map_batches</code> uses a function. A callable class or actor-style execution could reuse model clients and resource setup across blocks.</li>
+      <li><strong>Local profiler gap:</strong> Ray results are Ray-resident and <code>load_analysis()</code> currently returns <code>None</code>. Profiling needs a distributed/Ray-native implementation.</li>
+      <li><strong>Metrics aggregation gap:</strong> worker model-usage stats are not yet aggregated into the Ray result object.</li>
+      <li><strong>Ordering:</strong> output row order can differ from input order unless explicitly preserved.</li>
+      <li><strong>From-scratch partitioning:</strong> <code>ray.data.range(num_records)</code> needs explicit block planning for high throughput.</li>
+      <li><strong>Processor side effects:</strong> processors that write side artifacts were built for local storage and need clearer Ray semantics.</li>
+      <li><strong>Secrets and trust boundary:</strong> provider config and secret resolvers are serialized to workers. That is normal for trusted Ray clusters, but should be documented.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Optimization Roadmap</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Phase 1: Correctness Hardening</h3>
+        <ul>
+          <li>Add stable row-id preservation for Ray inputs and from-scratch generation.</li>
+          <li>Reject or document processors with unsupported distributed side effects.</li>
+          <li>Preflight model health checks on the driver and skip repeated worker checks.</li>
+          <li>Add tests for ordering, ObjectRef input formats, and same-process local-then-Ray execution.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Phase 2: Worker Reuse</h3>
+        <ul>
+          <li>Use Ray Data callable classes for <code>map_batches</code> so setup runs once per worker.</li>
+          <li>Reuse model client pools and resource providers per worker.</li>
+          <li>Replace temp artifact storage with an in-memory preview artifact abstraction where possible.</li>
+          <li>Broadcast immutable compiled configs instead of deep-copying builders repeatedly.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Phase 3: Cluster Throughput</h3>
+        <ul>
+          <li>Expose <code>override_num_blocks</code> / block planning controls.</li>
+          <li>Coordinate provider throttling globally across Ray workers.</li>
+          <li>Support actor placement, CPU/GPU/resource labels, and autoscaling-friendly defaults.</li>
+          <li>Add Ray-native usage metrics and trace collection.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="diagram" aria-label="Optimization roadmap">
+      <svg viewBox="0 0 1100 260" role="img">
+        <defs>
+          <marker id="roadArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#153b50"></path>
+          </marker>
+        </defs>
+        <line x1="110" y1="130" x2="990" y2="130" stroke="#153b50" stroke-width="4" marker-end="url(#roadArrow)"></line>
+        <circle cx="170" cy="130" r="44" fill="#fff4d9" stroke="#d7c9ac" stroke-width="3"></circle>
+        <text x="170" y="125" text-anchor="middle" font-size="15" font-weight="700" fill="#153b50">Now</text>
+        <text x="170" y="145" text-anchor="middle" font-size="11" fill="#5d6b73">functional</text>
+        <circle cx="440" cy="130" r="52" fill="#e9f1f7" stroke="#b7c9d4" stroke-width="3"></circle>
+        <text x="440" y="122" text-anchor="middle" font-size="15" font-weight="700" fill="#153b50">Phase 1</text>
+        <text x="440" y="143" text-anchor="middle" font-size="11" fill="#5d6b73">semantics</text>
+        <circle cx="710" cy="130" r="52" fill="#e7f3ee" stroke="#9ec0a8" stroke-width="3"></circle>
+        <text x="710" y="122" text-anchor="middle" font-size="15" font-weight="700" fill="#153b50">Phase 2</text>
+        <text x="710" y="143" text-anchor="middle" font-size="11" fill="#5d6b73">reuse</text>
+        <circle cx="940" cy="130" r="52" fill="#f5e2d8" stroke="#c99783" stroke-width="3"></circle>
+        <text x="940" y="122" text-anchor="middle" font-size="15" font-weight="700" fill="#153b50">Phase 3</text>
+        <text x="940" y="143" text-anchor="middle" font-size="11" fill="#5d6b73">cluster scale</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recommended Next Implementation Steps</h2>
+    <ol>
+      <li>
+        <strong>Promote the benchmark into the repo.</strong> Move the temporary benchmark into
+        <code>scripts/benchmarks/</code>, parameterize provider/model/record counts, and emit JSON plus HTML.
+      </li>
+      <li>
+        <strong>Make block planning explicit.</strong> Add <code>num_blocks</code> or <code>target_block_size</code>
+        options to <code>RayBackend</code> and use Ray APIs to avoid accidental tiny blocks.
+      </li>
+      <li>
+        <strong>Switch to worker setup reuse.</strong> Implement a Ray Data callable class that constructs
+        model clients and DataDesigner resources once per worker process.
+      </li>
+      <li>
+        <strong>Add a distributed metrics channel.</strong> Return or collect usage stats, task traces, and error
+        summaries from workers into <code>RayDatasetCreationResults</code>.
+      </li>
+      <li>
+        <strong>Define order semantics.</strong> Either document unordered output or preserve a hidden row id and
+        optionally sort on output.
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Verification</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Check</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>uv run pytest packages/data-designer/tests/integrations/ray/test_backend.py -q</code></td>
+          <td><span class="good">6 passed</span></td>
+        </tr>
+        <tr>
+          <td><code>uv run pytest packages/data-designer-engine/tests/engine/dataset_builders/test_dataset_builder.py -q</code></td>
+          <td><span class="good">59 passed</span></td>
+        </tr>
+        <tr>
+          <td><code>uv run pytest packages/data-designer/tests/interface/test_data_designer.py packages/data-designer/tests/interface/test_results.py -q</code></td>
+          <td><span class="good">58 passed</span></td>
+        </tr>
+        <tr>
+          <td><code>uv run ruff check ...</code></td>
+          <td><span class="good">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>uv build packages/data-designer</code></td>
+          <td><span class="good">built sdist and wheel</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Bottom Line</h2>
+    <p>
+      The architecture is now in the right shape: Ray is an optional interface-level backend, not a cross-cutting
+      dependency, and the engine remains reusable through an explicit async execution selector. The current Ray path
+      proves the in-memory contract end to end, but it is still a first functional backend, not an optimized distributed
+      runtime. The highest-leverage next step is worker reuse, followed by explicit partition planning and distributed
+      metrics aggregation.
+    </p>
+  </section>
+</main>
+</body>
+</html>

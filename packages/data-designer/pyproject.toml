@@ -19,6 +19,11 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
+[project.optional-dependencies]
+ray = [
+    "ray[data]>=2.54.0,<3",
+]
+
 [project.scripts]
 data-designer = "data_designer.cli.main:main"
 

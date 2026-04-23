@@ -7,6 +7,7 @@ import contextlib
 import functools
 import logging
 import os
+import sys
 import time
 import uuid
 import warnings
@@ -61,6 +62,8 @@ if TYPE_CHECKING:
 
     from data_designer.config.run_config import RunConfig
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
+    from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
+    from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
     from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
 
@@ -68,15 +71,33 @@ logger = logging.getLogger(__name__)
 
 DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
 
-if DATA_DESIGNER_ASYNC_ENGINE:
-    import asyncio
-    import sys
 
+def _async_python_version_error() -> str:
+    return (
+        "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
+        f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
+    )
+
+
+def _ensure_async_engine_available() -> None:
+    """Import async engine helpers on demand."""
     if sys.version_info < (3, 11):
-        raise RuntimeError(
-            "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
-            f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
-        )
+        raise RuntimeError(_async_python_version_error())
+
+    global asyncio
+    global DEFAULT_TASK_POOL_SIZE
+    global LLM_WAIT_POOL_MULTIPLIER
+    global AsyncTaskScheduler
+    global AsyncConcurrentExecutor
+    global ensure_async_engine_loop
+    global CompletionTracker
+    global RowGroupBufferManager
+
+    if "AsyncTaskScheduler" in globals():
+        return
+
+    import asyncio
+
     from data_designer.engine.dataset_builders.async_scheduler import (
         DEFAULT_TASK_POOL_SIZE,
         LLM_WAIT_POOL_MULTIPLIER,
@@ -103,6 +124,7 @@ class DatasetBuilder:
         data_designer_config: DataDesignerConfig,
         resource_provider: ResourceProvider,
         registry: DataDesignerRegistry | None = None,
+        use_async: bool | None = None,
     ):
         self.batch_manager = DatasetBatchManager(resource_provider.artifact_storage)
         self._resource_provider = resource_provider
@@ -112,7 +134,10 @@ class DatasetBuilder:
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
-        self._use_async: bool = DATA_DESIGNER_ASYNC_ENGINE
+        self._async_requested: bool = DATA_DESIGNER_ASYNC_ENGINE if use_async is None else use_async
+        self._use_async: bool = self._async_requested
+        if self._async_requested:
+            _ensure_async_engine_available()
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -192,7 +217,7 @@ class DatasetBuilder:
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
-        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        self._use_async = self._resolve_async_selection()
         if self._use_async:
             self._build_async(generators, num_records, buffer_size, on_batch_complete)
         else:
@@ -225,7 +250,7 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        self._use_async = self._resolve_async_selection()
         if self._use_async:
             dataset = self._build_async_preview(generators, num_records)
         else:
@@ -284,6 +309,13 @@ class DatasetBuilder:
             warnings.warn(msg, DeprecationWarning, stacklevel=4)
             return False
         return True
+
+    def _resolve_async_selection(self) -> bool:
+        """Return whether this run should use async after compatibility checks."""
+        if not self._async_requested:
+            return False
+        _ensure_async_engine_available()
+        return self._resolve_async_compatibility()
 
     def _build_async(
         self,
@@ -694,7 +726,8 @@ class DatasetBuilder:
         if not model_aliases:
             return
 
-        if DATA_DESIGNER_ASYNC_ENGINE:
+        if self._async_requested:
+            _ensure_async_engine_available()
             loop = ensure_async_engine_loop()
             future = asyncio.run_coroutine_threadsafe(
                 self._resource_provider.model_registry.arun_health_check(list(model_aliases)),

@@ -60,6 +60,7 @@ from data_designer.engine.secret_resolver import (
     SecretResolver,
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
+from data_designer.interface.backends import DataDesignerBackend
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,
@@ -130,6 +131,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         mcp_providers: Optional list of MCP provider configurations to enable tool-calling for
             LLM generation columns. Supports both MCPProvider (remote/SSE) and
             LocalStdioMCPProvider (local subprocess).
+        backend: Optional execution backend for non-local data planes. If omitted, DataDesigner
+            uses the existing local artifact-backed execution path.
     """
 
     def __init__(
@@ -142,6 +145,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         managed_assets_path: Path | str | None = None,
         person_reader: PersonReader | None = None,
         mcp_providers: list[MCPProviderT] | None = None,
+        backend: DataDesignerBackend | None = None,
     ):
         _initialize_interface_runtime()
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
@@ -151,6 +155,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._person_reader = person_reader
         self._model_providers = self._resolve_model_providers(model_providers)
         self._mcp_providers = mcp_providers or []
+        self._backend = backend
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
         )
@@ -190,6 +195,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         num_records: int = DEFAULT_NUM_RECORDS,
         dataset_name: str = "dataset",
+        input_dataset: object | None = None,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -207,6 +213,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
                 with the name "awesome_dataset_2025-01-01_12-00-00".
+            input_dataset: Optional backend-native dataset handle. This requires a backend
+                such as RayBackend; the local path intentionally rejects it instead of
+                changing existing create() behavior.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -216,6 +225,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             DataDesignerGenerationError: If an error occurs during dataset generation.
             DataDesignerProfilingError: If an error occurs during dataset profiling.
         """
+        if self._backend is not None:
+            return self._backend.create(
+                data_designer=self,
+                config_builder=config_builder,
+                num_records=num_records,
+                dataset_name=dataset_name,
+                input_dataset=input_dataset,
+            )
+        if input_dataset is not None:
+            raise ValueError("input_dataset requires an execution backend, such as RayBackend.")
+
         logger.info("🎨 Creating Data Designer dataset")
         self._log_jinja_rendering_engine_mode()
 
@@ -442,10 +462,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self,
         data_designer_config: DataDesignerConfig,
         resource_provider: ResourceProvider,
+        *,
+        use_async: bool | None = None,
     ) -> DatasetBuilder:
         return DatasetBuilder(
             data_designer_config=data_designer_config,
             resource_provider=resource_provider,
+            use_async=use_async,
         )
 
     def _create_dataset_profiler(
