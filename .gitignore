@@ -102,11 +102,7 @@ packages/data-designer/README.md
 # Notebook build cache
 .notebook-cache/
 
-# Cerebro knowledge base
-.cerebro/
-.cursor/rules/cerebro.mdc
 .cursor/mcp.json
-.claude/rules/cerebro.md
 
 # Claude worktrees
 .claude/worktrees/
