@@ -174,11 +174,11 @@ jobs:
             | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
             | sed "s|{{memory_path}}|.agentic-ci-state|g")
 
-          claude \
+          stdbuf -oL -eL claude \
             --model "$AGENTIC_CI_MODEL" \
             -p "$PROMPT" \
-            --max-turns 30 \
-            --output-format text \
+            --max-turns 50 \
+            --output-format stream-json \
             --verbose \
             2>&1 | tee /tmp/claude-audit-log.txt
 
@@ -204,6 +204,17 @@ jobs:
           with open('.agentic-ci-state/runner-state.json', 'w') as f:
               json.dump(state, f, indent=2)
           "
+
+      - name: Upload agent log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: claude-audit-log-${{ matrix.suite }}-${{ github.run_id }}
+          path: |
+            /tmp/claude-audit-log.txt
+            /tmp/audit-${{ matrix.suite }}.md
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Write job summary
         if: always()
