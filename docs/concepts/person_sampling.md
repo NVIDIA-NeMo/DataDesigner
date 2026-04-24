@@ -193,8 +193,6 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 
 **France-Specific Fields (`fr_FR`):**
 
-- `commune` - Smallest administrative division (includes arrondissements)
-- `departement` - Mid-level administrative division
 - `household_type` - Household composition (e.g., single person, couple with/without children)
 - `monthly_income_eur` - Estimated monthly income in euros
 - `first_name_heritage` - Cultural origin of the first name
@@ -204,20 +202,41 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 **Japan-Specific Fields (`ja_JP`):**
 
 - `area`
-- `prefecture`
-- `zone`
+
+**Korea-Specific Fields (`ko_KR`):**
+
+- `economic_activity_status` - Employment / economic activity status
+- `family_type` - Household / family composition type
+- `housing_type` - Dwelling type (apartment, detached home, etc.)
+- `housing_tenure` - Owned vs rented, etc.
+- `income_bracket` - Income range
+- `military_status` - Military service status
+- `drinking_status` - Drinking frequency / status
+- `smoking_status` - Smoking frequency / status
+- `blood_pressure_status` - Blood pressure health indicator
+- `blood_sugar_status` - Blood sugar health indicator
+- `bmi_status` - BMI health indicator
+- `waist_status` - Waist-circumference health indicator
 
 **Brazil-Specific Fields (`pt_BR`):**
 
 - `race` - Census-reported race
 
-**Brazil and India Shared Fields (`pt_BR`, `en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
+**Singapore-Specific Fields (`en_SG`):**
+
+- `industry` - Industry of employment
+- `preferred_english_name` - Preferred English-form name
+
+**English Locales Shared Fields (`en_US`, `en_SG`):**
+
+- `ethnic_background` - Self-identified ethnic background
+
+**Religion Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`, `en_SG`, `pt_BR`):**
 
 - `religion` - Census-reported religion
 
-**India-Specific Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
+**India Locales Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
 
-- `district` - Census-reported district
 - `education_degree` - Census-reported education degree
 - `first_language` - Native language
 - `second_language` - Second language (if applicable)
@@ -233,17 +252,21 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 - Career goals
 - Context-specific personas (professional, financial, healthcare, sports, arts & entertainment, travel, culinary, etc.)
 
-*Japan-specific persona fields:*
+*Japan-specific persona fields (`ja_JP`):*
 
 - `aspects`
-- `digital_skills`
+- `digital_skill`
 
-*Brazil and India shared persona fields (`pt_BR`, `en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):*
+*Korea-specific persona fields (`ko_KR`):*
+
+- `family_persona`
+
+*Religious persona fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`, `en_SG`, `pt_BR`):*
 
 - `religious_persona`
 - `religious_background`
 
-*India-specific persona fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):*
+*India-locales persona fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):*
 
 - `linguistic_persona`
 - `linguistic_background`
