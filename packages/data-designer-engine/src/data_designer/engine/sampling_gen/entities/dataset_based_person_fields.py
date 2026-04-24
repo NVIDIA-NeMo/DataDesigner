@@ -15,84 +15,102 @@ from __future__ import annotations
 REQUIRED_FIELDS = {"first_name", "last_name", "age", "locale"}
 
 PII_FIELDS = [
-    # Core demographic fields
+    # Universal demographic fields (present in every managed locale)
     "uuid",
     "first_name",
     "middle_name",
     "last_name",
     "sex",
     "age",
-    "birth_date",
     "marital_status",
     "postcode",
     "city",
+    "district",
     "region",
     "country",
-    "locale",
-    "bachelors_field",
-    "education_level",
-    "occupation",
-    "national_id",
-    # US-specific fields
     "street_name",
     "street_number",
     "unit",
+    "bachelors_field",
+    "education_level",
+    "occupation",
+    # Runtime-generated / attached fields
+    "locale",
+    "birth_date",
     "state",
     "email_address",
     "phone_number",
-    # France-specific fields
+    "national_id",
+    # en_US + en_SG
+    "ethnic_background",
+    # en_SG-specific
+    "industry",
+    "preferred_english_name",
+    # fr_FR-specific
     "first_name_heritage",
     "name_heritage",
     "is_first_gen_immigrant",
     "household_type",
     "monthly_income_eur",
-    "commune",
-    "departement",
-    # Brazil-specific fields
-    "race",
-    # Japan-specific fields
+    # ja_JP-specific
     "area",
-    "prefecture",
-    "zone",
-    # Brazil and India shared fields
-    "religion",
-    # India-specific fields
-    "district",
+    # ko_KR-specific
+    "blood_pressure_status",
+    "blood_sugar_status",
+    "bmi_status",
+    "drinking_status",
+    "economic_activity_status",
+    "family_type",
+    "housing_tenure",
+    "housing_type",
+    "income_bracket",
+    "military_status",
+    "smoking_status",
+    "waist_status",
+    # pt_BR-specific
+    "race",
+    # India locales (en_IN, hi_Deva_IN, hi_Latn_IN)
     "education_degree",
     "first_language",
     "second_language",
     "third_language",
+    "zone",
+    # Shared across India locales, en_SG, and pt_BR
+    "religion",
 ]
 
 PERSONA_FIELDS = [
-    # Core persona fields
+    # Universal persona fields
     "persona",
+    "detailed_persona",
+    "professional_persona",
     "career_goals_and_ambitions",
+    "cultural_background",
     "arts_persona",
     "culinary_persona",
-    "cultural_background",
-    "detailed_persona",
     "finance_persona",
     "healthcare_persona",
-    "hobbies_and_interests_list",
-    "hobbies_and_interests",
-    "professional_persona",
-    "skills_and_expertise_list",
-    "skills_and_expertise",
     "sports_persona",
     "travel_persona",
+    "hobbies_and_interests",
+    "hobbies_and_interests_list",
+    "skills_and_expertise",
+    "skills_and_expertise_list",
+    # Big Five personality traits
     "openness",
     "conscientiousness",
     "extraversion",
     "agreeableness",
     "neuroticism",
-    # Japan-specific persona fields
+    # ja_JP-specific
     "aspects",
-    "digital_skills",
-    # Brazil and India shared persona fields
+    "digital_skill",
+    # ko_KR-specific
+    "family_persona",
+    # Shared across India locales, en_SG, and pt_BR
     "religious_persona",
     "religious_background",
-    # India-specific persona fields
+    # India locales only (en_IN, hi_Deva_IN, hi_Latn_IN)
     "linguistic_persona",
     "linguistic_background",
 ]
