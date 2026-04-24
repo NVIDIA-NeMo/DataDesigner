@@ -388,6 +388,7 @@ NEMOTRON_PERSONAS_DATASET_SIZES = {
     "hi_Deva_IN": "4.14 GB",
     "hi_Latn_IN": "2.7 GB",
     "ja_JP": "1.69 GB",
+    "ko_KR": "2.66 GB",
     "pt_BR": "2.33 GB",
 }
 

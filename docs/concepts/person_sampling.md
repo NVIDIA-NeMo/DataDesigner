@@ -60,6 +60,7 @@ Supported locales:
 - `hi_Deva_IN`: India (Devanagari script)
 - `hi_Latn_IN`: India (Latin script)
 - `ja_JP`: Japan
+- `ko_KR`: South Korea (Korean)
 - `pt_BR`: Brazil (Portuguese)
 
 ### Features
@@ -125,6 +126,9 @@ ngc registry resource download-version "nvidia/nemotron-personas/nemotron-person
 
 # For Nemotron-Personas JP
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ja_jp"
+
+# For Nemotron-Personas KR
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ko_kr"
 
 # For Nemotron-Personas SG
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_sg"
