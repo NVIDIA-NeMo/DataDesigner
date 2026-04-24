@@ -93,6 +93,7 @@ def test_run_personas_with_all_flag(
     assert "en_US" in downloaded_locales
     assert "en_IN" in downloaded_locales
     assert "en_SG" in downloaded_locales
+    assert "fr_FR" in downloaded_locales
     assert "hi_Deva_IN" in downloaded_locales
     assert "hi_Latn_IN" in downloaded_locales
     assert "ja_JP" in downloaded_locales
