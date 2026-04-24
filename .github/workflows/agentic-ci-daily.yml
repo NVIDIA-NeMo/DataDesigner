@@ -227,15 +227,5 @@ jobs:
           if [ -s "/tmp/audit-${SUITE}.md" ]; then
             cat "/tmp/audit-${SUITE}.md" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No report generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [ -s "/tmp/claude-audit-log.txt" ]; then
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "<details><summary>Agent log</summary>" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            tail -100 /tmp/claude-audit-log.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+            echo "No report generated. See the \`claude-audit-log-*\` artifact on failures for the full event stream." >> "$GITHUB_STEP_SUMMARY"
           fi
