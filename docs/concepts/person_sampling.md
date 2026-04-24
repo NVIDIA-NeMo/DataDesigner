@@ -275,7 +275,7 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `locale` | str | Language/region code - must be one of: "en_US", "en_IN", "en_SG", "fr_FR", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "pt_BR" |
+| `locale` | str | Language/region code - must be one of: "en_US", "en_IN", "en_SG", "fr_FR", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "ko_KR", "pt_BR" |
 | `sex` | str (optional) | Filter by "Male" or "Female" |
 | `city` | str or list[str] (optional) | Filter by specific city or cities within locale |
 | `age_range` | list[int] (optional) | Two-element list [min_age, max_age] (default: [18, 114]) |
