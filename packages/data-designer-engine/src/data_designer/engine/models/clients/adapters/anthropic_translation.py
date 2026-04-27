@@ -320,13 +320,10 @@ def translate_tool_result_content(content: Any) -> str | list[dict[str, Any]]:
 
 def translate_image_url_block(block: dict[str, Any]) -> dict[str, Any] | None:
     image_url = block.get("image_url")
-    if image_url is None:
+    if not isinstance(image_url, dict):
         return None
 
-    if isinstance(image_url, dict):
-        url = image_url.get("url", "")
-    else:
-        url = str(image_url)
+    url = image_url.get("url", "")
 
     match = _DATA_URI_RE.match(url)
     if match:

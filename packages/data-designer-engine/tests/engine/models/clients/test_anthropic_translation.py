@@ -55,7 +55,7 @@ def test_build_anthropic_payload_preserves_multimodal_system_content() -> None:
                 "role": "system",
                 "content": [
                     {"type": "text", "text": "Describe this image."},
-                    {"type": "image_url", "image_url": "https://example.com/reference.png"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/reference.png"}},
                 ],
             },
             {"role": "user", "content": "Go."},
@@ -162,7 +162,7 @@ def test_translate_request_messages_merges_parallel_tool_results() -> None:
         pytest.param(
             [
                 {"type": "text", "text": "Rule 1"},
-                {"type": "image_url", "image_url": "https://example.com/reference.png"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/reference.png"}},
                 {"type": "text", "text": "Rule 2"},
             ],
             [
@@ -173,7 +173,7 @@ def test_translate_request_messages_merges_parallel_tool_results() -> None:
             id="mixed-text-and-image-returns-blocks",
         ),
         pytest.param(
-            [{"type": "image_url", "image_url": "https://example.com/reference.png"}],
+            [{"type": "image_url", "image_url": {"url": "https://example.com/reference.png"}}],
             [{"type": "image", "source": {"type": "url", "url": "https://example.com/reference.png"}}],
             id="image-only-returns-blocks",
         ),
@@ -319,7 +319,7 @@ def test_translate_tool_definition_normalizes_supported_shapes(
 def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -> None:
     blocks = translate_content_blocks(
         [
-            {"type": "image_url", "image_url": "https://example.com/cat.png"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/cat.png"}},
             {"type": "text", "text": "Caption"},
             {"type": "custom_block", "value": "kept"},
         ]
@@ -347,14 +347,19 @@ def test_translate_content_blocks_drops_malformed_image_url_block() -> None:
     ("block", "expected"),
     [
         pytest.param(
-            {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR...", "format": "png"}},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}},
             {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}},
-            id="data-uri",
+            id="data-uri-dict",
+        ),
+        pytest.param(
+            {"type": "image_url", "image_url": {"url": "https://example.com/cat.png"}},
+            {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.png"}},
+            id="remote-url-dict",
         ),
         pytest.param(
             {"type": "image_url", "image_url": "https://example.com/cat.png"},
-            {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.png"}},
-            id="remote-url",
+            None,
+            id="bare-string-rejected",
         ),
     ],
 )
@@ -460,7 +465,7 @@ def test_translate_tool_result_message_requires_tool_call_id(message: dict[str, 
         ),
         pytest.param(
             [
-                {"type": "image_url", "image_url": "https://example.com/chart.png"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/chart.png"}},
                 {"type": "text", "text": "Caption"},
             ],
             [

@@ -446,7 +446,7 @@ def test_completion_translates_data_uri_image_blocks() -> None:
                 "content": [
                     {
                         "type": "image_url",
-                        "image_url": {"url": "data:image/png;base64,iVBOR...", "format": "png"},
+                        "image_url": {"url": "data:image/png;base64,iVBOR..."},
                     },
                     {"type": "text", "text": "What is this?"},
                 ],
@@ -464,7 +464,33 @@ def test_completion_translates_data_uri_image_blocks() -> None:
     assert content[1] == {"type": "text", "text": "What is this?"}
 
 
-def test_completion_translates_url_string_image_blocks() -> None:
+def test_completion_translates_url_dict_image_blocks() -> None:
+    sync_mock = make_mock_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": "https://example.com/cat.png"}},
+                    {"type": "text", "text": "Describe this."},
+                ],
+            },
+        ],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {
+        "type": "image",
+        "source": {"type": "url", "url": "https://example.com/cat.png"},
+    }
+
+
+def test_completion_drops_bare_string_image_blocks() -> None:
     sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
@@ -484,36 +510,7 @@ def test_completion_translates_url_string_image_blocks() -> None:
 
     payload = sync_mock.post.call_args.kwargs["json"]
     content = payload["messages"][0]["content"]
-    assert content[0] == {
-        "type": "image",
-        "source": {"type": "url", "url": "https://example.com/cat.png"},
-    }
-
-
-def test_completion_translates_data_uri_string_image_blocks() -> None:
-    sync_mock = make_mock_sync_client(_text_response())
-    client = _make_client(sync_client=sync_mock)
-
-    request = ChatCompletionRequest(
-        model=MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": "data:image/jpeg;base64,/9j/4AAQ..."},
-                    {"type": "text", "text": "What is this?"},
-                ],
-            },
-        ],
-    )
-    client.completion(request)
-
-    payload = sync_mock.post.call_args.kwargs["json"]
-    content = payload["messages"][0]["content"]
-    assert content[0] == {
-        "type": "image",
-        "source": {"type": "base64", "media_type": "image/jpeg", "data": "/9j/4AAQ..."},
-    }
+    assert content == [{"type": "text", "text": "Describe this."}]
 
 
 def test_completion_preserves_non_image_content_blocks() -> None:

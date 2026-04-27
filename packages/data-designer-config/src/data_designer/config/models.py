@@ -121,13 +121,11 @@ class ImageContext(ModalityContext):
         for context_value in context_values:
             context = dict(type="image_url")
             if self.data_type is not None:
-                # Explicit data_type: use existing behavior
                 if self.data_type == ModalityDataType.URL:
-                    context["image_url"] = context_value
+                    context["image_url"] = {"url": context_value}
                 else:
                     context["image_url"] = {
                         "url": f"data:image/{self.image_format.value};base64,{context_value}",
-                        "format": self.image_format.value,
                     }
             else:
                 # Auto-detect: resolve file paths, pass through URLs, assume base64 otherwise
@@ -150,7 +148,7 @@ class ImageContext(ModalityContext):
                 return self._format_base64_context(base64_data)
 
         if is_image_url(context_value):
-            return context_value
+            return {"url": context_value}
 
         return self._format_base64_context(context_value)
 
@@ -165,7 +163,6 @@ class ImageContext(ModalityContext):
             image_format = detect_image_format(image_bytes)
         return {
             "url": f"data:image/{image_format.value};base64,{base64_data}",
-            "format": image_format.value,
         }
 
     @model_validator(mode="after")
