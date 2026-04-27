@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TASK_POOL_SIZE: int = 256
 LLM_WAIT_POOL_MULTIPLIER: int = 2
-DEFAULT_RATE_LIMIT_RETRIES: int = 10
+DEFAULT_RATE_LIMIT_RETRIES: int = 5
 
 _RETRYABLE_MODEL_ERRORS = (
     ModelRateLimitError,
