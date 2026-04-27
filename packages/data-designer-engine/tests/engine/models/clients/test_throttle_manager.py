@@ -472,3 +472,116 @@ def test_concurrent_acquire_release_no_errors() -> None:
     state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
     assert state is not None
     assert state.in_flight == 0
+
+
+# --- Exponential cooldown backoff at floor ---
+
+
+def test_exponential_cooldown_at_floor() -> None:
+    """Consecutive 429s at minimum concurrency apply exponential cooldown backoff."""
+    tm = ThrottleManager(ThrottleConfig(cooldown_seconds=2.0, cooldown_backoff_factor=2.0, max_cooldown_seconds=30.0))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+
+    t = 0.0
+    # First 429: at floor (limit=1), consecutive_429s goes to 1 (first in cascade) - base cooldown
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.blocked_until == pytest.approx(2.0)  # base cooldown
+
+    # Second 429: consecutive_429s=2, at floor -> 2.0 * 2^1 = 4.0
+    t = 10.0
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    assert state.blocked_until == pytest.approx(14.0)  # 10 + 4.0
+
+    # Third 429: consecutive_429s=3, at floor -> 2.0 * 2^2 = 8.0
+    t = 20.0
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    assert state.blocked_until == pytest.approx(28.0)  # 20 + 8.0
+
+
+def test_cooldown_backoff_capped_at_max() -> None:
+    """Exponential cooldown is capped at max_cooldown_seconds."""
+    tm = ThrottleManager(ThrottleConfig(cooldown_seconds=2.0, cooldown_backoff_factor=10.0, max_cooldown_seconds=15.0))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+
+    t = 0.0
+    for i in range(5):
+        tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        t += 100.0
+
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    # Cooldown should never exceed 15s regardless of exponent
+    assert state.blocked_until <= t + 15.0
+
+
+def test_no_backoff_above_floor() -> None:
+    """Exponential backoff only applies when concurrency is at the floor."""
+    tm = ThrottleManager(ThrottleConfig(cooldown_seconds=2.0, cooldown_backoff_factor=2.0, max_cooldown_seconds=30.0))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=10)
+
+    t = 0.0
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    # Limit reduced from 10 to 7 (floor(10*0.75)), above MIN_LIMIT=1
+    assert state.current_limit > 1
+    # Cooldown should be base, no backoff
+    assert state.blocked_until == pytest.approx(2.0)
+
+
+# --- Saturation detection ---
+
+
+def test_saturation_after_threshold() -> None:
+    """Domain is marked saturated after saturation_threshold consecutive 429s at floor."""
+    tm = ThrottleManager(ThrottleConfig(saturation_threshold=3))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+
+    t = 0.0
+    for i in range(3):
+        tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        t += 10.0
+
+    assert tm.is_saturated(PROVIDER, MODEL, DOMAIN)
+
+
+def test_saturation_cleared_on_success() -> None:
+    """A successful release clears the saturation flag."""
+    tm = ThrottleManager(ThrottleConfig(saturation_threshold=2))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+
+    t = 0.0
+    for i in range(2):
+        tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        t += 10.0
+
+    assert tm.is_saturated(PROVIDER, MODEL, DOMAIN)
+
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    assert not tm.is_saturated(PROVIDER, MODEL, DOMAIN)
+
+
+def test_no_saturation_above_floor() -> None:
+    """Saturation only triggers when concurrency is at the minimum floor."""
+    tm = ThrottleManager(ThrottleConfig(saturation_threshold=2))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=10)
+
+    t = 0.0
+    # First 429 reduces from 10 to 7 (above floor), subsequent ones are cascade
+    for i in range(5):
+        tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        t += 10.0
+
+    assert not tm.is_saturated(PROVIDER, MODEL, DOMAIN)

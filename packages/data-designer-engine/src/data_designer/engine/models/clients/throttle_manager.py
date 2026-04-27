@@ -52,6 +52,7 @@ class DomainThrottleState:
     waiters: int = 0
     rate_limit_ceiling: int = 0
     consecutive_429s: int = 0
+    saturated: bool = False
 
 
 @dataclass
@@ -114,6 +115,9 @@ class ThrottleManager:
         self._success_window = tc.success_window
         self._default_cooldown_seconds = tc.cooldown_seconds
         self._ceiling_overshoot = tc.ceiling_overshoot
+        self._cooldown_backoff_factor = tc.cooldown_backoff_factor
+        self._max_cooldown_seconds = tc.max_cooldown_seconds
+        self._saturation_threshold = tc.saturation_threshold
         self._lock = threading.Lock()
         self._global_caps: dict[tuple[str, str], GlobalCapState] = {}
         self._domains: dict[tuple[str, str, str], DomainThrottleState] = {}
@@ -210,6 +214,7 @@ class ThrottleManager:
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.in_flight = max(0, state.in_flight - 1)
             state.consecutive_429s = 0
+            state.saturated = False
             state.success_streak += 1
             if state.success_streak >= self._success_window:
                 effective_max = self._effective_max_for(provider_name, model_id)
@@ -258,11 +263,32 @@ class ThrottleManager:
             prev_limit = state.current_limit
             is_first_in_cascade = state.consecutive_429s == 0
             state.consecutive_429s += 1
-            cooldown_duration = (
+            base_cooldown = (
                 retry_after if retry_after is not None and retry_after > 0 else self._default_cooldown_seconds
             )
+
+            # Exponential backoff when stuck at the concurrency floor
+            at_floor = state.current_limit <= DEFAULT_MIN_LIMIT
+            if at_floor and state.consecutive_429s > 1:
+                cooldown_duration = min(
+                    base_cooldown * (self._cooldown_backoff_factor ** (state.consecutive_429s - 1)),
+                    self._max_cooldown_seconds,
+                )
+            else:
+                cooldown_duration = base_cooldown
+
             state.blocked_until = now + cooldown_duration
             state.success_streak = 0
+
+            # Mark saturated after sustained 429s at the floor
+            if at_floor and state.consecutive_429s >= self._saturation_threshold and not state.saturated:
+                state.saturated = True
+                logger.warning(
+                    "🪫🛑 '%s' [%s] domain saturated after %d consecutive rate limits at minimum concurrency",
+                    model_id,
+                    domain.value,
+                    state.consecutive_429s,
+                )
 
             if is_first_in_cascade:
                 state.current_limit = max(DEFAULT_MIN_LIMIT, math.floor(state.current_limit * self._reduce_factor))
@@ -292,11 +318,12 @@ class ThrottleManager:
                         )
             else:
                 logger.debug(
-                    "Throttle %s [%s] cascade 429 #%d (limit held at %d)",
+                    "Throttle %s [%s] cascade 429 #%d (limit held at %d, cooldown %.1fs)",
                     model_id,
                     domain.value,
                     state.consecutive_429s,
                     state.current_limit,
+                    cooldown_duration,
                 )
 
     def release_failure(
@@ -416,6 +443,17 @@ class ThrottleManager:
     # -------------------------------------------------------------------
     # Introspection (useful for tests and telemetry)
     # -------------------------------------------------------------------
+
+    def is_saturated(
+        self,
+        provider_name: str,
+        model_id: str,
+        domain: ThrottleDomain,
+    ) -> bool:
+        """Return ``True`` if the domain has been marked saturated by sustained rate limiting."""
+        with self._lock:
+            state = self._domains.get((provider_name, model_id, domain.value))
+            return state is not None and state.saturated
 
     def get_domain_state(
         self,

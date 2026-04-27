@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TASK_POOL_SIZE: int = 256
 LLM_WAIT_POOL_MULTIPLIER: int = 2
+DEFAULT_RATE_LIMIT_RETRIES: int = 10
 
 _RETRYABLE_MODEL_ERRORS = (
     ModelRateLimitError,
@@ -712,14 +713,29 @@ class AsyncTaskScheduler:
                 trace.slot_acquired_at = time.perf_counter()
 
             cell_skipped = False
-            if task.task_type == "from_scratch":
-                await self._run_from_scratch(task, generator)
-            elif task.task_type == "cell":
-                _result, cell_skipped = await self._run_cell(task, generator)
-            elif task.task_type == "batch":
-                await self._run_batch(task, generator)
-            else:
-                raise ValueError(f"Unknown task type: {task.task_type}")
+            for _rl_attempt in range(DEFAULT_RATE_LIMIT_RETRIES + 1):
+                try:
+                    if task.task_type == "from_scratch":
+                        await self._run_from_scratch(task, generator)
+                    elif task.task_type == "cell":
+                        _result, cell_skipped = await self._run_cell(task, generator)
+                    elif task.task_type == "batch":
+                        await self._run_batch(task, generator)
+                    else:
+                        raise ValueError(f"Unknown task type: {task.task_type}")
+                    break
+                except ModelRateLimitError:
+                    if self._early_shutdown or _rl_attempt == DEFAULT_RATE_LIMIT_RETRIES:
+                        raise
+                    logger.info(
+                        "Rate-limited on task %s (col=%s, rg=%s), retry %d/%d",
+                        task.task_type,
+                        task.column,
+                        task.row_group,
+                        _rl_attempt + 1,
+                        DEFAULT_RATE_LIMIT_RETRIES,
+                    )
+                    await asyncio.sleep(0)
 
             # Mark all output columns complete
             for col in output_cols:

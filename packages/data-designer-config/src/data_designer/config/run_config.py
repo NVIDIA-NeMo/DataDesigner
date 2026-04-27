@@ -47,6 +47,9 @@ class ThrottleConfig(ConfigBase):
     DEFAULT_SUCCESS_WINDOW: ClassVar[int] = 25
     DEFAULT_COOLDOWN_SECONDS: ClassVar[float] = 2.0
     DEFAULT_CEILING_OVERSHOOT: ClassVar[float] = 0.10
+    DEFAULT_COOLDOWN_BACKOFF_FACTOR: ClassVar[float] = 2.0
+    DEFAULT_MAX_COOLDOWN_SECONDS: ClassVar[float] = 30.0
+    DEFAULT_SATURATION_THRESHOLD: ClassVar[int] = 5
 
     reduce_factor: float = Field(
         default=DEFAULT_REDUCE_FACTOR,
@@ -73,6 +76,29 @@ class ThrottleConfig(ConfigBase):
         default=DEFAULT_CEILING_OVERSHOOT,
         ge=0.0,
         description="Fraction above the rate-limit ceiling that additive increase is allowed to probe.",
+    )
+    cooldown_backoff_factor: float = Field(
+        default=DEFAULT_COOLDOWN_BACKOFF_FACTOR,
+        ge=1.0,
+        description=(
+            "Exponential backoff multiplier for cooldown duration on consecutive 429s "
+            "while at minimum concurrency. Each consecutive rate-limit at the floor "
+            "multiplies the cooldown by this factor, up to max_cooldown_seconds."
+        ),
+    )
+    max_cooldown_seconds: float = Field(
+        default=DEFAULT_MAX_COOLDOWN_SECONDS,
+        gt=0.0,
+        description="Upper bound (seconds) for exponential cooldown backoff.",
+    )
+    saturation_threshold: int = Field(
+        default=DEFAULT_SATURATION_THRESHOLD,
+        ge=1,
+        description=(
+            "Number of consecutive 429 responses at minimum concurrency before the "
+            "domain is marked as saturated. Saturated domains cause tasks to fail "
+            "immediately rather than retrying through the throttle."
+        ),
     )
 
 

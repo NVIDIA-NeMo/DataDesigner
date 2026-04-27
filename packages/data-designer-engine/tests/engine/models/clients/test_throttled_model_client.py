@@ -467,3 +467,41 @@ async def test_concurrent_requests_bounded_by_throttle_limit() -> None:
     state = tm.get_domain_state(PROVIDER, MODEL_ID, ThrottleDomain.CHAT)
     assert state is not None
     assert state.in_flight == 0
+
+
+# --- Saturation: throttle marks saturation but client preserves ProviderError ---
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_sustained_rate_limiting_marks_throttle_saturated() -> None:
+    """Consecutive 429s at floor mark the throttle domain as saturated, but
+    the client still raises the original ProviderError (saturation is used by
+    the scheduler for error-rate counting, not for error conversion)."""
+    tm = ThrottleManager(ThrottleConfig(saturation_threshold=2))
+    tm.register(provider_name=PROVIDER, model_id=MODEL_ID, alias="a", max_parallel_requests=1)
+
+    async def always_429(_request: ChatCompletionRequest) -> ChatCompletionResponse:
+        raise ProviderError(
+            kind=ProviderErrorKind.RATE_LIMIT,
+            message="429",
+            status_code=429,
+            retry_after=0.01,
+        )
+
+    inner = MagicMock()
+    inner.provider_name = PROVIDER
+    inner.acompletion = always_429
+
+    client = ThrottledModelClient(inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID)
+    request = ChatCompletionRequest(model=MODEL_ID, messages=[])
+
+    # First 429: not yet saturated
+    with pytest.raises(ProviderError):
+        await client.acompletion(request)
+    assert not tm.is_saturated(PROVIDER, MODEL_ID, ThrottleDomain.CHAT)
+    await asyncio.sleep(0.02)
+
+    # Second 429: threshold reached -> saturated, but still ProviderError
+    with pytest.raises(ProviderError):
+        await client.acompletion(request)
+    assert tm.is_saturated(PROVIDER, MODEL_ID, ThrottleDomain.CHAT)
