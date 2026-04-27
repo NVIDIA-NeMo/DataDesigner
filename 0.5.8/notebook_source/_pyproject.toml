@@ -1,0 +1,9 @@
+[project]
+name = "data_designer_tutorial"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "data-designer>=0.1.0",
+    "jupyter>=1.1.1",
+]
