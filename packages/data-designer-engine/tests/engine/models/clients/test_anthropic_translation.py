@@ -355,11 +355,6 @@ def test_translate_content_blocks_rejects_malformed_image_url_block() -> None:
             {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.png"}},
             id="remote-url-dict",
         ),
-        pytest.param(
-            {"type": "image_url", "image_url": "https://example.com/cat.png"},
-            None,
-            id="bare-string-rejected",
-        ),
     ],
 )
 def test_translate_image_url_block_normalizes_supported_inputs(
@@ -367,6 +362,24 @@ def test_translate_image_url_block_normalizes_supported_inputs(
     expected: dict[str, object],
 ) -> None:
     assert translate_image_url_block(block) == expected
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        pytest.param(
+            {"type": "image_url", "image_url": "https://example.com/cat.png"},
+            id="bare-url-string",
+        ),
+        pytest.param(
+            {"type": "image_url", "image_url": "data:image/png;base64,iVBOR..."},
+            id="bare-data-uri-string",
+        ),
+    ],
+)
+def test_translate_image_url_block_rejects_bare_strings(block: dict[str, object]) -> None:
+    with pytest.raises(TypeError, match="image_url block must contain a dict"):
+        translate_image_url_block(block)
 
 
 @pytest.mark.parametrize(

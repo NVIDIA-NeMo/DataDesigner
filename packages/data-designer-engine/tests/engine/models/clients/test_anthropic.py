@@ -510,6 +510,26 @@ def test_completion_rejects_bare_string_image_blocks() -> None:
         client.completion(request)
 
 
+def test_completion_rejects_bare_data_uri_image_blocks() -> None:
+    sync_mock = make_mock_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": "data:image/png;base64,iVBOR..."},
+                    {"type": "text", "text": "What is this?"},
+                ],
+            },
+        ],
+    )
+    with pytest.raises(TypeError, match="image_url block must contain a dict"):
+        client.completion(request)
+
+
 def test_completion_preserves_non_image_content_blocks() -> None:
     sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)

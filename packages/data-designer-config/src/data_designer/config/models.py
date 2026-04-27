@@ -134,7 +134,7 @@ class ImageContext(ModalityContext):
 
         return contexts
 
-    def _auto_resolve_context_value(self, context_value: str, base_path: str | None) -> str | dict[str, str]:
+    def _auto_resolve_context_value(self, context_value: str, base_path: str | None) -> dict[str, str]:
         """Auto-detect the format of a context value and resolve it.
 
         Resolution rules:
