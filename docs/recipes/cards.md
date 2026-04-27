@@ -190,4 +190,32 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](plugin_development/markdown_seed_reader.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/plugin_development/markdown_seed_reader.py){ .md-button download="markdown_seed_reader.py" }
 
+-   :material-file-eye:{ .lg .middle } **VLM Long-Document Understanding**
+
+    A 9-recipe pipeline for generating visual QA training data from long PDF documents — OCR, page classification, single-page / multi-page / whole-document QA, and frontier-model quality filtering. Used to generate SFT data for Nemotron-3-Nano-Omni-30B-A3B's training recipe on long document understanding.
+
+    ---
+
+    **Demonstrates:**
+
+    - Multi-modal image context (`LLMTextColumnConfig`, `LLMStructuredColumnConfig`)
+    - Classification-first filtering with visual taxonomy
+    - Thinking models with `extract_reasoning_content`
+    - Multi-image and whole-document VLM generation
+    - `LLMJudgeColumnConfig` with multi-rubric scoring
+
+    ---
+
+    | # | Recipe | |
+    | :---: | :--- | :--- |
+    | 01 | [Seed Dataset Preparation](vlm_long_doc/seed_dataset_preparation.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/01-seed-dataset-preparation.py){ download="01-seed-dataset-preparation.py" } |
+    | 02 | [Nemotron Parse OCR](vlm_long_doc/nemotron_parse_ocr.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/02-nemotron-parse-ocr-sdg.py){ download="02-nemotron-parse-ocr-sdg.py" } |
+    | 03 | [Text QA from OCR Transcripts](vlm_long_doc/text_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/03-text-qa-sdg.py){ download="03-text-qa-sdg.py" } |
+    | 04 | [Page Classification](vlm_long_doc/page_classification.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/04-page-classification-sdg.py){ download="04-page-classification-sdg.py" } |
+    | 05 | [Visual QA](vlm_long_doc/visual_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/05-visual-qa-sdg.py){ download="05-visual-qa-sdg.py" } |
+    | 06 | [Single-Page QA](vlm_long_doc/single_page_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/06-single-page-qa-sdg.py){ download="06-single-page-qa-sdg.py" } |
+    | 07 | [Multi-Page Windowed QA](vlm_long_doc/multi_page_windowed_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/07-multi-page-windowed-qa-sdg.py){ download="07-multi-page-windowed-qa-sdg.py" } |
+    | 08 | [Whole-Document QA](vlm_long_doc/whole_document_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/08-whole-document-qa-sdg.py){ download="08-whole-document-qa-sdg.py" } |
+    | 09 | [Frontier Judge QA Filter](vlm_long_doc/frontier_judge.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/09-frontier-judge-sdg.py){ download="09-frontier-judge-sdg.py" } |
+
 </div>
