@@ -332,15 +332,14 @@ def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -
     ]
 
 
-def test_translate_content_blocks_drops_malformed_image_url_block() -> None:
-    blocks = translate_content_blocks(
-        [
-            {"type": "image_url"},
-            {"type": "text", "text": "Kept"},
-        ]
-    )
-
-    assert blocks == [{"type": "text", "text": "Kept"}]
+def test_translate_content_blocks_rejects_malformed_image_url_block() -> None:
+    with pytest.raises(TypeError, match="image_url block must contain a dict"):
+        translate_content_blocks(
+            [
+                {"type": "image_url"},
+                {"type": "text", "text": "Kept"},
+            ]
+        )
 
 
 @pytest.mark.parametrize(

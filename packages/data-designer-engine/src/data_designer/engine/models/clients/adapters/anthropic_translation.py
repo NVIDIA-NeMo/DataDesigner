@@ -193,9 +193,7 @@ def translate_content_blocks(content: Any) -> list[dict[str, Any]]:
     translated: list[dict[str, Any]] = []
     for block in raw_blocks:
         if isinstance(block, dict) and block.get("type") == "image_url":
-            anthropic_block = translate_image_url_block(block)
-            if anthropic_block is not None:
-                translated.append(anthropic_block)
+            translated.append(translate_image_url_block(block))
             continue
         # Anthropic rejects empty text blocks — drop them.
         if isinstance(block, dict) and block.get("type") == "text" and not block.get("text"):
@@ -318,10 +316,12 @@ def translate_tool_result_content(content: Any) -> str | list[dict[str, Any]]:
     return translated_blocks
 
 
-def translate_image_url_block(block: dict[str, Any]) -> dict[str, Any] | None:
+def translate_image_url_block(block: dict[str, Any]) -> dict[str, Any]:
     image_url = block.get("image_url")
     if not isinstance(image_url, dict):
-        return None
+        raise TypeError(
+            f"image_url block must contain a dict with a 'url' key, got {type(image_url).__name__}: {image_url!r}"
+        )
 
     url = image_url.get("url", "")
 
