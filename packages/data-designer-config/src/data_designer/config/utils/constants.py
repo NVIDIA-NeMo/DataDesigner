@@ -341,6 +341,7 @@ NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS = {
     "top_p": 0.95,
     "extra_body": {"reasoning_effort": "medium"},
 }
+NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS = {"temperature": 0.60, "top_p": 0.95}
 GPT5_INFERENCE_PARAMS = {"extra_body": {"reasoning_effort": "medium"}}
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
@@ -353,7 +354,10 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
             "model": "nvidia/nemotron-3-super-120b-a12b",
             "inference_parameters": NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS,
         },
-        "vision": {"model": "nvidia/nemotron-nano-12b-v2-vl", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
+        "vision": {
+            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            "inference_parameters": NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS,
+        },
         "embedding": {
             "model": "nvidia/llama-3.2-nv-embedqa-1b-v2",
             "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS | {"extra_body": {"input_type": "query"}},

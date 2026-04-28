@@ -63,7 +63,7 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[1].model == "nvidia/nemotron-3-super-120b-a12b"
     assert builtin_model_configs[1].provider == "nvidia"
     assert builtin_model_configs[2].alias == "nvidia-vision"
-    assert builtin_model_configs[2].model == "nvidia/nemotron-nano-12b-v2-vl"
+    assert builtin_model_configs[2].model == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     assert builtin_model_configs[2].provider == "nvidia"
     assert builtin_model_configs[3].alias == "nvidia-embedding"
     assert builtin_model_configs[3].model == "nvidia/llama-3.2-nv-embedqa-1b-v2"
