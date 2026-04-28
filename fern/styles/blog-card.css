@@ -53,6 +53,15 @@
   margin: 0 !important;
 }
 
+/* Defeat Fern's auto-injected click-to-zoom (rmiz) on hero images: the
+ * whole card is already a link, so clicks should navigate, not open a
+ * lightbox. pointer-events: none lets the click bubble to the parent <a>. */
+.blog-card__media [data-rmiz],
+.blog-card__media [data-rmiz-content],
+.blog-card__media img {
+  pointer-events: none;
+}
+
 /* Hash-based gradient + monogram fallback when no image is provided.
  * Background-image is set inline by the component. The radial overlay,
  * grain, and monogram give it presence without looking placeholder-y. */
