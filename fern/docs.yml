@@ -1,5 +1,5 @@
 instances:
-- url: https://datadesigner.docs.buildwithfern.com/nemo/datadesigner
+- url: datadesigner.docs.buildwithfern.com/nemo/datadesigner
   custom-domain: docs.nvidia.com/nemo/datadesigner
 title: NVIDIA NeMo Data Designer
 footer: ./components/CustomFooter.tsx
@@ -24,7 +24,7 @@ logo:
   dark: ./assets/NVIDIA_dark.svg
   light: ./assets/NVIDIA_light.svg
   height: 20
-  href: /
+  href: /nemo/datadesigner/getting-started/welcome
   right-text: NeMo Data Designer
 favicon: ./assets/NVIDIA_symbol.svg
 js:
@@ -42,6 +42,7 @@ navbar-links:
 experimental:
   mdx-components:
   - ./components
+  basepath-aware: true
 versions:
 - display-name: "Latest · v0.5.8"
   path: versions/latest.yml
@@ -62,10 +63,13 @@ libraries:
     lang: python
 
 redirects:
+  # Section-only paths land on the section's first page (mirrors Curator's home/welcome pattern).
+  - source: "/nemo/datadesigner/getting-started"
+    destination: "/nemo/datadesigner/getting-started/welcome"
   # Sphinx HTML used .../path/to/page/index.html; Fern canonical URLs omit index.html.
   # Add a pair when you add a new `versions:` slug. See also the catch-all below.
   - source: "/nemo/datadesigner/index.html"
-    destination: "/nemo/datadesigner/latest"
+    destination: "/nemo/datadesigner/getting-started/welcome"
   - source: "/nemo/datadesigner/latest/:path*/index.html"
     destination: "/nemo/datadesigner/latest/:path*"
   - source: "/nemo/datadesigner/v0.5.8/:path*/index.html"
