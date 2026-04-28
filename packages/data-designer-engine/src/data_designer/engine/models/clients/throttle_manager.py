@@ -43,6 +43,11 @@ class DomainThrottleState:
 
     All mutations must be performed while holding the owning
     ``ThrottleManager._lock``.
+
+    ``saturated`` is transient: it is set when ``consecutive_429s`` crosses
+    ``saturation_threshold`` while at the concurrency floor, and cleared on
+    the next successful or non-rate-limit release. Treat it as a momentary
+    "currently throttled" signal, not a sustained state.
     """
 
     current_limit: int
@@ -263,17 +268,20 @@ class ThrottleManager:
             prev_limit = state.current_limit
             is_first_in_cascade = state.consecutive_429s == 0
             state.consecutive_429s += 1
-            base_cooldown = (
-                retry_after if retry_after is not None and retry_after > 0 else self._default_cooldown_seconds
-            )
+            has_retry_after = retry_after is not None and retry_after > 0
+            base_cooldown = retry_after if has_retry_after else self._default_cooldown_seconds
 
-            # Exponential backoff when stuck at the concurrency floor
+            # Exponential backoff when stuck at the concurrency floor.
+            # ``max_cooldown_seconds`` only caps synthetic backoff growth; an
+            # explicit provider ``Retry-After`` is always honored as a floor,
+            # otherwise we'd retry earlier than the server told us to.
             at_floor = state.current_limit <= DEFAULT_MIN_LIMIT
             if at_floor and state.consecutive_429s > 1:
-                cooldown_duration = min(
+                capped_backoff = min(
                     base_cooldown * (self._cooldown_backoff_factor ** (state.consecutive_429s - 1)),
                     self._max_cooldown_seconds,
                 )
+                cooldown_duration = max(retry_after, capped_backoff) if has_retry_after else capped_backoff
             else:
                 cooldown_duration = base_cooldown
 
@@ -337,6 +345,12 @@ class ThrottleManager:
         with self._lock:
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.in_flight = max(0, state.in_flight - 1)
+            # Non-rate-limit failures break the consecutive-429 streak. Without
+            # this reset, a sequence like 429 -> 500 -> 429 would be treated
+            # as two consecutive 429s, escalating cooldowns and saturation
+            # marking from stale state.
+            state.consecutive_429s = 0
+            state.saturated = False
 
     # -------------------------------------------------------------------
     # Sync / async wrappers
@@ -450,7 +464,12 @@ class ThrottleManager:
         model_id: str,
         domain: ThrottleDomain,
     ) -> bool:
-        """Return ``True`` if the domain has been marked saturated by sustained rate limiting."""
+        """Return ``True`` if the domain is currently marked saturated by sustained rate limiting.
+
+        Reserved for callers that want to scope retry/skip behavior to
+        saturated domains; today it is used only by tests and observability.
+        The flag is transient (cleared on the next non-rate-limit release).
+        """
         with self._lock:
             state = self._domains.get((provider_name, model_id, domain.value))
             return state is not None and state.saturated

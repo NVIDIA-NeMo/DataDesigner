@@ -96,8 +96,8 @@ class ThrottleConfig(ConfigBase):
         ge=1,
         description=(
             "Number of consecutive 429 responses at minimum concurrency before the "
-            "domain is marked as saturated. Saturated domains cause tasks to fail "
-            "immediately rather than retrying through the throttle."
+            "domain is logged as saturated. Currently telemetry-only; does not "
+            "affect retry behavior."
         ),
     )
 

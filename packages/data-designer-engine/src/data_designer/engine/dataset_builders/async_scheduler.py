@@ -713,7 +713,18 @@ class AsyncTaskScheduler:
                 trace.slot_acquired_at = time.perf_counter()
 
             cell_skipped = False
-            for _rl_attempt in range(DEFAULT_RATE_LIMIT_RETRIES + 1):
+            # Inline retry for rate-limited tasks. The worker keeps the LLM-wait
+            # permit across retries; for single-model pipelines this is a no-op
+            # (other tasks would block on the same throttle anyway), and for
+            # multi-model pipelines it can mildly pinch cross-model throughput.
+            # We accept that tradeoff because releasing the permit mid-retry
+            # would either re-introduce salvage-style burst pacing or break the
+            # in-flight bookkeeping the scheduler relies on.
+            #
+            # The actual cooldown wait happens inside ``ThrottleManager.acquire_async``
+            # on the next iteration (it sleeps until ``state.blocked_until``).
+            # ``await asyncio.sleep(0)`` here only yields to the event loop.
+            for rl_attempt in range(DEFAULT_RATE_LIMIT_RETRIES + 1):
                 try:
                     if task.task_type == "from_scratch":
                         await self._run_from_scratch(task, generator)
@@ -725,14 +736,14 @@ class AsyncTaskScheduler:
                         raise ValueError(f"Unknown task type: {task.task_type}")
                     break
                 except ModelRateLimitError:
-                    if self._early_shutdown or _rl_attempt == DEFAULT_RATE_LIMIT_RETRIES:
+                    if self._early_shutdown or rl_attempt == DEFAULT_RATE_LIMIT_RETRIES:
                         raise
                     logger.info(
                         "Rate-limited on task %s (col=%s, rg=%s), retry %d/%d",
                         task.task_type,
                         task.column,
                         task.row_group,
-                        _rl_attempt + 1,
+                        rl_attempt + 1,
                         DEFAULT_RATE_LIMIT_RETRIES,
                     )
                     await asyncio.sleep(0)

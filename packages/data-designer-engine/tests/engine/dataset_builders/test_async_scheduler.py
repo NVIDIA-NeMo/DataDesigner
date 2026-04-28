@@ -822,6 +822,136 @@ async def test_rate_limit_errors_do_not_trigger_early_shutdown() -> None:
     assert tracker.is_row_group_complete(0, 10, ["seed", "col"])
 
 
+class _PerRowRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Per-row rate limiter so concurrent cells don't race on a shared counter."""
+
+    fails_per_row: int = 0
+    counts: dict[int, int] = {}  # noqa: RUF012
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        row_seed = data.get("seed", -1)
+        n = self.counts.get(row_seed, 0) + 1
+        self.counts[row_seed] = n
+        if n <= self.fails_per_row:
+            raise ModelRateLimitError("429")
+        data[self.config.name] = f"ok_{row_seed}"
+        return data
+
+
+class _AlwaysRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Always raises ModelRateLimitError - exercises retry exhaustion."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        raise ModelRateLimitError("429")
+
+
+class _CountingInternalServerGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Always raises ModelInternalServerError; counts calls per row."""
+
+    counts: dict[int, int] = {}  # noqa: RUF012
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        rs = data.get("seed", -1)
+        self.counts[rs] = self.counts.get(rs, 0) + 1
+        raise ModelInternalServerError("500")
+
+
+def _make_inline_retry_scheduler(
+    generators: dict[str, ColumnGenerator],
+    num_rows: int = 2,
+    *,
+    disable_early_shutdown: bool = False,
+) -> tuple[AsyncTaskScheduler, CompletionTracker]:
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN, "col": GenerationStrategy.CELL_BY_CELL}
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, num_rows)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=10,
+        disable_early_shutdown=disable_early_shutdown,
+    )
+    return scheduler, tracker
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_inline_retry_recovers_within_budget() -> None:
+    """A task that fails 3 times then succeeds is recovered inline (not via salvage)."""
+    _PerRowRateLimitGenerator.counts = {}
+    _PerRowRateLimitGenerator.fails_per_row = 3  # under DEFAULT_RATE_LIMIT_RETRIES (5)
+    provider = _mock_provider()
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": _PerRowRateLimitGenerator(config=_expr_config("col"), resource_provider=provider),
+    }
+    scheduler, tracker = _make_inline_retry_scheduler(generators, num_rows=2)
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, 2, ["seed", "col"])
+    # Inline recovery: nothing left in the salvage queue.
+    assert scheduler._deferred == []
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_inline_retry_exhaustion_does_not_trigger_early_shutdown() -> None:
+    """Always-rate-limited tasks exhaust inline retries and salvage, but rate-limit
+    errors never count toward the early-shutdown error rate."""
+    provider = _mock_provider()
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": _AlwaysRateLimitGenerator(config=_expr_config("col"), resource_provider=provider),
+    }
+    scheduler, _ = _make_inline_retry_scheduler(generators, num_rows=1)
+    await scheduler.run()
+    # Even with sustained 429s the error-rate gate never fires.
+    assert not scheduler._early_shutdown
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_non_rate_limit_error_is_not_retried_inline() -> None:
+    """ModelInternalServerError must not trigger the inline retry loop -
+    only ModelRateLimitError does. Other retryable errors flow to salvage."""
+    _CountingInternalServerGenerator.counts = {}
+    provider = _mock_provider()
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": _CountingInternalServerGenerator(config=_expr_config("col"), resource_provider=provider),
+    }
+    scheduler, _ = _make_inline_retry_scheduler(generators, num_rows=1, disable_early_shutdown=True)
+    await scheduler.run()
+    # 1 main attempt + up to 2 salvage rounds = 3 calls per row max.
+    # The inline rate-limit path would have produced 6+ per row.
+    total_calls = sum(_CountingInternalServerGenerator.counts.values())
+    assert total_calls <= 3, f"Expected at most 3 calls per row, got {total_calls}"
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_on_before_checkpoint_callback() -> None:
     """on_before_checkpoint is called before each row group is checkpointed."""

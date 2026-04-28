@@ -553,3 +553,99 @@ def test_saturation_detection(
         tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
 
     assert tm.is_saturated(PROVIDER, MODEL, DOMAIN) == expected_saturated
+
+
+# --- Retry-After handling ---
+
+
+def test_retry_after_header_is_never_shortened_below_server_value() -> None:
+    """An explicit ``Retry-After`` larger than ``max_cooldown_seconds`` must be
+    honored as a floor. The cap only applies to synthetic backoff growth."""
+    tm = ThrottleManager(
+        ThrottleConfig(
+            cooldown_seconds=2.0,
+            cooldown_backoff_factor=2.0,
+            max_cooldown_seconds=30.0,
+        )
+    )
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+
+    # First 429 at floor: base = retry_after = 120s, no exp yet (consecutive_429s == 1).
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, retry_after=120.0, now=0.0)
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.blocked_until - 0.0 == pytest.approx(120.0)
+
+    # Second 429 at floor with the same Retry-After. Synthetic backoff would be
+    # min(120 * 2, 30) = 30s, but the server told us to wait 120s, so honor that.
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=200.0)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, retry_after=120.0, now=200.0)
+    cooldown = state.blocked_until - 200.0
+    assert cooldown >= 120.0, f"Retry-After of 120s was clipped to {cooldown}s"
+
+
+def test_default_cooldown_backoff_still_capped_when_no_retry_after() -> None:
+    """Without an explicit Retry-After, exponential backoff is still capped at max_cooldown_seconds."""
+    tm = ThrottleManager(
+        ThrottleConfig(
+            cooldown_seconds=2.0,
+            cooldown_backoff_factor=2.0,
+            max_cooldown_seconds=30.0,
+        )
+    )
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+    t = 0.0
+    for _ in range(6):
+        tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        t += 100.0
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    last_cooldown = state.blocked_until - (t - 100.0)
+    assert last_cooldown == pytest.approx(30.0)
+
+
+# --- Streak resets on non-rate-limit failures ---
+
+
+def test_consecutive_429s_reset_on_non_rate_limit_failure() -> None:
+    """A non-RL failure (e.g. 500, timeout) breaks the consecutive-429 streak,
+    so a sequence ``429 -> 500 -> 429`` is treated as two fresh cascades, not
+    sustained throttling."""
+    tm = ThrottleManager(ThrottleConfig(cooldown_seconds=2.0, cooldown_backoff_factor=2.0))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+
+    # 429: consecutive_429s == 1, base cooldown
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.consecutive_429s == 1
+
+    # 500: streak resets
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=10.0)
+    tm.release_failure(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=10.0)
+    assert state.consecutive_429s == 0
+
+    # 429 again: treated as first in cascade -> base cooldown, not exp.
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=20.0)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=20.0)
+    cooldown = state.blocked_until - 20.0
+    assert cooldown == pytest.approx(2.0)
+
+
+def test_saturation_cleared_on_non_rate_limit_failure() -> None:
+    """release_failure clears the saturated flag (mixed failures shouldn't keep us pinned)."""
+    tm = ThrottleManager(ThrottleConfig(saturation_threshold=2))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+    t = 0.0
+    for _ in range(2):
+        tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+        t += 10.0
+    assert tm.is_saturated(PROVIDER, MODEL, DOMAIN)
+
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    tm.release_failure(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    assert not tm.is_saturated(PROVIDER, MODEL, DOMAIN)
