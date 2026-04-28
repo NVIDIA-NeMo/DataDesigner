@@ -55,7 +55,7 @@ def test_build_anthropic_payload_preserves_multimodal_system_content() -> None:
                 "role": "system",
                 "content": [
                     {"type": "text", "text": "Describe this image."},
-                    {"type": "image_url", "image_url": "https://example.com/reference.png"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/reference.png"}},
                 ],
             },
             {"role": "user", "content": "Go."},
@@ -162,7 +162,7 @@ def test_translate_request_messages_merges_parallel_tool_results() -> None:
         pytest.param(
             [
                 {"type": "text", "text": "Rule 1"},
-                {"type": "image_url", "image_url": "https://example.com/reference.png"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/reference.png"}},
                 {"type": "text", "text": "Rule 2"},
             ],
             [
@@ -173,7 +173,7 @@ def test_translate_request_messages_merges_parallel_tool_results() -> None:
             id="mixed-text-and-image-returns-blocks",
         ),
         pytest.param(
-            [{"type": "image_url", "image_url": "https://example.com/reference.png"}],
+            [{"type": "image_url", "image_url": {"url": "https://example.com/reference.png"}}],
             [{"type": "image", "source": {"type": "url", "url": "https://example.com/reference.png"}}],
             id="image-only-returns-blocks",
         ),
@@ -319,7 +319,7 @@ def test_translate_tool_definition_normalizes_supported_shapes(
 def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -> None:
     blocks = translate_content_blocks(
         [
-            {"type": "image_url", "image_url": "https://example.com/cat.png"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/cat.png"}},
             {"type": "text", "text": "Caption"},
             {"type": "custom_block", "value": "kept"},
         ]
@@ -332,29 +332,28 @@ def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -
     ]
 
 
-def test_translate_content_blocks_drops_malformed_image_url_block() -> None:
-    blocks = translate_content_blocks(
-        [
-            {"type": "image_url"},
-            {"type": "text", "text": "Kept"},
-        ]
-    )
-
-    assert blocks == [{"type": "text", "text": "Kept"}]
+def test_translate_content_blocks_rejects_malformed_image_url_block() -> None:
+    with pytest.raises(TypeError, match="image_url block must contain a dict"):
+        translate_content_blocks(
+            [
+                {"type": "image_url"},
+                {"type": "text", "text": "Kept"},
+            ]
+        )
 
 
 @pytest.mark.parametrize(
     ("block", "expected"),
     [
         pytest.param(
-            {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR...", "format": "png"}},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}},
             {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}},
-            id="data-uri",
+            id="data-uri-dict",
         ),
         pytest.param(
-            {"type": "image_url", "image_url": "https://example.com/cat.png"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/cat.png"}},
             {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.png"}},
-            id="remote-url",
+            id="remote-url-dict",
         ),
     ],
 )
@@ -363,6 +362,24 @@ def test_translate_image_url_block_normalizes_supported_inputs(
     expected: dict[str, object],
 ) -> None:
     assert translate_image_url_block(block) == expected
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        pytest.param(
+            {"type": "image_url", "image_url": "https://example.com/cat.png"},
+            id="bare-url-string",
+        ),
+        pytest.param(
+            {"type": "image_url", "image_url": "data:image/png;base64,iVBOR..."},
+            id="bare-data-uri-string",
+        ),
+    ],
+)
+def test_translate_image_url_block_rejects_bare_strings(block: dict[str, object]) -> None:
+    with pytest.raises(TypeError, match="image_url block must contain a dict"):
+        translate_image_url_block(block)
 
 
 @pytest.mark.parametrize(
@@ -460,7 +477,7 @@ def test_translate_tool_result_message_requires_tool_call_id(message: dict[str, 
         ),
         pytest.param(
             [
-                {"type": "image_url", "image_url": "https://example.com/chart.png"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/chart.png"}},
                 {"type": "text", "text": "Caption"},
             ],
             [
