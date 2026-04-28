@@ -36,6 +36,7 @@ css:
 - ./styles/authors.css
 - ./styles/metrics-table.css
 - ./styles/trajectory-viewer.css
+- ./styles/blog-card.css
 navbar-links:
 - type: github
   value: https://github.com/NVIDIA-NeMo/DataDesigner

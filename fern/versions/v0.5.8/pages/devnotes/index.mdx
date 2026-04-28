@@ -4,59 +4,88 @@ description: "In-depth guides, tutorials, and insights about synthetic data gene
 layout: overview
 ---
 
+import { BlogCard, BlogGrid } from "@/components/BlogCard";
+
 Welcome to NeMo Data Designer Dev Notes — in-depth guides, benchmark write-ups, and insights from the team building NeMo Data Designer.
 
-## Recent Posts
-
-<CardGroup cols={2}>
-  <Card title="Push Datasets to Hugging Face Hub" icon="upload" href="/dev-notes/push-datasets-to-hugging-face-hub">
-    Call `.push_to_hub()` and ship a generated dataset straight to a live HF dataset card.
-
-    *2026-04-16*
-  </Card>
-  <Card title="Engineering an Enterprise-Grade Text-to-SQL Dataset" icon="database" href="/dev-notes/text-to-sql-for-nemotron-super">
-    A pipeline with conditional sampling, three-stage LLM generation, code validators, and judge scoring.
-
-    *2026-04-14*
-  </Card>
-  <Card title="Async All the Way Down" icon="bolt" href="/dev-notes/async-all-the-way-down">
-    How async dispatch in the engine cuts wall time across deep dependency pipelines.
-
-    *2026-04-02*
-  </Card>
-  <Card title="Owning the Model Stack" icon="layer-group" href="/dev-notes/owning-the-model-stack">
-    Adaptive concurrency, throttle keying, retry boundaries — owning the whole model client.
-
-    *2026-03-25*
-  </Card>
-  <Card title="Data Designer Got Skills" icon="hat-wizard" href="/dev-notes/data-designer-got-skills">
-    A CLI and skill workflow that lets agents drive Data Designer end-to-end.
-
-    *2026-03-24*
-  </Card>
-  <Card title="Search Agent SFT Data" icon="magnifying-glass" href="/dev-notes/search-agent">
-    Multi-turn search agent trajectories for Nemotron Super post-training, via Tavily + Wikidata.
-
-    *2026-03-12*
-  </Card>
-  <Card title="Structured Outputs from Nemotron" icon="code" href="/dev-notes/structured-outputs-from-nemotron">
-    Schema-constrained outputs across CSV/JSON/TOML/XML/YAML — JSONSchemaBench + StructEval-Text results.
-
-    *2026-02-18*
-  </Card>
-  <Card title="Deep Research Trajectories" icon="compass" href="/dev-notes/deep-research-trajectories">
-    MCP tool-use trajectories for training deep research agents — search, open, find, answer.
-
-    *2026-02-10*
-  </Card>
-  <Card title="Designing Data Designer" icon="diagram-project" href="/dev-notes/design-principles">
-    Why SDG is a systems problem, and the design principles behind a composable orchestration framework.
-
-    *2026-02-10*
-  </Card>
-  <Card title="Graduate-Level Science Reasoning (RQA)" icon="flask" href="/dev-notes/rqa-dataset">
-    A massive collection of graduate-level reasoning samples from Common Crawl seeds.
-
-    *2026-02-04*
-  </Card>
-</CardGroup>
+<BlogGrid>
+  <BlogCard
+    href="/dev-notes/push-datasets-to-hugging-face-hub"
+    title="Push Datasets to Hugging Face Hub"
+    description="Call .push_to_hub() and ship a generated dataset straight to a live HF dataset card. Done and dusted."
+    date="Apr 16, 2026"
+    authors={["nmulepati", "davanstrien"]}
+    image={<img src="/assets/push-datasets-to-hugging-face-hub/push-to-hub-hero.png" alt="" loading="lazy" />}
+  />
+  <BlogCard
+    href="/dev-notes/text-to-sql-for-nemotron-super"
+    title="Engineering an Enterprise-Grade Text-to-SQL Dataset"
+    description="A pipeline with conditional sampling, three-stage LLM generation, code validators, and judge scoring — boosting Nemotron Super on BIRD from 26.77 → 41.80."
+    date="Apr 14, 2026"
+    authors={["dnathawani", "ymeyer", "mvansegbroeck"]}
+    image={<img src="/assets/text-to-sql/text-to-sql-pipeline.jpg" alt="" loading="lazy" />}
+  />
+  <BlogCard
+    href="/dev-notes/async-all-the-way-down"
+    title="Async All the Way Down"
+    description="How async dispatch in the engine cuts wall time across deep dependency pipelines — same config, same prompts, 1.3× faster on average."
+    date="Apr 2, 2026"
+    authors={["amanoel", "nmulepati", "etramel", "jgreco"]}
+    image={<img src="/assets/async-all-the-way-down/async-engine-hero.png" alt="" loading="lazy" />}
+  />
+  <BlogCard
+    href="/dev-notes/owning-the-model-stack"
+    title="Owning the Model Stack"
+    description="Adaptive concurrency, throttle keying, retry boundaries — owning the whole model client to discover provider capacity at runtime."
+    date="Mar 25, 2026"
+    authors={["nmulepati"]}
+    image={<img src="/assets/owning-the-model-stack/native-model-client-hero.png" alt="" loading="lazy" />}
+  />
+  <BlogCard
+    href="/dev-notes/data-designer-got-skills"
+    title="Data Designer Got Skills"
+    description="A CLI and skill workflow that lets agents drive Data Designer end-to-end — leaner context, fewer tool calls, the same output."
+    date="Mar 24, 2026"
+    authors={["jgreco"]}
+    image={<img src="/assets/data-designer-got-skills/hero_data_designer_got_skills.png" alt="" loading="lazy" />}
+  />
+  <BlogCard
+    href="/dev-notes/search-agent"
+    title="Search Agent SFT Data"
+    description="Multi-turn search agent trajectories for Nemotron Super post-training — Tavily web search, Wikidata KG seeding, BrowseComp-style obfuscation."
+    date="Mar 12, 2026"
+    authors={["dnathawani"]}
+    image={<img src="/assets/search-agent/wikidata-graph-walk.png" alt="" loading="lazy" />}
+  />
+  <BlogCard
+    href="/dev-notes/structured-outputs-from-nemotron"
+    title="Structured Outputs from Nemotron"
+    description="Schema-constrained outputs across CSV / JSON / TOML / XML / YAML — JSONSchemaBench and StructEval-Text results, plus the recipe."
+    date="Feb 18, 2026"
+    authors={["dnathawani"]}
+    image={<img src="/assets/structured-outputs-from-nemotron/structured-outputs-sample-record.png" alt="" loading="lazy" />}
+  />
+  <BlogCard
+    href="/dev-notes/deep-research-trajectories"
+    title="Deep Research Trajectories"
+    description="MCP tool-use trajectories for training deep research agents — search, open, find, answer over a static BM25 corpus, no web APIs needed."
+    date="Feb 10, 2026"
+    authors={["etramel"]}
+  />
+  <BlogCard
+    href="/dev-notes/design-principles"
+    title="Designing Data Designer"
+    description="Why SDG is a systems problem, and the design principles behind a composable orchestration framework — declarative columns, imperative engine."
+    date="Feb 10, 2026"
+    authors={["kthadaka"]}
+    image={<img src="/assets/design-principles/design-principles-hero.png" alt="" loading="lazy" />}
+  />
+  <BlogCard
+    href="/dev-notes/rqa-dataset"
+    title="Graduate-Level Science Reasoning (RQA)"
+    description="A massive collection of graduate-level reasoning samples seeded from Common Crawl — improves Nemotron 3 Nano on MMLU-Pro, Math 500, GSM8K."
+    date="Feb 4, 2026"
+    authors={["dcorneil", "etramel"]}
+    image={<img src="/images/rqa-blog.png" alt="" loading="lazy" />}
+  />
+</BlogGrid>
