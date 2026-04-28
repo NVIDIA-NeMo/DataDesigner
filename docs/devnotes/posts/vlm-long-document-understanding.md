@@ -538,7 +538,7 @@ By Mar 12, the model matched or exceeded Qwen3-Omni-30B in every category of the
 
 ### Impact on Other Benchmarks
 
-The synthetic data we generated was blended into the model's broader training recipe alongside other document-understanding and visual-reasoning data. Throughout the project, we tracked impact on other vision benchmarks and found that the data produced positive lift beyond MMLongBench-Doc. The visual reasoning skills developed for chart reading, table understanding, and cross-page reasoning generalized well. Refer to the *Nemotron-3-Nano-Omni* technical report for final results across the full evaluation suite.
+The synthetic data we generated was blended into the model's broader training recipe alongside other document-understanding and visual-reasoning data. Throughout the project, we tracked impact on other vision benchmarks and found that the data produced positive lift beyond MMLongBench-Doc. The visual reasoning skills developed for chart reading, table understanding, and cross-page reasoning generalized well. Refer to the [Nemotron-3-Nano-Omni technical report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf) for final results across the full evaluation suite.
 
 
 ## **Upstream Contributions: Features Born from This Project**
@@ -561,7 +561,7 @@ These span the full stack — config, engine, interface, integrations — and co
 
 No single pipeline got us from 26% to 59% — a **2.3× lift**. Each iteration broke something, revealed a gap, or overturned an assumption. The bbox approach failed, so we built a classification taxonomy. Single-page QA plateaued, so we added multi-page. Self-evaluation had blind spots, so we brought in a different model family as judge. The progress came from shortening the loop between data generation, training, evaluation, and failure analysis so we could identify missing capabilities and address them quickly.
 
-As noted at the top of this post, the scores above reflect our experimental development runs. The data generated through this effort was incorporated into the final training blend for the released *Nemotron-3-Nano-Omni-30B-A3B* model, which achieves **57.5%** overall accuracy on MMLongBench-Doc. For the full details on the model, training recipe, and complete benchmark results, see the Nemotron-3-Nano-Omni technical report.
+As noted at the top of this post, the scores above reflect our experimental development runs. The data generated through this effort was incorporated into the final training blend for the released *Nemotron-3-Nano-Omni-30B-A3B* model, which achieves **57.5%** overall accuracy on MMLongBench-Doc. For the full details on the model, training recipe, and complete benchmark results, see the [Nemotron-3-Nano-Omni technical report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf).
 
 ---
 
@@ -597,4 +597,6 @@ Key Resources:
 
 1. [NeMo Data Designer on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner)
 2. [MMLongBench-Doc Benchmark](https://mayahq.github.io/MMLongBench-Doc/)
-3. [Qwen3-VL Model Family](https://huggingface.co/Qwen)
+3. [Nemotron-3-Nano-Omni technical report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf)
+4. [Nemotron-3-Nano-Omni HF Model page](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16)
+5. [Qwen3-VL Model Family](https://huggingface.co/Qwen)
