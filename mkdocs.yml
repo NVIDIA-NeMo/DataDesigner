@@ -57,6 +57,16 @@ nav:
           - "Basic MCP Tool Use": recipes/mcp_and_tooluse/basic_mcp.md
           - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
           - "Nemotron Super Search Agent": recipes/mcp_and_tooluse/search_agent.md
+      - VLM Long-Document Understanding:
+          - "Seed Dataset Preparation": recipes/vlm_long_doc/seed_dataset_preparation.md
+          - "Nemotron Parse OCR": recipes/vlm_long_doc/nemotron_parse_ocr.md
+          - "Text QA from OCR Transcripts": recipes/vlm_long_doc/text_qa.md
+          - "Page Classification": recipes/vlm_long_doc/page_classification.md
+          - "Visual QA": recipes/vlm_long_doc/visual_qa.md
+          - "Single-Page QA": recipes/vlm_long_doc/single_page_qa.md
+          - "Multi-Page Windowed QA": recipes/vlm_long_doc/multi_page_windowed_qa.md
+          - "Whole-Document QA": recipes/vlm_long_doc/whole_document_qa.md
+          - "Frontier Judge QA Filter": recipes/vlm_long_doc/frontier_judge.md
   - Plugins:
       - Overview: plugins/overview.md
       - Example Plugin: plugins/example.md
@@ -76,6 +86,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - VLM Long Document Understanding: devnotes/posts/vlm-long-document-understanding.md
       - Push Datasets to Hugging Face Hub: devnotes/posts/push-datasets-to-hugging-face-hub.md
       - "Text-to-SQL for Nemotron Super": devnotes/posts/text-to-sql.md
       - "Async All the Way Down": devnotes/posts/async-all-the-way-down.md

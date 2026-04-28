@@ -38,7 +38,7 @@ def test_image_context_get_contexts_single_string():
     assert image_context.get_contexts({"image_base64": "somebase64encodedimagestring"}) == [
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,somebase64encodedimagestring", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,somebase64encodedimagestring"},
         }
     ]
 
@@ -46,7 +46,7 @@ def test_image_context_get_contexts_single_string():
     assert image_context.get_contexts({"image_url": "https://example.com/examle_image.png"}) == [
         {
             "type": "image_url",
-            "image_url": "https://example.com/examle_image.png",
+            "image_url": {"url": "https://example.com/examle_image.png"},
         }
     ]
 
@@ -59,15 +59,15 @@ def test_image_context_get_contexts_list_of_strings():
     assert image_context.get_contexts({"image_base64": ["image1base64", "image2base64", "image3base64"]}) == [
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image1base64"},
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image2base64"},
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image3base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image3base64"},
         },
     ]
 
@@ -77,11 +77,11 @@ def test_image_context_get_contexts_list_of_strings():
     ) == [
         {
             "type": "image_url",
-            "image_url": "https://example.com/image1.png",
+            "image_url": {"url": "https://example.com/image1.png"},
         },
         {
             "type": "image_url",
-            "image_url": "https://example.com/image2.png",
+            "image_url": {"url": "https://example.com/image2.png"},
         },
     ]
 
@@ -95,11 +95,11 @@ def test_image_context_get_contexts_numpy_array():
     assert image_context.get_contexts({"image_base64": numpy_array}) == [
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image1base64"},
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image2base64"},
         },
     ]
 
@@ -108,11 +108,11 @@ def test_image_context_get_contexts_numpy_array():
     assert image_context.get_contexts({"image_url": numpy_array}) == [
         {
             "type": "image_url",
-            "image_url": "https://example.com/image1.png",
+            "image_url": {"url": "https://example.com/image1.png"},
         },
         {
             "type": "image_url",
-            "image_url": "https://example.com/image2.png",
+            "image_url": {"url": "https://example.com/image2.png"},
         },
     ]
 
@@ -126,11 +126,11 @@ def test_image_context_get_contexts_json_serialized_list():
     assert image_context.get_contexts({"image_base64": json_str}) == [
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image1base64"},
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image2base64"},
         },
     ]
 
@@ -139,11 +139,11 @@ def test_image_context_get_contexts_json_serialized_list():
     assert image_context.get_contexts({"image_url": json_str}) == [
         {
             "type": "image_url",
-            "image_url": "https://example.com/image1.png",
+            "image_url": {"url": "https://example.com/image1.png"},
         },
         {
             "type": "image_url",
-            "image_url": "https://example.com/image2.png",
+            "image_url": {"url": "https://example.com/image2.png"},
         },
     ]
 
@@ -152,11 +152,10 @@ def test_image_context_get_contexts_json_string_not_list():
     """Test get_contexts with a JSON string that isn't a list (should treat as single string)."""
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
     json_str = json.dumps({"nested": "object"})
-    # Should treat the entire JSON string as a single image URL
     assert image_context.get_contexts({"image_url": json_str}) == [
         {
             "type": "image_url",
-            "image_url": json_str,
+            "image_url": {"url": json_str},
         }
     ]
 
@@ -168,7 +167,7 @@ def test_image_context_get_contexts_invalid_json():
     assert image_context.get_contexts({"image_url": invalid_json}) == [
         {
             "type": "image_url",
-            "image_url": invalid_json,
+            "image_url": {"url": invalid_json},
         }
     ]
 
@@ -195,7 +194,7 @@ def test_image_context_auto_detect_url() -> None:
     """Test auto-detection with URL value (no data_type)."""
     context = ImageContext(column_name="image_col")
     result = context.get_contexts({"image_col": "https://example.com/image.png"})
-    assert result == [{"type": "image_url", "image_url": "https://example.com/image.png"}]
+    assert result == [{"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}]
 
 
 def test_image_context_auto_detect_base64(minimal_png_base64: str) -> None:
@@ -205,7 +204,6 @@ def test_image_context_auto_detect_base64(minimal_png_base64: str) -> None:
     result = context.get_contexts({"image_col": png_base64})
     assert len(result) == 1
     assert result[0]["type"] == "image_url"
-    assert result[0]["image_url"]["format"] == "png"
     assert f"base64,{png_base64}" in result[0]["image_url"]["url"]
 
 
