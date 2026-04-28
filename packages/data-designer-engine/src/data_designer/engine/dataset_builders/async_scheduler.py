@@ -47,6 +47,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_TASK_POOL_SIZE: int = 256
 LLM_WAIT_POOL_MULTIPLIER: int = 2
 DEFAULT_RATE_LIMIT_RETRIES: int = 5
+# Default wait used by the cooldown queue when a ``ModelRateLimitError`` is
+# raised without throttle context (e.g. by a custom generator that bypasses
+# ``ThrottledModelClient``). When the throttle is in the loop, ``acquire_async``
+# layers its own AIMD cooldown on top of this wait, so the value is a floor
+# rather than the source of truth.
+DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS: float = 2.0
 
 _RETRYABLE_MODEL_ERRORS = (
     ModelRateLimitError,
@@ -100,6 +106,7 @@ class AsyncTaskScheduler:
         max_submitted_tasks: int = DEFAULT_TASK_POOL_SIZE,
         max_llm_wait_tasks: int = DEFAULT_TASK_POOL_SIZE,
         salvage_max_rounds: int = 2,
+        rate_limit_cooldown_seconds: float = DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS,
         on_finalize_row_group: Callable[[int], None] | None = None,
         on_seeds_complete: Callable[[int, int], None] | None = None,
         on_before_checkpoint: Callable[[int, int], None] | None = None,
@@ -129,6 +136,7 @@ class AsyncTaskScheduler:
         self._worker_tasks: set[asyncio.Task] = set()
         self._wake_event = asyncio.Event()
         self._salvage_max_rounds = salvage_max_rounds
+        self._rate_limit_cooldown_seconds = rate_limit_cooldown_seconds
         self._on_finalize_row_group = on_finalize_row_group
         self._on_seeds_complete = on_seeds_complete
         self._on_before_checkpoint = on_before_checkpoint
@@ -169,6 +177,12 @@ class AsyncTaskScheduler:
 
         # Deferred retryable failures (retried in salvage rounds)
         self._deferred: list[Task] = []
+
+        # Cooldown queue for rate-limited tasks. Workers exit after pushing here
+        # so they don't pin LLM-wait permits during the cooldown wait. The
+        # dispatch loop drains entries whose ``wakeup_at`` has passed.
+        self._cooldown_pending: list[tuple[Task, float]] = []
+        self._rate_limit_retries: dict[Task, int] = {}
 
         # Tracing
         self._trace = trace
@@ -298,6 +312,41 @@ class AsyncTaskScheduler:
                     "These row groups were not checkpointed."
                 )
 
+    def _drain_ready_cooldown_pending(self) -> None:
+        """Move cooldown-pending tasks whose wakeup time has passed back to the frontier.
+
+        Tasks are released from ``_cooldown_pending`` by discarding them from
+        ``_dispatched``; the next ``get_ready_tasks`` call will surface them as
+        regular frontier work, which goes through the standard submission/LLM
+        wait acquisition path and so naturally pace through the throttle.
+        """
+        if not self._cooldown_pending:
+            return
+        now = time.monotonic()
+        still_waiting: list[tuple[Task, float]] = []
+        for task, wakeup_at in self._cooldown_pending:
+            if wakeup_at <= now:
+                self._dispatched.discard(task)
+            else:
+                still_waiting.append((task, wakeup_at))
+        self._cooldown_pending = still_waiting
+
+    def _next_cooldown_timeout(self) -> float | None:
+        """Return seconds until the soonest cooldown wakeup, or ``None`` if empty."""
+        if not self._cooldown_pending:
+            return None
+        next_wakeup = min(wakeup_at for _, wakeup_at in self._cooldown_pending)
+        return max(0.0, next_wakeup - time.monotonic())
+
+    async def _wait_for_wake_or_cooldown(self) -> None:
+        """Wait on ``_wake_event``, bounded by the next cooldown wakeup if any."""
+        timeout = self._next_cooldown_timeout()
+        if timeout is None:
+            await self._wake_event.wait()
+        else:
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
+
     async def _main_dispatch_loop(
         self,
         seed_cols: frozenset[str],
@@ -308,12 +357,21 @@ class AsyncTaskScheduler:
         while True:
             if self._early_shutdown:
                 logger.warning("Early shutdown triggered - error rate exceeded threshold")
+                # Convert any remaining cooldown-pending tasks into deferred so
+                # salvage gets a final shot at them; otherwise they would be
+                # silently dropped on shutdown.
+                for task, _ in self._cooldown_pending:
+                    self._deferred.append(task)
+                    self._rate_limit_retries.pop(task, None)
+                self._cooldown_pending = []
                 if self._deferred:
                     await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
                 self._checkpoint_completed_row_groups(all_columns)
                 break
 
             self._wake_event.clear()
+
+            self._drain_ready_cooldown_pending()
 
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
@@ -347,16 +405,18 @@ class AsyncTaskScheduler:
                 await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
 
             # Are we done?
-            all_done = self._all_rgs_admitted and not self._rg_states and not self._in_flight
+            all_done = (
+                self._all_rgs_admitted and not self._rg_states and not self._in_flight and not self._cooldown_pending
+            )
             if all_done:
                 break
 
-            if not ready and not self._in_flight:
+            if not ready and not self._in_flight and not self._cooldown_pending:
                 if self._all_rgs_admitted:
                     break
 
-            if not ready or semaphore_full:
-                await self._wake_event.wait()
+            if not ready or semaphore_full or self._cooldown_pending:
+                await self._wait_for_wake_or_cooldown()
 
     async def _salvage_rounds(
         self,
@@ -423,6 +483,7 @@ class AsyncTaskScheduler:
     async def _drain_frontier(self, seed_cols: frozenset[str], has_pre_batch: bool, all_columns: list[str]) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
+            self._drain_ready_cooldown_pending()
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
             admitted_ids = set(self._rg_states)
@@ -441,12 +502,12 @@ class AsyncTaskScheduler:
                 if (s := self._rg_states.get(task.row_group)) is not None:
                     s.in_flight_count += 1
                 self._spawn_worker(self._execute_task(task))
-            if not ready and not self._in_flight:
+            if not ready and not self._in_flight and not self._cooldown_pending:
                 break
-            if not self._in_flight:
+            if not self._in_flight and not self._cooldown_pending:
                 continue
             self._wake_event.clear()
-            await self._wake_event.wait()
+            await self._wait_for_wake_or_cooldown()
 
     async def _salvage_stalled_row_groups(
         self,
@@ -489,6 +550,7 @@ class AsyncTaskScheduler:
             already_dropped = task.row_index is not None and self._tracker.is_dropped(task.row_group, task.row_index)
             if not already_dropped and self._reporter:
                 self._reporter.record_failure(task.column)
+            self._rate_limit_retries.pop(task, None)
             if task.row_index is not None:
                 self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
             else:
@@ -688,6 +750,7 @@ class AsyncTaskScheduler:
         generator = self._generators[task.column]
         output_cols = self._gen_instance_to_columns.get(id(generator), [task.column])
         retryable = False
+        cooldown_requeued = False
         # When True, skip removing from _dispatched so the task isn't re-dispatched
         # from the frontier (it was never completed, so it stays in the frontier).
         skipped = False
@@ -713,40 +776,17 @@ class AsyncTaskScheduler:
                 trace.slot_acquired_at = time.perf_counter()
 
             cell_skipped = False
-            # Inline retry for rate-limited tasks. The worker keeps the LLM-wait
-            # permit across retries; for single-model pipelines this is a no-op
-            # (other tasks would block on the same throttle anyway), and for
-            # multi-model pipelines it can mildly pinch cross-model throughput.
-            # We accept that tradeoff because releasing the permit mid-retry
-            # would either re-introduce salvage-style burst pacing or break the
-            # in-flight bookkeeping the scheduler relies on.
-            #
-            # The actual cooldown wait happens inside ``ThrottleManager.acquire_async``
-            # on the next iteration (it sleeps until ``state.blocked_until``).
-            # ``await asyncio.sleep(0)`` here only yields to the event loop.
-            for rl_attempt in range(DEFAULT_RATE_LIMIT_RETRIES + 1):
-                try:
-                    if task.task_type == "from_scratch":
-                        await self._run_from_scratch(task, generator)
-                    elif task.task_type == "cell":
-                        _result, cell_skipped = await self._run_cell(task, generator)
-                    elif task.task_type == "batch":
-                        await self._run_batch(task, generator)
-                    else:
-                        raise ValueError(f"Unknown task type: {task.task_type}")
-                    break
-                except ModelRateLimitError:
-                    if self._early_shutdown or rl_attempt == DEFAULT_RATE_LIMIT_RETRIES:
-                        raise
-                    logger.info(
-                        "Rate-limited on task %s (col=%s, rg=%s), retry %d/%d",
-                        task.task_type,
-                        task.column,
-                        task.row_group,
-                        rl_attempt + 1,
-                        DEFAULT_RATE_LIMIT_RETRIES,
-                    )
-                    await asyncio.sleep(0)
+            if task.task_type == "from_scratch":
+                await self._run_from_scratch(task, generator)
+            elif task.task_type == "cell":
+                _result, cell_skipped = await self._run_cell(task, generator)
+            elif task.task_type == "batch":
+                await self._run_batch(task, generator)
+            else:
+                raise ValueError(f"Unknown task type: {task.task_type}")
+
+            # Successful run: clear any prior rate-limit retry counter.
+            self._rate_limit_retries.pop(task, None)
 
             # Mark all output columns complete
             for col in output_cols:
@@ -766,28 +806,58 @@ class AsyncTaskScheduler:
                 trace.status = "ok"
 
         except Exception as exc:
-            if not isinstance(exc, ModelRateLimitError):
+            is_rate_limit = isinstance(exc, ModelRateLimitError)
+            if not is_rate_limit:
                 self._check_error_rate(success=False)
-            retryable = self._is_retryable(exc)
-            if not retryable and self._reporter:
-                self._reporter.record_failure(task.column)
+
+            # Rate-limited tasks go to the cooldown queue (releasing all permits
+            # so the worker doesn't pin LLM-wait slots during the wait). After
+            # exhausting the per-task retry budget, fall through to the regular
+            # retryable path (salvage) as a final backstop.
+            if is_rate_limit and not self._early_shutdown:
+                retries_so_far = self._rate_limit_retries.get(task, 0)
+                if retries_so_far < DEFAULT_RATE_LIMIT_RETRIES:
+                    cooldown = getattr(exc, "retry_after", None) or self._rate_limit_cooldown_seconds
+                    wakeup_at = time.monotonic() + cooldown
+                    self._rate_limit_retries[task] = retries_so_far + 1
+                    self._cooldown_pending.append((task, wakeup_at))
+                    cooldown_requeued = True
+                    logger.info(
+                        "Rate-limited on task %s (col=%s, rg=%s), queued for retry in %.1fs (%d/%d)",
+                        task.task_type,
+                        task.column,
+                        task.row_group,
+                        cooldown,
+                        retries_so_far + 1,
+                        DEFAULT_RATE_LIMIT_RETRIES,
+                    )
+
+            if not cooldown_requeued:
+                retryable = self._is_retryable(exc)
+                if not retryable and self._reporter:
+                    self._reporter.record_failure(task.column)
+                if retryable:
+                    # Salvage will retry. Keep the rate-limit retry counter alive
+                    # so a follow-up 429 from salvage short-circuits straight to
+                    # deferral instead of re-entering the cooldown queue.
+                    self._deferred.append(task)
+                else:
+                    # Non-retryable terminal failure: drop the affected row(s)
+                    # and clear the per-task retry counter.
+                    self._rate_limit_retries.pop(task, None)
+                    if task.row_index is not None:
+                        self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
+                    else:
+                        # Batch/from_scratch failure: drop all rows in the row group
+                        rg_size = self._get_rg_size(task.row_group)
+                        self._drop_row_group(task.row_group, rg_size, exclude_columns={task.column})
+                    logger.warning(
+                        f"Non-retryable failure on {task.column}[rg={task.row_group}, row={task.row_index}]: {exc}"
+                    )
+
             if self._trace and trace:
                 trace.status = "error"
                 trace.error = str(exc)
-
-            if retryable:
-                self._deferred.append(task)
-            else:
-                # Non-retryable: drop the affected row(s)
-                if task.row_index is not None:
-                    self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
-                else:
-                    # Batch/from_scratch failure: drop all rows in the row group
-                    rg_size = self._get_rg_size(task.row_group)
-                    self._drop_row_group(task.row_group, rg_size, exclude_columns={task.column})
-                logger.warning(
-                    f"Non-retryable failure on {task.column}[rg={task.row_group}, row={task.row_index}]: {exc}"
-                )
 
         finally:
             if self._trace and trace:
@@ -797,7 +867,11 @@ class AsyncTaskScheduler:
             self._in_flight.discard(task)
             if (s := self._rg_states.get(task.row_group)) is not None:
                 s.in_flight_count = max(0, s.in_flight_count - 1)
-            if not retryable and not skipped:
+            # Cooldown-requeued and salvage-deferred tasks must stay in
+            # ``_dispatched`` so the frontier doesn't re-emit them; they get
+            # discarded explicitly when the cooldown drain releases them or
+            # when salvage runs.
+            if not retryable and not skipped and not cooldown_requeued:
                 self._dispatched.discard(task)
             if holds_llm_wait:
                 self._llm_wait_semaphore.release()
