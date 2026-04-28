@@ -77,7 +77,10 @@ help:
 	@echo "  show-versions             - Show versions of all packages"
 	@echo "  convert-execute-notebooks - Convert notebooks from .py to .ipynb using jupytext (USE_CACHE=1 to skip unchanged)"
 	@echo "  generate-colab-notebooks  - Generate Colab-compatible notebooks"
+	@echo "  generate-fern-notebooks   - Convert docs/colab_notebooks/*.ipynb → fern/components/notebooks/{json,ts}"
+	@echo "  generate-fern-notebooks-with-outputs - Full pipeline: execute notebooks (needs API key), colabify, convert to Fern"
 	@echo "  serve-docs-locally        - Serve documentation locally"
+	@echo "                              (For Fern preview: 'cd fern && fern docs md generate && fern docs dev'.)"
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
@@ -455,31 +458,76 @@ update-license-headers:
 # DOCUMENTATION
 # ==============================================================================
 
+# Pin the docs/notebook toolchain to a Python with prebuilt pyarrow wheels.
+# pyarrow doesn't yet ship wheels for Python 3.14+, so docs builds fall back to
+# a from-source compile (cmake + Apache Arrow C++) on those interpreters and fail.
+# Override per-invocation: `DOCS_PYTHON=3.12 make generate-fern-notebooks-with-outputs`.
+# uv auto-installs the requested version if it isn't present locally.
+DOCS_PYTHON ?= 3.13
+UV_DOCS := uv run --python $(DOCS_PYTHON)
+
+# Route urllib/requests/httpx through certifi's CA bundle. Necessary when uv
+# resolves $(DOCS_PYTHON) to a python.org installer build, which ships without
+# populated CA certs (notebook 3 downloads a CSV over HTTPS at exec time).
+DOCS_CERTS = SSL_CERT_FILE=$$($(UV_DOCS) --group docs python -c "import certifi; print(certifi.where())") \
+             REQUESTS_CA_BUNDLE=$$($(UV_DOCS) --group docs python -c "import certifi; print(certifi.where())")
+
 serve-docs-locally:
-	@echo "📝 Building and serving docs..."
-	uv sync --group docs
-	uv run mkdocs serve --livereload
+	@echo "📝 Building and serving docs (Python $(DOCS_PYTHON))..."
+	uv sync --python $(DOCS_PYTHON) --group docs
+	$(UV_DOCS) mkdocs serve --livereload
 
 convert-execute-notebooks:
 ifeq ($(USE_CACHE),1)
 	@echo "📓 Converting Python tutorials to notebooks (with caching)..."
 	@bash docs/scripts/build_notebooks_cached.sh
 else
-	@echo "📓 Converting Python tutorials to notebooks and executing..."
+	@echo "📓 Converting Python tutorials to notebooks and executing (Python $(DOCS_PYTHON))..."
 	@mkdir -p docs/notebooks
 	cp docs/notebook_source/_README.md docs/notebooks/README.md
 	cp docs/notebook_source/_pyproject.toml docs/notebooks/pyproject.toml
-	uv run --all-packages --group notebooks --group docs jupytext --to ipynb --execute docs/notebook_source/*.py
-	mv docs/notebook_source/*.ipynb docs/notebooks/
-	rm -r docs/notebook_source/artifacts
-	rm docs/notebook_source/*.csv
-	@echo "✅ Notebooks created in docs/notebooks/"
+	@$(DOCS_CERTS) bash -c '\
+		failed=""; \
+		for f in docs/notebook_source/*.py; do \
+			[ -f "$$f" ] || continue; \
+			echo "▶ executing $$f"; \
+			$(UV_DOCS) --all-packages --group notebooks --group docs jupytext --to ipynb --execute "$$f" || failed="$$failed\n   • $$f"; \
+		done; \
+		if [ -n "$$failed" ]; then \
+			echo ""; \
+			echo "⚠️  Some notebooks failed (often missing API keys for image/audio providers)."; \
+			printf "   Successful notebooks captured outputs; failed ones fall back to their existing snapshot.\n   Failed:%b\n" "$$failed"; \
+		fi'
+	@for f in docs/notebook_source/*.ipynb; do [ -f "$$f" ] && mv "$$f" docs/notebooks/; done
+	@rm -rf docs/notebook_source/artifacts
+	@rm -f docs/notebook_source/*.csv
+	@echo "✅ Notebooks executed under docs/notebooks/"
 endif
 
 generate-colab-notebooks:
-	@echo "📓 Generating Colab-compatible notebooks..."
-	uv run --group docs python docs/scripts/generate_colab_notebooks.py
+	@echo "📓 Generating Colab-compatible notebooks (Python $(DOCS_PYTHON))..."
+	$(UV_DOCS) --group docs python docs/scripts/generate_colab_notebooks.py
 	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
+
+generate-fern-notebooks:
+	@echo "📓 Converting notebooks to Fern format for NotebookViewer (Python $(DOCS_PYTHON))..."
+	@mkdir -p fern/components/notebooks
+	@SOURCE_DIR=docs/colab_notebooks; \
+	if ls docs/notebooks/*.ipynb >/dev/null 2>&1; then \
+		SOURCE_DIR=docs/notebooks; \
+		echo "   Source: $$SOURCE_DIR (executed; outputs preserved)"; \
+	else \
+		echo "   Source: $$SOURCE_DIR (un-executed; no cell outputs — run 'make generate-fern-notebooks-with-outputs' to capture them)"; \
+	fi; \
+	for f in $$SOURCE_DIR/*.ipynb; do \
+		[ -f "$$f" ] || continue; \
+		name=$$(basename "$$f" .ipynb); \
+		$(UV_DOCS) --group docs python fern/scripts/ipynb-to-fern-json.py "$$f" -o fern/components/notebooks/$$name.json; \
+	done
+	@echo "✅ Fern notebooks created in fern/components/notebooks/"
+
+generate-fern-notebooks-with-outputs: convert-execute-notebooks generate-colab-notebooks generate-fern-notebooks
+	@echo "✅ Full notebook pipeline complete (executed → colab → fern)"
 
 # ==============================================================================
 # PERFORMANCE
@@ -633,7 +681,7 @@ clean-test-coverage:
         coverage coverage-config coverage-engine coverage-interface \
         format format-check format-check-config format-check-engine format-check-interface \
         format-config format-engine format-interface \
-        generate-colab-notebooks help \
+        generate-colab-notebooks generate-fern-notebooks generate-fern-notebooks-with-outputs help \
         install install-dev install-dev-notebooks install-dev-recipes \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
         perf-import perf-import-runtime publish serve-docs-locally show-versions \

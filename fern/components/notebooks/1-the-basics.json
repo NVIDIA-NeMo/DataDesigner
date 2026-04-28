@@ -1,0 +1,823 @@
+{
+  "cells": [
+    {
+      "type": "markdown",
+      "source": "# 🎨 Data Designer Tutorial: The Basics\n\n#### 📚 What you'll learn\n\nThis notebook demonstrates the basics of Data Designer by generating a simple product review dataset."
+    },
+    {
+      "type": "markdown",
+      "source": "### 📦 Import Data Designer\n\n- `data_designer.config` provides access to the configuration API.\n\n- `DataDesigner` is the main interface for data generation."
+    },
+    {
+      "type": "code",
+      "source": "import data_designer.config as dd\nfrom data_designer.interface import DataDesigner",
+      "language": "python",
+      "source_html": "<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.config</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">as</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">dd</span>\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.interface</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> DataDesigner\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### ⚙️ Initialize the Data Designer interface\n\n- `DataDesigner` is the main object responsible for managing the data generation process.\n\n- When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used."
+    },
+    {
+      "type": "code",
+      "source": "data_designer = DataDesigner()",
+      "language": "python",
+      "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### 🎛️ Define model configurations\n\n- Each `ModelConfig` defines a model that can be used during the generation process.\n\n- The \"model alias\" is used to reference the model in the Data Designer config (as we will see below).\n\n- The \"model provider\" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).\n\n- By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider."
+    },
+    {
+      "type": "code",
+      "source": "# This name is set in the model provider configuration.\nMODEL_PROVIDER = \"nvidia\"\n\n# The model ID is from build.nvidia.com.\nMODEL_ID = \"nvidia/nemotron-3-nano-30b-a3b\"\n\n# We choose this alias to be descriptive for our use case.\nMODEL_ALIAS = \"nemotron-nano-v3\"\n\nmodel_configs = [\n    dd.ModelConfig(\n        alias=MODEL_ALIAS,\n        model=MODEL_ID,\n        provider=MODEL_PROVIDER,\n        inference_parameters=dd.ChatCompletionInferenceParams(\n            temperature=1.0,\n            top_p=1.0,\n            max_tokens=2048,\n            extra_body={\"chat_template_kwargs\": {\"enable_thinking\": False}},\n        ),\n    )\n]",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># This name is set in the model provider configuration.</span>\nMODEL_PROVIDER <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nvidia&quot;</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># The model ID is from build.nvidia.com.</span>\nMODEL_ID <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nvidia/nemotron-3-nano-30b-a3b&quot;</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># We choose this alias to be descriptive for our use case.</span>\nMODEL_ALIAS <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nemotron-nano-v3&quot;</span>\n\nmodel_configs <span style=\"color: #666\">=</span> [\n    dd<span style=\"color: #666\">.</span>ModelConfig(\n        alias<span style=\"color: #666\">=</span>MODEL_ALIAS,\n        model<span style=\"color: #666\">=</span>MODEL_ID,\n        provider<span style=\"color: #666\">=</span>MODEL_PROVIDER,\n        inference_parameters<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>ChatCompletionInferenceParams(\n            temperature<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1.0</span>,\n            top_p<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1.0</span>,\n            max_tokens<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2048</span>,\n            extra_body<span style=\"color: #666\">=</span>{<span style=\"color: #4070A0\">&quot;chat_template_kwargs&quot;</span>: {<span style=\"color: #4070A0\">&quot;enable_thinking&quot;</span>: <span style=\"color: #007020; font-weight: bold\">False</span>}},\n        ),\n    )\n]\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### 🏗️ Initialize the Data Designer Config Builder\n\n- The Data Designer config defines the dataset schema and generation process.\n\n- The config builder provides an intuitive interface for building this configuration.\n\n- The list of model configs is provided to the builder at initialization."
+    },
+    {
+      "type": "code",
+      "source": "config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)",
+      "language": "python",
+      "source_html": "config_builder <span style=\"color: #666\">=</span> dd<span style=\"color: #666\">.</span>DataDesignerConfigBuilder(model_configs<span style=\"color: #666\">=</span>model_configs)\n"
+    },
+    {
+      "type": "markdown",
+      "source": "## 🎲 Getting started with sampler columns\n\n- Sampler columns offer non-LLM based generation of synthetic data.\n\n- They are particularly useful for **steering the diversity** of the generated data, as we demonstrate below.\n\n<br>\n\nYou can view available samplers using the config builder's `info` property:"
+    },
+    {
+      "type": "code",
+      "source": "config_builder.info.display(\"samplers\")",
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>info<span style=\"color: #666\">.</span>display(<span style=\"color: #4070A0\">&quot;samplers&quot;</span>)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #00ff00; text-decoration-color: #00ff00\">─────────────────────────────────────────── </span>NeMo Data Designer Samplers<span style=\"color: #00ff00; text-decoration-color: #00ff00\"> ───────────────────────────────────────────</span>\n\n┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Type               </span>┃<span style=\"font-weight: bold\"> Parameter                </span>┃<span style=\"font-weight: bold\"> Data Type                         </span>┃<span style=\"font-weight: bold\"> Required </span>┃<span style=\"font-weight: bold\"> Constraints      </span>┃\n┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩\n│ bernoulli          │ p                        │ number                            │    ✓     │ &gt;= 0.0, &lt;= 1.0   │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ bernoulli_mixture  │ p                        │ number                            │    ✓     │ &gt;= 0.0, &lt;= 1.0   │\n│                    │ dist_name                │ string                            │    ✓     │                  │\n│                    │ dist_params              │ dict                              │    ✓     │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ binomial           │ n                        │ integer                           │    ✓     │                  │\n│                    │ p                        │ number                            │    ✓     │ &gt;= 0.0, &lt;= 1.0   │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ category           │ values                   │ string[] | integer[] | number[]   │    ✓     │ len &gt; 1          │\n│                    │ weights                  │ number[] | null                   │          │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ datetime           │ start                    │ string                            │    ✓     │                  │\n│                    │ end                      │ string                            │    ✓     │                  │\n│                    │ unit                     │ string                            │          │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ gaussian           │ mean                     │ number                            │    ✓     │                  │\n│                    │ stddev                   │ number                            │    ✓     │                  │\n│                    │ decimal_places           │ integer | null                    │          │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ person             │ locale                   │ string                            │          │                  │\n│                    │ sex                      │ string | null                     │          │                  │\n│                    │ city                     │ string | string[] | null          │          │                  │\n│                    │ age_range                │ integer[]                         │          │ len &gt; 2, len &lt; 2 │\n│                    │ select_field_values      │ object | null                     │          │                  │\n│                    │ with_synthetic_personas  │ boolean                           │          │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ person_from_faker  │ locale                   │ string                            │          │                  │\n│                    │ sex                      │ string | null                     │          │                  │\n│                    │ city                     │ string | string[] | null          │          │                  │\n│                    │ age_range                │ integer[]                         │          │ len &gt; 2, len &lt; 2 │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ poisson            │ mean                     │ number                            │    ✓     │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ scipy              │ dist_name                │ string                            │    ✓     │                  │\n│                    │ dist_params              │ dict                              │    ✓     │                  │\n│                    │ decimal_places           │ integer | null                    │          │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ subcategory        │ category                 │ string                            │    ✓     │                  │\n│                    │ values                   │ dict                              │    ✓     │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ timedelta          │ dt_min                   │ integer                           │    ✓     │ &gt;= 0             │\n│                    │ dt_max                   │ integer                           │    ✓     │ &gt; 0              │\n│                    │ reference_column_name    │ string                            │    ✓     │                  │\n│                    │ unit                     │ string                            │          │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ uniform            │ low                      │ number                            │    ✓     │                  │\n│                    │ high                     │ number                            │    ✓     │                  │\n│                    │ decimal_places           │ integer | null                    │          │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n├────────────────────┼──────────────────────────┼───────────────────────────────────┼──────────┼──────────────────┤\n│ uuid               │ prefix                   │ string | null                     │          │                  │\n│                    │ short_form               │ boolean                           │          │                  │\n│                    │ uppercase                │ boolean                           │          │                  │\n│                    │ sampler_type             │ string                            │          │                  │\n└────────────────────┴──────────────────────────┴───────────────────────────────────┴──────────┴──────────────────┘\n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "Let's start designing our product review dataset by adding product category and subcategory columns."
+    },
+    {
+      "type": "code",
+      "source": "config_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"product_category\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\n                \"Electronics\",\n                \"Clothing\",\n                \"Home & Kitchen\",\n                \"Books\",\n                \"Home Office\",\n            ],\n        ),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"product_subcategory\",\n        sampler_type=dd.SamplerType.SUBCATEGORY,\n        params=dd.SubcategorySamplerParams(\n            category=\"product_category\",\n            values={\n                \"Electronics\": [\n                    \"Smartphones\",\n                    \"Laptops\",\n                    \"Headphones\",\n                    \"Cameras\",\n                    \"Accessories\",\n                ],\n                \"Clothing\": [\n                    \"Men's Clothing\",\n                    \"Women's Clothing\",\n                    \"Winter Coats\",\n                    \"Activewear\",\n                    \"Accessories\",\n                ],\n                \"Home & Kitchen\": [\n                    \"Appliances\",\n                    \"Cookware\",\n                    \"Furniture\",\n                    \"Decor\",\n                    \"Organization\",\n                ],\n                \"Books\": [\n                    \"Fiction\",\n                    \"Non-Fiction\",\n                    \"Self-Help\",\n                    \"Textbooks\",\n                    \"Classics\",\n                ],\n                \"Home Office\": [\n                    \"Desks\",\n                    \"Chairs\",\n                    \"Storage\",\n                    \"Office Supplies\",\n                    \"Lighting\",\n                ],\n            },\n        ),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"target_age_range\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(values=[\"18-25\", \"25-35\", \"35-50\", \"50-65\", \"65+\"]),\n    )\n)\n\n# Optionally validate that the columns are configured correctly.\ndata_designer.validate(config_builder)",
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;product_category&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>CATEGORY,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>CategorySamplerParams(\n            values<span style=\"color: #666\">=</span>[\n                <span style=\"color: #4070A0\">&quot;Electronics&quot;</span>,\n                <span style=\"color: #4070A0\">&quot;Clothing&quot;</span>,\n                <span style=\"color: #4070A0\">&quot;Home &amp; Kitchen&quot;</span>,\n                <span style=\"color: #4070A0\">&quot;Books&quot;</span>,\n                <span style=\"color: #4070A0\">&quot;Home Office&quot;</span>,\n            ],\n        ),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;product_subcategory&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>SUBCATEGORY,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SubcategorySamplerParams(\n            category<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;product_category&quot;</span>,\n            values<span style=\"color: #666\">=</span>{\n                <span style=\"color: #4070A0\">&quot;Electronics&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Smartphones&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Laptops&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Headphones&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Cameras&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Accessories&quot;</span>,\n                ],\n                <span style=\"color: #4070A0\">&quot;Clothing&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Men&#39;s Clothing&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Women&#39;s Clothing&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Winter Coats&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Activewear&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Accessories&quot;</span>,\n                ],\n                <span style=\"color: #4070A0\">&quot;Home &amp; Kitchen&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Appliances&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Cookware&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Furniture&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Decor&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Organization&quot;</span>,\n                ],\n                <span style=\"color: #4070A0\">&quot;Books&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Fiction&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Non-Fiction&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Self-Help&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Textbooks&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Classics&quot;</span>,\n                ],\n                <span style=\"color: #4070A0\">&quot;Home Office&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Desks&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Chairs&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Storage&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Office Supplies&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Lighting&quot;</span>,\n                ],\n            },\n        ),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;target_age_range&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>CATEGORY,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>CategorySamplerParams(values<span style=\"color: #666\">=</span>[<span style=\"color: #4070A0\">&quot;18-25&quot;</span>, <span style=\"color: #4070A0\">&quot;25-35&quot;</span>, <span style=\"color: #4070A0\">&quot;35-50&quot;</span>, <span style=\"color: #4070A0\">&quot;50-65&quot;</span>, <span style=\"color: #4070A0\">&quot;65+&quot;</span>]),\n    )\n)\n\n<span style=\"color: #60A0B0; font-style: italic\"># Optionally validate that the columns are configured correctly.</span>\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO] ✅ Validation passed",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "Next, let's add samplers to generate data related to the customer and their review."
+    },
+    {
+      "type": "code",
+      "source": "config_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"customer\",\n        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,\n        params=dd.PersonFromFakerSamplerParams(age_range=[18, 70], locale=\"en_US\"),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"number_of_stars\",\n        sampler_type=dd.SamplerType.UNIFORM,\n        params=dd.UniformSamplerParams(low=1, high=5),\n        convert_to=\"int\",  # Convert the sampled float to an integer.\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"review_style\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\"rambling\", \"brief\", \"detailed\", \"structured with bullet points\"],\n            weights=[1, 2, 2, 1],\n        ),\n    )\n)\n\ndata_designer.validate(config_builder)",
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;customer&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>PERSON_FROM_FAKER,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>PersonFromFakerSamplerParams(age_range<span style=\"color: #666\">=</span>[<span style=\"color: #40A070\">18</span>, <span style=\"color: #40A070\">70</span>], locale<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;en_US&quot;</span>),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;number_of_stars&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>UNIFORM,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>UniformSamplerParams(low<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1</span>, high<span style=\"color: #666\">=</span><span style=\"color: #40A070\">5</span>),\n        convert_to<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;int&quot;</span>,  <span style=\"color: #60A0B0; font-style: italic\"># Convert the sampled float to an integer.</span>\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;review_style&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>CATEGORY,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>CategorySamplerParams(\n            values<span style=\"color: #666\">=</span>[<span style=\"color: #4070A0\">&quot;rambling&quot;</span>, <span style=\"color: #4070A0\">&quot;brief&quot;</span>, <span style=\"color: #4070A0\">&quot;detailed&quot;</span>, <span style=\"color: #4070A0\">&quot;structured with bullet points&quot;</span>],\n            weights<span style=\"color: #666\">=</span>[<span style=\"color: #40A070\">1</span>, <span style=\"color: #40A070\">2</span>, <span style=\"color: #40A070\">2</span>, <span style=\"color: #40A070\">1</span>],\n        ),\n    )\n)\n\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO] ✅ Validation passed",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "## 🦜 LLM-generated columns\n\n- The real power of Data Designer comes from leveraging LLMs to generate text, code, and structured data.\n\n- When prompting the LLM, we can use Jinja templating to reference other columns in the dataset.\n\n- As we see below, nested json fields can be accessed using dot notation."
+    },
+    {
+      "type": "code",
+      "source": "config_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"product_name\",\n        prompt=(\n            \"You are a helpful assistant that generates product names. DO NOT add quotes around the product name.\\n\\n\"\n            \"Come up with a creative product name for a product in the '{{ product_category }}' category, focusing \"\n            \"on products related to '{{ product_subcategory }}'. The target age range of the ideal customer is \"\n            \"{{ target_age_range }} years old. Respond with only the product name, no other text.\"\n        ),\n        model_alias=MODEL_ALIAS,\n    )\n)\n\nconfig_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"customer_review\",\n        prompt=(\n            \"You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. \"\n            \"You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. \"\n            \"Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. \"\n            \"The style of the review should be '{{ review_style }}'. \"\n            \"Respond with only the review, no other text.\"\n        ),\n        model_alias=MODEL_ALIAS,\n    )\n)\n\ndata_designer.validate(config_builder)",
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>LLMTextColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;product_name&quot;</span>,\n        prompt<span style=\"color: #666\">=</span>(\n            <span style=\"color: #4070A0\">&quot;You are a helpful assistant that generates product names. DO NOT add quotes around the product name.</span><span style=\"color: #4070A0; font-weight: bold\">\\n\\n</span><span style=\"color: #4070A0\">&quot;</span>\n            <span style=\"color: #4070A0\">&quot;Come up with a creative product name for a product in the &#39;{{ product_category }}&#39; category, focusing &quot;</span>\n            <span style=\"color: #4070A0\">&quot;on products related to &#39;{{ product_subcategory }}&#39;. The target age range of the ideal customer is &quot;</span>\n            <span style=\"color: #4070A0\">&quot;{{ target_age_range }} years old. Respond with only the product name, no other text.&quot;</span>\n        ),\n        model_alias<span style=\"color: #666\">=</span>MODEL_ALIAS,\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>LLMTextColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;customer_review&quot;</span>,\n        prompt<span style=\"color: #666\">=</span>(\n            <span style=\"color: #4070A0\">&quot;You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;The style of the review should be &#39;{{ review_style }}&#39;. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;Respond with only the review, no other text.&quot;</span>\n        ),\n        model_alias<span style=\"color: #666\">=</span>MODEL_ALIAS,\n    )\n)\n\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO] ✅ Validation passed",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🔁 Iteration is key – preview the dataset!\n\n1. Use the `preview` method to generate a sample of records quickly.\n\n2. Inspect the results for quality and format issues.\n\n3. Adjust column configurations, prompts, or parameters as needed.\n\n4. Re-run the preview until satisfied."
+    },
+    {
+      "type": "code",
+      "source": "preview = data_designer.preview(config_builder, num_records=2)",
+      "language": "python",
+      "source_html": "preview <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>preview(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2</span>)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO] 🕵️ Preview generation in progress",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO] ✅ Validation passed",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO] 🩺 Running health checks for models...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:08] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:09] [INFO]   |-- ✅ Passed!",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:09] [INFO] 🎲 Preparing samplers to generate 2 records across 6 columns",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO] 📝 llm-text model config for column 'product_name'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- model provider: 'nvidia'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- inference parameters:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- generation_type=chat-completion",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- max_parallel_requests=4",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- temperature=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- top_p=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- max_tokens=2048",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO] ⚡️ Processing llm-text column 'product_name' with 4 concurrent workers",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO] ⏱️ llm-text column 'product_name' will report progress after each record",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- 🚗 llm-text column 'product_name' progress: 1/2 (50%) complete, 1 ok, 0 failed, 3.09 rec/s, eta 0.3s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- 🚀 llm-text column 'product_name' progress: 2/2 (100%) complete, 2 ok, 0 failed, 4.71 rec/s, eta 0.0s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO] 📝 llm-text model config for column 'customer_review'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- model provider: 'nvidia'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |-- inference parameters:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- generation_type=chat-completion",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- max_parallel_requests=4",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- temperature=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- top_p=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO]   |  |-- max_tokens=2048",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO] ⚡️ Processing llm-text column 'customer_review' with 4 concurrent workers",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:12] [INFO] ⏱️ llm-text column 'customer_review' will report progress after each record",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:14] [INFO]   |-- ⛅ llm-text column 'customer_review' progress: 1/2 (50%) complete, 1 ok, 0 failed, 0.51 rec/s, eta 2.0s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- ☀️ llm-text column 'customer_review' progress: 2/2 (100%) complete, 2 ok, 0 failed, 0.52 rec/s, eta 0.0s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO] 📊 Model usage summary:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- tokens: input=355, output=1171, total=1526, tps=204",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- requests: success=4, failed=0, total=4, rpm=32",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO] 📐 Measuring dataset column statistics:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- 🎲 column: 'product_category'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- 🎲 column: 'product_subcategory'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- 🎲 column: 'target_age_range'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- 🎲 column: 'customer'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- 🎲 column: 'number_of_stars'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- 🎲 column: 'review_style'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- 📝 column: 'product_name'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:16] [INFO]   |-- 📝 column: 'customer_review'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] 🙌 Preview complete!",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Run this cell multiple times to cycle through the 2 preview records.\npreview.display_sample_record()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Run this cell multiple times to cycle through the 2 preview records.</span>\npreview<span style=\"color: #666\">.</span>display_sample_record()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div style='text-align:center;font-family:Menlo,Monaco,Consolas,monospace;font-size:12px;color:#666;margin:8px 0;'>[index: 0]</div>",
+          "format": "html"
+        },
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name                </span>┃<span style=\"font-weight: bold\"> Value                                                                                </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category    │ Books                                                                                │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ product_subcategory │ Textbooks                                                                            │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ target_age_range    │ 50-65                                                                                │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ customer            │ <span style=\"font-weight: bold\">{</span>                                                                                    │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'uuid'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'81d4eacf-63e6-4dbe-a6b0-5d39c83f46f4'</span>,                                  │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'locale'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'en_US'</span>,                                                               │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'first_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'David'</span>,                                                           │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'last_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Love'</span>,                                                             │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'middle_name'</span>: <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span>,                                                             │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'sex'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Male'</span>,                                                                   │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'8221'</span>,                                                         │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Phillips Ford'</span>,                                                  │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'city'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Reedshire'</span>,                                                             │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'state'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Minnesota'</span>,                                                            │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'postcode'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'89831'</span>,                                                             │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'age'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">42</span>,                                                                       │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'birth_date'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'1984-04-14'</span>,                                                      │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'country'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Turks and Caicos Islands'</span>,                                           │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'marital_status'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'separated'</span>,                                                   │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'education_level'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'graduate'</span>,                                                   │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'unit'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">''</span>,                                                                      │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'occupation'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Engineer, agricultural'</span>,                                          │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'phone_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'+1-351-392-8081x8883'</span>,                                          │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'bachelors_field'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'stem'</span>                                                        │\n│                     │ <span style=\"font-weight: bold\">}</span>                                                                                    │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ number_of_stars     │ 2                                                                                    │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ review_style        │ detailed                                                                             │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ product_name        │ Generational Wisdom Textbooks Bundle                                                 │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ customer_review     │ I’m David, 42, from Reedshire, Minnesota, and I just bought the \"Generational Wisdom │\n│                     │ Textbooks Bundle\" recently. Unfortunately, I can only give it a 2-star rating based  │\n│                     │ on my experience. The bundle promises a curated collection of classic and            │\n│                     │ contemporary texts on intergenerational knowledge, but the execution falls           │\n│                     │ drastically short.                                                                   │\n│                     │                                                                                      │\n│                     │ First, the physical books arrived with noticeable damage—torn covers and             │\n│                     │ water-stained pages—that suggests poor handling during shipping or storage. More     │\n│                     │ frustratingly, the content itself feels disjointed; the selections lack cohesion,    │\n│                     │ and many of the \"wisdom\" excerpts are either out of context or poorly annotated. The │\n│                     │ introductions claim to bridge generational gaps, yet they often present              │\n│                     │ oversimplified or biased viewpoints that don't reflect the nuanced discussions I     │\n│                     │ expected.                                                                            │\n│                     │                                                                                      │\n│                     │ The layout is clunky, with dense blocks of text and minimal visual aids, making it   │\n│                     │ difficult to navigate the material. Additionally, several of the referenced studies  │\n│                     │ are dated, and there’s no clear effort to update or contextualize them for a modern  │\n│                     │ audience. The price point feels unjustified given these shortcomings, especially     │\n│                     │ when compared to similar bundles that offer better organization, updated             │\n│                     │ scholarship, and more thoughtful curation.                                           │\n│                     │                                                                                      │\n│                     │ Overall, the Generational Wisdom Textbooks Bundle feels like a missed opportunity.   │\n│                     │ It could have been a valuable resource for anyone interested in cross‑generational   │\n│                     │ learning, but the execution is hampered by poor production quality, uneven content   │\n│                     │ selection, and a lack of attention to the user experience. I would only recommend it │\n│                     │ to those who are patient enough to sift through the flaws in hopes of finding        │\n│                     │ occasional gems—but for most readers, it’s simply not worth the investment.          │\n└─────────────────────┴──────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# The preview dataset is available as a pandas DataFrame.\npreview.dataset",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># The preview dataset is available as a pandas DataFrame.</span>\npreview<span style=\"color: #666\">.</span>dataset\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>product_category</th>\n      <th>product_subcategory</th>\n      <th>target_age_range</th>\n      <th>customer</th>\n      <th>number_of_stars</th>\n      <th>review_style</th>\n      <th>product_name</th>\n      <th>customer_review</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>Books</td>\n      <td>Textbooks</td>\n      <td>50-65</td>\n      <td>{'uuid': '81d4eacf-63e6-4dbe-a6b0-5d39c83f46f4...</td>\n      <td>2</td>\n      <td>detailed</td>\n      <td>Generational Wisdom Textbooks Bundle</td>\n      <td>I’m David, 42, from Reedshire, Minnesota, and ...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>Home &amp; Kitchen</td>\n      <td>Furniture</td>\n      <td>35-50</td>\n      <td>{'uuid': '2f25ee53-5d71-4c63-aedf-c8798e69c492...</td>\n      <td>1</td>\n      <td>detailed</td>\n      <td>HearthSpace Organizer</td>\n      <td>**Detailed Review – 1 Star (Leslie, 64, West J...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 📊 Analyze the generated data\n\n- Data Designer automatically generates a basic statistical analysis of the generated data.\n\n- This analysis is available via the `analysis` property of generation result objects."
+    },
+    {
+      "type": "code",
+      "source": "# Print the analysis as a table.\npreview.analysis.to_report()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Print the analysis as a table.</span>\npreview<span style=\"color: #666\">.</span>analysis<span style=\"color: #666\">.</span>to_report()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 8                               │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                    </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">            number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category               │          string │                      2 (100.0%) │                   category │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ product_subcategory            │          string │                      2 (100.0%) │                subcategory │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ target_age_range               │          string │                      2 (100.0%) │                   category │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ customer                       │            dict │                      2 (100.0%) │          person_from_faker │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ number_of_stars                │             int │                      2 (100.0%) │                    uniform │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ review_style                   │          string │                       1 (50.0%) │                   category │\n└────────────────────────────────┴─────────────────┴─────────────────────────────────┴────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_name          │        string │                 2 (100.0%) │      74.0 +/- 1.0 │            5.0 +/- 1.4 │\n├───────────────────────┼───────────────┼────────────────────────────┼───────────────────┼────────────────────────┤\n│ customer_review       │        string │                 2 (100.0%) │      69.0 +/- 1.0 │        557.0 +/- 316.8 │\n└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🆙 Scale up!\n\n- Happy with your preview data?\n\n- Use the `create` method to submit larger Data Designer generation jobs."
+    },
+    {
+      "type": "code",
+      "source": "results = data_designer.create(config_builder, num_records=10, dataset_name=\"tutorial-1\")",
+      "language": "python",
+      "source_html": "results <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>create(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">10</span>, dataset_name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;tutorial-1&quot;</span>)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] 🎨 Creating Data Designer dataset",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] 📂 Dataset path '/Users/llane/conductor/workspaces/DataDesigner/tacoma-v3/docs/notebook_source/artifacts/tutorial-1' already exists. Dataset from this session\n\t\t     will be saved to '/Users/llane/conductor/workspaces/DataDesigner/tacoma-v3/docs/notebook_source/artifacts/tutorial-1_04-28-2026_143817' instead.",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] ✅ Validation passed",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] 🩺 Running health checks for models...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |-- ✅ Passed!",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] ⏳ Processing batch 1 of 1",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] 🎲 Preparing samplers to generate 10 records across 6 columns",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] 📝 llm-text model config for column 'product_name'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |-- model provider: 'nvidia'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |-- inference parameters:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |  |-- generation_type=chat-completion",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |  |-- max_parallel_requests=4",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |  |-- temperature=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |  |-- top_p=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO]   |  |-- max_tokens=2048",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] ⚡️ Processing llm-text column 'product_name' with 4 concurrent workers",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:17] [INFO] ⏱️ llm-text column 'product_name' will report progress after each record",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌑 llm-text column 'product_name' progress: 1/10 (10%) complete, 1 ok, 0 failed, 2.86 rec/s, eta 3.1s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌑 llm-text column 'product_name' progress: 2/10 (20%) complete, 2 ok, 0 failed, 5.70 rec/s, eta 1.4s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌘 llm-text column 'product_name' progress: 3/10 (30%) complete, 3 ok, 0 failed, 8.48 rec/s, eta 0.8s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌘 llm-text column 'product_name' progress: 4/10 (40%) complete, 4 ok, 0 failed, 11.18 rec/s, eta 0.5s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌗 llm-text column 'product_name' progress: 5/10 (50%) complete, 5 ok, 0 failed, 7.76 rec/s, eta 0.6s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌗 llm-text column 'product_name' progress: 6/10 (60%) complete, 6 ok, 0 failed, 9.27 rec/s, eta 0.4s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌗 llm-text column 'product_name' progress: 7/10 (70%) complete, 7 ok, 0 failed, 10.76 rec/s, eta 0.3s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌖 llm-text column 'product_name' progress: 8/10 (80%) complete, 8 ok, 0 failed, 11.96 rec/s, eta 0.2s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌖 llm-text column 'product_name' progress: 9/10 (90%) complete, 9 ok, 0 failed, 9.71 rec/s, eta 0.1s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- 🌕 llm-text column 'product_name' progress: 10/10 (100%) complete, 10 ok, 0 failed, 10.48 rec/s, eta 0.0s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO] 📝 llm-text model config for column 'customer_review'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- model provider: 'nvidia'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |-- inference parameters:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |  |-- generation_type=chat-completion",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |  |-- max_parallel_requests=4",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |  |-- temperature=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |  |-- top_p=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO]   |  |-- max_tokens=2048",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO] ⚡️ Processing llm-text column 'customer_review' with 4 concurrent workers",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:18] [INFO] ⏱️ llm-text column 'customer_review' will report progress after each record",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:19] [INFO]   |-- 😴 llm-text column 'customer_review' progress: 1/10 (10%) complete, 1 ok, 0 failed, 1.74 rec/s, eta 5.2s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:19] [INFO]   |-- 😴 llm-text column 'customer_review' progress: 2/10 (20%) complete, 2 ok, 0 failed, 2.03 rec/s, eta 3.9s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:20] [INFO]   |-- 🥱 llm-text column 'customer_review' progress: 3/10 (30%) complete, 3 ok, 0 failed, 2.04 rec/s, eta 3.4s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:20] [INFO]   |-- 🥱 llm-text column 'customer_review' progress: 4/10 (40%) complete, 4 ok, 0 failed, 2.51 rec/s, eta 2.4s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:20] [INFO]   |-- 😐 llm-text column 'customer_review' progress: 5/10 (50%) complete, 5 ok, 0 failed, 2.37 rec/s, eta 2.1s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:21] [INFO]   |-- 😐 llm-text column 'customer_review' progress: 6/10 (60%) complete, 6 ok, 0 failed, 2.29 rec/s, eta 1.7s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:21] [INFO]   |-- 😐 llm-text column 'customer_review' progress: 7/10 (70%) complete, 7 ok, 0 failed, 2.30 rec/s, eta 1.3s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:21] [INFO]   |-- 😊 llm-text column 'customer_review' progress: 8/10 (80%) complete, 8 ok, 0 failed, 2.62 rec/s, eta 0.8s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:22] [INFO]   |-- 😊 llm-text column 'customer_review' progress: 9/10 (90%) complete, 9 ok, 0 failed, 2.47 rec/s, eta 0.4s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 🤩 llm-text column 'customer_review' progress: 10/10 (100%) complete, 10 ok, 0 failed, 2.29 rec/s, eta 0.0s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO] 📊 Model usage summary:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- tokens: input=1777, output=2614, total=4391, tps=741",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- requests: success=20, failed=0, total=20, rpm=202",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO] 📐 Measuring dataset column statistics:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 🎲 column: 'product_category'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 🎲 column: 'product_subcategory'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 🎲 column: 'target_age_range'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 🎲 column: 'customer'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 🎲 column: 'number_of_stars'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 🎲 column: 'review_style'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 📝 column: 'product_name'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[14:38:23] [INFO]   |-- 📝 column: 'customer_review'",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Load the generated dataset as a pandas DataFrame.\ndataset = results.load_dataset()\n\ndataset.head()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the generated dataset as a pandas DataFrame.</span>\ndataset <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_dataset()\n\ndataset<span style=\"color: #666\">.</span>head()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>product_category</th>\n      <th>product_subcategory</th>\n      <th>target_age_range</th>\n      <th>customer</th>\n      <th>number_of_stars</th>\n      <th>review_style</th>\n      <th>product_name</th>\n      <th>customer_review</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>Books</td>\n      <td>Fiction</td>\n      <td>50-65</td>\n      <td>{'age': 41, 'bachelors_field': 'stem', 'birth_...</td>\n      <td>4</td>\n      <td>detailed</td>\n      <td>The Golden Chapter Collection</td>\n      <td>**The Golden Chapter Collection – 4‑Star Revie...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>Books</td>\n      <td>Textbooks</td>\n      <td>65+</td>\n      <td>{'age': 31, 'bachelors_field': 'education', 'b...</td>\n      <td>3</td>\n      <td>brief</td>\n      <td>Golden Pages Reader</td>\n      <td>I bought the Golden Pages Reader in Dennisboro...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>Clothing</td>\n      <td>Women's Clothing</td>\n      <td>50-65</td>\n      <td>{'age': 58, 'bachelors_field': 'business', 'bi...</td>\n      <td>2</td>\n      <td>rambling</td>\n      <td>EleganceWeave Cardigan Collection</td>\n      <td>Whew, where do I even begin? This cardigan? It...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>Clothing</td>\n      <td>Winter Coats</td>\n      <td>65+</td>\n      <td>{'age': 64, 'bachelors_field': 'business', 'bi...</td>\n      <td>2</td>\n      <td>structured with bullet points</td>\n      <td>Timeless Warmth Overcoat</td>\n      <td>- Rated this Timeless Warmth Overcoat 2 stars ...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>Books</td>\n      <td>Self-Help</td>\n      <td>50-65</td>\n      <td>{'age': 70, 'bachelors_field': 'stem_related',...</td>\n      <td>3</td>\n      <td>brief</td>\n      <td>Wisdom Compass</td>\n      <td>3-star review:  \nThe Wisdom Compass feels like...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Load the analysis results into memory.\nanalysis = results.load_analysis()\n\nanalysis.to_report()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the analysis results into memory.</span>\nanalysis <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_analysis()\n\nanalysis<span style=\"color: #666\">.</span>to_report()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 10                              │ 8                               │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                    </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">            number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category               │          string │                       4 (40.0%) │                   category │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ product_subcategory            │          string │                       8 (80.0%) │                subcategory │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ target_age_range               │          string │                       5 (50.0%) │                   category │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ customer                       │            dict │                     10 (100.0%) │          person_from_faker │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ number_of_stars                │             int │                       5 (50.0%) │                    uniform │\n├────────────────────────────────┼─────────────────┼─────────────────────────────────┼────────────────────────────┤\n│ review_style                   │          string │                       4 (40.0%) │                   category │\n└────────────────────────────────┴─────────────────┴─────────────────────────────────┴────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_name          │        string │                10 (100.0%) │      74.0 +/- 1.0 │            5.0 +/- 1.8 │\n├───────────────────────┼───────────────┼────────────────────────────┼───────────────────┼────────────────────────┤\n│ customer_review       │        string │                10 (100.0%) │      70.5 +/- 2.8 │        205.5 +/- 175.9 │\n└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "## ⏭️ Next Steps\n\nNow that you've seen the basics of Data Designer, check out the following notebooks to learn more about:\n\n- [Structured outputs, jinja expressions, and conditional generation](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)\n\n- [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)\n\n- [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)\n\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/)"
+    }
+  ]
+}
