@@ -1,0 +1,4496 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/training-a-vlm-to-understand-long-documents-an-iterative-sdg-story/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/palette-favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Training a VLM to Understand Long Documents: An Iterative SDG Story - NeMo Data Designer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CFira+Code:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Fira Code"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../css/style.css">
+    
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#training-a-vlm-to-understand-long-documents-an-iterative-sdg-story" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You're not viewing the latest version.
+  <a href="../../..">
+    <strong>Click here to go to latest.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            NeMo Data Designer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Training a VLM to Understand Long Documents: An Iterative SDG Story
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7M9 21v-1h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1m3-17a5 5 0 0 0-5 5c0 2.05 1.23 3.81 3 4.58V16h4v-2.42c1.77-.77 3-2.53 3-4.58a5 5 0 0 0-5-5"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7M9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" hidden>
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    NeMo Data Designer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/seed-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seed Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/agent-rollout-ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Rollout Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Models
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/default-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Default Model Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure with the CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/custom-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Model Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/model-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/model-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/inference-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inference Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/custom_columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/validators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/person_sampling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Person Sampling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/traces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Traces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_10" id="__nav_2_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Use & MCP
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tool Use & MCP
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/tool_use_and_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/mcp-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/tool-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/enabling-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enabling Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/configure-mcp-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/safety-and-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety & Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/architecture-and-performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/deployment-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../notebooks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/1-the-basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured Outputs, Jinja Expressions, and Conditional Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seeding with an External Dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/4-providing-images-as-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providing Images as Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/5-generating-images/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generating Images
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/6-editing-images-with-image-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Image-to-Image Editing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Recipes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/cards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipe Cards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Generation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/text_to_python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to Python
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/enterprise_text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Super Text to SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugin Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/plugin_development/markdown_seed_reader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Markdown Section Seed Reader Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QA and Chat
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    QA and Chat
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/qa_and_chat/product_info_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Product Info QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/qa_and_chat/multi_turn_chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Turn Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trace Ingestion
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Trace Ingestion
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/trace_ingestion/agent_rollout_distillation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Rollout Trace Distillation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP and Tool Use
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MCP and Tool Use
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/basic_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic MCP Tool Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/pdf_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PDF Document QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/search_agent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Super Search Agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/filesystem_seed_reader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FileSystemSeedReader Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/available/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Available Plugin List
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/column_configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    column_configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config_builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/data_designer_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data_designer_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/run_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    run_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/sampler_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sampler_params
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/validator_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validator_params
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dev Notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training a VLM to Understand Long Documents: An Iterative SDG Story
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training a VLM to Understand Long Documents: An Iterative SDG Story
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-approach-iterative-pipeline-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Approach: Iterative Pipeline Development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seed-data-building-the-document-corpus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Seed Data: Building the Document Corpus
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-getting-data-on-the-board" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Getting Data on the Board
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-seeing-the-document" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Seeing the Document
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-thinking-models-and-prompt-engineering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Thinking Models and Prompt Engineering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-targeting-weak-spots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Targeting Weak Spots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-5-quality-at-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: Quality at Scale
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rl-on-top-of-sft" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RL on top of SFT
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#infrastructure-and-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Infrastructure and Scale
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-we-learned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What We Learned
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#evaluation-on-mmlongbench-doc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation on MMLongBench-Doc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#impact-on-other-benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Impact on Other Benchmarks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-contributions-features-born-from-this-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upstream Contributions: Features Born from This Project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-compound-effect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Compound Effect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#try-for-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try For Yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../push-datasets-to-hugging-face-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push Datasets to Hugging Face Hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../async-all-the-way-down/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Async All the Way Down
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../owning-the-model-stack-adaptive-concurrency-ftw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Owning the Model Stack: Adaptive Concurrency FTW!
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data-designer-got-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Designer Got Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../search-agent-sft-data-teaching-llms-to-browse-the-web/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Search Agent SFT Data: Teaching LLMs to Browse the Web
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deep-research-trajectories-with-nemo-data-designer-and-mcp-tool-use/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Research Trajectories with NeMo Data Designer and MCP Tool Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../designing-data-designer-why-sdg-is-a-systems-problem/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing Data Designer: Why SDG Is a Systems Problem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graduate-level-science-reasoning-data-with-nemo-data-designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graduate-Level Science Reasoning Data with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_13" id="__nav_7_13_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archive
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Archive
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+    
+  
+  
+    <li class="md-nav__item">
+      <a href="../archive/2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2026
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-approach-iterative-pipeline-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Approach: Iterative Pipeline Development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seed-data-building-the-document-corpus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Seed Data: Building the Document Corpus
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-getting-data-on-the-board" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Getting Data on the Board
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-seeing-the-document" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Seeing the Document
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-thinking-models-and-prompt-engineering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Thinking Models and Prompt Engineering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-targeting-weak-spots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Targeting Weak Spots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-5-quality-at-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: Quality at Scale
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rl-on-top-of-sft" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RL on top of SFT
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#infrastructure-and-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Infrastructure and Scale
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-we-learned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What We Learned
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#evaluation-on-mmlongbench-doc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation on MMLongBench-Doc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#impact-on-other-benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Impact on Other Benchmarks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-contributions-features-born-from-this-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upstream Contributions: Features Born from This Project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-compound-effect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Compound Effect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#try-for-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try For Yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+  <div class="md-content md-content--post" data-md-component="content">
+    <div class="md-sidebar md-sidebar--post" data-md-component="sidebar" data-md-type="navigation">
+      <div class="md-sidebar__scrollwrap">
+        <div class="md-sidebar__inner md-post">
+          <nav class="md-nav md-nav--primary">
+            <div class="md-post__back">
+              <div class="md-nav__title md-nav__container">
+                <a href="../" class="md-nav__link">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+                  <span class="md-ellipsis">
+                    Back to index
+                  </span>
+                </a>
+              </div>
+            </div>
+            
+              <div class="md-post__authors md-typeset">
+                
+                  <div class="md-profile md-post__profile">
+                    <span class="md-author md-author--long">
+                      <img src="https://avatars.githubusercontent.com/u/5551931?v=4" alt="Nabin Mulepati">
+                    </span>
+                    <span class="md-profile__description">
+                      <strong>
+                        
+                          Nabin Mulepati
+                        
+                      </strong>
+                      <br>
+                      Researcher at NVIDIA
+                    </span>
+                  </div>
+                
+                  <div class="md-profile md-post__profile">
+                    <span class="md-author md-author--long">
+                      <img src="https://avatars.githubusercontent.com/u/143676174?v=4" alt="Tuomas Rintamaki">
+                    </span>
+                    <span class="md-profile__description">
+                      <strong>
+                        
+                          Tuomas Rintamaki
+                        
+                      </strong>
+                      <br>
+                      Researcher at NVIDIA
+                    </span>
+                  </div>
+                
+                  <div class="md-profile md-post__profile">
+                    <span class="md-author md-author--long">
+                      <img src="https://avatars.githubusercontent.com/u/1223539?v=4" alt="Eric Tramel">
+                    </span>
+                    <span class="md-profile__description">
+                      <strong>
+                        
+                          Eric Tramel
+                        
+                      </strong>
+                      <br>
+                      Researcher at NVIDIA
+                    </span>
+                  </div>
+                
+                  <div class="md-profile md-post__profile">
+                    <span class="md-author md-author--long">
+                      <img src="https://avatars.githubusercontent.com/u/130559691?v=4" alt="Ilia Karmanov">
+                    </span>
+                    <span class="md-profile__description">
+                      <strong>
+                        
+                          Ilia Karmanov
+                        
+                      </strong>
+                      <br>
+                      Researcher at NVIDIA
+                    </span>
+                  </div>
+                
+              </div>
+            
+            <ul class="md-post__meta md-nav__list">
+              <li class="md-nav__item md-nav__item--section">
+                <div class="md-post__title">
+                  <span class="md-ellipsis">
+                    Metadata
+                  </span>
+                </div>
+                <nav class="md-nav">
+                  <ul class="md-nav__list">
+                    <li class="md-nav__item">
+                      <div class="md-nav__link">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 19H5V8h14m-3-7v2H8V1H6v2H5c-1.11 0-2 .89-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-1V1m-1 11h-5v5h5z"/></svg>
+                        <time datetime="2026-04-28 00:00:00+00:00" class="md-ellipsis">April 28, 2026</time>
+                      </div>
+                    </li>
+                    
+                    
+                    
+                      
+                      <li class="md-nav__item">
+                        <div class="md-nav__link">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 20a8 8 0 0 0 8-8 8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8m0-18a10 10 0 0 1 10 10 10 10 0 0 1-10 10C6.47 22 2 17.5 2 12A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7z"/></svg>
+                          <span class="md-ellipsis">
+                            
+                              20 min read
+                            
+                          </span>
+                        </div>
+                      </li>
+                    
+                  </ul>
+                </nav>
+              </li>
+            </ul>
+            
+          </nav>
+          
+        </div>
+      </div>
+    </div>
+    <article class="md-content__inner md-typeset">
+      
+        
+  
+
+
+
+  
+  
+
+
+<h1 id="training-a-vlm-to-understand-long-documents-an-iterative-sdg-story"><strong>Training a VLM to Understand Long Documents: An Iterative SDG Story</strong></h1>
+<p>How do you teach a VLM to read charts, cross-reference tables, and reason over 100+ page PDFs? We generated ~11.4M synthetic visual question-answer pairs (~45B tokens, including questions, answers, thinking traces, and vision tokens) with NeMo Data Designer to improve long-document visual reasoning in a multimodal model. We used <a href="https://arxiv.org/abs/2407.01523">MMLongBench-Doc</a> as our main evaluation target throughout the project, tracking both overall progress and the specific document-reasoning capabilities the model was still missing. In this post, we cover what worked and what didn't.</p>
+<!-- more -->
+
+<div style="text-align: center;">
+<p><img alt="From scattered PDF documents to structured visual question-answer pairs via synthetic data generation" src="../assets/vlm-long-document-understanding/vlm-sdg-hero.png" /></p>
+</div>
+<hr />
+<p>MMLongBench-Doc tests whether a VLM can answer questions about long, multi-page PDF documents — the kind with tables, charts, diagrams, and dense text spread across dozens of pages. The benchmark is hard because it requires genuine visual reasoning: reading bar charts, counting elements in diagrams, synthesizing evidence from tables, charts, and text spread across dozens of pages, and knowing when a question simply can't be answered from the available content.</p>
+<p>Our starting point was an early version of <em>Nemotron-3-Nano-Omni-30B-A3B</em>, a multimodal model that responded "Unanswerable" to almost everything on this benchmark. The score: <strong>26%</strong>. We needed training data that would teach the model to actually look at documents and reason about what it sees.</p>
+<p>Here's how we got there.</p>
+<hr />
+<h2 id="the-approach-iterative-pipeline-development"><strong>The Approach: Iterative Pipeline Development</strong></h2>
+<p>Rather than designing one pipeline and generating millions of rows, we worked in phases. Each phase produced a new SDG pipeline, a new batch of training data, and a new round of evaluation and failure analysis that showed which document-reasoning capabilities were still missing. The tight feedback loop between SDG pipeline changes and training results was essential.</p>
+<div style="text-align: center;">
+<p><img alt="The iterative development loop: design pipeline, generate data, train model, evaluate and analyze, repeat" src="../assets/vlm-long-document-understanding/iterative-loop.png" style="max-width:85%; height:auto" /></p>
+</div>
+<p>To keep our iterations fast, we measured the usefulness of our generated data in SFT and RL training runs that used primarily our generated data and a small amount of other data sources. We also experimented with different training configs such as sequence length and different strategies for representing multiple Q&amp;A for the same document. In parallel, we ran bigger experiments with more complete datamixes to make sure our improvements would carry over to the final <em>Nemotron-3-Nano-Omni-30B-A3B</em> training recipe.</p>
+<p>The final training blend drew from four data-generation streams — an OCR-based text pipeline, a classification-filtered visual QA pipeline targeting charts, tables, and diagrams, a general single-page QA pipeline, and multi-page / whole-document QA pipelines — all filtered by a strong independent judge before contributing to the SFT dataset. Each stream is described in the phases below.</p>
+<div style="text-align: center;">
+<p><img alt="Pipeline architecture: four data-generation streams — text-LLM QA, classification-filtered visual QA, general single-page QA, and multi-page / whole-document QA — all filtered by a strong independent judge before contributing to the SFT training blend" src="../assets/vlm-long-document-understanding/pipeline-architecture.png" style="max-width:85%; height:auto" /></p>
+</div>
+<p>The rest of this post walks through the work in order: first the seed data we collected, then each pipeline phase in sequence, followed by the infrastructure lessons and what we learned along the way.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Unless explicitly noted otherwise, the scores below come from experimental development runs rather than the final released model. The data generated through this effort was incorporated into the final training blend for the released <em>Nemotron-3-Nano-Omni-30B-A3B</em> model.</p>
+</div>
+<hr />
+<h2 id="seed-data-building-the-document-corpus"><strong>Seed Data: Building the Document Corpus</strong></h2>
+<p>Every SDG pipeline needs source material. Ours was a growing corpus of real PDF documents, rendered as page images with one row per page. As training results revealed gaps, we expanded the corpus to cover the missing document types and reasoning modes.</p>
+<ul>
+<li>
+<p><strong>Common Crawl PDFs</strong> were the starting point. We filtered a large collection of web-crawled PDFs to medium- and long-form documents where cross-page reasoning and long-context visual understanding matter most, yielding ~8.2 million page images. Common Crawl gave us breadth: reports, presentations, manuals, forms, and everything else that ends up on the public web.</p>
+</li>
+<li>
+<p><strong>SEC filings</strong> came next. We added 10K filings and other financial documents in late January '26 to expand coverage of dense tables, cross-referenced numerical data, and long-form financial layouts. They were useful, but their extreme page counts also taught us a lesson: squeezing very long documents into fixed context windows reduced image resolution enough to hurt training until we learned to cap extreme page counts and increase sequence length.</p>
+</li>
+<li>
+<p><strong>arXiv papers</strong> expanded coverage of scientific figures, equations, multi-panel plots, and citation-heavy layouts. Across multiple random samples from the arXiv 2023 corpus, we generated over 2.4 million page images.</p>
+</li>
+<li>
+<p><strong>Technical manuals and brochures</strong> arrived in late February '26 from an internal data acquisition team. This added ~432K English-language in-domain pages rich in diagrams, schematics, and step-by-step procedural layouts — exactly the content types where our model scored lowest.</p>
+</li>
+</ul>
+<p>The benchmark itself contains publicly available documents that may be included in large-scale text pretraining datasets. However, our model's very low initial score suggests the model hasn't memorized the documents or benchmark question and answer pairs. We used heuristics such as document name matching to try to check that we don't inadvertently add benchmark documents to our long-document dataset. Additionally, we audited our generated Q&amp;A and found negligible Q&amp;A overlap with the benchmark; where overlap occurred, the corresponding documents were entirely different.</p>
+<p>Regardless of source, each dataset then went through the same preparation pipeline: PDFs were rendered to per-page PNG images, stored on the shared filesystem, and referenced by file path in parquet files. Grouping scripts then produced three seed variants: <strong>per-page seeds</strong> (one page image per row, for classification and single-page QA), <strong>windowed seeds</strong> (disjoint sets of 2–8 consecutive pages, with window size scaling by document length, for cross-page QA), and <strong>whole-document seeds</strong> (all pages of a PDF grouped together for full-document QA). Together, these gave us single-page, multi-page, and whole-document generation from the same source documents.</p>
+<hr />
+<h2 id="phase-1-getting-data-on-the-board"><strong>Phase 1: Getting Data on the Board</strong></h2>
+<p>We started simple on purpose. The first pipeline split the problem into OCR transcription with <a href="https://build.nvidia.com/nvidia/nemotron-parse">Nemotron Parse</a> and question-answer generation from those transcripts with GPT-OSS-120B.</p>
+<p>Nemotron Parse produced structured text with bounding boxes and semantic classes such as title, section, caption, tables, and image, and its transcriptions were consistently accurate even on dense layouts with tables, charts, and mixed content:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;raw_ocr_output&quot;</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="s2">&quot;ocr&quot;</span><span class="p">,</span>  <span class="c1"># Nemotron-Parse-v1.1</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>  <span class="c1"># Nemotron Parse does not require a user prompt</span>
+        <span class="n">multi_modal_context</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">dd</span><span class="o">.</span><span class="n">ImageContext</span><span class="p">(</span>
+                <span class="n">column_name</span><span class="o">=</span><span class="s2">&quot;png_path&quot;</span><span class="p">,</span>
+                <span class="n">data_type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ModalityDataType</span><span class="o">.</span><span class="n">URL</span><span class="p">,</span>
+                <span class="n">image_format</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ImageFormat</span><span class="o">.</span><span class="n">PNG</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">],</span>
+        <span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">CustomColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;transcribed_texts&quot;</span><span class="p">,</span>
+        <span class="n">generator_function</span><span class="o">=</span><span class="n">parse_ocr_output</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>The GPT-OSS stage then generated questions and answers from those transcripts:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">QuestionAnswer</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">question</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;The question to be answered.&quot;</span><span class="p">)</span>
+    <span class="n">answer</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;The correct answer to the question.&quot;</span><span class="p">)</span>
+
+<span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMStructuredColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;question_and_answer&quot;</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="s2">&quot;gpt-oss&quot;</span><span class="p">,</span>  <span class="c1"># GPT-OSS-120B</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="n">QUESTION_ANSWER_PROMPT</span><span class="p">,</span>
+        <span class="n">output_format</span><span class="o">=</span><span class="n">QuestionAnswer</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Splitting OCR and QA into separate pipelines meant we only needed to run Nemotron Parse once per seed dataset. After that, we could iterate on QA prompts and generation parameters as many times as needed without re-transcribing. The first large-scale run produced millions of OCR transcriptions across dozens of SLURM jobs, followed by a comparable number of QA pairs.</p>
+<p>While we stopped generating new OCR-based QA after Phase 1, we still sampled a subset of the QA generated in this phase to retain in the final training blend.</p>
+<p><strong>Result:</strong> A modest gain in raw overall accuracy, from around 26% to around 28%. The model stopped answering "Unanswerable" to everything and started producing real answers across all categories. The approach was validated.</p>
+<hr />
+<h2 id="phase-2-seeing-the-document"><strong>Phase 2: Seeing the Document</strong></h2>
+<p>Text-only QA from OCR misses everything that makes documents visual: the layout of a bar chart, the structure of a flowchart, the spatial relationships in a floor plan. MMLongBench-Doc specifically tests these capabilities. We needed the model generating training data to actually <em>look</em> at the pages.</p>
+<p>Our first attempt was to reuse Nemotron Parse's bounding boxes and coarse element tags to scope QA generation. We fed this metadata into both the GPT-OSS text pipeline and the Qwen3-VL visual pipeline, hoping to tell the model which region of the page to focus on. For GPT-OSS, the boxes provided spatial context alongside the OCR transcript. For Qwen3-VL, we asked the model to restrict its visual attention to the specified region.</p>
+<p>Neither approach worked well. The bbox labels were too coarse to guide useful QA generation: a <code>table</code> tag doesn't tell you whether the content is a financial table, a comparison table, or a pivot table, and the <code>image</code> tag was even broader. Because the source corpus contained all kinds of images, asking the model to focus only on OCR-tagged <code>image</code> regions surfaced everything from company logos and decorative graphics to data-rich charts and diagrams, which produced many low-value QA pairs. Qwen3-VL also couldn't reliably stay inside the specified bounding box when we tried to enforce the spatial constraint, which further reduced QA quality.</p>
+<p>This failure directly motivated what came next: instead of trying to constrain a model's attention to a region, we built a <strong>classification stage</strong> that examines each page image as a whole and determines what visual elements it actually contains.</p>
+<div style="text-align: center;">
+<p><img alt="Classification taxonomy: 8 primary categories with 45 subcategories covering quantitative, logic diagrams, hierarchical, spatial, schematic, tabular, infographic, and none" src="../assets/vlm-long-document-understanding/classification-taxonomy.png" style="max-width:90%; height:auto" /></p>
+</div>
+<p>Each category maps to specific subcategories — for example, QUANTITATIVE includes bar charts, line graphs, scatter plots, pie charts, area graphs, histograms, box plots, heatmaps, and bubble charts. TABULAR distinguishes simple tables from nested, pivot, comparison, and financial tables. The NONE category catches decorative images, photographs, plain text blocks, and presentation slides with only bullet points.</p>
+<p>The classification prompt instructs the model to score reasoning complexity on a 1–10 scale: high complexity (8–10) requires multi-step inference like cross-referencing data sources or conditional logic chains, medium (4–7) requires single-step analysis like direct comparisons, and low (1–3) covers simple lookups.</p>
+<div class="language-python highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">PageClassification</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">contains_reasoning_content</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">primary_categories</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">VisualElementCategory</span><span class="p">]</span>
+    <span class="n">subcategories</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">VisualElementSubcategory</span><span class="p">]</span>
+    <span class="n">reasoning_complexity_score</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">justification</span><span class="p">:</span> <span class="nb">str</span>
+
+
+<span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMStructuredColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;page_classification&quot;</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="s2">&quot;qwen-vl&quot;</span><span class="p">,</span>  <span class="c1"># Qwen3-VL-30B-A3B</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="n">CLASSIFICATION_PROMPT</span><span class="p">,</span>
+        <span class="n">output_format</span><span class="o">=</span><span class="n">PageClassification</span><span class="p">,</span>
+        <span class="n">multi_modal_context</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">dd</span><span class="o">.</span><span class="n">ImageContext</span><span class="p">(</span>
+                <span class="n">column_name</span><span class="o">=</span><span class="s2">&quot;png_path&quot;</span><span class="p">,</span>
+                <span class="n">data_type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ModalityDataType</span><span class="o">.</span><span class="n">URL</span><span class="p">,</span>
+                <span class="n">image_format</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ImageFormat</span><span class="o">.</span><span class="n">PNG</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">],</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>The taxonomy covers 8 primary categories with 45 subcategories. Running classification over our Common Crawl corpus revealed how much of the data actually contained visual reasoning content:</p>
+<div class="cls-funnel">
+<style>
+.cls-funnel {
+  max-width: 680px;
+  margin: 20px auto;
+  font-family: -apple-system, system-ui, sans-serif;
+}
+.cls-funnel .cf-row {
+  display: flex;
+  align-items: center;
+  margin: 4px 0;
+  gap: 12px;
+}
+.cls-funnel .cf-label {
+  min-width: 130px;
+  text-align: right;
+  font-size: 0.8em;
+  flex-shrink: 0;
+}
+.cls-funnel .cf-bar-wrap {
+  flex: 1;
+  position: relative;
+  height: 28px;
+}
+.cls-funnel .cf-bar-outer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+}
+.cls-funnel .cf-bar {
+  height: 100%;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 0.75em;
+  font-weight: 600;
+  color: #fff;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+}
+.cls-funnel .cf-count {
+  font-size: 0.75em;
+  font-weight: 600;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+.cls-funnel .cf-none { background: rgba(158, 158, 158, 0.4); }
+.cls-funnel .cf-tab { background: #5c6bc0; }
+.cls-funnel .cf-quant { background: #42a5f5; }
+.cls-funnel .cf-info { background: #26a69a; }
+.cls-funnel .cf-hier { background: #66bb6a; }
+.cls-funnel .cf-logic { background: #ffa726; }
+.cls-funnel .cf-spatial { background: #ef5350; }
+.cls-funnel .cf-schema { background: #ab47bc; }
+.cls-funnel .cf-divider {
+  border-top: 2px dashed rgba(128, 128, 128, 0.25);
+  margin: 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cls-funnel .cf-divider-text {
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.45;
+  font-weight: 600;
+  white-space: nowrap;
+}
+</style>
+
+<div class="cf-row"><div class="cf-label">NONE</div><div class="cf-bar-wrap"><div class="cf-bar cf-none" style="width: 72%;">5.9M pages (72%)</div></div></div>
+<div class="cf-row"><div class="cf-label">TABULAR</div><div class="cf-bar-wrap"><div class="cf-bar-outer"><div class="cf-bar cf-tab" style="width: 19%;">&nbsp;</div><span class="cf-count">1.5M</span></div></div></div>
+<div class="cf-row"><div class="cf-label">INFOGRAPHIC</div><div class="cf-bar-wrap"><div class="cf-bar-outer"><div class="cf-bar cf-info" style="width: 9%;">&nbsp;</div><span class="cf-count">763K</span></div></div></div>
+<div class="cf-row"><div class="cf-label">QUANTITATIVE</div><div class="cf-bar-wrap"><div class="cf-bar-outer"><div class="cf-bar cf-quant" style="width: 7%;">&nbsp;</div><span class="cf-count">561K</span></div></div></div>
+<div class="cf-row"><div class="cf-label">SCHEMATIC</div><div class="cf-bar-wrap"><div class="cf-bar-outer"><div class="cf-bar cf-schema" style="width: 3%;">&nbsp;</div><span class="cf-count">277K</span></div></div></div>
+<div class="cf-row"><div class="cf-label">SPATIAL</div><div class="cf-bar-wrap"><div class="cf-bar-outer"><div class="cf-bar cf-spatial" style="width: 2%;">&nbsp;</div><span class="cf-count">157K</span></div></div></div>
+<div class="cf-row"><div class="cf-label">LOGIC_DIAGRAMS</div><div class="cf-bar-wrap"><div class="cf-bar-outer"><div class="cf-bar cf-logic" style="width: 1.5%;">&nbsp;</div><span class="cf-count">124K</span></div></div></div>
+<div class="cf-row"><div class="cf-label">HIERARCHICAL</div><div class="cf-bar-wrap"><div class="cf-bar-outer"><div class="cf-bar cf-hier" style="width: 0.75%;">&nbsp;</div><span class="cf-count">61K</span></div></div></div>
+
+<div class="cf-divider"><span class="cf-divider-text">Filter: contains_reasoning_content = true</span></div>
+
+<div class="cf-row"><div class="cf-label" style="font-weight: 700;">Kept for QA</div><div class="cf-bar-wrap"><div class="cf-bar" style="width: 28%; background: linear-gradient(90deg, #5c6bc0, #42a5f5, #26a69a, #66bb6a);">2.3M pages (28%)</div></div></div>
+
+</div>
+
+<p>72% of pages were plain text, decorative images, or content without reasoning potential. This filtering step was critical: the expensive QA generation stage only ran on the pages where visual reasoning questions were actually possible.</p>
+<p>The QA stage then used the classification to guide question generation. The prompt instructs the model to focus on the specific visual element type identified:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMStructuredColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;question&quot;</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="s2">&quot;qwen-vl-instruct&quot;</span><span class="p">,</span>  <span class="c1"># Qwen3-VL-235B-A22B-Instruct-FP8</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="n">QUESTION_PROMPT</span><span class="p">,</span>
+        <span class="n">output_format</span><span class="o">=</span><span class="n">Question</span><span class="p">,</span>
+        <span class="n">multi_modal_context</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">dd</span><span class="o">.</span><span class="n">ImageContext</span><span class="p">(</span>
+                <span class="n">column_name</span><span class="o">=</span><span class="s2">&quot;png_path&quot;</span><span class="p">,</span>
+                <span class="n">data_type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ModalityDataType</span><span class="o">.</span><span class="n">URL</span><span class="p">,</span>
+                <span class="n">image_format</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ImageFormat</span><span class="o">.</span><span class="n">PNG</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">],</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><strong>Result:</strong> Training with the visual QA data pushed the score to <strong>37%</strong> — an +11 point improvement over the 26% baseline. The model was learning to read charts and tables.</p>
+<hr />
+<h2 id="phase-3-thinking-models-and-prompt-engineering"><strong>Phase 3: Thinking Models and Prompt Engineering</strong></h2>
+<p>The jump from Phase 2 to Phase 3 was driven by two observations from the training results: the model was getting questions wrong that it should have gotten right, and many of the generated questions were either too complex or too trivial.</p>
+<p>We made three changes simultaneously:</p>
+<p><strong>1. Always use a strong thinking model.</strong> We moved to Qwen3-VL-235B-A22B-<strong>Thinking</strong>, which generates an internal chain-of-thought before producing its answer. While smaller models are faster to run, bigger and stronger models are often qualitatively better at data generation. Data Designer captures the reasoning trace separately via the <code>extract_reasoning_content=True</code> flag.</p>
+<p><strong>2. Dropped structured output for free-form text.</strong> The Phase 2 pipeline used <code>LLMStructuredColumnConfig</code> with Pydantic schemas for questions and answers. This guaranteed parseable output but constrained the model's generation. When we inspected the thinking traces from the structured output runs, the chain-of-thought was polluted with JSON formatting: the model was spending reasoning tokens figuring out how to fit its answer into the schema rather than reasoning about the document. We switched every column to <code>LLMTextColumnConfig</code>.</p>
+<p><strong>3. Rewrote every prompt.</strong> Based on what we observed in the data produced by Phase 2, we added more instructions and guardrails. The question prompt nearly doubled in length. The key additions include:</p>
+<ul>
+<li>
+<p><strong>Complexity targeting:</strong> Questions should require at least one step of reasoning — not direct lookup. Also, we explicitly listed anti-patterns to avoid such as ambiguous questions.</p>
+</li>
+<li>
+<p><strong>Verifiability checklist:</strong> Before outputting a question, the model must ask itself: "Can I answer this by looking at the visual? Can I verify if an answer is correct? Is there a clear, unambiguous correct answer?"</p>
+</li>
+<li>
+<p><strong>Tolerance for correctness:</strong> The answer correctness judge was updated to accept ±5% for numerical answers and equivalent formats ("25%" = "0.25" = "1/4"). The Phase 2 judge was too strict, marking correct answers as wrong over minor formatting differences.</p>
+</li>
+</ul>
+<div class="language-python highlight"><pre><span></span><code><span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;answer&quot;</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="s2">&quot;qwen-vl-thinking&quot;</span><span class="p">,</span>  <span class="c1"># Qwen3-VL-235B-A22B-Thinking-FP8</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="n">ANSWER_PROMPT</span><span class="p">,</span>
+        <span class="n">extract_reasoning_content</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">multi_modal_context</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><strong>Result:</strong> These changes pushed the score to <strong>39%</strong>. The thinking model and prompt improvements were additive — better questions, better answers, and cleaner reasoning traces all contributed.</p>
+<hr />
+<h2 id="phase-4-targeting-weak-spots"><strong>Phase 4: Targeting Weak Spots</strong></h2>
+<p>Phase 3 improved overall accuracy, but the per-category breakdown revealed persistent gaps. Image, chart, and layout categories were still lagging behind text, and multi-page reasoning remained the weakest overall at just 17%. The model was also saying "Not answerable" too often for questions where the answer was clearly present in the document.</p>
+<p>We reduced the share of unanswerable Q&amp;A we sampled and added explicit guidance to the answer prompt to reduce unnecessary refusals, encouraging the model to attempt an answer before concluding something was unanswerable.</p>
+<p><strong>Multi-page QA</strong> was the other major addition in this phase. Real-world document understanding often requires reasoning across multiple pages — "What is the total revenue across all quarterly reports?" can't be answered from a single page.</p>
+<p>Our first attempt used <strong>disjoint windows</strong> of consecutive pages (2 pages for short documents up to 8 pages for long ones), requiring cross-page reasoning within each window. We started with windows rather than full documents to make generation faster. Windows were a practical starting point, but they had a ceiling: a model that only sees 4 pages at a time can't generate questions like "how many appendices are in this document?" The real breakthrough came when we switched to a <strong>whole-document</strong> approach using Qwen3.5-397B-A17B, a newer and larger model in the Qwen family, feeding all pages of a PDF to the model at once and asking it to generate questions that genuinely require the entire document.</p>
+<div class="language-python highlight"><pre><span></span><code><span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;question&quot;</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="s2">&quot;qwen3p5-vl&quot;</span><span class="p">,</span>  <span class="c1"># Qwen3.5-397B-A17B-FP8</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="n">WHOLE_DOC_PROMPT</span><span class="p">,</span>
+        <span class="n">multi_modal_context</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">dd</span><span class="o">.</span><span class="n">ImageContext</span><span class="p">(</span>
+                <span class="n">column_name</span><span class="o">=</span><span class="s2">&quot;png_paths&quot;</span><span class="p">,</span>  <span class="c1"># all pages of the document</span>
+                <span class="n">data_type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ModalityDataType</span><span class="o">.</span><span class="n">URL</span><span class="p">,</span>
+                <span class="n">image_format</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ImageFormat</span><span class="o">.</span><span class="n">PNG</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">],</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>The whole-document prompt was informed by failure analysis of our model on long-document QA. It emphasized capabilities the model was still weak at: counting and aggregation across pages, extracting complete lists from repeated layouts, cross-page computation, and lookup chains that require evidence from multiple sections of a document. The prompt included question-type-specific templates for in-context learning and required the generator to verify that each question genuinely depended on evidence spread across more than one page.</p>
+<p><strong>Result:</strong> Whole-document QA produced the first strong gains on cross-page reasoning. After SFT with the combined data: <strong>53%</strong>, with the multi-page subcategory jumping from 26% to 44%.</p>
+<hr />
+<h2 id="phase-5-quality-at-scale"><strong>Phase 5: Quality at Scale</strong></h2>
+<p>By this point we had broad coverage of the main document-reasoning modes we cared about. The final phase focused on improving the quality, correctness, and training signal of the data we already had.</p>
+<p><strong>Improved reasoning traces.</strong> We found that the shape of our model's reasoning traces wasn't well structured. We improved the quality of the generated reasoning traces by prompting the data generation model to think in a structured and stepwise fashion. As an example, for questions spanning the whole document, we first want the model to scan pages and find content relevant to the question. By contrast, without the scanning phase, our model stopped sometimes too early when it found the first relevant evidence.</p>
+<p><strong>High quality filtering.</strong> We used a strong independent judge to score a sample of generated QA pairs across five rubrics, with weights tuned to what matters most for training. The model's role was strictly as a filter — it flagged low-quality pairs for removal, but none of its outputs (scores, explanations) were included in the SFT training data. This filtering step dropped about 10% of our samples:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="n">FINAL_SCORE_WEIGHTS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;Answer Correctness&quot;</span><span class="p">:</span> <span class="mf">0.35</span><span class="p">,</span>
+    <span class="s2">&quot;Training Signal Strength&quot;</span><span class="p">:</span> <span class="mf">0.30</span><span class="p">,</span>
+    <span class="s2">&quot;Question Quality&quot;</span><span class="p">:</span> <span class="mf">0.15</span><span class="p">,</span>
+    <span class="s2">&quot;Visual Grounding&quot;</span><span class="p">:</span> <span class="mf">0.10</span><span class="p">,</span>
+    <span class="s2">&quot;Format Compliance&quot;</span><span class="p">:</span> <span class="mf">0.10</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMJudgeColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;qa_quality_judge&quot;</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="s2">&quot;strong-judge-vlm&quot;</span><span class="p">,</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="n">JUDGE_PROMPT</span><span class="p">,</span>
+        <span class="n">scores</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">answer_correctness_score</span><span class="p">,</span>
+            <span class="n">question_quality_score</span><span class="p">,</span>
+            <span class="n">visual_grounding_score</span><span class="p">,</span>
+            <span class="n">format_compliance_score</span><span class="p">,</span>
+            <span class="n">training_signal_score</span><span class="p">,</span>
+        <span class="p">],</span>
+        <span class="n">multi_modal_context</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">dd</span><span class="o">.</span><span class="n">ImageContext</span><span class="p">(</span>
+                <span class="n">column_name</span><span class="o">=</span><span class="s2">&quot;png_base64&quot;</span><span class="p">,</span>
+                <span class="n">data_type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ModalityDataType</span><span class="o">.</span><span class="n">BASE64</span><span class="p">,</span>
+                <span class="n">image_format</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ImageFormat</span><span class="o">.</span><span class="n">PNG</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">],</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="n">config</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">CustomColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;weighted_quality_score&quot;</span><span class="p">,</span>
+        <span class="n">generator_function</span><span class="o">=</span><span class="n">compute_weighted_score</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Using a different model family for evaluation and data generation provides independent quality assessment. The heaviest weight goes to Answer Correctness (0.35) because wrong answers poison training, followed by Training Signal Strength (0.30) because multi-page reasoning was one of the weakest remaining capabilities we needed the data to strengthen.</p>
+<p><strong>Result:</strong> Best SFT score of <strong>55.7%</strong>.</p>
+<hr />
+<h2 id="rl-on-top-of-sft"><strong>RL on top of SFT</strong></h2>
+<p>SFT got the model reading documents, but the error analysis showed two persistent issues: the model was often confidently wrong about what it saw, and it refused too quickly when the evidence was actually there. RL was partly about fixing those specific failures, but what surprised us was how much the rest of the benchmark moved along with them.</p>
+<p>We ran GRPO on the best SFT checkpoint. The single-page rollouts came mostly from <a href="https://huggingface.co/datasets/OpenGVLab/MMPR">MMPR</a>, where the answers are numbers, short lists, or multiple-choice and score cleanly against ground truth, which is why online RL with automatic scoring made more sense than a preference-based approach like MPO. For the harder multi-page cases we used an online LLM judge in place of string matching. The biggest improvements landed on the visual categories, which had been the SFT model's weakest areas.</p>
+<p><strong>Unanswerable data as a hard negative.</strong> We generated "unanswerable" training examples by swapping the image in existing VQA pairs, drawing from 15+ source datasets at zero annotation cost. Mixed into the rollouts at 5–7%, these image-question mismatches reduced hallucinations on unanswerable questions as expected. The surprise was that they also improved accuracy on answerable questions, especially on image, layout, and text. Our best guess is a combination of language-bias mitigation (forcing the model to actually look at the image rather than guess from the question), a hard-negative effect on image-text alignment, and a learned evidence-checking behavior.</p>
+<p><strong>GRPO over-reinforcing refusal.</strong> "Not answerable" is a short, near-constant output, and GRPO is happy to over-reinforce it once it becomes a viable response in the rollout pool. Mid-training we saw overall accuracy peak, dip as the model leaned too hard on refusal, and then recover as other categories caught up. Without dense evaluation we would have missed this shape entirely, and the eventual fix was a wider plateau rather than earlier stopping.</p>
+<p><strong>Multi-page remains the largest gap</strong>, and the reason is the verifier rather than the RL algorithm or the compute budget. Our single-page gains rode on MMPR's clean answer formats. The multi-page data we built from MMLongBench-style sources has free-form string answers, where rule-based scoring fails on negations, numerical tolerances, and phrasing variants. The online LLM judge gets around this, but calibrating the judge well enough to train against reliably is now the gating step.</p>
+<p><strong>Result:</strong> Overall accuracy moved from 55.7% to <strong>59.0%</strong>.</p>
+<hr />
+<h2 id="infrastructure-and-scale"><strong>Infrastructure and Scale</strong></h2>
+<p>Every pipeline in this project ran on SLURM clusters with NVIDIA A100, H100, and B200 GPUs. We used an internal wrapper tool to orchestrate Data Designer jobs on the cluster — each job booted vLLM servers hosting the generation models and ran a Data Designer client alongside them. Large runs were sharded across many SLURM jobs, each processing a partition of the seed dataset.</p>
+<p>Beyond the basic setup, running this at scale broke things we didn't expect. Here are the problems that cost us the most time:</p>
+<p><strong>File paths over base64.</strong> Our first attempt embedded base64-encoded page images directly in the seed parquet files. This made each row enormous and caused DuckDB (which Data Designer uses for dataset loading) to stall for 10+ minutes per job as it globbed across millions of rows. The fix was simple but transformative: store file paths in the parquet and use vLLM's <code>--allowed-local-media-path</code> flag to let the inference server read images directly from the shared filesystem. Dataset loading went from minutes to seconds.</p>
+<p><strong>Scaling throughput.</strong> We used tensor parallelism to fit models of different sizes (TP=2 for the 30B classification model, TP=4 for the 235B, TP=8 for the 397B QA models), with data-parallel replication to run multiple vLLM server instances per node and fill remaining GPUs. Early runs with the 397B and 235B models in FP16 were slow, so we switched to FP8 quantized versions — a significant speedup with no noticeable quality loss.</p>
+<p><strong>Benchmarking tool.</strong> Each generation job involved a different model, quantization level, and parallelism configuration, and we had limited ways to predict how long a full run would take before committing hundreds of GPU-hours to it. We built an internal benchmarking tool that ran short profiling jobs to measure throughput (requests/min) and latency distributions for each configuration. This let us estimate wall-clock time, catch configuration issues early, and choose the right parallelism settings before launching at scale.</p>
+<hr />
+<h2 id="what-we-learned"><strong>What We Learned</strong></h2>
+<p><strong>Classification-first filtering saves everything downstream.</strong> Running a cheap classification model (Qwen3-VL-30B-A3B) over all pages before expensive QA generation filtered out 72% of pages that had no visual reasoning potential. This saved enormous compute on the QA stage and improved data quality since every generated question targeted actual visual content.</p>
+<p><strong>Structured output schemas leak into thinking traces.</strong> When we used <code>LLMStructuredColumnConfig</code> with Pydantic schemas, the thinking models' reasoning traces were contaminated with JSON structures — the model would "think" in JSON rather than natural language. Switching to <code>LLMTextColumnConfig</code> with <code>extract_reasoning_content=True</code> gave us clean reasoning traces and better questions and answers.</p>
+<p><strong>Multi-page and whole-document reasoning was the missing capability.</strong> Single-page QA drove steady improvements, but progress plateaued until we added multi-page and whole-document data. Questions requiring reasoning across an entire document — "What is the total across these three quarterly tables?" or "How many appendices are in this document?" — were the training signal the model was missing.</p>
+<p><strong>Independent evaluation catches what self-evaluation misses.</strong> Using the same model to generate and judge QA pairs (Qwen judging Qwen) has blind spots. Bringing in another strong VLM as an independent judge caught quality issues that self-evaluation missed, and the filtered data produced measurably better training results.</p>
+<p><strong>Bounding-box scoping didn't help QA generation.</strong> We tried using bbox annotations to scope QA generation to specific page regions, but the downstream QA model couldn't leverage the spatial information effectively. This held for both text-only and visual pipelines (see Phase 2), and directly motivated the classification-first approach that worked.</p>
+<hr />
+<h2 id="results"><strong>Results</strong></h2>
+<h3 id="evaluation-on-mmlongbench-doc">Evaluation on MMLongBench-Doc</h3>
+<p>The table below summarizes performance on MMLongBench-Doc at key checkpoints, including overall accuracy and the per-category breakdown. Baseline refers to the early <em>Nemotron-3-Nano-Omni-30B-A3B</em> checkpoint we started from:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Category</th>
+<th style="text-align: center;">Baseline</th>
+<th style="text-align: center;">Jan 14</th>
+<th style="text-align: center;">Jan 23</th>
+<th style="text-align: center;">Jan 29</th>
+<th style="text-align: center;">Feb 6</th>
+<th style="text-align: center;">Feb 9</th>
+<th style="text-align: center;">Mar 12</th>
+<th style="text-align: center;">Mar 25</th>
+<th style="text-align: center;"><strong>Mar 26 (+RL)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>overall accuracy</strong></td>
+<td style="text-align: center;">26.32</td>
+<td style="text-align: center;">27.73</td>
+<td style="text-align: center;">36.95</td>
+<td style="text-align: center;">39.06</td>
+<td style="text-align: center;">45.41</td>
+<td style="text-align: center;">46.98</td>
+<td style="text-align: center;">53.22</td>
+<td style="text-align: center;">55.68</td>
+<td style="text-align: center;"><strong>59.00</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">text</td>
+<td style="text-align: center;">30.37</td>
+<td style="text-align: center;">33.85</td>
+<td style="text-align: center;">35.16</td>
+<td style="text-align: center;">35.75</td>
+<td style="text-align: center;">39.92</td>
+<td style="text-align: center;">44.22</td>
+<td style="text-align: center;">51.36</td>
+<td style="text-align: center;">54.72</td>
+<td style="text-align: center;">57.38</td>
+</tr>
+<tr>
+<td style="text-align: left;">layout</td>
+<td style="text-align: center;">25.48</td>
+<td style="text-align: center;">.3150</td>
+<td style="text-align: center;">29.02</td>
+<td style="text-align: center;">33.95</td>
+<td style="text-align: center;">34.73</td>
+<td style="text-align: center;">37.62</td>
+<td style="text-align: center;">50.62</td>
+<td style="text-align: center;">54.90</td>
+<td style="text-align: center;">58.28</td>
+</tr>
+<tr>
+<td style="text-align: left;">table</td>
+<td style="text-align: center;">21.00</td>
+<td style="text-align: center;">.2634</td>
+<td style="text-align: center;">23.91</td>
+<td style="text-align: center;">28.56</td>
+<td style="text-align: center;">37.94</td>
+<td style="text-align: center;">41.75</td>
+<td style="text-align: center;">55.30</td>
+<td style="text-align: center;">57.13</td>
+<td style="text-align: center;">58.73</td>
+</tr>
+<tr>
+<td style="text-align: left;">chart</td>
+<td style="text-align: center;">23.73</td>
+<td style="text-align: center;">.3005</td>
+<td style="text-align: center;">30.36</td>
+<td style="text-align: center;">35.26</td>
+<td style="text-align: center;">35.99</td>
+<td style="text-align: center;">35.27</td>
+<td style="text-align: center;">45.94</td>
+<td style="text-align: center;">44.71</td>
+<td style="text-align: center;">50.85</td>
+</tr>
+<tr>
+<td style="text-align: left;">image</td>
+<td style="text-align: center;">23.42</td>
+<td style="text-align: center;">.2733</td>
+<td style="text-align: center;">25.52</td>
+<td style="text-align: center;">3.221</td>
+<td style="text-align: center;">35.06</td>
+<td style="text-align: center;">38.56</td>
+<td style="text-align: center;">47.27</td>
+<td style="text-align: center;">52.42</td>
+<td style="text-align: center;">55.27</td>
+</tr>
+<tr>
+<td style="text-align: left;">single-page</td>
+<td style="text-align: center;">35.66</td>
+<td style="text-align: center;">41.91</td>
+<td style="text-align: center;">42.42</td>
+<td style="text-align: center;">47.98</td>
+<td style="text-align: center;">50.79</td>
+<td style="text-align: center;">53.77</td>
+<td style="text-align: center;">58.49</td>
+<td style="text-align: center;">61.18</td>
+<td style="text-align: center;">64.88</td>
+</tr>
+<tr>
+<td style="text-align: left;">multi-page</td>
+<td style="text-align: center;">14.49</td>
+<td style="text-align: center;">18.41</td>
+<td style="text-align: center;">15.40</td>
+<td style="text-align: center;">17.06</td>
+<td style="text-align: center;">23.65</td>
+<td style="text-align: center;">25.57</td>
+<td style="text-align: center;">43.94</td>
+<td style="text-align: center;">47.22</td>
+<td style="text-align: center;">48.41</td>
+</tr>
+<tr>
+<td style="text-align: left;">unanswerable</td>
+<td style="text-align: center;">25.20</td>
+<td style="text-align: center;">13.41</td>
+<td style="text-align: center;">57.72</td>
+<td style="text-align: center;">53.65</td>
+<td style="text-align: center;">66.66</td>
+<td style="text-align: center;">64.93</td>
+<td style="text-align: center;">56.40</td>
+<td style="text-align: center;">57.21</td>
+<td style="text-align: center;">62.90</td>
+</tr>
+</tbody>
+</table>
+<p>A few things stand out. <strong>Multi-page</strong> was the hardest category to move — it sat at 14–18% for weeks until the whole-document QA pipeline landed in Phase 4, when it jumped to 44% (a 3x improvement over baseline). <strong>Table</strong> showed a strong response to visual QA data, going from 21% to 55%. <strong>Unanswerable</strong> spiked early (the model learned to stop refusing everything) and stayed high.</p>
+<p>By Mar 12, the model matched or exceeded Qwen3-Omni-30B in every category of the MMLongBench-Doc benchmark. After RL, the final score reached <strong>59%</strong>, closing much of the gap to larger reference models on this benchmark:</p>
+<div class="model-comparison">
+<style>
+.model-comparison {
+  max-width: 720px;
+  margin: 20px auto;
+  font-family: -apple-system, system-ui, sans-serif;
+}
+.model-comparison .mc-row {
+  display: flex;
+  align-items: center;
+  margin: 6px 0;
+  gap: 12px;
+}
+.model-comparison .mc-label {
+  width: 280px;
+  text-align: right;
+  font-size: 0.82em;
+  flex-shrink: 0;
+  flex-grow: 0;
+}
+.model-comparison .mc-bar-wrap {
+  flex: 1;
+  position: relative;
+  height: 28px;
+}
+.model-comparison .mc-bar-outer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+}
+.model-comparison .mc-bar {
+  height: 100%;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+  font-size: 0.75em;
+  font-weight: 600;
+  color: #fff;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+}
+.model-comparison .mc-ours { background: #76b900; }
+.model-comparison .mc-ref { background: #78909c; }
+.model-comparison .mc-baseline { background: #b0bec5; }
+</style>
+
+<div class="mc-row"><div class="mc-label">Nemotron-3-Nano-Omni-30B-A3B (baseline)</div><div class="mc-bar-wrap"><div class="mc-bar-outer"><div class="mc-bar mc-baseline" style="width: 43%;">26%</div></div></div></div>
+<div class="mc-row"><div class="mc-label">Qwen3-Omni-30B-A3B (measured)</div><div class="mc-bar-wrap"><div class="mc-bar-outer"><div class="mc-bar mc-ref" style="width: 75%;">45%</div></div></div></div>
+<div class="mc-row"><div class="mc-label"><strong>Nemotron-3-Nano-Omni-30B-A3B (ours, SFT)</strong></div><div class="mc-bar-wrap"><div class="mc-bar-outer"><div class="mc-bar mc-ours" style="width: 92%;">55.7%</div></div></div></div>
+<div class="mc-row"><div class="mc-label">Qwen3-VL-235B-A22B</div><div class="mc-bar-wrap"><div class="mc-bar-outer"><div class="mc-bar mc-ref" style="width: 93%;">56.2%</div></div></div></div>
+<div class="mc-row"><div class="mc-label">Qwen3.5-Omni-Plus</div><div class="mc-bar-wrap"><div class="mc-bar-outer"><div class="mc-bar mc-ref" style="width: 95%;">57.5%</div></div></div></div>
+<div class="mc-row"><div class="mc-label"><strong>Nemotron-3-Nano-Omni-30B-A3B (ours, SFT + RL)</strong></div><div class="mc-bar-wrap"><div class="mc-bar-outer"><div class="mc-bar mc-ours" style="width: 98%;">59%</div></div></div></div>
+<div class="mc-row"><div class="mc-label">Qwen3.5-35B-A3B</div><div class="mc-bar-wrap"><div class="mc-bar-outer"><div class="mc-bar mc-ref" style="width: 99%;">59.5%</div></div></div></div>
+
+</div>
+
+<h3 id="impact-on-other-benchmarks">Impact on Other Benchmarks</h3>
+<p>The synthetic data we generated was blended into the model's broader training recipe alongside other document-understanding and visual-reasoning data. Throughout the project, we tracked impact on other vision benchmarks and found that the data produced positive lift beyond MMLongBench-Doc. The visual reasoning skills developed for chart reading, table understanding, and cross-page reasoning generalized well. Refer to the <a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf">Nemotron-3-Nano-Omni technical report</a> for final results across the full evaluation suite.</p>
+<h2 id="upstream-contributions-features-born-from-this-project"><strong>Upstream Contributions: Features Born from This Project</strong></h2>
+<p>One of the most valuable outcomes of this project was the set of features and fixes it drove back into Data Designer itself. When you push a framework to its limits on a real workload — millions of multimodal records across hundreds of SLURM jobs — you find the gaps fast. Every issue we hit became a PR that benefits all Data Designer users.</p>
+<ul>
+<li><strong>Multi-image support &amp; images-before-text ordering</strong> (<a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/257">#257</a>) — list-of-images columns for multi-page VLM prompts, with image contexts placed before text for better VLM quality</li>
+<li><strong>Non-LLM concurrency controls</strong> (<a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/242">#242</a>) — user-tunable parallelism for plugin-based generators</li>
+<li><strong>Early shutdown fixes</strong> (<a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/201">#201</a>, <a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/203">#203</a>) — race condition and incomplete disable flag under high error rates</li>
+<li><strong>RunConfig overhaul</strong> (<a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/186">#186</a>, <a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/208">#208</a>, <a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/209">#209</a>) — fine-grained shutdown, retry, and buffer controls</li>
+<li><strong>LLM text response deserialization fix</strong> (<a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/233">#233</a>) — preserve mixed-type text responses as-is</li>
+<li><strong>Seed dataset partitioning</strong> (<a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/8">#8</a>) — <code>PartitionBlock</code> and <code>IndexRange</code> strategies for splitting work across SLURM jobs</li>
+<li><strong>Wildcard seed paths</strong> (<a href="https://github.com/NVIDIA-NeMo/DataDesigner/pull/12">#12</a>) — glob support for consuming partitioned parquet output</li>
+</ul>
+<p>These span the full stack — config, engine, interface, integrations — and collectively made Data Designer viable for production-scale multimodal SDG.</p>
+<hr />
+<h2 id="the-compound-effect"><strong>The Compound Effect</strong></h2>
+<p>No single pipeline got us from 26% to 59% — a <strong>2.3× lift</strong>. Each iteration broke something, revealed a gap, or overturned an assumption. The bbox approach failed, so we built a classification taxonomy. Single-page QA plateaued, so we added multi-page. Self-evaluation had blind spots, so we brought in a different model family as judge. The progress came from shortening the loop between data generation, training, evaluation, and failure analysis so we could identify missing capabilities and address them quickly.</p>
+<p>As noted at the top of this post, the scores above reflect our experimental development runs. The data generated through this effort was incorporated into the final training blend for the released <em>Nemotron-3-Nano-Omni-30B-A3B</em> model, which achieves <strong>57.5%</strong> overall accuracy on MMLongBench-Doc. For the full details on the model, training recipe, and complete benchmark results, see the <a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf">Nemotron-3-Nano-Omni technical report</a>.</p>
+<hr />
+<h2 id="try-for-yourself"><strong>Try For Yourself</strong></h2>
+<p>The recipes below are the self-contained, runnable scripts for each stage of the pipeline described in this post. They are ordered to match the pipeline flow — run them in sequence, feeding the output of each stage as seed data to the next.</p>
+<style>
+.recipe-table .md-typeset__scrollwrap { overflow: visible; }
+.recipe-table .md-typeset__table { overflow: visible; }
+.recipe-table table { width: 100%; display: table; }
+</style>
+
+<div class="recipe-table">
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">#</th>
+<th style="text-align: left;">Recipe</th>
+<th style="text-align: left;"></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">01</td>
+<td style="text-align: left;">Seed dataset preparation</td>
+<td style="text-align: left;"><a download="01-seed-dataset-preparation.py" href="../../assets/recipes/vlm_long_doc/01-seed-dataset-preparation.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+<tr>
+<td style="text-align: center;">02</td>
+<td style="text-align: left;">Nemotron Parse OCR transcription</td>
+<td style="text-align: left;"><a download="02-nemotron-parse-ocr-sdg.py" href="../../assets/recipes/vlm_long_doc/02-nemotron-parse-ocr-sdg.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+<tr>
+<td style="text-align: center;">03</td>
+<td style="text-align: left;">Text QA from OCR transcripts</td>
+<td style="text-align: left;"><a download="03-text-qa-sdg.py" href="../../assets/recipes/vlm_long_doc/03-text-qa-sdg.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+<tr>
+<td style="text-align: center;">04</td>
+<td style="text-align: left;">Page classification</td>
+<td style="text-align: left;"><a download="04-page-classification-sdg.py" href="../../assets/recipes/vlm_long_doc/04-page-classification-sdg.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+<tr>
+<td style="text-align: center;">05</td>
+<td style="text-align: left;">Visual QA</td>
+<td style="text-align: left;"><a download="05-visual-qa-sdg.py" href="../../assets/recipes/vlm_long_doc/05-visual-qa-sdg.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+<tr>
+<td style="text-align: center;">06</td>
+<td style="text-align: left;">Single-page QA</td>
+<td style="text-align: left;"><a download="06-single-page-qa-sdg.py" href="../../assets/recipes/vlm_long_doc/06-single-page-qa-sdg.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+<tr>
+<td style="text-align: center;">07</td>
+<td style="text-align: left;">Multi-page windowed QA</td>
+<td style="text-align: left;"><a download="07-multi-page-windowed-qa-sdg.py" href="../../assets/recipes/vlm_long_doc/07-multi-page-windowed-qa-sdg.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+<tr>
+<td style="text-align: center;">08</td>
+<td style="text-align: left;">Whole-document QA</td>
+<td style="text-align: left;"><a download="08-whole-document-qa-sdg.py" href="../../assets/recipes/vlm_long_doc/08-whole-document-qa-sdg.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+<tr>
+<td style="text-align: center;">09</td>
+<td style="text-align: left;">Frontier judgement QA filter</td>
+<td style="text-align: left;"><a download="09-frontier-judge-sdg.py" href="../../assets/recipes/vlm_long_doc/09-frontier-judge-sdg.py"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<hr />
+<p>Key Resources:</p>
+<ol>
+<li><a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer on GitHub</a></li>
+<li><a href="https://mayahq.github.io/MMLongBench-Doc/">MMLongBench-Doc Benchmark</a></li>
+<li><a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf">Nemotron-3-Nano-Omni technical report</a></li>
+<li><a href="https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16">Nemotron-3-Nano-Omni HF Model page</a></li>
+<li><a href="https://huggingface.co/Qwen">Qwen3-VL Model Family</a></li>
+</ol>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+  
+
+
+
+      
+    </article>
+  </div>
+
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+        
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: Dev Notes">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Dev Notes
+              </div>
+            </div>
+          </a>
+        
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.path", "navigation.footer", "navigation.indexes", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../js/toc-toggle.js"></script>
+      
+    
+  </body>
+</html>
