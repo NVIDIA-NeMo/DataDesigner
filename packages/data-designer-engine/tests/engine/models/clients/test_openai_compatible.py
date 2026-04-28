@@ -249,6 +249,44 @@ async def test_agenerate_image_maps_images() -> None:
     assert len(result.images) == 1
 
 
+# --- Image URL passthrough ---
+
+
+def test_completion_forwards_image_url_dict_unchanged() -> None:
+    """OpenAI expects image_url blocks as {"url": ...} dicts — verify they pass through as-is."""
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    image_block = {"type": "image_url", "image_url": {"url": "https://example.com/cat.png"}}
+    text_block = {"type": "text", "text": "Describe this."}
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [image_block, text_block]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content == [image_block, text_block]
+
+
+def test_completion_forwards_base64_image_url_dict_unchanged() -> None:
+    """Base64 data-URI image blocks should also pass through unmodified."""
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    image_block = {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}}
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [image_block, {"type": "text", "text": "What is this?"}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == image_block
+
+
 # --- Auth headers ---
 
 

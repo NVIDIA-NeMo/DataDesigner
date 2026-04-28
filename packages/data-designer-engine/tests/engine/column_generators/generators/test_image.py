@@ -172,7 +172,7 @@ def test_image_cell_generator_with_multi_modal_context(stub_resource_provider):
         assert call_args.kwargs["multi_modal_context"] is not None
         assert len(call_args.kwargs["multi_modal_context"]) == 1
         assert call_args.kwargs["multi_modal_context"][0]["type"] == "image_url"
-        assert call_args.kwargs["multi_modal_context"][0]["image_url"] == "https://example.com/image.png"
+        assert call_args.kwargs["multi_modal_context"][0]["image_url"] == {"url": "https://example.com/image.png"}
 
 
 def test_image_cell_generator_with_base64_multi_modal_context(stub_resource_provider):
@@ -302,4 +302,4 @@ def test_image_cell_generator_auto_detect_passes_through_urls(stub_resource_prov
         mock_generate.assert_called_once()
         context = mock_generate.call_args.kwargs["multi_modal_context"]
         assert context is not None
-        assert context[0]["image_url"] == "https://example.com/image.png"
+        assert context[0]["image_url"] == {"url": "https://example.com/image.png"}
