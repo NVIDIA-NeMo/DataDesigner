@@ -64,7 +64,19 @@ class GenerationValidationFailureError(Exception):
         super().__init__(message)
 
 
-class ModelRateLimitError(DataDesignerError): ...
+class ModelRateLimitError(DataDesignerError):
+    """Raised when the provider responds with a rate-limit signal.
+
+    ``retry_after`` carries the ``Retry-After`` value from the provider when
+    available, so retry queues can pace themselves to the server's hint
+    instead of guessing.
+    """
+
+    retry_after: float | None
+
+    def __init__(self, *args: Any, retry_after: float | None = None) -> None:
+        super().__init__(*args)
+        self.retry_after = retry_after
 
 
 class ModelQuotaExceededError(DataDesignerError): ...
@@ -379,12 +391,13 @@ def _raise_from_provider_error(
     if kind in _KIND_MAP and kind in _MESSAGES:
         error_cls = _KIND_MAP[kind]
         cause_str, solution_str = _MESSAGES[kind]
-        raise error_cls(
-            _attach_provider_message(
-                FormattedLLMErrorMessage(cause=cause_str, solution=solution_str),
-                exception,
-            )
-        ) from None
+        formatted = _attach_provider_message(
+            FormattedLLMErrorMessage(cause=cause_str, solution=solution_str),
+            exception,
+        )
+        if kind == ProviderErrorKind.RATE_LIMIT:
+            raise ModelRateLimitError(formatted, retry_after=exception.retry_after) from None
+        raise error_cls(formatted) from None
 
     if kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY:
         raise ModelUnsupportedCapabilityError(

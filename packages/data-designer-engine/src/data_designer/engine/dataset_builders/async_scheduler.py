@@ -319,12 +319,23 @@ class AsyncTaskScheduler:
         ``_dispatched``; the next ``get_ready_tasks`` call will surface them as
         regular frontier work, which goes through the standard submission/LLM
         wait acquisition path and so naturally pace through the throttle.
+
+        Stale entries (row group already checkpointed, or the specific row
+        dropped by a sibling column's terminal failure) are pruned silently so
+        the ``all_done`` gate isn't held hostage by a cooldown that nothing is
+        waiting on anymore.
         """
         if not self._cooldown_pending:
             return
         now = time.monotonic()
         still_waiting: list[tuple[Task, float]] = []
         for task, wakeup_at in self._cooldown_pending:
+            if task.row_group not in self._rg_states:
+                self._rate_limit_retries.pop(task, None)
+                continue
+            if task.row_index is not None and self._tracker.is_dropped(task.row_group, task.row_index):
+                self._rate_limit_retries.pop(task, None)
+                continue
             if wakeup_at <= now:
                 self._dispatched.discard(task)
             else:
@@ -814,10 +825,15 @@ class AsyncTaskScheduler:
             # so the worker doesn't pin LLM-wait slots during the wait). After
             # exhausting the per-task retry budget, fall through to the regular
             # retryable path (salvage) as a final backstop.
-            if is_rate_limit and not self._early_shutdown:
+            #
+            # ``from_scratch`` tasks are dispatched through ``_dispatch_seeds``,
+            # not the frontier - the cooldown drain (which relies on
+            # ``get_ready_tasks``) wouldn't bring them back. Route those
+            # straight to salvage, which knows how to re-dispatch seed tasks.
+            if isinstance(exc, ModelRateLimitError) and not self._early_shutdown and task.task_type != "from_scratch":
                 retries_so_far = self._rate_limit_retries.get(task, 0)
                 if retries_so_far < DEFAULT_RATE_LIMIT_RETRIES:
-                    cooldown = getattr(exc, "retry_after", None) or self._rate_limit_cooldown_seconds
+                    cooldown = exc.retry_after if exc.retry_after else self._rate_limit_cooldown_seconds
                     wakeup_at = time.monotonic() + cooldown
                     self._rate_limit_retries[task] = retries_so_far + 1
                     self._cooldown_pending.append((task, wakeup_at))

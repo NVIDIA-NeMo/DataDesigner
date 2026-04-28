@@ -1016,6 +1016,154 @@ async def test_non_rate_limit_error_skips_cooldown_queue() -> None:
     assert total_calls <= 3, f"Expected at most 3 calls per row, got {total_calls}"
 
 
+class _PerRowRateLimitWithRetryAfter(ColumnGenerator[ExpressionColumnConfig]):
+    """Per-row generator that raises ``ModelRateLimitError(retry_after=...)``."""
+
+    fails_per_row: int = 0
+    retry_after_seconds: float = 1.0
+    counts: dict[int, int] = {}  # noqa: RUF012
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        rs = data.get("seed", -1)
+        n = self.counts.get(rs, 0) + 1
+        self.counts[rs] = n
+        if n <= self.fails_per_row:
+            raise ModelRateLimitError("429", retry_after=self.retry_after_seconds)
+        data[self.config.name] = f"ok_{rs}"
+        return data
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_cooldown_queue_honors_retry_after_from_exception() -> None:
+    """When the exception carries Retry-After, the cooldown queue waits at
+    least that long instead of falling back to the configured default."""
+    _PerRowRateLimitWithRetryAfter.counts = {}
+    _PerRowRateLimitWithRetryAfter.fails_per_row = 1
+    _PerRowRateLimitWithRetryAfter.retry_after_seconds = 0.4
+    provider = _mock_provider()
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": _PerRowRateLimitWithRetryAfter(config=_expr_config("col"), resource_provider=provider),
+    }
+    # Configured default is much smaller than the Retry-After hint.
+    scheduler, _ = _make_rate_limit_scheduler(generators, num_rows=1, rate_limit_cooldown_seconds=0.01)
+    start = asyncio.get_event_loop().time()
+    await scheduler.run()
+    elapsed = asyncio.get_event_loop().time() - start
+    # 1 retry, retry_after=0.4 → must have waited at least ~0.4s.
+    assert elapsed >= 0.35, f"Expected to wait >= 0.35s for retry_after, waited {elapsed:.3f}s"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_stale_cooldown_entries_dropped_when_row_dropped() -> None:
+    """If a sibling column drops the row, a cooldown-pending task on that row
+    must be pruned so the scheduler doesn't wait for the cooldown to expire."""
+    # Two cell columns: one rate-limits forever (will exhaust cooldown queue
+    # then defer to salvage which drops the row); one always succeeds.
+    _AlwaysRateLimitGenerator  # noqa: B018 - re-using existing fixture
+    _PerRowRateLimitGenerator.counts = {}
+    _PerRowRateLimitGenerator.fails_per_row = 99  # never recovers within budget
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN, "col": GenerationStrategy.CELL_BY_CELL}
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "col": _PerRowRateLimitGenerator(config=_expr_config("col"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        salvage_max_rounds=1,
+        rate_limit_cooldown_seconds=0.05,
+        disable_early_shutdown=True,
+    )
+    # Run completes within reasonable time even though the rate-limited task
+    # eventually exhausts. After the run, _cooldown_pending and the retry
+    # counter should be empty (stale entries pruned, terminal-failure tasks
+    # cleaned up).
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+    assert scheduler._cooldown_pending == []
+    assert scheduler._rate_limit_retries == {}
+
+
+class _RateLimitedSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+    """From-scratch generator that rate-limits the first ``fails`` times."""
+
+    fails: int = 0
+    calls: int = 0
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    def generate(self, data: Any) -> Any:
+        return data
+
+    def generate_from_scratch(self, num_records: int) -> Any:
+        type(self).calls += 1
+        if type(self).calls <= type(self).fails:
+            raise ModelRateLimitError("429")
+        return lazy.pd.DataFrame({self.config.name: list(range(num_records))})
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_from_scratch_rate_limit_routes_to_salvage_not_cooldown_queue() -> None:
+    """A rate-limited from_scratch task must not vanish into the cooldown
+    queue (the frontier doesn't re-emit seed tasks). Route to salvage so it
+    actually gets retried."""
+    _RateLimitedSeedGenerator.fails = 1
+    _RateLimitedSeedGenerator.calls = 0
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN, "col": GenerationStrategy.CELL_BY_CELL}
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": _RateLimitedSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "col": MockCellGenerator(config=_expr_config("col"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        rate_limit_cooldown_seconds=0.05,
+    )
+    await asyncio.wait_for(scheduler.run(), timeout=5.0)
+    # Salvage retried the from_scratch task, so we should have at least 2 calls.
+    assert _RateLimitedSeedGenerator.calls >= 2, (
+        f"Expected at least 2 calls (1 fail + 1 salvage retry), got {_RateLimitedSeedGenerator.calls}"
+    )
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_on_before_checkpoint_callback() -> None:
     """on_before_checkpoint is called before each row group is checkpointed."""
