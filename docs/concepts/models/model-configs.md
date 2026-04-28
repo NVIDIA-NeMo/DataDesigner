@@ -84,7 +84,7 @@ model_configs = [
         model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
-            temperature=0.7,
+            temperature=0.60,
             top_p=0.95,
             max_tokens=2048,
         ),
