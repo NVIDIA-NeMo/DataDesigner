@@ -32,12 +32,25 @@
   overflow: hidden;
 }
 
+/* Reset prose margins inherited by wrappers Fern injects around <img>
+ * (e.g. the rmiz click-to-zoom <span> shells). Without this, the prose
+ * stylesheet pushes the image ~1rem off the top of the card. */
+.blog-card__media > *,
+.blog-card__media > * > * {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 .blog-card__media img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center;
   display: block;
+  margin: 0 !important;
 }
 
 /* Hash-based gradient + monogram fallback when no image is provided.
