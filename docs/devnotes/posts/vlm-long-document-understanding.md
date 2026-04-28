@@ -596,7 +596,9 @@ The recipes below are the self-contained, runnable scripts for each stage of the
 Key Resources:
 
 1. [NeMo Data Designer on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner)
-2. [MMLongBench-Doc Benchmark](https://mayahq.github.io/MMLongBench-Doc/)
-3. [Nemotron-3-Nano-Omni technical report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf)
-4. [Nemotron-3-Nano-Omni HF Model page](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16)
-5. [Qwen3-VL Model Family](https://huggingface.co/Qwen)
+2. [Nemotron-3-Nano-Omni technical report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf)
+3. [NVIDIA Tech post announcing Nemotron-3-Nano-Omni](https://developer.nvidia.com/blog/nvidia-nemotron-3-nano-omni-powers-multimodal-agent-reasoning-in-a-single-efficient-open-model)
+4. [Hugging Face post introducing Nemotron-3-Nano-Omni](https://huggingface.co/blog/nvidia/nemotron-3-nano-omni-multimodal-intelligence)
+5. [Nemotron-3-Nano-Omni HF Model page](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16)
+6. [MMLongBench-Doc Benchmark](https://arxiv.org/abs/2407.01523)
+7. [Qwen3-VL Model Family](https://huggingface.co/Qwen)
