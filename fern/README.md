@@ -58,6 +58,8 @@ fern/versions/
 
 `docs.yml` registers both `slug: latest` and `slug: v0.5.8`, so the same MDX renders at `/latest/...` and `/v0.5.8/...`.
 
+> **Windows note.** `latest.yml` is a real Unix symlink (`fern/versions/latest.yml -> v0.5.8.yml`). On Windows, `git clone` resolves symlinks only when `core.symlinks=true` is set (it's off by default for non-admin accounts). Without it, `latest.yml` will appear as a plain text file containing the literal string `v0.5.8.yml` and Fern will reject the version config. Run `git config --global core.symlinks true` (or per-repo) before cloning, or work in WSL/Git Bash. macOS/Linux are unaffected.
+
 ### Cutting a new release
 
 ```bash

@@ -1,13 +1,26 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
- * Badge links for GitHub, License, PyPI, etc.
- * Uses a custom wrapper to avoid Fern's external-link icon stacking under badges.
+ * Horizontal badge row (shields.io / img.shields.io style images wrapped in
+ * anchors). Uses a flex container so badges sit side-by-side instead of
+ * stacking with Fern's default external-link icon overlay.
  *
- * Copy to your repo's fern/components/ and customize DEFAULT_BADGES.
+ * Pass `badges` explicitly — required so we never accidentally ship
+ * placeholder URLs to production.
+ *
+ * Usage in MDX:
+ *   import { BadgeLinks } from "@/components/BadgeLinks";
+ *
+ *   <BadgeLinks
+ *     badges={[
+ *       { href: "https://github.com/NVIDIA-NeMo/DataDesigner",
+ *         src:  "https://img.shields.io/badge/github-repo-952fc6?logo=github",
+ *         alt:  "GitHub" },
+ *     ]}
+ *   />
  */
 export type BadgeItem = {
   href: string;
@@ -15,25 +28,7 @@ export type BadgeItem = {
   alt: string;
 };
 
-const DEFAULT_BADGES: BadgeItem[] = [
-  {
-    href: "https://github.com/your-org/your-repo",
-    src: "https://img.shields.io/badge/github-repo-green?logo=github",
-    alt: "GitHub",
-  },
-  {
-    href: "https://github.com/your-org/your-repo/blob/main/LICENSE",
-    src: "https://img.shields.io/badge/License-Apache_2.0-blue",
-    alt: "License",
-  },
-  {
-    href: "https://pypi.org/project/your-package/",
-    src: "https://img.shields.io/badge/PyPI-your-package-orange?logo=pypi",
-    alt: "PyPI",
-  },
-];
-
-export function BadgeLinks({ badges = DEFAULT_BADGES }: { badges?: BadgeItem[] }) {
+export function BadgeLinks({ badges }: { badges: BadgeItem[] }) {
   return (
     <div
       className="badge-links"

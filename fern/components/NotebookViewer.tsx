@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,11 +12,31 @@ import type { ReactNode } from "react";
  * and output cells match the default Fern code block styling.
  *
  * Accepts notebook cells (markdown + code) and optionally a Colab URL.
- * Designed to work with notebooks converted via `scripts/converters/ipynb_to_fern_json.py`
- * (NeMo Data Designer–compatible pipeline; sources may be plain `.ipynb` or Jupytext).
+ * Designed to work with notebooks converted via `fern/scripts/ipynb-to-fern-json.py`.
  *
  * NOTE: Fern's custom component pipeline uses the automatic JSX runtime.
  * Only type-only imports from "react" are used (erased at compile time).
+ *
+ * SECURITY / TRUST MODEL:
+ * --------
+ * Notebook output cells of `format: "html"` (typically pandas DataFrame `_repr_html_`,
+ * matplotlib HTML, or similar) are rendered with `dangerouslySetInnerHTML` and
+ * are NOT sanitized — see the renderer near the bottom of this file.
+ *
+ * The trust boundary is the converter pipeline:
+ *
+ *   docs/notebook_source/*.py  (jupytext source — code-reviewed at PR time)
+ *     └─> jupytext --execute    (runs in CI/maintainer shell with NVIDIA_API_KEY)
+ *           └─> *.ipynb         (real outputs captured)
+ *                 └─> fern/scripts/ipynb-to-fern-json.py
+ *                       └─> fern/components/notebooks/*.{json,ts}  (committed)
+ *
+ * Both ends of the pipeline (the .py source and the generated *.ts) are
+ * code-reviewed before merge. Fern's bundle is then static.
+ *
+ * If a future tutorial ever embeds output that incorporates LLM-generated HTML
+ * or arbitrary user-controlled content, switch the `format === "html"` branch
+ * to a sanitizer (e.g. DOMPurify) before merging.
  *
  * Usage in MDX:
  *   import { NotebookViewer } from "@/components/NotebookViewer";
@@ -24,7 +44,7 @@ import type { ReactNode } from "react";
  *
  *   <NotebookViewer
  *     notebook={notebook}
- *     colabUrl="https://colab.research.google.com/github/your-org/your-repo/blob/main/docs/colab_notebooks/1-the-basics.ipynb"
+ *     colabUrl="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/1-the-basics.ipynb"
  *   />
  */
 
@@ -378,6 +398,10 @@ function renderCell(cell: NotebookCell, index: number, showOutputs: boolean) {
                       className="notebook-viewer__output-image"
                     />
                   ) : out.format === "html" ? (
+                    // out.data is trusted: it comes from a notebook .py file
+                    // executed via jupytext at build time, then committed to
+                    // fern/components/notebooks/*.ts (review boundary). See the
+                    // SECURITY / TRUST MODEL section in this file's header.
                     <div
                       key={i}
                       className="notebook-viewer__output-html"

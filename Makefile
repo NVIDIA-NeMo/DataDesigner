@@ -513,7 +513,7 @@ generate-fern-notebooks:
 	@echo "📓 Converting notebooks to Fern format for NotebookViewer (Python $(DOCS_PYTHON))..."
 	@mkdir -p fern/components/notebooks
 	@SOURCE_DIR=docs/colab_notebooks; \
-	if ls docs/notebooks/*.ipynb >/dev/null 2>&1; then \
+	if [ -f docs/notebooks/1-the-basics.ipynb ]; then \
 		SOURCE_DIR=docs/notebooks; \
 		echo "   Source: $$SOURCE_DIR (executed; outputs preserved)"; \
 	else \
