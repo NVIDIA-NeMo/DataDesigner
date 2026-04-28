@@ -32,10 +32,16 @@ import re
 import sys
 from pathlib import Path
 
+from markdown_it import MarkdownIt
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
+
+# CommonMark-compliant markdown renderer with table + strikethrough +
+# raw-HTML support. Used to pre-render markdown cell sources to HTML at
+# build time so NotebookViewer doesn't have to ship a JS markdown parser.
+_MD = MarkdownIt("commonmark", {"html": True, "linkify": False, "breaks": False}).enable("table").enable("strikethrough")
 
 COLAB_BADGE_RE = re.compile(
     r"colab\.research\.google\.com/(?:assets/colab-badge\.svg|github/)",
@@ -114,6 +120,11 @@ def convert_cell(cell: dict, default_language: str) -> dict:
         raw_outputs = cell.get("outputs", [])
         if raw_outputs:
             result["outputs"] = extract_outputs(raw_outputs)
+    elif cell_type == "markdown" and source:
+        # Pre-render markdown to HTML at build time. NotebookViewer renders
+        # this directly, side-stepping the JS-side markdown parser that
+        # didn't handle blockquotes, fenced code, tables, or nested lists.
+        result["source_html"] = _MD.render(source)
     return result
 
 

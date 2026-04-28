@@ -2,15 +2,18 @@
   "cells": [
     {
       "type": "markdown",
-      "source": "# 🎨 Data Designer Tutorial: Providing Images as Context for Vision-Based Data Generation"
+      "source": "# 🎨 Data Designer Tutorial: Providing Images as Context for Vision-Based Data Generation",
+      "source_html": "<h1>🎨 Data Designer Tutorial: Providing Images as Context for Vision-Based Data Generation</h1>\n"
     },
     {
       "type": "markdown",
-      "source": "#### 📚 What you'll learn\n\nThis notebook demonstrates how to provide images as context to generate text descriptions using vision-language models.\n\n- ✨ **Visual Document Processing**: Converting images to chat-ready format for model consumption\n- 🔍 **Vision-Language Generation**: Using vision models to generate detailed summaries from images\n\nIf this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series."
+      "source": "#### 📚 What you'll learn\n\nThis notebook demonstrates how to provide images as context to generate text descriptions using vision-language models.\n\n- ✨ **Visual Document Processing**: Converting images to chat-ready format for model consumption\n- 🔍 **Vision-Language Generation**: Using vision models to generate detailed summaries from images\n\nIf this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.",
+      "source_html": "<h4>📚 What you'll learn</h4>\n<p>This notebook demonstrates how to provide images as context to generate text descriptions using vision-language models.</p>\n<ul>\n<li>✨ <strong>Visual Document Processing</strong>: Converting images to chat-ready format for model consumption</li>\n<li>🔍 <strong>Vision-Language Generation</strong>: Using vision models to generate detailed summaries from images</li>\n</ul>\n<p>If this is your first time using Data Designer, we recommend starting with the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/\">first notebook</a> in this tutorial series.</p>\n"
     },
     {
       "type": "markdown",
-      "source": "### 📦 Import Data Designer\n\n- `data_designer.config` provides access to the configuration API.\n\n- `DataDesigner` is the main interface for data generation."
+      "source": "### 📦 Import Data Designer\n\n- `data_designer.config` provides access to the configuration API.\n\n- `DataDesigner` is the main interface for data generation.",
+      "source_html": "<h3>📦 Import Data Designer</h3>\n<ul>\n<li>\n<p><code>data_designer.config</code> provides access to the configuration API.</p>\n</li>\n<li>\n<p><code>DataDesigner</code> is the main interface for data generation.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -20,7 +23,8 @@
     },
     {
       "type": "markdown",
-      "source": "### ⚙️ Initialize the Data Designer interface\n\n- `DataDesigner` is the main object responsible for managing the data generation process.\n\n- When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used."
+      "source": "### ⚙️ Initialize the Data Designer interface\n\n- `DataDesigner` is the main object responsible for managing the data generation process.\n\n- When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.",
+      "source_html": "<h3>⚙️ Initialize the Data Designer interface</h3>\n<ul>\n<li>\n<p><code>DataDesigner</code> is the main object responsible for managing the data generation process.</p>\n</li>\n<li>\n<p>When initialized without arguments, the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/\">default model providers</a> are used.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -30,7 +34,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🏗️ Initialize the Data Designer Config Builder\n\n- The Data Designer config defines the dataset schema and generation process.\n\n- The config builder provides an intuitive interface for building this configuration.\n\n- When initialized without arguments, the [default model configurations](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used."
+      "source": "### 🏗️ Initialize the Data Designer Config Builder\n\n- The Data Designer config defines the dataset schema and generation process.\n\n- The config builder provides an intuitive interface for building this configuration.\n\n- When initialized without arguments, the [default model configurations](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.",
+      "source_html": "<h3>🏗️ Initialize the Data Designer Config Builder</h3>\n<ul>\n<li>\n<p>The Data Designer config defines the dataset schema and generation process.</p>\n</li>\n<li>\n<p>The config builder provides an intuitive interface for building this configuration.</p>\n</li>\n<li>\n<p>When initialized without arguments, the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/\">default model configurations</a> are used.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -40,7 +45,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🌱 Seed Dataset Creation\n\nIn this section, we'll prepare our visual documents as a seed dataset for summarization:\n\n- **Loading Visual Documents**: We use a small pets image dataset containing labeled images\n- **Image Processing**: Convert images to base64 format for vision model consumption\n- **Metadata Extraction**: Preserve relevant image information (label, etc.)\n\nThe seed dataset will be used to generate detailed text descriptions of each image."
+      "source": "### 🌱 Seed Dataset Creation\n\nIn this section, we'll prepare our visual documents as a seed dataset for summarization:\n\n- **Loading Visual Documents**: We use a small pets image dataset containing labeled images\n- **Image Processing**: Convert images to base64 format for vision model consumption\n- **Metadata Extraction**: Preserve relevant image information (label, etc.)\n\nThe seed dataset will be used to generate detailed text descriptions of each image.",
+      "source_html": "<h3>🌱 Seed Dataset Creation</h3>\n<p>In this section, we'll prepare our visual documents as a seed dataset for summarization:</p>\n<ul>\n<li><strong>Loading Visual Documents</strong>: We use a small pets image dataset containing labeled images</li>\n<li><strong>Image Processing</strong>: Convert images to base64 format for vision model consumption</li>\n<li><strong>Metadata Extraction</strong>: Preserve relevant image information (label, etc.)</li>\n</ul>\n<p>The seed dataset will be used to generate detailed text descriptions of each image.</p>\n"
     },
     {
       "type": "code",
@@ -113,7 +119,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🔁 Iteration is key – preview the dataset!\n\n1. Use the `preview` method to generate a sample of records quickly.\n\n2. Inspect the results for quality and format issues.\n\n3. Adjust column configurations, prompts, or parameters as needed.\n\n4. Re-run the preview until satisfied."
+      "source": "### 🔁 Iteration is key – preview the dataset!\n\n1. Use the `preview` method to generate a sample of records quickly.\n\n2. Inspect the results for quality and format issues.\n\n3. Adjust column configurations, prompts, or parameters as needed.\n\n4. Re-run the preview until satisfied.",
+      "source_html": "<h3>🔁 Iteration is key – preview the dataset!</h3>\n<ol>\n<li>\n<p>Use the <code>preview</code> method to generate a sample of records quickly.</p>\n</li>\n<li>\n<p>Inspect the results for quality and format issues.</p>\n</li>\n<li>\n<p>Adjust column configurations, prompts, or parameters as needed.</p>\n</li>\n<li>\n<p>Re-run the preview until satisfied.</p>\n</li>\n</ol>\n"
     },
     {
       "type": "code",
@@ -306,7 +313,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 📊 Analyze the generated data\n\n- Data Designer automatically generates a basic statistical analysis of the generated data.\n\n- This analysis is available via the `analysis` property of generation result objects."
+      "source": "### 📊 Analyze the generated data\n\n- Data Designer automatically generates a basic statistical analysis of the generated data.\n\n- This analysis is available via the `analysis` property of generation result objects.",
+      "source_html": "<h3>📊 Analyze the generated data</h3>\n<ul>\n<li>\n<p>Data Designer automatically generates a basic statistical analysis of the generated data.</p>\n</li>\n<li>\n<p>This analysis is available via the <code>analysis</code> property of generation result objects.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -323,7 +331,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🔎 Visual Inspection\n\nLet's compare the original image with the generated description to validate quality:"
+      "source": "### 🔎 Visual Inspection\n\nLet's compare the original image with the generated description to validate quality:",
+      "source_html": "<h3>🔎 Visual Inspection</h3>\n<p>Let's compare the original image with the generated description to validate quality:</p>\n"
     },
     {
       "type": "code",
@@ -354,7 +363,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🆙 Scale up!\n\n- Happy with your preview data?\n\n- Use the `create` method to submit larger Data Designer generation jobs."
+      "source": "### 🆙 Scale up!\n\n- Happy with your preview data?\n\n- Use the `create` method to submit larger Data Designer generation jobs.",
+      "source_html": "<h3>🆙 Scale up!</h3>\n<ul>\n<li>\n<p>Happy with your preview data?</p>\n</li>\n<li>\n<p>Use the <code>create</code> method to submit larger Data Designer generation jobs.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -592,7 +602,8 @@
     },
     {
       "type": "markdown",
-      "source": "## ⏭️ Next Steps\n\nNow that you've learned how to use visual context for image summarization in Data Designer, explore more:\n\n- Experiment with different vision models for specific image types\n- Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)\n- Combine vision-based descriptions with other column types for multi-modal workflows\n- Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering\n\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) with Data Designer"
+      "source": "## ⏭️ Next Steps\n\nNow that you've learned how to use visual context for image summarization in Data Designer, explore more:\n\n- Experiment with different vision models for specific image types\n- Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)\n- Combine vision-based descriptions with other column types for multi-modal workflows\n- Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering\n\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) with Data Designer",
+      "source_html": "<h2>⏭️ Next Steps</h2>\n<p>Now that you've learned how to use visual context for image summarization in Data Designer, explore more:</p>\n<ul>\n<li>\n<p>Experiment with different vision models for specific image types</p>\n</li>\n<li>\n<p>Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)</p>\n</li>\n<li>\n<p>Combine vision-based descriptions with other column types for multi-modal workflows</p>\n</li>\n<li>\n<p>Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering</p>\n</li>\n<li>\n<p><a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/\">Generating images</a> with Data Designer</p>\n</li>\n</ul>\n"
     }
   ]
 }

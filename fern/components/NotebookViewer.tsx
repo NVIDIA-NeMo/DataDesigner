@@ -110,67 +110,6 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function isSafeUrl(url: string): boolean {
-  const trimmed = url.trim();
-  return (
-    trimmed.startsWith("http://") ||
-    trimmed.startsWith("https://") ||
-    trimmed.startsWith("mailto:") ||
-    trimmed.startsWith("#") ||
-    trimmed.startsWith("/")
-  );
-}
-
-const UL_CLASS =
-  "[&>li]:relative [&>li]:before:text-(color:--grayscale-a10) mb-3 list-none pl-3 [&>li]:pl-3 [&>li]:before:absolute [&>li]:before:ml-[-22px] [&>li]:before:mt-[-1px] [&>li]:before:content-['⦁'] [&>li]:before:self-center";
-const OL_CLASS = "mb-3 list-outside list-decimal [&_ol]:!list-[lower-roman]";
-
-function renderMarkdown(markdown: string): string {
-  if (typeof markdown !== "string") return "";
-  let html = markdown
-    .replace(/<br\s*\/?>/gi, "\u0000BR\u0000")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\u0000BR\u0000/g, "<br />")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
-      if (!isSafeUrl(url)) return escapeHtml(`[${text}](${url})`);
-      const isInternal = url.startsWith("/") || url.startsWith("#");
-      const attrs = isInternal
-        ? `href="${escapeHtml(url)}" class="fern-mdx-link"`
-        : `href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="fern-mdx-link"`;
-      const icon =
-        isInternal
-          ? ""
-          : '<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-external-link external-link-icon inline-block ml-0.5 align-middle" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>';
-      return `<a ${attrs}>${text}${icon}</a>`;
-    })
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-    .replace(/\*(.*?)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
-  html = html
-    .split("\n")
-    .map((line) => {
-      if (/^#### (.*)$/.test(line)) return `<h4>${line.slice(5)}</h4>`;
-      if (/^### (.*)$/.test(line)) return `<h3>${line.slice(4)}</h3>`;
-      if (/^## (.*)$/.test(line)) return `<h2>${line.slice(3)}</h2>`;
-      if (/^# (.*)$/.test(line)) return `<h1>${line.slice(2)}</h1>`;
-      if (/^- (.*)$/.test(line)) return `<li data-ul>${line.slice(2)}</li>`;
-      if (/^\d+\. (.*)$/.test(line)) return `<li data-ol>${line.replace(/^\d+\. /, "")}</li>`;
-      if (line.trim() === "") return "";
-      return `<p>${line}</p>`;
-    })
-    .join("\n");
-  html = html.replace(
-    /(<li data-ol>.*?<\/li>\s*)+/gs,
-    (m) => `<ol class="${OL_CLASS}">${m.replace(/ data-ol/g, "").trim()}</ol>`
-  );
-  html = html.replace(
-    /(<li data-ul>.*?<\/li>\s*)+/gs,
-    (m) => `<ul class="${UL_CLASS}">${m.replace(/ data-ul/g, "").trim()}</ul>`
-  );
-  return html;
-}
 
 function handleCopy(content: string, button: HTMLButtonElement) {
   navigator.clipboard.writeText(content).catch(() => {});
@@ -369,7 +308,12 @@ function renderCell(cell: NotebookCell, index: number, showOutputs: boolean) {
       {cell.type === "markdown" ? (
         <div
           className="notebook-viewer__markdown fern-prose prose break-words prose-h1:mt-[1.5em] first:prose-h1:mt-0 max-w-full"
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(cell.source) }}
+          // Markdown is pre-rendered to HTML at build time by
+          // fern/scripts/ipynb-to-fern-json.py via markdown-it-py. Falls
+          // back to escaped raw text for older snapshots without source_html.
+          dangerouslySetInnerHTML={{
+            __html: cell.source_html ?? escapeHtml(cell.source),
+          }}
         />
       ) : (
         <>

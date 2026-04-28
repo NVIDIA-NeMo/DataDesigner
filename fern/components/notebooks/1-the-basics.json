@@ -2,11 +2,13 @@
   "cells": [
     {
       "type": "markdown",
-      "source": "# 🎨 Data Designer Tutorial: The Basics\n\n#### 📚 What you'll learn\n\nThis notebook demonstrates the basics of Data Designer by generating a simple product review dataset."
+      "source": "# 🎨 Data Designer Tutorial: The Basics\n\n#### 📚 What you'll learn\n\nThis notebook demonstrates the basics of Data Designer by generating a simple product review dataset.",
+      "source_html": "<h1>🎨 Data Designer Tutorial: The Basics</h1>\n<h4>📚 What you'll learn</h4>\n<p>This notebook demonstrates the basics of Data Designer by generating a simple product review dataset.</p>\n"
     },
     {
       "type": "markdown",
-      "source": "### 📦 Import Data Designer\n\n- `data_designer.config` provides access to the configuration API.\n\n- `DataDesigner` is the main interface for data generation."
+      "source": "### 📦 Import Data Designer\n\n- `data_designer.config` provides access to the configuration API.\n\n- `DataDesigner` is the main interface for data generation.",
+      "source_html": "<h3>📦 Import Data Designer</h3>\n<ul>\n<li>\n<p><code>data_designer.config</code> provides access to the configuration API.</p>\n</li>\n<li>\n<p><code>DataDesigner</code> is the main interface for data generation.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -16,7 +18,8 @@
     },
     {
       "type": "markdown",
-      "source": "### ⚙️ Initialize the Data Designer interface\n\n- `DataDesigner` is the main object responsible for managing the data generation process.\n\n- When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used."
+      "source": "### ⚙️ Initialize the Data Designer interface\n\n- `DataDesigner` is the main object responsible for managing the data generation process.\n\n- When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.",
+      "source_html": "<h3>⚙️ Initialize the Data Designer interface</h3>\n<ul>\n<li>\n<p><code>DataDesigner</code> is the main object responsible for managing the data generation process.</p>\n</li>\n<li>\n<p>When initialized without arguments, the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/\">default model providers</a> are used.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -26,7 +29,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🎛️ Define model configurations\n\n- Each `ModelConfig` defines a model that can be used during the generation process.\n\n- The \"model alias\" is used to reference the model in the Data Designer config (as we will see below).\n\n- The \"model provider\" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).\n\n- By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider."
+      "source": "### 🎛️ Define model configurations\n\n- Each `ModelConfig` defines a model that can be used during the generation process.\n\n- The \"model alias\" is used to reference the model in the Data Designer config (as we will see below).\n\n- The \"model provider\" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).\n\n- By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.",
+      "source_html": "<h3>🎛️ Define model configurations</h3>\n<ul>\n<li>\n<p>Each <code>ModelConfig</code> defines a model that can be used during the generation process.</p>\n</li>\n<li>\n<p>The &quot;model alias&quot; is used to reference the model in the Data Designer config (as we will see below).</p>\n</li>\n<li>\n<p>The &quot;model provider&quot; is the external service that hosts the model (see the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/\">model config</a> docs for more details).</p>\n</li>\n<li>\n<p>By default, we use <a href=\"https://build.nvidia.com/models\">build.nvidia.com</a> as the model provider.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -36,7 +40,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🏗️ Initialize the Data Designer Config Builder\n\n- The Data Designer config defines the dataset schema and generation process.\n\n- The config builder provides an intuitive interface for building this configuration.\n\n- The list of model configs is provided to the builder at initialization."
+      "source": "### 🏗️ Initialize the Data Designer Config Builder\n\n- The Data Designer config defines the dataset schema and generation process.\n\n- The config builder provides an intuitive interface for building this configuration.\n\n- The list of model configs is provided to the builder at initialization.",
+      "source_html": "<h3>🏗️ Initialize the Data Designer Config Builder</h3>\n<ul>\n<li>\n<p>The Data Designer config defines the dataset schema and generation process.</p>\n</li>\n<li>\n<p>The config builder provides an intuitive interface for building this configuration.</p>\n</li>\n<li>\n<p>The list of model configs is provided to the builder at initialization.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -46,7 +51,8 @@
     },
     {
       "type": "markdown",
-      "source": "## 🎲 Getting started with sampler columns\n\n- Sampler columns offer non-LLM based generation of synthetic data.\n\n- They are particularly useful for **steering the diversity** of the generated data, as we demonstrate below.\n\n<br>\n\nYou can view available samplers using the config builder's `info` property:"
+      "source": "## 🎲 Getting started with sampler columns\n\n- Sampler columns offer non-LLM based generation of synthetic data.\n\n- They are particularly useful for **steering the diversity** of the generated data, as we demonstrate below.\n\n<br>\n\nYou can view available samplers using the config builder's `info` property:",
+      "source_html": "<h2>🎲 Getting started with sampler columns</h2>\n<ul>\n<li>\n<p>Sampler columns offer non-LLM based generation of synthetic data.</p>\n</li>\n<li>\n<p>They are particularly useful for <strong>steering the diversity</strong> of the generated data, as we demonstrate below.</p>\n</li>\n</ul>\n<br>\n<p>You can view available samplers using the config builder's <code>info</code> property:</p>\n"
     },
     {
       "type": "code",
@@ -63,7 +69,8 @@
     },
     {
       "type": "markdown",
-      "source": "Let's start designing our product review dataset by adding product category and subcategory columns."
+      "source": "Let's start designing our product review dataset by adding product category and subcategory columns.",
+      "source_html": "<p>Let's start designing our product review dataset by adding product category and subcategory columns.</p>\n"
     },
     {
       "type": "code",
@@ -80,7 +87,8 @@
     },
     {
       "type": "markdown",
-      "source": "Next, let's add samplers to generate data related to the customer and their review."
+      "source": "Next, let's add samplers to generate data related to the customer and their review.",
+      "source_html": "<p>Next, let's add samplers to generate data related to the customer and their review.</p>\n"
     },
     {
       "type": "code",
@@ -97,7 +105,8 @@
     },
     {
       "type": "markdown",
-      "source": "## 🦜 LLM-generated columns\n\n- The real power of Data Designer comes from leveraging LLMs to generate text, code, and structured data.\n\n- When prompting the LLM, we can use Jinja templating to reference other columns in the dataset.\n\n- As we see below, nested json fields can be accessed using dot notation."
+      "source": "## 🦜 LLM-generated columns\n\n- The real power of Data Designer comes from leveraging LLMs to generate text, code, and structured data.\n\n- When prompting the LLM, we can use Jinja templating to reference other columns in the dataset.\n\n- As we see below, nested json fields can be accessed using dot notation.",
+      "source_html": "<h2>🦜 LLM-generated columns</h2>\n<ul>\n<li>\n<p>The real power of Data Designer comes from leveraging LLMs to generate text, code, and structured data.</p>\n</li>\n<li>\n<p>When prompting the LLM, we can use Jinja templating to reference other columns in the dataset.</p>\n</li>\n<li>\n<p>As we see below, nested json fields can be accessed using dot notation.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -114,7 +123,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🔁 Iteration is key – preview the dataset!\n\n1. Use the `preview` method to generate a sample of records quickly.\n\n2. Inspect the results for quality and format issues.\n\n3. Adjust column configurations, prompts, or parameters as needed.\n\n4. Re-run the preview until satisfied."
+      "source": "### 🔁 Iteration is key – preview the dataset!\n\n1. Use the `preview` method to generate a sample of records quickly.\n\n2. Inspect the results for quality and format issues.\n\n3. Adjust column configurations, prompts, or parameters as needed.\n\n4. Re-run the preview until satisfied.",
+      "source_html": "<h3>🔁 Iteration is key – preview the dataset!</h3>\n<ol>\n<li>\n<p>Use the <code>preview</code> method to generate a sample of records quickly.</p>\n</li>\n<li>\n<p>Inspect the results for quality and format issues.</p>\n</li>\n<li>\n<p>Adjust column configurations, prompts, or parameters as needed.</p>\n</li>\n<li>\n<p>Re-run the preview until satisfied.</p>\n</li>\n</ol>\n"
     },
     {
       "type": "code",
@@ -417,7 +427,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 📊 Analyze the generated data\n\n- Data Designer automatically generates a basic statistical analysis of the generated data.\n\n- This analysis is available via the `analysis` property of generation result objects."
+      "source": "### 📊 Analyze the generated data\n\n- Data Designer automatically generates a basic statistical analysis of the generated data.\n\n- This analysis is available via the `analysis` property of generation result objects.",
+      "source_html": "<h3>📊 Analyze the generated data</h3>\n<ul>\n<li>\n<p>Data Designer automatically generates a basic statistical analysis of the generated data.</p>\n</li>\n<li>\n<p>This analysis is available via the <code>analysis</code> property of generation result objects.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -434,7 +445,8 @@
     },
     {
       "type": "markdown",
-      "source": "### 🆙 Scale up!\n\n- Happy with your preview data?\n\n- Use the `create` method to submit larger Data Designer generation jobs."
+      "source": "### 🆙 Scale up!\n\n- Happy with your preview data?\n\n- Use the `create` method to submit larger Data Designer generation jobs.",
+      "source_html": "<h3>🆙 Scale up!</h3>\n<ul>\n<li>\n<p>Happy with your preview data?</p>\n</li>\n<li>\n<p>Use the <code>create</code> method to submit larger Data Designer generation jobs.</p>\n</li>\n</ul>\n"
     },
     {
       "type": "code",
@@ -817,7 +829,8 @@
     },
     {
       "type": "markdown",
-      "source": "## ⏭️ Next Steps\n\nNow that you've seen the basics of Data Designer, check out the following notebooks to learn more about:\n\n- [Structured outputs, jinja expressions, and conditional generation](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)\n\n- [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)\n\n- [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)\n\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/)"
+      "source": "## ⏭️ Next Steps\n\nNow that you've seen the basics of Data Designer, check out the following notebooks to learn more about:\n\n- [Structured outputs, jinja expressions, and conditional generation](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)\n\n- [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)\n\n- [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)\n\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/)",
+      "source_html": "<h2>⏭️ Next Steps</h2>\n<p>Now that you've seen the basics of Data Designer, check out the following notebooks to learn more about:</p>\n<ul>\n<li>\n<p><a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/\">Structured outputs, jinja expressions, and conditional generation</a></p>\n</li>\n<li>\n<p><a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/\">Seeding synthetic data generation with an external dataset</a></p>\n</li>\n<li>\n<p><a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/\">Providing images as context</a></p>\n</li>\n<li>\n<p><a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/\">Generating images</a></p>\n</li>\n</ul>\n"
     }
   ]
 }
