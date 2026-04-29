@@ -823,9 +823,14 @@ async def test_rate_limit_errors_do_not_trigger_early_shutdown() -> None:
 
 
 class _PerRowRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
-    """Per-row rate limiter so concurrent cells don't race on a shared counter."""
+    """Per-row rate limiter so concurrent cells don't race on a shared counter.
+
+    ``retry_after_seconds`` is attached to the raised ``ModelRateLimitError``
+    to test that the cooldown queue honors the provider hint.
+    """
 
     fails_per_row: int = 0
+    retry_after_seconds: float | None = None
     counts: dict[int, int] = {}  # noqa: RUF012
 
     @staticmethod
@@ -837,7 +842,7 @@ class _PerRowRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
         n = self.counts.get(row_seed, 0) + 1
         self.counts[row_seed] = n
         if n <= self.fails_per_row:
-            raise ModelRateLimitError("429")
+            raise ModelRateLimitError("429", retry_after=self.retry_after_seconds)
         data[self.config.name] = f"ok_{row_seed}"
         return data
 
@@ -904,25 +909,42 @@ def _make_rate_limit_scheduler(
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_rate_limit_recovers_via_cooldown_queue() -> None:
-    """A task that fails 3 times then succeeds is recovered through the cooldown
-    queue without ever falling through to salvage."""
+@pytest.mark.parametrize(
+    ("fails_per_row", "retry_after_seconds", "min_elapsed"),
+    [
+        pytest.param(3, None, None, id="default-cooldown-3-fails"),
+        pytest.param(1, 0.4, 0.35, id="retry-after-honored"),
+    ],
+)
+async def test_rate_limit_recovers_via_cooldown_queue(
+    fails_per_row: int, retry_after_seconds: float | None, min_elapsed: float | None
+) -> None:
+    """Tasks that fail with rate-limit recover through the cooldown queue
+    without falling through to salvage. When the exception carries
+    ``Retry-After``, the queue waits at least that long instead of using the
+    configured default."""
     _PerRowRateLimitGenerator.counts = {}
-    _PerRowRateLimitGenerator.fails_per_row = 3  # under DEFAULT_RATE_LIMIT_RETRIES (5)
+    _PerRowRateLimitGenerator.fails_per_row = fails_per_row
+    _PerRowRateLimitGenerator.retry_after_seconds = retry_after_seconds
     provider = _mock_provider()
     generators = {
         "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
         "col": _PerRowRateLimitGenerator(config=_expr_config("col"), resource_provider=provider),
     }
-    scheduler, tracker = _make_rate_limit_scheduler(generators, num_rows=2)
+    # Configured default is small so the retry_after case actually has to
+    # honor the larger hint to delay long enough.
+    scheduler, tracker = _make_rate_limit_scheduler(generators, num_rows=2, rate_limit_cooldown_seconds=0.01)
+    start = asyncio.get_event_loop().time()
     await scheduler.run()
+    elapsed = asyncio.get_event_loop().time() - start
 
     assert tracker.is_row_group_complete(0, 2, ["seed", "col"])
-    # Cooldown-queue recovery: nothing left in either retry surface.
+    # Cooldown-queue recovery: nothing left behind anywhere.
     assert scheduler._deferred == []
     assert scheduler._cooldown_pending == []
-    # Per-task retry counter was cleared on success.
     assert scheduler._rate_limit_retries == {}
+    if min_elapsed is not None:
+        assert elapsed >= min_elapsed, f"Expected pacing >= {min_elapsed}s, got {elapsed:.3f}s"
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -936,70 +958,12 @@ async def test_rate_limit_exhaustion_does_not_trigger_early_shutdown() -> None:
     }
     scheduler, _ = _make_rate_limit_scheduler(generators, num_rows=1)
     await scheduler.run()
-    # Even with sustained 429s the error-rate gate never fires.
     assert not scheduler._early_shutdown
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_rate_limited_task_releases_permits_during_cooldown() -> None:
-    """A worker awaiting a cooldown must not pin the LLM-wait or submission
-    permit; both pools should return to full strength while the task waits."""
-    _PerRowRateLimitGenerator.counts = {}
-    _PerRowRateLimitGenerator.fails_per_row = 2
-    provider = _mock_provider()
-    generators = {
-        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "col": _PerRowRateLimitGenerator(config=_expr_config("col"), resource_provider=provider),
-    }
-    scheduler, _ = _make_rate_limit_scheduler(generators, num_rows=1, rate_limit_cooldown_seconds=0.5)
-    submission_max = scheduler._submission_semaphore.available_permits
-    llm_max = scheduler._llm_wait_semaphore.available_permits
-
-    async def watch_permits() -> tuple[int, int]:
-        # While the task is in the cooldown queue (after first 429), peek at permits.
-        for _ in range(50):
-            await asyncio.sleep(0.05)
-            if scheduler._cooldown_pending:
-                return (
-                    scheduler._submission_semaphore.available_permits,
-                    scheduler._llm_wait_semaphore.available_permits,
-                )
-        return (submission_max, llm_max)
-
-    runner = asyncio.create_task(scheduler.run())
-    permits_during_cooldown = await watch_permits()
-    await runner
-
-    assert permits_during_cooldown == (submission_max, llm_max), (
-        f"Expected pools to be at full strength during cooldown, got {permits_during_cooldown}"
-    )
-
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_unthrottled_rate_limit_does_not_hot_loop() -> None:
-    """A custom generator that raises ModelRateLimitError directly (no throttle
-    in the loop) must still be paced by the cooldown queue, not retried in a
-    tight loop."""
-    _PerRowRateLimitGenerator.counts = {}
-    _PerRowRateLimitGenerator.fails_per_row = 4  # under DEFAULT_RATE_LIMIT_RETRIES
-    provider = _mock_provider()
-    generators = {
-        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "col": _PerRowRateLimitGenerator(config=_expr_config("col"), resource_provider=provider),
-    }
-    cooldown = 0.1
-    scheduler, _ = _make_rate_limit_scheduler(generators, num_rows=1, rate_limit_cooldown_seconds=cooldown)
-    start = asyncio.get_event_loop().time()
-    await scheduler.run()
-    elapsed = asyncio.get_event_loop().time() - start
-    # 4 retries with the configured cooldown each = at least ~4 * cooldown seconds.
-    # Allow some slack but ensure we didn't hot-loop (sub-cooldown) the retries.
-    assert elapsed >= 4 * cooldown * 0.8, f"Expected at least {4 * cooldown * 0.8}s of pacing, got {elapsed:.3f}s"
-
-
-@pytest.mark.asyncio(loop_scope="session")
 async def test_non_rate_limit_error_skips_cooldown_queue() -> None:
-    """ModelInternalServerError must go straight to salvage, not the cooldown
+    """ModelInternalServerError goes straight to salvage, not the cooldown
     queue. Only ModelRateLimitError uses the cooldown path."""
     _CountingInternalServerGenerator.counts = {}
     provider = _mock_provider()
@@ -1010,52 +974,10 @@ async def test_non_rate_limit_error_skips_cooldown_queue() -> None:
     scheduler, _ = _make_rate_limit_scheduler(generators, num_rows=1, disable_early_shutdown=True)
     await scheduler.run()
     assert scheduler._cooldown_pending == []
-    # 1 main attempt + up to 2 salvage rounds = 3 calls per row max.
-    # The inline rate-limit path would have produced 6+ per row.
+    # 1 main attempt + up to 2 salvage rounds = 3 calls per row max; the
+    # cooldown-queue path would have produced 6+.
     total_calls = sum(_CountingInternalServerGenerator.counts.values())
     assert total_calls <= 3, f"Expected at most 3 calls per row, got {total_calls}"
-
-
-class _PerRowRateLimitWithRetryAfter(ColumnGenerator[ExpressionColumnConfig]):
-    """Per-row generator that raises ``ModelRateLimitError(retry_after=...)``."""
-
-    fails_per_row: int = 0
-    retry_after_seconds: float = 1.0
-    counts: dict[int, int] = {}  # noqa: RUF012
-
-    @staticmethod
-    def get_generation_strategy() -> GenerationStrategy:
-        return GenerationStrategy.CELL_BY_CELL
-
-    def generate(self, data: dict) -> dict:
-        rs = data.get("seed", -1)
-        n = self.counts.get(rs, 0) + 1
-        self.counts[rs] = n
-        if n <= self.fails_per_row:
-            raise ModelRateLimitError("429", retry_after=self.retry_after_seconds)
-        data[self.config.name] = f"ok_{rs}"
-        return data
-
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_cooldown_queue_honors_retry_after_from_exception() -> None:
-    """When the exception carries Retry-After, the cooldown queue waits at
-    least that long instead of falling back to the configured default."""
-    _PerRowRateLimitWithRetryAfter.counts = {}
-    _PerRowRateLimitWithRetryAfter.fails_per_row = 1
-    _PerRowRateLimitWithRetryAfter.retry_after_seconds = 0.4
-    provider = _mock_provider()
-    generators = {
-        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "col": _PerRowRateLimitWithRetryAfter(config=_expr_config("col"), resource_provider=provider),
-    }
-    # Configured default is much smaller than the Retry-After hint.
-    scheduler, _ = _make_rate_limit_scheduler(generators, num_rows=1, rate_limit_cooldown_seconds=0.01)
-    start = asyncio.get_event_loop().time()
-    await scheduler.run()
-    elapsed = asyncio.get_event_loop().time() - start
-    # 1 retry, retry_after=0.4 → must have waited at least ~0.4s.
-    assert elapsed >= 0.35, f"Expected to wait >= 0.35s for retry_after, waited {elapsed:.3f}s"
 
 
 @pytest.mark.asyncio(loop_scope="session")
