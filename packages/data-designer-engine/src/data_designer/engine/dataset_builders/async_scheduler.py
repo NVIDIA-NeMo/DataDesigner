@@ -30,12 +30,7 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
 )
 from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task, TaskTrace
-from data_designer.engine.models.errors import (
-    ModelAPIConnectionError,
-    ModelInternalServerError,
-    ModelRateLimitError,
-    ModelTimeoutError,
-)
+from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGenerator
@@ -53,13 +48,6 @@ LLM_WAIT_POOL_MULTIPLIER: int = 2
 DEGRADED_WARN_RATE: float = 0.5
 DEGRADED_WARN_WINDOW: int = 20
 DEGRADED_WARN_INTERVAL_S: float = 60.0
-
-_RETRYABLE_MODEL_ERRORS = (
-    ModelRateLimitError,
-    ModelTimeoutError,
-    ModelInternalServerError,
-    ModelAPIConnectionError,
-)
 
 
 class TrackingSemaphore(asyncio.Semaphore):
@@ -1036,7 +1024,7 @@ class AsyncTaskScheduler:
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
         """Classify whether an exception is retryable."""
-        return isinstance(exc, _RETRYABLE_MODEL_ERRORS)
+        return isinstance(exc, RETRYABLE_MODEL_ERRORS)
 
 
 def build_llm_bound_lookup(generators: dict[str, ColumnGenerator]) -> dict[str, bool]:

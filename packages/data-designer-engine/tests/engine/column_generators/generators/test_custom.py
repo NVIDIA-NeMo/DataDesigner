@@ -20,6 +20,12 @@ from data_designer.config.column_configs import CustomColumnConfig, GenerationSt
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
+from data_designer.engine.models.errors import (
+    ModelAPIConnectionError,
+    ModelInternalServerError,
+    ModelRateLimitError,
+    ModelTimeoutError,
+)
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
@@ -350,6 +356,53 @@ def test_function_error_logs_warning_cell_by_cell(caplog: pytest.LogCaptureFixtu
     assert "something broke" in caplog.text
 
 
+@pytest.mark.parametrize(
+    "exc_factory",
+    [
+        pytest.param(lambda: ModelRateLimitError("429"), id="rate_limit"),
+        pytest.param(lambda: ModelTimeoutError("timeout"), id="timeout"),
+        pytest.param(lambda: ModelInternalServerError("503"), id="internal_server"),
+        pytest.param(lambda: ModelAPIConnectionError("conn reset"), id="api_connection"),
+    ],
+)
+def test_retryable_model_errors_pass_through_sync_wrap(exc_factory: Any) -> None:
+    """Retryable model errors raised inside a sync generator must NOT be wrapped.
+
+    Without this, the scheduler classifies the wrapped error as non-retryable and
+    counts it toward the early-shutdown gate (regression seen in #575 follow-up).
+    """
+
+    @custom_column_generator()
+    def raising_gen(row: dict) -> dict:
+        raise exc_factory()
+
+    generator = _create_test_generator(name="result", generator_function=raising_gen)
+    with pytest.raises(type(exc_factory())):
+        generator.generate({"input": 1})
+
+
+@pytest.mark.parametrize(
+    "exc_factory",
+    [
+        pytest.param(lambda: ModelRateLimitError("429"), id="rate_limit"),
+        pytest.param(lambda: ModelTimeoutError("timeout"), id="timeout"),
+        pytest.param(lambda: ModelInternalServerError("503"), id="internal_server"),
+        pytest.param(lambda: ModelAPIConnectionError("conn reset"), id="api_connection"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_retryable_model_errors_pass_through_async_wrap(exc_factory: Any) -> None:
+    """Retryable errors raised inside an async user generator must propagate unchanged."""
+
+    @custom_column_generator()
+    async def raising_gen(row: dict) -> dict:
+        raise exc_factory()
+
+    generator = _create_test_generator(name="result", generator_function=raising_gen)
+    with pytest.raises(type(exc_factory())):
+        await generator.agenerate({"input": 1})
+
+
 def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixture) -> None:
     """Test that undeclared columns are removed with a warning."""
     import logging
@@ -554,6 +607,60 @@ class TestAsyncBridgedModelFacade:
         proxy = _AsyncBridgedModelFacade(facade)
         with pytest.raises(RuntimeError, match="connection timed out"):
             proxy.generate(prompt="hello")
+
+    def test_bridge_timeout_raises_model_timeout_error(self) -> None:
+        """A bridge timeout must surface as ModelTimeoutError so the scheduler sees it as retryable."""
+        import asyncio
+        import concurrent.futures
+        import threading
+        from unittest.mock import patch
+
+        from data_designer.engine.column_generators.generators.custom import _AsyncBridgedModelFacade
+        from data_designer.engine.models.clients.errors import SyncClientUnavailableError
+
+        facade = Mock()
+        facade.generate.side_effect = SyncClientUnavailableError(
+            "Sync methods are not available on an async-mode HttpModelClient."
+        )
+
+        async def hangs_forever(*args: Any, **kwargs: Any) -> tuple:
+            await asyncio.sleep(60)
+            return ("never", [], {})
+
+        facade.agenerate = hangs_forever
+        proxy = _AsyncBridgedModelFacade(facade)
+
+        engine_loop = asyncio.new_event_loop()
+        engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
+        engine_thread.start()
+
+        try:
+            with (
+                patch(
+                    "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+                    return_value=engine_loop,
+                ),
+                patch("data_designer.engine.column_generators.generators.custom.SYNC_BRIDGE_TIMEOUT", 0.05),
+                pytest.raises(ModelTimeoutError, match="bridge timed out"),
+            ):
+                proxy.generate("hello")
+            # Sanity: the same condition should not raise stdlib TimeoutError.
+            with (
+                patch(
+                    "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+                    return_value=engine_loop,
+                ),
+                patch("data_designer.engine.column_generators.generators.custom.SYNC_BRIDGE_TIMEOUT", 0.05),
+            ):
+                try:
+                    proxy.generate("hello2")
+                except ModelTimeoutError:
+                    pass
+                except concurrent.futures.TimeoutError:
+                    pytest.fail("bridge raised stdlib TimeoutError instead of ModelTimeoutError")
+        finally:
+            engine_loop.call_soon_threadsafe(engine_loop.stop)
+            engine_thread.join(timeout=5)
 
     def test_deadlock_guard_on_event_loop(self) -> None:
         """Raises a clear error instead of deadlocking when called from the event loop."""

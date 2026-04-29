@@ -15,6 +15,7 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.engine.column_generators.generators.base import SYNC_BRIDGE_TIMEOUT, ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
+from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
@@ -69,7 +70,8 @@ class _AsyncBridgedModelFacade:
         except concurrent.futures.TimeoutError as exc:
             future.cancel()
             logger.warning("Async model bridge timed out after %ss; coroutine cancelled", SYNC_BRIDGE_TIMEOUT)
-            raise TimeoutError(f"model.generate() bridge timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
+            # Raise as ModelTimeoutError so the scheduler classifies it retryable.
+            raise ModelTimeoutError(f"model.generate() bridge timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
 
     def __getattr__(self, name: str) -> Any:
         return getattr(object.__getattribute__(self, "_facade"), name)
@@ -147,6 +149,10 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
                 result = await self._ainvoke_generator_function(data)
             except CustomColumnGenerationError:
                 raise
+            except RETRYABLE_MODEL_ERRORS:
+                # Preserve retryability so the scheduler can salvage these
+                # instead of counting them toward the early-shutdown gate.
+                raise
             except Exception as e:
                 logger.warning(
                     f"⚠️ Custom generator function {self.config.generator_function.__name__!r} "
@@ -192,6 +198,10 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         try:
             result = self._invoke_generator_function(data)
         except CustomColumnGenerationError:
+            raise
+        except RETRYABLE_MODEL_ERRORS:
+            # Preserve retryability so the scheduler can salvage these
+            # instead of counting them toward the early-shutdown gate.
             raise
         except Exception as e:
             if not is_dataframe:
