@@ -920,6 +920,119 @@ async def test_retryable_errors_do_not_trigger_early_shutdown(
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_degraded_provider_warn_fires_above_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    """When >= threshold of recent outcomes are retryable errors, a WARN log fires."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "col": GenerationStrategy.CELL_BY_CELL,
+    }
+    # 6 retryable failures across 10 cells + their successful retries → ~6/16 retryable.
+    # Set window to 8 and threshold to 0.5 so the WARN can fire.
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": MockRetryableErrorGenerator(
+            config=_expr_config("col"),
+            resource_provider=provider,
+            error_factory=lambda: ModelTimeoutError("read timeout"),
+            retryable_failures=6,
+        ),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 10)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        degraded_warn_rate=0.5,
+        degraded_warn_window=8,
+        degraded_warn_interval_s=0.0,
+    )
+    with caplog.at_level("WARNING"):
+        await scheduler.run()
+
+    degraded_msgs = [r for r in caplog.records if "degraded performance" in r.getMessage()]
+    assert degraded_msgs, "expected a 'degraded performance' WARN to be emitted"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_degraded_provider_warn_throttled(caplog: pytest.LogCaptureFixture) -> None:
+    """Successive degraded windows within the throttle interval emit only one WARN."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": MockRetryableErrorGenerator(
+            config=_expr_config("col"),
+            resource_provider=provider,
+            error_factory=lambda: ModelTimeoutError("read timeout"),
+            retryable_failures=8,
+        ),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 12)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        degraded_warn_rate=0.5,
+        degraded_warn_window=4,
+        degraded_warn_interval_s=3600.0,
+    )
+    with caplog.at_level("WARNING"):
+        await scheduler.run()
+
+    degraded_msgs = [r for r in caplog.records if "degraded performance" in r.getMessage()]
+    assert len(degraded_msgs) == 1, f"expected exactly one throttled WARN, got {len(degraded_msgs)}"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_degraded_provider_warn_silent_under_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    """Healthy runs (no errors) never emit the degraded-provider WARN."""
+    scheduler, _tracker = _build_simple_pipeline(num_records=5)
+    with caplog.at_level("WARNING"):
+        await scheduler.run()
+
+    degraded_msgs = [r for r in caplog.records if "degraded performance" in r.getMessage()]
+    assert not degraded_msgs
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_on_before_checkpoint_callback() -> None:
     """on_before_checkpoint is called before each row group is checkpointed."""
     provider = _mock_provider()

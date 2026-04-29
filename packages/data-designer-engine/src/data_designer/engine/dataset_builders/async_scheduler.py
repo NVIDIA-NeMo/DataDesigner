@@ -47,6 +47,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_TASK_POOL_SIZE: int = 256
 LLM_WAIT_POOL_MULTIPLIER: int = 2
 
+# Degraded-provider WARN: emit at most one warning per interval when the
+# rolling fraction of retryable errors exceeds the threshold. Distinct from
+# the early-shutdown gate (which fires on non-retryable errors).
+DEGRADED_WARN_RATE: float = 0.5
+DEGRADED_WARN_WINDOW: int = 20
+DEGRADED_WARN_INTERVAL_S: float = 60.0
+
 _RETRYABLE_MODEL_ERRORS = (
     ModelRateLimitError,
     ModelTimeoutError,
@@ -105,6 +112,9 @@ class AsyncTaskScheduler:
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
         disable_early_shutdown: bool = False,
+        degraded_warn_rate: float = DEGRADED_WARN_RATE,
+        degraded_warn_window: int = DEGRADED_WARN_WINDOW,
+        degraded_warn_interval_s: float = DEGRADED_WARN_INTERVAL_S,
         trace: bool = False,
         num_records: int = 0,
         buffer_size: int = 0,
@@ -176,6 +186,14 @@ class AsyncTaskScheduler:
         # Sliding window for error rate shutdown
         self._recent_outcomes: deque[bool] = deque(maxlen=shutdown_error_window)
         self._all_rgs_admitted = False
+
+        # Degraded-provider WARN: separate window tracking retryable-vs-not for
+        # every outcome (success or failure), throttled to one log per interval.
+        self._degraded_warn_rate = degraded_warn_rate
+        self._degraded_warn_window = degraded_warn_window
+        self._degraded_warn_interval_s = degraded_warn_interval_s
+        self._recent_retryable: deque[bool] = deque(maxlen=degraded_warn_window)
+        self._last_degraded_warn_at: float = 0.0
 
         # Pre-compute row-group sizes for O(1) lookup
         self._rg_size_map: dict[int, int] = dict(row_groups)
@@ -606,6 +624,33 @@ class AsyncTaskScheduler:
         if errors / self._shutdown_error_window >= self._shutdown_error_rate:
             self._early_shutdown = True
 
+    def _record_retryable_outcome(self, *, retryable: bool) -> None:
+        """Track retryable-error rate and emit a throttled WARN under provider degradation.
+
+        Distinct from ``_check_error_rate``: every outcome (success or failure)
+        feeds this window so the rate reflects the provider's overall health, not
+        just the error mix. Only retryable errors (rate-limit, timeout, 5xx,
+        connection) count toward the rate; non-retryable failures register as 0.
+        """
+        if self._degraded_warn_window <= 0:
+            return
+        self._recent_retryable.append(retryable)
+        if len(self._recent_retryable) < self._degraded_warn_window:
+            return
+        rate = sum(self._recent_retryable) / self._degraded_warn_window
+        if rate < self._degraded_warn_rate:
+            return
+        now = time.monotonic()
+        if now - self._last_degraded_warn_at < self._degraded_warn_interval_s:
+            return
+        self._last_degraded_warn_at = now
+        pct = int(round(rate * 100))
+        logger.warning(
+            f"Provider showing degraded performance: {pct}% of last {self._degraded_warn_window} "
+            "task outcomes were retryable errors (rate-limit, timeout, 5xx, connection). "
+            "Run may take longer than expected; salvage will retry these."
+        )
+
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
         """Dispatch from_scratch tasks for a row group."""
         self._rg_states[rg_id].seeds_dispatched = True
@@ -730,6 +775,7 @@ class AsyncTaskScheduler:
                     self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
 
             self._check_error_rate(success=True)
+            self._record_retryable_outcome(retryable=False)
             if self._reporter:
                 if cell_skipped:
                     self._reporter.record_skipped(task.column)
@@ -746,6 +792,7 @@ class AsyncTaskScheduler:
             # and would otherwise trip the gate even when salvage could recover.
             if not retryable:
                 self._check_error_rate(success=False)
+            self._record_retryable_outcome(retryable=retryable)
             if not retryable and self._reporter:
                 self._reporter.record_failure(task.column)
             if self._trace and trace:
