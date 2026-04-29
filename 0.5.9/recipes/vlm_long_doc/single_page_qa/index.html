@@ -1,0 +1,4430 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/recipes/vlm_long_doc/single_page_qa/">
+      
+      
+        <link rel="prev" href="../visual_qa/">
+      
+      
+        <link rel="next" href="../multi_page_windowed_qa/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/palette-favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Single-Page QA - NeMo Data Designer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CFira+Code:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Fira Code"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../../css/style.css">
+    
+      <link rel="stylesheet" href="../../../css/mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You're not viewing the latest version.
+  <a href="../../../..">
+    <strong>Click here to go to latest.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            NeMo Data Designer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Single-Page QA
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7M9 21v-1h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1m3-17a5 5 0 0 0-5 5c0 2.05 1.23 3.81 3 4.58V16h4v-2.42c1.77-.77 3-2.53 3-4.58a5 5 0 0 0-5-5"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7M9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    NeMo Data Designer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/seed-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seed Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/agent-rollout-ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Rollout Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Models
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/models/default-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Default Model Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure with the CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/models/custom-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Model Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/models/model-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/models/model-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/models/inference-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inference Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/custom_columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/validators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/person_sampling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Person Sampling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/traces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Traces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_10" id="__nav_2_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Use & MCP
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tool Use & MCP
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/tool_use_and_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/mcp/mcp-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/mcp/tool-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/mcp/enabling-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enabling Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/mcp/configure-mcp-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/mcp/safety-and-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety & Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/architecture-and-performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/deployment-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../notebooks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../notebooks/1-the-basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured Outputs, Jinja Expressions, and Conditional Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seeding with an External Dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../notebooks/4-providing-images-as-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providing Images as Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../notebooks/5-generating-images/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generating Images
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../notebooks/6-editing-images-with-image-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Image-to-Image Editing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Recipes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipe Cards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Generation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_generation/text_to_python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to Python
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_generation/text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_generation/enterprise_text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Super Text to SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugin Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugin_development/markdown_seed_reader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Markdown Section Seed Reader Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QA and Chat
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    QA and Chat
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa_and_chat/product_info_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Product Info QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa_and_chat/multi_turn_chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Turn Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trace Ingestion
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Trace Ingestion
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../trace_ingestion/agent_rollout_distillation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Rollout Trace Distillation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP and Tool Use
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MCP and Tool Use
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp_and_tooluse/basic_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic MCP Tool Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp_and_tooluse/pdf_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PDF Document QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp_and_tooluse/search_agent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Super Search Agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VLM Long-Document Understanding
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    VLM Long-Document Understanding
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../seed_dataset_preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seed Dataset Preparation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../nemotron_parse_ocr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Parse OCR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../text_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text QA from OCR Transcripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../page_classification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Page Classification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Single-Page QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multi_page_windowed_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Page Windowed QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../whole_document_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whole-Document QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frontier_judge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frontier Judge QA Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../plugins/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../plugins/example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../plugins/filesystem_seed_reader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FileSystemSeedReader Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../plugins/available/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Available Plugin List
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/column_configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    column_configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/config_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config_builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/data_designer_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data_designer_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/run_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    run_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/sampler_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sampler_params
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/validator_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validator_params
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../code_reference/analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../devnotes/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dev Notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/training-a-vlm-to-understand-long-documents-an-iterative-sdg-story/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training a VLM to Understand Long Documents: An Iterative SDG Story
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/push-datasets-to-hugging-face-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push Datasets to Hugging Face Hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/async-all-the-way-down/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Async All the Way Down
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/owning-the-model-stack-adaptive-concurrency-ftw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Owning the Model Stack: Adaptive Concurrency FTW!
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/data-designer-got-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Designer Got Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/search-agent-sft-data-teaching-llms-to-browse-the-web/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Search Agent SFT Data: Teaching LLMs to Browse the Web
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/deep-research-trajectories-with-nemo-data-designer-and-mcp-tool-use/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Research Trajectories with NeMo Data Designer and MCP Tool Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/designing-data-designer-why-sdg-is-a-systems-problem/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing Data Designer: Why SDG Is a Systems Problem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/graduate-level-science-reasoning-data-with-nemo-data-designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graduate-Level Science Reasoning Data with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_13" id="__nav_7_13_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archive
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Archive
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+    
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../devnotes/archive/2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2026
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../../cards/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Recipes
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../seed_dataset_preparation/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    VLM Long-Document Understanding
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+
+
+
+                  
+
+
+  
+  
+
+
+  <h1>Single-Page QA</h1>
+
+<p><a class="md-button" download="06-single-page-qa-sdg.py" href="../../../assets/recipes/vlm_long_doc/06-single-page-qa-sdg.py">Download Code <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></p>
+<div class="language-python highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
+<span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
+<span class="c1"># /// script</span>
+<span class="c1"># requires-python = &quot;&gt;=3.10&quot;</span>
+<span class="c1"># dependencies = [</span>
+<span class="c1">#     &quot;data-designer&gt;=0.5.6&quot;,</span>
+<span class="c1"># ]</span>
+<span class="c1"># ///</span>
+<span class="sd">&quot;&quot;&quot;Long-Document Understanding Single-Page QA Recipe</span>
+
+<span class="sd">Generate high-quality single-page question-answer pairs that improve VLM</span>
+<span class="sd">long-document understanding across key categories: Text, Table, Chart,</span>
+<span class="sd">Image/Figure, and Layout. MMLongBench-Doc is used to track progress.</span>
+
+<span class="sd">Each question is anchored to a unique on-page element (page number, table/</span>
+<span class="sd">figure number, section title) so it remains unambiguous when collated with</span>
+<span class="sd">questions from all other pages into a full-document training sample.</span>
+
+<span class="sd">For each seed record the pipeline:</span>
+
+<span class="sd">  1. Samples a question type (multiple choice, yes/no, string, layout,</span>
+<span class="sd">     numerical int/float/percentage, list, not answerable)</span>
+<span class="sd">  2. Generates an anchored question from the page image</span>
+<span class="sd">  3. Generates an answer with chain-of-thought reasoning (captured separately)</span>
+<span class="sd">  4. Evaluates overall quality (document quality, relevance, correctness,</span>
+<span class="sd">     format compliance, anchor quality, and reasoning quality) as a 0/1/2 score</span>
+
+<span class="sd">Prerequisites:</span>
+<span class="sd">    - A seed parquet file containing:</span>
+<span class="sd">        * `png_images_base64` – JSON array of base64-encoded PNGs (one</span>
+<span class="sd">          element per page; single-page seeds have a one-element array).</span>
+<span class="sd">    - A vLLM-compatible deployment of the VLM</span>
+<span class="sd">      (default: Qwen/Qwen3-VL-235B-A22B-Thinking-FP8).</span>
+<span class="sd">      Recommended vLLM launch flags:</span>
+<span class="sd">        --tensor-parallel-size 4</span>
+<span class="sd">        --max-model-len 50000</span>
+<span class="sd">        --gpu-memory-utilization 0.90</span>
+<span class="sd">        --reasoning-parser deepseek_r1</span>
+<span class="sd">        --limit-mm-per-prompt &#39;{&quot;video&quot;: 0}&#39;</span>
+<span class="sd">        --trust-remote-code</span>
+
+<span class="sd">      Example launch script for 4× H100:</span>
+<span class="sd">        docker run --gpus all \</span>
+<span class="sd">            -p 8000:8000 \</span>
+<span class="sd">            vllm/vllm-openai:latest \</span>
+<span class="sd">            --model Qwen/Qwen3-VL-235B-A22B-Thinking-FP8 \</span>
+<span class="sd">            --tensor-parallel-size 4 \</span>
+<span class="sd">            --max-model-len 50000 \</span>
+<span class="sd">            --gpu-memory-utilization 0.90 \</span>
+<span class="sd">            --reasoning-parser deepseek_r1 \</span>
+<span class="sd">            --limit-mm-per-prompt &#39;{&quot;video&quot;: 0}&#39; \</span>
+<span class="sd">            --trust-remote-code</span>
+
+<span class="sd">Run:</span>
+<span class="sd">    # Basic usage (generates 5 records by default)</span>
+<span class="sd">    uv run 06-single-page-qa-sdg.py --vllm-endpoint http://localhost:8000/v1 --seed-path seed_data/seed_per_page.parquet</span>
+
+<span class="sd">    # Custom model and record count</span>
+<span class="sd">    uv run 06-single-page-qa-sdg.py --vllm-endpoint http://localhost:8000/v1 --seed-path seed_data/seed_per_page.parquet --num-records 100</span>
+
+<span class="sd">    # For help message and available options</span>
+<span class="sd">    uv run 06-single-page-qa-sdg.py --help</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">data_designer.config</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.interface</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataDesigner</span><span class="p">,</span> <span class="n">DatasetCreationResults</span>
+
+<span class="n">DEFAULT_VLM_MODEL</span> <span class="o">=</span> <span class="s2">&quot;Qwen/Qwen3-VL-235B-A22B-Thinking-FP8&quot;</span>
+<span class="n">VLLM_PROVIDER_NAME</span> <span class="o">=</span> <span class="s2">&quot;vllm&quot;</span>
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># Image context helper</span>
+<span class="c1"># =============================================================================</span>
+
+<span class="n">IMAGE_CONTEXT</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">ImageContext</span><span class="p">(</span>
+        <span class="c1"># Expects a single-element JSON array from the per-page seed.</span>
+        <span class="n">column_name</span><span class="o">=</span><span class="s2">&quot;png_images_base64&quot;</span><span class="p">,</span>
+        <span class="n">data_type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ModalityDataType</span><span class="o">.</span><span class="n">BASE64</span><span class="p">,</span>
+        <span class="n">image_format</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ImageFormat</span><span class="o">.</span><span class="n">PNG</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">]</span>
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># Prompt templates</span>
+<span class="c1"># =============================================================================</span>
+
+<span class="n">PROMPT_QUESTION</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s2">You are an expert at writing SINGLE-PAGE training questions that improve VLM performance on MMLongBench-Doc categories:</span>
+<span class="s2">- Text (plain paragraphs)</span>
+<span class="s2">- Table (tabular data)</span>
+<span class="s2">- Chart (quantitative plots)</span>
+<span class="s2">- Image/Figure (diagrams, UI screenshots, illustrations)</span>
+<span class="s2">- Layout (spatial + structural anchors)</span>
+
+<span class="s2">You see one page from a larger document. Your question will be collated with questions from</span>
+<span class="s2">ALL other pages into a single training sample — the trainee sees the FULL document, not just</span>
+<span class="s2">this page. Phrases like &quot;on this page&quot; or &quot;the table&quot; are ambiguous in that context.</span>
+<span class="s2">Always anchor with a printed page number, unique title, or unique element number.</span>
+
+<span class="s2">Your task: Create ONE high-quality question of type &lt;question-type&gt; that can be answered</span>
+<span class="s2">using ONLY the visible content.</span>
+
+<span class="s2">&lt;question-type&gt;</span>
+<span class="s2">{{question_type}}</span>
+<span class="s2">&lt;/question-type&gt;</span>
+
+<span class="s2">═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="s2">HARD CONSTRAINTS (must follow)</span>
+<span class="s2">═══════════════════════════════════════════════════════════════════════════════</span>
+
+<span class="s2">0) VISIBLE CONTENT ONLY</span>
+<span class="s2">- The question must be answerable from the visible content alone.</span>
+<span class="s2">- Do NOT ask questions that require any other page, the whole report, or cross-page aggregation.</span>
+<span class="s2">- Do NOT ask for global counting/aggregation across the report/paper (e.g., &quot;among all charts&quot;, &quot;how many pages include…&quot;, &quot;across the pages&quot;).</span>
+<span class="s2">- Benchmark-style phrasing is allowed (e.g., &quot;According to the report/paper, …&quot;), BUT the question must still be answerable from the visible content.</span>
+
+<span class="s2">1) Answerability</span>
+<span class="s2">- {</span><span class="si">% i</span><span class="s2">f &quot;not answerable&quot; in question_type %}The question should still be relevant to the page, but the exact requested answer must NOT be present anywhere on this page.</span>
+<span class="s2">- Build &quot;not answerable&quot; questions as NEAR-MISS negatives by changing exactly ONE required qualifier from a real visible fact.</span>
+<span class="s2">- Good near-miss types: wrong year/date, wrong subgroup/series, wrong unit, wrong position, wrong row/column, wrong legend item, or displayed/shown vs listed/mentioned.</span>
+<span class="s2">- Do NOT make a question &quot;not answerable&quot; only because it refers to some other page, the whole document, or a page number that is missing from the visible page.</span>
+<span class="s2">- Near-miss templates by visual element:</span>
+<span class="s2">  - Chart: &quot;In the chart titled &#39;&lt;real title&gt;&#39;, what is &lt;metric&gt; for &lt;YEAR NOT SHOWN&gt;?&quot; (year is present for other series but not the asked one)</span>
+<span class="s2">  - Table: &quot;In Table &lt;N&gt;, what is the value for &#39;&lt;ROW NOT IN TABLE&gt;&#39; in column &#39;&lt;real column&gt;&#39;?&quot;</span>
+<span class="s2">  - Map/infographic: &quot;In the map on page &lt;N&gt;, what number is shown for &lt;REGION NOT LABELED&gt;?&quot;</span>
+<span class="s2">  - Text: &quot;In the section titled &#39;&lt;real title&gt;&#39;, what is the &lt;DETAIL NOT MENTIONED&gt;?&quot;</span>
+<span class="s2">  - Layout: &quot;In the &lt;real position&gt; panel, what is the &lt;ELEMENT NOT PRESENT IN THAT PANEL&gt;?&quot;</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lse %}The correct answer MUST be present and clearly visible on this page.{</span><span class="si">% e</span><span class="s2">ndif %}</span>
+<span class="s2">- Do NOT ask anything that requires external knowledge, guesswork, or reading tiny illegible text.</span>
+
+<span class="s2">2) Focus</span>
+<span class="s2">- Identify the PRIMARY visual element on the page (text block, table, chart, figure, map,</span>
+<span class="s2">  infographic, or layout structure) and ask about it.</span>
+<span class="s2">- Ignore decorative headers/footers unless they are part of the primary element.</span>
+
+<span class="s2">3) Difficulty (1–3 steps, all evidence on THIS page)</span>
+<span class="s2">- 1-step (common): single lookup, one comparison, one count, one filter.</span>
+<span class="s2">- 2-step (encouraged — targets top benchmark failures):</span>
+<span class="s2">  - Lookup + lookup + compare: &quot;Which is larger, row A or row B in column X?&quot;</span>
+<span class="s2">  - Lookup + compute: &quot;What is Gross Profit as a </span><span class="si">% o</span><span class="s2">f Revenues?&quot; (two cells, divide)</span>
+<span class="s2">  - Scan + argmax: &quot;Which subgroup has the largest value in the Change column?&quot;</span>
+<span class="s2">  - Lookup + difference: &quot;How much did X change from 2020 to 2021?&quot; (two cells, subtract)</span>
+<span class="s2">  - Percentage → count: &quot;If 5</span><span class="si">% o</span><span class="s2">f N=1500 said X, how many is that?&quot;</span>
+<span class="s2">- 3-step (allowed when all steps are trivial and on this page):</span>
+<span class="s2">  - Lookup + lookup + ratio + round: financial ratio questions.</span>
+<span class="s2">  - Scan + count + filter: &quot;How many rows have column Y &gt; threshold?&quot;</span>
+<span class="s2">- Avoid: questions needing external knowledge, subjective judgment, or off-page evidence.</span>
+
+<span class="s2">4) Unambiguous</span>
+<span class="s2">- Exactly one correct answer.</span>
+<span class="s2">- Avoid subjective terms (&quot;most consistent&quot;, &quot;significant&quot;, &quot;best&quot;, &quot;optimal&quot;).</span>
+
+<span class="s2">5) No meta phrasing</span>
+<span class="s2">- Do NOT say &quot;the image&quot; / &quot;this image&quot;.</span>
+<span class="s2">- Avoid &quot;the document&quot; unless it is part of an on-page title.</span>
+<span class="s2">- You MAY use &quot;According to the report/paper, …&quot; occasionally, but never to imply cross-page evidence.</span>
+
+<span class="s2">6) ANCHOR THE QUESTION (critical for per-document training)</span>
+<span class="s2">- Questions are collated across ALL pages during training — anchors must be unambiguous</span>
+<span class="s2">  within the ENTIRE document, not just this page.</span>
+<span class="s2">- Anchor priority (prefer unique; most preferred first):</span>
+<span class="s2">  1. Printed, explicit page number: &quot;On page 42, ...&quot; (usually in the header/footer)</span>
+<span class="s2">  2. Unique title/caption/section heading: &quot;In the chart titled &quot;X&quot;, ...&quot; / &quot;In the section titled &quot;Y&quot;, ...&quot;</span>
+<span class="s2">  3. Numbered element + local title: &quot;In Table 3 under &quot;X&quot;, ...&quot; / &quot;In Figure 7 titled &quot;Y&quot;, ...&quot; / &quot;In Note 5 — &quot;Z&quot;, ...&quot;</span>
+<span class="s2">  4. Fallback: Detailed structural anchor with heading: &quot;In the right-column table under the heading &quot;X&quot;, ...&quot; / &quot;In the top-right boxed callout titled &quot;Y&quot;, ...&quot;</span>
+<span class="s2">- BANNED anchors (these become meaningless when collated across pages):</span>
+<span class="s2">  &quot;on this page&quot;, &quot;in the image&quot;, &quot;in the bottom half of the page&quot;,</span>
+<span class="s2">  &quot;the table&quot; / &quot;the chart&quot; / &quot;the figure&quot; without a title or number,</span>
+<span class="s2">  &quot;on the left side&quot; / &quot;on the right side&quot; without a heading.</span>
+<span class="s2">  Always pair positional references with a title, number, or heading.</span>
+
+<span class="s2">7) REQUIRE ANSWER-FORMAT HINTS IN THE QUESTION (targets strict eval failures)</span>
+<span class="s2">- The question MUST explicitly tell the answer format when applicable:</span>
+<span class="s2">  - For list questions: add &quot;Return a JSON array of strings on one line, e.g., [&quot;A&quot;, &quot;B&quot;].&quot;</span>
+<span class="s2">  - For percentages: add &quot;Answer with a </span><span class="si">% s</span><span class="s2">ign.&quot; and keep % vs percentage-points unambiguous.</span>
+<span class="s2">  - For floats: specify rounding (e.g., &quot;Round to three decimal places&quot;) if the question requires computation or if multiple precisions appear on the page.</span>
+
+<span class="s2">8) QUALIFIER FIDELITY (critical)</span>
+<span class="s2">- If multiple nearby answers exist, the question MUST include the qualifier that makes the target unique.</span>
+<span class="s2">- Prefer qualifiers like: strongly / somewhat / overall / net, displayed / shown / visible vs listed / mentioned / described, first / second / last / nearest, and exact row / column / year / fiscal year / subgroup / legend item.</span>
+<span class="s2">- The question must not be answerable by selecting a nearby but broader fact.</span>
+<span class="s2">- Good: &quot;Which application software interfaces are DISPLAYED in screenshots on this page?&quot;</span>
+<span class="s2">- Good: &quot;What percentage of Rep/Lean Rep STRONGLY favor ...?&quot;</span>
+<span class="s2">- Bad: &quot;Which applications are on this page?&quot; if some are listed and some are displayed.</span>
+<span class="s2">- Bad: &quot;What percentage of Republicans favor ...?&quot; if the page contains both net and strongly measures.</span>
+
+<span class="s2">═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="s2">WHAT TO GENERATE (driven by failure cases)</span>
+<span class="s2">═══════════════════════════════════════════════════════════════════════════════</span>
+
+<span class="s2">Look at the page and identify its primary visual element, then use the matching section:</span>
+<span class="s2">- Plain text / paragraphs                    → A) TEXT</span>
+<span class="s2">- Any table (especially financial statements)→ B) TABLE</span>
+<span class="s2">- Any chart (bar, line, pie, scatter, etc.)  → C) CHART</span>
+<span class="s2">- Maps, infographics, diagrams, flowcharts   → D) IMAGE</span>
+<span class="s2">- Multi-column or spatially structured pages → E) LAYOUT</span>
+<span class="s2">Skip purely decorative pages with no readable content. Pages that look like appendices,</span>
+<span class="s2">regulatory compliance, financial notes, or methodology are just as valuable — don&#39;t skip them.</span>
+
+<span class="s2">A) TEXT (plain paragraphs)</span>
+<span class="s2">Target: false refusals on short facts, poor exact extraction.</span>
+<span class="s2">- Short, high-salience answers with an anchor. Examples:</span>
+<span class="s2">  - &quot;In the heading at the top of the page X, what is the full title? Answer exactly as written.&quot;</span>
+<span class="s2">  - &quot;In the section titled &quot;Support&quot;, what phone number is listed? Answer with the number only.&quot;</span>
+<span class="s2">  - &quot;In the paragraph titled &quot;About this survey&quot;, what sample size (N) is reported? Answer with an integer.&quot;</span>
+<span class="s2">  - &quot;In the sentence mentioning &quot;temperature&quot;, which value is reported as best? Answer with the number only.&quot;</span>
+<span class="s2">- Avoid long copying (&gt;20 words) and cross-page answers.</span>
+
+<span class="s2">B) TABLE (tabular data — use financial patterns for income statements, balance sheets, 10-K filings)</span>
+<span class="s2">Target: false refusals on obvious cells, dense headers, counting mistakes, financial unit/sign errors.</span>
+<span class="s2">- Small-scope table reasoning with an explicit table anchor. Examples:</span>
+<span class="s2">  - Argmax/comparison: &quot;In Table &lt;N&gt;, which row has the highest value in column &quot;X&quot;?&quot;</span>
+<span class="s2">  - Difference/sum: &quot;In Table &lt;N&gt;, what is the difference between rows &quot;A&quot; and &quot;B&quot; in column &quot;X&quot;?&quot;</span>
+<span class="s2">  - Filter + count: &quot;In Table &lt;N&gt;, how many rows have column &quot;Y&quot; &gt; &lt;threshold&gt;? Answer with an integer.&quot;</span>
+<span class="s2">  - Multi-level headers: &quot;In Table &lt;N&gt;, under column group &quot;&lt;group&gt;&quot;, subcolumn &quot;&lt;sub&gt;&quot;, what is the value for row &quot;&lt;label&gt;&quot;?&quot;</span>
+<span class="s2">- FINANCIAL TABLES (critical — 57% zero-score on financial reports):</span>
+<span class="s2">  - Line item lookup: &quot;In the Consolidated Balance Sheets on page &lt;N&gt;, what is Total Current Assets for FY2021? Answer in millions as an integer.&quot;</span>
+<span class="s2">  - YoY difference: &quot;In the balance sheet, how much did Accrued Liabilities change from 2020 to 2021? Answer in millions (positive if increased).&quot;</span>
+<span class="s2">  - Notes / schedules / appendices (high false-refusal rate — do NOT skip these pages):</span>
+<span class="s2">    &quot;In Note &lt;N&gt; — &#39;&lt;Title&gt;&#39;, what is the total &lt;line item&gt;? Answer in millions as an integer.&quot;</span>
+<span class="s2">    &quot;In the schedule of &#39;&lt;Title&gt;&#39; on page &lt;N&gt;, what is the value for &#39;&lt;row&gt;&#39; in &#39;&lt;year&gt;&#39;?&quot;</span>
+<span class="s2">    &quot;In Note &lt;N&gt;, how many categories/items are listed in the &#39;&lt;sub-table&gt;&#39;? Answer with an integer.&quot;</span>
+<span class="s2">- If values include %, specify &quot;Answer with a </span><span class="si">% s</span><span class="s2">ign.&quot; If table shows units, state whether the answer should include them.</span>
+
+<span class="s2">C) CHART (bar, line, pie, scatter, area, heatmap)</span>
+<span class="s2">Target: cross-chart confusion, misread values, wrong column/axis selection.</span>
+<span class="s2">- CHART DISAMBIGUATION (critical): Always anchor to the chart TITLE + a distinguishing</span>
+<span class="s2">  axis/column label. If a chart has a pre-computed &quot;Change&quot; column, reference it explicitly.</span>
+<span class="s2">  For pages with multiple small charts, anchor to the specific sub-chart label.</span>
+<span class="s2">- Examples:</span>
+<span class="s2">  - &quot;In the chart titled &quot;X&quot;, in the &quot;Change &#39;08-&#39;15&quot; column, which subgroup shows the largest change?&quot;</span>
+<span class="s2">  - &quot;In the chart titled &quot;X&quot;, what percentage of &quot;EU&quot; is in the &quot;More&quot; category? Answer with a </span><span class="si">% s</span><span class="s2">ign.&quot;</span>
+<span class="s2">  - &quot;In the chart titled &quot;X&quot;, by how many percentage points did &lt;category&gt; change from &lt;A&gt; to &lt;B&gt;?&quot;</span>
+<span class="s2">  - &quot;In the chart titled &quot;X&quot;, which groups have a value below 60? Return a JSON array, e.g., [&quot;A&quot;, &quot;B&quot;].&quot;</span>
+<span class="s2">  - &quot;In the chart titled &quot;X&quot;, how many categories exceed &lt;threshold&gt;? Answer with an integer.&quot;</span>
+<span class="s2">- VISUAL GROUPING (recurring failure): If a chart uses brackets, braces, or labeled dividers</span>
+<span class="s2">  to separate groups (e.g., &quot;Business Analytics&quot; vs &quot;Business Intelligence&quot;), ask about a</span>
+<span class="s2">  specific group. The model confuses which items belong to which group.</span>
+<span class="s2">- ARGMAX OVER CHANGE (recurring failure): If a chart has both absolute values (bar lengths)</span>
+<span class="s2">  and a &quot;Change&quot; column, ask which category has the largest CHANGE. The model tends to pick</span>
+<span class="s2">  the category with the largest absolute value instead.</span>
+<span class="s2">  - &quot;In the chart titled &quot;X&quot;, which subgroup shows the largest increase from &lt;year A&gt; to &lt;year B&gt;?&quot;</span>
+<span class="s2">- Unit discipline: if the chart uses %, the answer should include &quot;%&quot;.</span>
+
+<span class="s2">D) IMAGE / FIGURE (maps, infographics, flowcharts, diagrams, schematics)</span>
+<span class="s2">Target: spatial confusion on maps/infographics, misread labels, undercounting visual elements.</span>
+<span class="s2">- Prefer diagrams/UI/infographics with clear labels; avoid counting small repeated natural-photo objects.</span>
+<span class="s2">- SPATIAL REASONING (critical — 128 wrong-answer figure failures):</span>
+<span class="s2">  For maps/infographics, force the model to bind numbers to their correct spatial region.</span>
+<span class="s2">  The model confuses which number belongs to which region — ask specifically.</span>
+<span class="s2">- For any count question, explicitly name the counting unit.</span>
+<span class="s2">- Good counting units: service-line badges, screenshots displayed, QR codes, numbered steps, nodes, boxes, legend entries, labeled regions.</span>
+<span class="s2">- Avoid ambiguous units like &quot;lines&quot;, &quot;figures&quot;, &quot;objects&quot;, or &quot;applications&quot; unless the page makes the intended unit unmistakable.</span>
+<span class="s2">- Examples:</span>
+<span class="s2">  - &quot;In the world map on page &lt;N&gt;, which region has the largest number? Answer with the region name.&quot;</span>
+<span class="s2">  - &quot;In the map, what number is shown for Europe? Answer with an integer.&quot;</span>
+<span class="s2">  - &quot;How many Muni service-line badges are shown at Union Square / Market Street? Answer with an integer.&quot;</span>
+<span class="s2">  - &quot;Which application software interfaces are displayed in screenshots on this page? Return a JSON array of strings on one line.&quot;</span>
+<span class="s2">  - &quot;In Figure &lt;N&gt;, how many distinct nodes/boxes are shown? Answer with an integer.&quot;</span>
+<span class="s2">  - &quot;In Figure &lt;N&gt;, what text is inside the box labeled &quot;Y&quot;?&quot;</span>
+<span class="s2">  - &quot;In Figure &lt;N&gt;&#39;s legend, which label corresponds to the &lt;color&gt; segment?&quot;</span>
+<span class="s2">  - &quot;In the flowchart in Figure &lt;N&gt;, what step follows the decision labeled &quot;X&quot;?&quot;</span>
+<span class="s2">  - &quot;In the diagram labeled &quot;X&quot;, which component is directly connected to &quot;Y&quot;?&quot;</span>
+<span class="s2">- Color is allowed ONLY when it encodes meaning (legend/UI), not aesthetics.</span>
+<span class="s2">- ICON / SYMBOL DISCRIMINATION (critical — model hallucinates icon presence):</span>
+<span class="s2">  When pages show repeated entries (attraction listings, product cards, feature grids),</span>
+<span class="s2">  ask about which entries have or lack a specific small icon/symbol.</span>
+<span class="s2">  The model tends to assume all entries share the same icons — force it to check each one.</span>
+<span class="s2">  - &quot;Under the listing for &#39;&lt;Name&gt;&#39;, which accessibility icons are shown? Return a JSON array of strings on one line.&quot;</span>
+<span class="s2">  - &quot;Which attractions on this page do NOT have a wheelchair accessibility icon? Return a JSON array of strings on one line.&quot;</span>
+<span class="s2">  - &quot;In the feature comparison grid, which products show a checkmark for &#39;&lt;Feature&gt;&#39;? Return a JSON array of strings on one line.&quot;</span>
+<span class="s2">  - &quot;How many listings on this page display a &#39;Green Travel&#39; ecolabel? Answer with an integer.&quot;</span>
+
+<span class="s2">E) LAYOUT (spatial + structural anchors)</span>
+<span class="s2">- Force locating content by structure/position with explicit anchors:</span>
+<span class="s2">  - Heading navigation: &quot;In the section titled &quot;X&quot;, what is the second bullet point?&quot;</span>
+<span class="s2">  - Above/below: &quot;In the heading directly above Table &lt;N&gt;, what is the heading text?&quot;</span>
+<span class="s2">  - Two-column disambiguation (common benchmark failure): &quot;In the right column under the heading &quot;X&quot;, what is the first bullet point? Answer exactly as written.&quot;</span>
+<span class="s2">  - Counting structure: &quot;In the procedure section, how many numbered steps are listed? Answer with an integer.&quot;</span>
+<span class="s2">  - Location: &quot;In the top-right boxed callout, what label is shown?&quot;</span>
+<span class="s2">  - Exhaustive but short: &quot;In the right column under the heading &quot;X&quot;, list all subheadings shown. Return a JSON array of strings on one line, e.g., [&quot;A&quot;, &quot;B&quot;].&quot; (only if 2–8 items)</span>
+
+<span class="s2">═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="s2">QUESTION-TYPE SPECIFIC RULES</span>
+<span class="s2">═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="s2">{</span><span class="si">% i</span><span class="s2">f question_type == &quot;layout&quot; %}</span>
+<span class="s2">- Include an explicit spatial/structural anchor (e.g., top-left, right column, below the chart, under heading X, second bullet, last row).</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (percentage)&quot; in question_type %}</span>
+<span class="s2">- Ensure the answer is naturally a percent and add: &quot;Answer with a </span><span class="si">% s</span><span class="s2">ign.&quot;</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (int)&quot; in question_type %}</span>
+<span class="s2">- Ensure the answer is an integer and add: &quot;Answer with an integer.&quot;</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (float)&quot; in question_type %}</span>
+<span class="s2">- Ensure the answer is a decimal number visible on the page (or computable in one step).</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;list&quot; in question_type %}</span>
+<span class="s2">- The question must require ALL items (complete list), short (2–8 items), visible on THIS page.</span>
+<span class="s2">- Add: &quot;Return a JSON array of strings on one line, e.g., [&quot;gray&quot;, &quot;red&quot;].&quot;</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif question_type == &quot;yes or no&quot; %}</span>
+<span class="s2">- The question must be decidable from the page content and not rely on interpretation.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif question_type == &quot;multiple choice&quot; %}</span>
+<span class="s2">- Provide exactly 4 options (A–D), plausible and mutually exclusive.</span>
+<span class="s2">- Do NOT use &quot;All of the above&quot; / &quot;None of the above&quot;.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">ndif %}</span>
+
+<span class="s2">═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="s2">OUTPUT FORMAT</span>
+<span class="s2">═══════════════════════════════════════════════════════════════════════════════</span>
+
+<span class="s2">Return ONLY the question text.</span>
+<span class="s2">{</span><span class="si">% i</span><span class="s2">f question_type == &quot;multiple choice&quot; %}</span>
+<span class="s2">Format: first line is the question, then A., B., C., D. choices on separate lines.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">ndif %}</span>
+<span class="s2">Do not include explanations or reasoning.</span><span class="se">\</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+
+<span class="n">PROMPT_ANSWER</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s2">&lt;question-type&gt;</span>
+<span class="s2">{{ question_type }}</span>
+<span class="s2">&lt;/question-type&gt;</span>
+
+<span class="s2">&lt;question&gt;</span>
+<span class="s2">{{ question }}</span>
+<span class="s2">&lt;/question&gt;</span>
+
+<span class="s2">You are given EXACTLY ONE page image from a PDF document.</span>
+<span class="s2">All evidence must come from this one page only.</span>
+<span class="s2">Never imagine other pages. Never search the rest of the document.</span>
+<span class="s2">Never refer to &quot;Image 1&quot;, &quot;Image 2&quot;, or other unseen pages.</span>
+<span class="s2">Answer using ONLY information visible on this page.</span>
+
+<span class="s2">In your THINKING (inside &lt;think&gt; tags), follow this protocol. Do NOT echo these steps in</span>
+<span class="s2">your final answer — the answer must be ONLY the bare result (number, phrase, list, etc.).</span>
+
+<span class="s2">QUALIFIER LOCK (critical)</span>
+<span class="s2">Before extracting any answer, copy the restrictive qualifiers from the question and keep them fixed:</span>
+<span class="s2">- page / section / table / figure / chart identity</span>
+<span class="s2">- year / date / fiscal year</span>
+<span class="s2">- subgroup / series / legend item</span>
+<span class="s2">- strongly / somewhat / overall / net / change</span>
+<span class="s2">- displayed / shown / visible vs listed / mentioned / described</span>
+<span class="s2">- first / second / last / nearest / left / right / top / bottom</span>
+<span class="s2">- exact number vs ratio vs percentage vs percentage points</span>
+
+<span class="s2">Do NOT substitute a nearby year, nearby subgroup, nearby chart, nearby row, or nearby fact.</span>
+<span class="s2">If the question asks what is DISPLAYED, ignore items that are only named in nearby text.</span>
+<span class="s2">If the question asks for STRONGLY / NET / OVERALL / CHANGE, read exactly that quantity and no other.</span>
+
+<span class="s2">THINKING PROTOCOL:</span>
+<span class="s2">1) PARSE: Decompose the question into concrete lookup targets.</span>
+<span class="s2">   E.g., &quot;What is Gross Profit as a percentage of Revenues?&quot; -&gt;</span>
+<span class="s2">   target A = &quot;Gross Profit value&quot;, target B = &quot;Revenues value&quot;.</span>
+<span class="s2">2) LOCATE: Scan the page to find the element the question references. Use the question&#39;s</span>
+<span class="s2">   anchor (page number, table/figure/section title, heading) to match.</span>
+<span class="s2">3) MATCH: Identify the exact visual element by its TITLE or CAPTION before reading values.</span>
+<span class="s2">   - Charts: match title + axis labels (a page may have multiple charts). Identify sub-chart, series, x-axis category, unit, etc.</span>
+<span class="s2">   - Tables: match caption/heading (e.g., &quot;Consolidated Balance Sheets&quot;, &quot;Note 5&quot;). Identify row/column labels, unit, scale, etc.</span>
+<span class="s2">   - Figures/Maps/infographics/UI: match the target object and counting unit.</span>
+<span class="s2">   - CONFIRM ANCHOR: If the page has multiple charts/tables/figures, state which one you</span>
+<span class="s2">     matched and confirm its title matches the question&#39;s anchor before reading any values.</span>
+<span class="s2">     If the title does not match, scan the page for the correct element.</span>
+<span class="s2">4) READ: Extract the specific value from the matched element.</span>
+<span class="s2">   - Tables: correct column for the fiscal year; parentheses = negative; check unit scale header.</span>
+<span class="s2">   - Charts with a &quot;Change&quot; column: read that column directly, don&#39;t recompute from bars.</span>
+<span class="s2">   - If multiple nearby values exist, do not switch to a broader or more convenient one.</span>
+<span class="s2">5) VERIFY: Double-check your extraction against the same bound target.</span>
+<span class="s2">   After this verification pass, stop thinking.</span>
+
+<span class="s2">THINKING STABILITY (critical)</span>
+<span class="s2">- Follow the protocol once from top to bottom. Do NOT restart from step 1 after you already found the relevant element.</span>
+<span class="s2">- Do at most one locate pass and one verification pass.</span>
+<span class="s2">- Be concise: go directly to the element matching the question&#39;s anchor. Do NOT describe</span>
+<span class="s2">  irrelevant elements on the page. Only mention what contributes to the answer.</span>
+<span class="s2">- If there are two plausible candidates, compare them once using the question&#39;s qualifiers, choose the best-supported one, and continue. Do NOT keep generating new alternatives.</span>
+<span class="s2">- Do NOT repeat the same scan, recount, or conclusion more than once.</span>
+<span class="s2">- As soon as the answer is found and verified, stop thinking and produce the final answer.</span>
+<span class="s2">- Do NOT use filler loops such as repeating a phrase, title, entity name, or page reference many times.</span>
+
+<span class="s2">REASONING TRACE REQUIREMENTS (critical for training)</span>
+<span class="s2">Your reasoning will be used as chain-of-thought training data. In your thinking, you MUST:</span>
+<span class="s2">- Cite the question&#39;s anchor explicitly: &quot;In Table 3 on page 42, ...&quot; not &quot;In the table, ...&quot;</span>
+<span class="s2">- State which element you matched and its exact title/caption.</span>
+<span class="s2">- Quote the specific value(s) you read: &quot;the row &#39;Accrued Liabilities&#39; shows 6,063 for 2021.&quot;</span>
+<span class="s2">- If computing, show the computation with named references:</span>
+<span class="s2">  &quot;Gross Profit (19,962) / Revenues (44,538) = 0.448 = 44.8%&quot;</span>
+<span class="s2">Bad: &quot;Looking at the page, I see a value of 6,063.&quot;</span>
+<span class="s2">Good: &quot;In the Consolidated Balance Sheets on page 59, the row &#39;Total Accrued Liabilities&#39;</span>
+<span class="s2">       under the 2021 column shows $6,063 (in millions).&quot;</span>
+
+<span class="s2">COUNTING DISCIPLINE</span>
+<span class="s2">- For any count question, state the counting unit first in your reasoning.</span>
+<span class="s2">- Count once in a consistent order: left-to-right, top-to-bottom.</span>
+<span class="s2">- Recount at most once.</span>
+<span class="s2">- Do NOT switch counting units mid-reasoning.</span>
+<span class="s2">- If both labels and visual markers are present, decide which is being counted before counting.</span>
+
+<span class="s2">UNIT DISCIPLINE</span>
+<span class="s2">- Preserve units exactly when present or requested (%, $, million, km, etc.).</span>
+<span class="s2">- If the question asks for a percentage or percentage points, include the &quot;%&quot;.</span>
+<span class="s2">- Financial reports:</span>
+<span class="s2">  - Check the table header for unit scale (e.g., &quot;In millions&quot;, &quot;Rupees in lacs&quot;) and apply it.</span>
+<span class="s2">  - Parentheses in financial tables mean NEGATIVE values: (380) = -380.</span>
+<span class="s2">  - When the question asks &quot;how much higher/more&quot;, answer with a POSITIVE number representing</span>
+<span class="s2">    the magnitude of the difference. When it asks &quot;change&quot;, use positive for increase,</span>
+<span class="s2">    negative for decrease.</span>
+<span class="s2">  - If the question says &quot;Answer in millions&quot;, output the number as shown in the table</span>
+<span class="s2">    (the table is already in millions).</span>
+
+<span class="s2">REFUSAL POLICY (critical)</span>
+<span class="s2">{</span><span class="si">% i</span><span class="s2">f &quot;not answerable&quot; in question_type %}</span>
+<span class="s2">Only say &quot;Not answerable&quot; if the page lacks the exact requested qualifier.</span>
+<span class="s2">In your thinking, briefly name what is missing.</span>
+<span class="s2">Bad: &quot;The information is not available on this page.&quot;</span>
+<span class="s2">Good: &quot;The chart shows data for 2015 and 2020, but the question asks for 2018. Year 2018 is not present.&quot;</span>
+<span class="s2">Good: &quot;The table lists rows for Revenue, COGS, and Gross Profit, but not &#39;Operating Lease Liability&#39;. Row missing.&quot;</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lse %}</span>
+<span class="s2">- NEVER output &quot;Not answerable&quot;, &quot;Cannot determine&quot;, or any refusal.</span>
+<span class="s2">- If the answer is directly printed on the page, copy it and stop.</span>
+<span class="s2">- If the answer is computable from visible values, compute it and stop.</span>
+<span class="s2">- Do NOT refuse only because the page number is not visible, a nearby title/anchor differs slightly, or the answer is implied by one local relation rather than explicitly restated.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">ndif %}</span>
+
+<span class="s2">FINAL ANSWER:</span>
+<span class="s2">- Put ALL reasoning inside &lt;think&gt;...&lt;/think&gt;.</span>
+<span class="s2">- After &lt;/think&gt;, output ONLY the final answer.</span>
+<span class="s2">- Do NOT repeat reasoning outside &lt;think&gt; tags.</span>
+<span class="s2">- Do NOT output protocol labels, explanations, or extra text after &lt;/think&gt;.</span>
+
+<span class="s2">OUTPUT FORMAT (critical)</span>
+<span class="s2">{</span><span class="si">% i</span><span class="s2">f question_type == &quot;multiple choice&quot; %}</span>
+<span class="s2">- Output exactly ONE line: &quot;&lt;LETTER&gt;. &lt;option text&gt;&quot;, e.g., &quot;B. 92%&quot;</span>
+<span class="s2">- Do NOT output only a digit (&quot;2&quot;) or only a letter (&quot;B&quot;).</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif question_type == &quot;yes or no&quot; %}</span>
+<span class="s2">- Output exactly &quot;Yes&quot; or &quot;No&quot; (no punctuation, no explanation).</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (percentage)&quot; in question_type %}</span>
+<span class="s2">- Output a number WITH a percent sign, e.g., &quot;29%&quot;. Do NOT omit the &quot;%&quot;.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (int)&quot; in question_type %}</span>
+<span class="s2">- Output an integer only (digits, optional commas). No words.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (float)&quot; in question_type %}</span>
+<span class="s2">- Output a decimal number only (no extra words), unless the question explicitly requests a unit.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif question_type is string and question_type.startswith(&quot;string&quot;) %}</span>
+<span class="s2">- Output a short phrase/sentence only. No preamble.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif question_type == &quot;layout&quot; %}</span>
+<span class="s2">- Use the spatial/structural anchor to select the correct location.</span>
+<span class="s2">- Output only the extracted content (string/number/list), no preamble.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;list&quot; in question_type %}</span>
+<span class="s2">- Output a JSON array on ONE line: [&quot;gray&quot;, &quot;red&quot;]. Must be complete.</span>
+<span class="s2">- NEVER use comma-separated plain text. ALWAYS use JSON array syntax with [&quot;...&quot;].</span>
+<span class="s2">- Each element must be individual, not a compound range.</span>
+<span class="s2">  Wrong: [&quot;1981-82&quot;]  Correct: [&quot;1981&quot;, &quot;1982&quot;]</span>
+<span class="s2">  Wrong: [&quot;Training and Sportswear&quot;]  Correct: [&quot;Training&quot;, &quot;Sportswear&quot;]</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;not answerable&quot; in question_type %}</span>
+<span class="s2">- Output exactly: Not answerable</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lse %}</span>
+<span class="s2">- Output a short, direct answer. No preamble or explanation.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">ndif %}</span><span class="se">\</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+
+<span class="n">PROMPT_QUALITY_SCORE</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s2">&lt;question-type&gt;</span>
+<span class="s2">{{ question_type }}</span>
+<span class="s2">&lt;/question-type&gt;</span>
+
+<span class="s2">&lt;question&gt;</span>
+<span class="s2">{{ question }}</span>
+<span class="s2">&lt;/question&gt;</span>
+
+<span class="s2">&lt;answer&gt;</span>
+<span class="s2">{{ answer }}</span>
+<span class="s2">&lt;/answer&gt;</span>
+
+<span class="s2">&lt;answer_reasoning&gt;</span>
+<span class="s2">{{ answer__reasoning_content }}</span>
+<span class="s2">&lt;/answer_reasoning&gt;</span>
+
+<span class="s2">You are given EXACTLY ONE page image extracted from a PDF document. Evaluate the QUALITY of this (question, answer, reasoning content).</span>
+
+<span class="s2">Be STRICT. Any check failure =&gt; score 0.</span>
+
+<span class="s2">CHECKS</span>
+
+<span class="s2">1) DOCUMENT/PAGE QUALITY</span>
+<span class="s2">- Pages must be readable (not too blurry/pixelated/cut off). Page must be high quality, and not be empty or nearly empty.</span>
+<span class="s2">- The required evidence must be visible without guessing.</span>
+
+<span class="s2">2) RELEVANCE + ANSWERABILITY</span>
+<span class="s2">- The question must be grounded in visible content.</span>
+<span class="s2">- {</span><span class="si">% i</span><span class="s2">f &quot;not answerable&quot; in question_type %}For &quot;not answerable&quot; questions: the question should be relevant, but the requested information must NOT be present anywhere on the page.</span>
+<span class="s2">- Score 0 if the question is unanswerable ONLY because it refers to another page, the whole document, or a page range not shown. The question must be a near-miss negative where a specific qualifier (year, subgroup, row, region, etc.) is absent from the visible page.{</span><span class="si">% e</span><span class="s2">ndif %}</span>
+
+<span class="s2">3) ANSWER CORRECTNESS</span>
+<span class="s2">- The answer must be correct given the visible page content.</span>
+
+<span class="s2">4) OUTPUT FORMAT COMPLIANCE (critical)</span>
+<span class="s2">- Score 0 if the answer contains &lt;think&gt; tags, reasoning steps, protocol labels, or anything beyond the bare final result.</span>
+<span class="s2">{</span><span class="si">% i</span><span class="s2">f question_type == &quot;multiple choice&quot; %}</span>
+<span class="s2">- Answer must be exactly &quot;&lt;LETTER&gt;. &lt;option text&gt;&quot; (A–D). Reject digit-only (&quot;2&quot;) or letter-only (&quot;B&quot;).</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif question_type == &quot;yes or no&quot; %}</span>
+<span class="s2">- Answer must be exactly &quot;Yes&quot; or &quot;No&quot;.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (percentage)&quot; in question_type %}</span>
+<span class="s2">- Answer MUST include a percent sign (e.g., &quot;29%&quot;).</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (int)&quot; in question_type %}</span>
+<span class="s2">- Answer must be an integer only (digits, optional commas), no extra words.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;numerical (float)&quot; in question_type %}</span>
+<span class="s2">- Answer must be a decimal number only, no extra words.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif question_type is string and question_type.startswith(&quot;string&quot;) %}</span>
+<span class="s2">- Answer must be a short phrase/sentence only (no preamble).</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;list&quot; in question_type %}</span>
+<span class="s2">- Answer must be a ONE-LINE JSON array (e.g., [&quot;gray&quot;, &quot;red&quot;]).</span>
+<span class="s2">- Score 0 if comma-separated text or compound ranges ([&quot;1981-82&quot;] should be [&quot;1981&quot;, &quot;1982&quot;]).</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lif &quot;not answerable&quot; in question_type %}</span>
+<span class="s2">- Answer must be exactly &quot;Not answerable&quot;.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">lse %}</span>
+<span class="s2">- Answer MUST NOT be &quot;Not answerable&quot; or any refusal.</span>
+<span class="s2">{</span><span class="si">% e</span><span class="s2">ndif %}</span>
+
+<span class="s2">5) QUESTION QUALITY</span>
+<span class="s2">- Unambiguous: exactly one correct answer.</span>
+<span class="s2">- Verifiable: a judge can confirm correctness from the pages.</span>
+<span class="s2">- Locally bounded: 1-2 steps preferred; 3 steps allowed only if all evidence is on this page and each step is trivial.</span>
+<span class="s2">- Not overly tedious: avoid long enumerations (e.g., 20+ items) unless clearly short and visible.</span>
+<span class="s2">- If the question leaks the answer (contains the answer), score 0.</span>
+
+<span class="s2">6) ANCHOR QUALITY (critical — questions are collated across all pages)</span>
+<span class="s2">- Score 0 if the question uses a generic anchor that could match multiple elements across the</span>
+<span class="s2">  document (e.g., &quot;In the table, ...&quot; or &quot;What is the total revenue?&quot; without specifying which).</span>
+<span class="s2">- Score 0 if the question uses any of these vague phrases:</span>
+<span class="s2">  &quot;on this page&quot;, &quot;in the image&quot;, &quot;in the bottom/top half of the page&quot;,</span>
+<span class="s2">  &quot;the table&quot; / &quot;the chart&quot; / &quot;the figure&quot; without a title or number,</span>
+<span class="s2">  &quot;on the left/right side&quot; without a heading.</span>
+<span class="s2">- Must have at least one of: exact page number, numbered element (Table 3, Figure 7, Note 5),</span>
+<span class="s2">  or unique section/subsection/chart/table title.</span>
+<span class="s2">- If there is a chance the anchor is not unique across the full document, score 0.</span>
+
+<span class="s2">7) REASONING QUALITY (critical — reasoning is used as chain-of-thought training data)</span>
+<span class="s2">- The reasoning in &lt;answer_reasoning&gt; must be specific, stable, and finite. Score 0 if any of the following hold:</span>
+<span class="s2">  - It does NOT cite the question&#39;s anchor (page number, table/figure number, section title,</span>
+<span class="s2">    chart title, or named financial statement).</span>
+<span class="s2">  - It uses only generic references like &quot;the table&quot;, &quot;the chart&quot;, &quot;the page&quot;, or &quot;the image&quot;.</span>
+<span class="s2">  - It does NOT quote or reference the specific value(s) extracted.</span>
+<span class="s2">  - If the question involves computation, it does NOT show the operation with named sources</span>
+<span class="s2">    (e.g., &quot;Gross Profit (19,962) / Revenues (44,538) = 44.8%&quot;).</span>
+<span class="s2">  - It repeats the same scan, recount, or conclusion without adding new evidence, or restarts</span>
+<span class="s2">    / generates new alternatives after already having enough evidence to answer.</span>
+<span class="s2">  - It ends in an unfinished or truncated way, or appears to stop mid-thought.</span>
+<span class="s2">  - It contains filler repetition (for example, the same entity name or phrase copied many times).</span>
+<span class="s2">  - It references images by ordinal position (&quot;Image 1&quot;, &quot;Image 2&quot;, &quot;the first image&quot;)</span>
+<span class="s2">    rather than by printed page numbers or element titles.</span>
+<span class="s2">  - For count questions, it switches counting units mid-reasoning.</span>
+<span class="s2">  - For displayed-vs-mentioned questions, it mixes displayed visual instances with nearby</span>
+<span class="s2">    listed/mentioned items.</span>
+
+<span class="s2">8) FINANCIAL CHECKS (if applicable)</span>
+<span class="s2">- Parentheses = negative. &quot;How much higher&quot; = positive. Units must match table header scale.</span>
+<span class="s2">  Fiscal year must match the correct column.</span>
+
+<span class="s2">SCORING</span>
+<span class="s2">- Score 0: Any check fails.</span>
+<span class="s2">- Score 1: All checks pass.</span>
+<span class="s2">- Score 2: All checks pass AND involves at least one high-value signal: financial computation,</span>
+<span class="s2">  chart disambiguation (title + axis label), infographic spatial reasoning, or cross-cell</span>
+<span class="s2">  table operation. Must still be unambiguous.</span>
+
+<span class="s2">Respond with ONLY the score as a single digit: 0, 1, or 2.</span><span class="se">\</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># Pipeline configuration</span>
+<span class="c1"># =============================================================================</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_config</span><span class="p">(</span>
+    <span class="n">seed_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;seed.parquet&quot;</span><span class="p">,</span>
+    <span class="n">model_alias</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;vl&quot;</span><span class="p">,</span>
+    <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">DEFAULT_VLM_MODEL</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">dd</span><span class="o">.</span><span class="n">DataDesignerConfigBuilder</span><span class="p">:</span>
+    <span class="n">model_configs</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">dd</span><span class="o">.</span><span class="n">ModelConfig</span><span class="p">(</span>
+            <span class="n">alias</span><span class="o">=</span><span class="n">model_alias</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="n">model_id</span><span class="p">,</span>
+            <span class="n">provider</span><span class="o">=</span><span class="n">VLLM_PROVIDER_NAME</span><span class="p">,</span>
+            <span class="n">inference_parameters</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">ChatCompletionInferenceParams</span><span class="p">(</span>
+                <span class="n">timeout</span><span class="o">=</span><span class="mi">1200</span><span class="p">,</span>
+                <span class="n">temperature</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+                <span class="n">top_p</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span>
+                <span class="n">max_parallel_requests</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+                <span class="n">extra_body</span><span class="o">=</span><span class="p">{</span>
+                    <span class="s2">&quot;top_k&quot;</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span>
+                    <span class="s2">&quot;min_p&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                    <span class="s2">&quot;presence_penalty&quot;</span><span class="p">:</span> <span class="mf">1.5</span><span class="p">,</span>
+                    <span class="s2">&quot;repetition_penalty&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                <span class="p">},</span>
+            <span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">]</span>
+
+    <span class="n">config_builder</span> <span class="o">=</span> <span class="n">dd</span><span class="o">.</span><span class="n">DataDesignerConfigBuilder</span><span class="p">(</span><span class="n">model_configs</span><span class="o">=</span><span class="n">model_configs</span><span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">with_seed_dataset</span><span class="p">(</span>
+        <span class="n">dd</span><span class="o">.</span><span class="n">LocalFileSeedSource</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="n">seed_path</span><span class="p">),</span>
+        <span class="n">sampling_strategy</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">SamplingStrategy</span><span class="o">.</span><span class="n">SHUFFLE</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">dd</span><span class="o">.</span><span class="n">SamplerColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;question_type&quot;</span><span class="p">,</span>
+            <span class="n">sampler_type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">CategorySamplerParams</span><span class="p">(</span>
+                <span class="n">values</span><span class="o">=</span><span class="p">[</span>
+                    <span class="s2">&quot;multiple choice&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;yes or no&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;string: word, phrase or short sentence&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;layout&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;numerical (int)&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;numerical (float)&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;numerical (percentage)&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;list of items (int, string, float or mixed)&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;not answerable&quot;</span><span class="p">,</span>
+                <span class="p">],</span>
+                <span class="n">weights</span><span class="o">=</span><span class="p">[</span><span class="mf">0.025</span><span class="p">,</span> <span class="mf">0.025</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">],</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">dd</span><span class="o">.</span><span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;question&quot;</span><span class="p">,</span>
+            <span class="n">model_alias</span><span class="o">=</span><span class="n">model_alias</span><span class="p">,</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="n">PROMPT_QUESTION</span><span class="p">,</span>
+            <span class="n">multi_modal_context</span><span class="o">=</span><span class="n">IMAGE_CONTEXT</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">dd</span><span class="o">.</span><span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;answer&quot;</span><span class="p">,</span>
+            <span class="n">model_alias</span><span class="o">=</span><span class="n">model_alias</span><span class="p">,</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="n">PROMPT_ANSWER</span><span class="p">,</span>
+            <span class="n">multi_modal_context</span><span class="o">=</span><span class="n">IMAGE_CONTEXT</span><span class="p">,</span>
+            <span class="n">extract_reasoning_content</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">dd</span><span class="o">.</span><span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;quality_score&quot;</span><span class="p">,</span>
+            <span class="n">model_alias</span><span class="o">=</span><span class="n">model_alias</span><span class="p">,</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="n">PROMPT_QUALITY_SCORE</span><span class="p">,</span>
+            <span class="n">multi_modal_context</span><span class="o">=</span><span class="n">IMAGE_CONTEXT</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">config_builder</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_dataset</span><span class="p">(</span>
+    <span class="n">config_builder</span><span class="p">:</span> <span class="n">dd</span><span class="o">.</span><span class="n">DataDesignerConfigBuilder</span><span class="p">,</span>
+    <span class="n">num_records</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">vllm_endpoint</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">artifact_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DatasetCreationResults</span><span class="p">:</span>
+    <span class="n">model_providers</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">dd</span><span class="o">.</span><span class="n">ModelProvider</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="n">VLLM_PROVIDER_NAME</span><span class="p">,</span>
+            <span class="n">endpoint</span><span class="o">=</span><span class="n">vllm_endpoint</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">]</span>
+    <span class="n">data_designer</span> <span class="o">=</span> <span class="n">DataDesigner</span><span class="p">(</span>
+        <span class="n">artifact_path</span><span class="o">=</span><span class="n">artifact_path</span><span class="p">,</span>
+        <span class="n">model_providers</span><span class="o">=</span><span class="n">model_providers</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">data_designer</span><span class="o">.</span><span class="n">set_run_config</span><span class="p">(</span><span class="n">dd</span><span class="o">.</span><span class="n">RunConfig</span><span class="p">(</span><span class="n">progress_bar</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">disable_early_shutdown</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="n">num_records</span><span class="p">,</span> <span class="n">dataset_name</span><span class="o">=</span><span class="s2">&quot;single_page_qa&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">results</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">argparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArgumentParser</span>
+
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">ArgumentParser</span><span class="p">()</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--vllm-endpoint&quot;</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+        <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Base URL of the vLLM server hosting the VLM (e.g. http://localhost:8000/v1)&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--seed-path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to the seed parquet file&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--model-alias&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s2">&quot;vl&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--model-id&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">DEFAULT_VLM_MODEL</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--num-records&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--artifact-path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="n">config_builder</span> <span class="o">=</span> <span class="n">build_config</span><span class="p">(</span>
+        <span class="n">seed_path</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">seed_path</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">model_alias</span><span class="p">,</span>
+        <span class="n">model_id</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">model_id</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">create_dataset</span><span class="p">(</span>
+        <span class="n">config_builder</span><span class="p">,</span>
+        <span class="n">num_records</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">num_records</span><span class="p">,</span>
+        <span class="n">vllm_endpoint</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">vllm_endpoint</span><span class="p">,</span>
+        <span class="n">artifact_path</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">artifact_path</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Dataset saved to: </span><span class="si">{</span><span class="n">results</span><span class="o">.</span><span class="n">artifact_storage</span><span class="o">.</span><span class="n">final_dataset_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">results</span><span class="o">.</span><span class="n">load_analysis</span><span class="p">()</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../visual_qa/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Visual QA">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Visual QA
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../multi_page_windowed_qa/" class="md-footer__link md-footer__link--next" aria-label="Next: Multi-Page Windowed QA">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Multi-Page Windowed QA
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.path", "navigation.footer", "navigation.indexes", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../../js/toc-toggle.js"></script>
+      
+    
+  </body>
+</html>
