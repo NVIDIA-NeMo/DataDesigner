@@ -56,11 +56,14 @@ def inner_client() -> MagicMock:
 
 @pytest.fixture
 def throttled_client(inner_client: MagicMock, throttle_manager: ThrottleManager) -> ThrottledModelClient:
+    # Default to no in-client rate-limit retry so existing behavior tests see
+    # single-attempt semantics. Retry-aware tests construct their own client.
     return ThrottledModelClient(
         inner=inner_client,
         throttle_manager=throttle_manager,
         provider_name=PROVIDER,
         model_id=MODEL_ID,
+        max_rate_limit_retries=0,
     )
 
 
@@ -390,7 +393,9 @@ async def test_aimd_feedback_loop_rate_limit_reduces_then_successes_recover() ->
     inner.provider_name = PROVIDER
     inner.acompletion = mock_acompletion
 
-    client = ThrottledModelClient(inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID)
+    client = ThrottledModelClient(
+        inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID, max_rate_limit_retries=0
+    )
     request = ChatCompletionRequest(model=MODEL_ID, messages=[])
 
     def get_state() -> DomainThrottleState:
@@ -454,7 +459,9 @@ async def test_concurrent_requests_bounded_by_throttle_limit() -> None:
     inner.provider_name = PROVIDER
     inner.acompletion = mock_acompletion
 
-    client = ThrottledModelClient(inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID)
+    client = ThrottledModelClient(
+        inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID, max_rate_limit_retries=0
+    )
     request = ChatCompletionRequest(model=MODEL_ID, messages=[])
 
     tasks = [asyncio.create_task(client.acompletion(request)) for _ in range(5)]
@@ -492,7 +499,9 @@ async def test_sustained_rate_limiting_marks_throttle_saturated() -> None:
     inner.provider_name = PROVIDER
     inner.acompletion = always_429
 
-    client = ThrottledModelClient(inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID)
+    client = ThrottledModelClient(
+        inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID, max_rate_limit_retries=0
+    )
     request = ChatCompletionRequest(model=MODEL_ID, messages=[])
 
     # First 429: not yet saturated
@@ -505,3 +514,135 @@ async def test_sustained_rate_limiting_marks_throttle_saturated() -> None:
     with pytest.raises(ProviderError):
         await client.acompletion(request)
     assert tm.is_saturated(PROVIDER, MODEL_ID, ThrottleDomain.CHAT)
+
+
+# --- In-client rate-limit retry (max_rate_limit_retries) ---
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_acompletion_retries_on_rate_limit_then_succeeds() -> None:
+    """A transient 429 is transparently retried; the caller never sees the error."""
+    tm = ThrottleManager(ThrottleConfig(cooldown_seconds=0.01))
+    tm.register(provider_name=PROVIDER, model_id=MODEL_ID, alias="a", max_parallel_requests=1)
+
+    call_count = 0
+
+    async def flaky(_request: ChatCompletionRequest) -> ChatCompletionResponse:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ProviderError(
+                kind=ProviderErrorKind.RATE_LIMIT,
+                message="429",
+                status_code=429,
+                retry_after=0.01,
+            )
+        return ChatCompletionResponse(message=AssistantMessage(content="ok"), usage=Usage())
+
+    inner = MagicMock()
+    inner.provider_name = PROVIDER
+    inner.acompletion = flaky
+
+    client = ThrottledModelClient(
+        inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID, max_rate_limit_retries=3
+    )
+    request = ChatCompletionRequest(model=MODEL_ID, messages=[])
+    response = await client.acompletion(request)
+    assert response.message.content == "ok"
+    assert call_count == 2
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_acompletion_exhausts_retries_then_raises() -> None:
+    """After max_rate_limit_retries, the original ProviderError is re-raised."""
+    tm = ThrottleManager(ThrottleConfig(cooldown_seconds=0.01))
+    tm.register(provider_name=PROVIDER, model_id=MODEL_ID, alias="a", max_parallel_requests=1)
+
+    call_count = 0
+
+    async def always_429(_request: ChatCompletionRequest) -> ChatCompletionResponse:
+        nonlocal call_count
+        call_count += 1
+        raise ProviderError(
+            kind=ProviderErrorKind.RATE_LIMIT,
+            message="429",
+            status_code=429,
+            retry_after=0.01,
+        )
+
+    inner = MagicMock()
+    inner.provider_name = PROVIDER
+    inner.acompletion = always_429
+
+    client = ThrottledModelClient(
+        inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID, max_rate_limit_retries=2
+    )
+    request = ChatCompletionRequest(model=MODEL_ID, messages=[])
+    with pytest.raises(ProviderError) as excinfo:
+        await client.acompletion(request)
+    assert excinfo.value.kind == ProviderErrorKind.RATE_LIMIT
+    # 1 initial + 2 retries = 3 total calls
+    assert call_count == 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_acompletion_non_rate_limit_error_is_not_retried() -> None:
+    """Errors other than rate-limit propagate immediately, no retry."""
+    tm = ThrottleManager()
+    tm.register(provider_name=PROVIDER, model_id=MODEL_ID, alias="a", max_parallel_requests=1)
+
+    call_count = 0
+
+    async def server_error(_request: ChatCompletionRequest) -> ChatCompletionResponse:
+        nonlocal call_count
+        call_count += 1
+        raise ProviderError(
+            kind=ProviderErrorKind.INTERNAL_SERVER,
+            message="500",
+            status_code=500,
+        )
+
+    inner = MagicMock()
+    inner.provider_name = PROVIDER
+    inner.acompletion = server_error
+
+    client = ThrottledModelClient(
+        inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID, max_rate_limit_retries=5
+    )
+    request = ChatCompletionRequest(model=MODEL_ID, messages=[])
+    with pytest.raises(ProviderError) as excinfo:
+        await client.acompletion(request)
+    assert excinfo.value.kind == ProviderErrorKind.INTERNAL_SERVER
+    assert call_count == 1
+
+
+def test_completion_sync_retries_on_rate_limit_then_succeeds() -> None:
+    """Sync path also retries on 429 and succeeds when the server recovers."""
+    tm = ThrottleManager(ThrottleConfig(cooldown_seconds=0.01))
+    tm.register(provider_name=PROVIDER, model_id=MODEL_ID, alias="a", max_parallel_requests=1)
+
+    call_count = 0
+
+    def flaky(_request: ChatCompletionRequest) -> ChatCompletionResponse:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ProviderError(
+                kind=ProviderErrorKind.RATE_LIMIT,
+                message="429",
+                status_code=429,
+                retry_after=0.01,
+            )
+        return ChatCompletionResponse(message=AssistantMessage(content="ok"), usage=Usage())
+
+    inner = MagicMock()
+    inner.provider_name = PROVIDER
+    inner.completion = flaky
+
+    client = ThrottledModelClient(
+        inner=inner, throttle_manager=tm, provider_name=PROVIDER, model_id=MODEL_ID, max_rate_limit_retries=3
+    )
+    request = ChatCompletionRequest(model=MODEL_ID, messages=[])
+    response = client.completion(request)
+    assert response.message.content == "ok"
+    assert call_count == 2

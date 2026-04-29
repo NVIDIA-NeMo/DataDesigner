@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable, TypeVar
 
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
@@ -27,6 +27,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Default per-call retry budget for ``ProviderError(kind=RATE_LIMIT)``. Each
+# retry's ``acquire_async`` waits through the AIMD cooldown set by the prior
+# 429 release, so retries pace through the throttle automatically.
+DEFAULT_MAX_RATE_LIMIT_RETRIES: int = 3
+
+T = TypeVar("T")
+
 
 class ThrottledModelClient(ModelClient):
     """Wraps a ``ModelClient`` with per-request throttle acquire/release.
@@ -43,6 +50,15 @@ class ThrottledModelClient(ModelClient):
     - ``embeddings`` / ``aembeddings`` -> ``EMBEDDING``
     - ``generate_image`` / ``agenerate_image`` -> ``IMAGE`` when
       ``request.messages is None`` (diffusion), ``CHAT`` when messages are set
+
+    On ``ProviderError(kind=RATE_LIMIT)`` the call is retried in-place up
+    to ``max_rate_limit_retries`` times. Because ``release_rate_limited``
+    sets ``state.blocked_until`` synchronously with the failure, the next
+    iteration's ``acquire_async`` waits through the AIMD cooldown
+    automatically - so the retry paces through the throttle's signal
+    rather than re-saturating it. After exhausting retries, the original
+    rate-limit error propagates so the caller (e.g. the async scheduler's
+    cooldown queue) can take the next layer of action.
     """
 
     def __init__(
@@ -51,11 +67,14 @@ class ThrottledModelClient(ModelClient):
         throttle_manager: ThrottleManager,
         provider_name: str,
         model_id: str,
+        *,
+        max_rate_limit_retries: int = DEFAULT_MAX_RATE_LIMIT_RETRIES,
     ) -> None:
         self._inner = inner
         self._tm = throttle_manager
         self._provider_name = provider_name
         self._model_id = model_id
+        self._max_rate_limit_retries = max_rate_limit_retries
 
     # --- ModelClient protocol delegation ---
 
@@ -81,30 +100,74 @@ class ThrottledModelClient(ModelClient):
     # --- Throttled methods ---
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        with self._throttled_sync(ThrottleDomain.CHAT):
-            return self._inner.completion(request)
+        return self._call_with_retry_sync(ThrottleDomain.CHAT, lambda: self._inner.completion(request))
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        async with self._athrottled(ThrottleDomain.CHAT):
-            return await self._inner.acompletion(request)
+        return await self._call_with_retry_async(ThrottleDomain.CHAT, lambda: self._inner.acompletion(request))
 
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        with self._throttled_sync(ThrottleDomain.EMBEDDING):
-            return self._inner.embeddings(request)
+        return self._call_with_retry_sync(ThrottleDomain.EMBEDDING, lambda: self._inner.embeddings(request))
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        async with self._athrottled(ThrottleDomain.EMBEDDING):
-            return await self._inner.aembeddings(request)
+        return await self._call_with_retry_async(ThrottleDomain.EMBEDDING, lambda: self._inner.aembeddings(request))
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         domain = self._image_domain(request)
-        with self._throttled_sync(domain):
-            return self._inner.generate_image(request)
+        return self._call_with_retry_sync(domain, lambda: self._inner.generate_image(request))
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         domain = self._image_domain(request)
-        async with self._athrottled(domain):
-            return await self._inner.agenerate_image(request)
+        return await self._call_with_retry_async(domain, lambda: self._inner.agenerate_image(request))
+
+    # --- Retry wrappers ---
+
+    def _call_with_retry_sync(self, domain: ThrottleDomain, inner_call: Callable[[], T]) -> T:
+        last_exc: ProviderError | None = None
+        for attempt in range(self._max_rate_limit_retries + 1):
+            try:
+                with self._throttled_sync(domain):
+                    return inner_call()
+            except ProviderError as exc:
+                if exc.kind != ProviderErrorKind.RATE_LIMIT:
+                    raise
+                last_exc = exc
+                if attempt < self._max_rate_limit_retries:
+                    logger.debug(
+                        "ThrottledModelClient %s/%s [%s] 429, retrying (%d/%d)",
+                        self._provider_name,
+                        self._model_id,
+                        domain.value,
+                        attempt + 1,
+                        self._max_rate_limit_retries,
+                    )
+        assert last_exc is not None
+        raise last_exc
+
+    async def _call_with_retry_async(
+        self,
+        domain: ThrottleDomain,
+        inner_call: Callable[[], Awaitable[T]],
+    ) -> T:
+        last_exc: ProviderError | None = None
+        for attempt in range(self._max_rate_limit_retries + 1):
+            try:
+                async with self._athrottled(domain):
+                    return await inner_call()
+            except ProviderError as exc:
+                if exc.kind != ProviderErrorKind.RATE_LIMIT:
+                    raise
+                last_exc = exc
+                if attempt < self._max_rate_limit_retries:
+                    logger.debug(
+                        "ThrottledModelClient %s/%s [%s] 429, retrying (%d/%d)",
+                        self._provider_name,
+                        self._model_id,
+                        domain.value,
+                        attempt + 1,
+                        self._max_rate_limit_retries,
+                    )
+        assert last_exc is not None
+        raise last_exc
 
     # --- Context managers ---
 
