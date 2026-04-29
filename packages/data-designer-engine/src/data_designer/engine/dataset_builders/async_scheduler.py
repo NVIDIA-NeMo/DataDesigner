@@ -181,7 +181,10 @@ class AsyncTaskScheduler:
         self._degraded_warn_window = degraded_warn_window
         self._degraded_warn_interval_s = degraded_warn_interval_s
         self._recent_retryable: deque[bool] = deque(maxlen=degraded_warn_window)
-        self._last_degraded_warn_at: float = 0.0
+        # Initialize to -inf so the first WARN is always emitted regardless of
+        # the monotonic clock's absolute value (which can be near-zero on freshly
+        # booted CI runners).
+        self._last_degraded_warn_at: float = float("-inf")
 
         # Row groups that were partially salvaged after early shutdown
         # (i.e., some rows complete, some incomplete-then-dropped). Surfaced
