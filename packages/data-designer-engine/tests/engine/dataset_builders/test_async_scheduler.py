@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -31,7 +32,12 @@ from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
-from data_designer.engine.models.errors import ModelInternalServerError, ModelRateLimitError
+from data_designer.engine.models.errors import (
+    ModelAPIConnectionError,
+    ModelInternalServerError,
+    ModelRateLimitError,
+    ModelTimeoutError,
+)
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 MODEL_ALIAS = "stub"
@@ -163,6 +169,33 @@ class MockRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
         self._calls += 1
         if self._calls <= self._rate_limit_failures:
             raise ModelRateLimitError("429 Too Many Requests")
+        data[self.config.name] = f"ok_{data.get('seed', '?')}"
+        return data
+
+
+class MockRetryableErrorGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Generator that raises a parametrizable retryable error then succeeds."""
+
+    def __init__(
+        self,
+        *args: Any,
+        error_factory: Callable[[], Exception],
+        retryable_failures: int = 0,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._error_factory = error_factory
+        self._retryable_failures = retryable_failures
+        self._calls = 0
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        self._calls += 1
+        if self._calls <= self._retryable_failures:
+            raise self._error_factory()
         data[self.config.name] = f"ok_{data.get('seed', '?')}"
         return data
 
@@ -819,6 +852,70 @@ async def test_rate_limit_errors_do_not_trigger_early_shutdown() -> None:
     await scheduler.run()
 
     assert not scheduler._early_shutdown
+    assert tracker.is_row_group_complete(0, 10, ["seed", "col"])
+
+
+@pytest.mark.parametrize(
+    "error_factory",
+    [
+        pytest.param(lambda: ModelRateLimitError("429 Too Many Requests"), id="rate_limit"),
+        pytest.param(lambda: ModelTimeoutError("read timeout"), id="timeout"),
+        pytest.param(lambda: ModelInternalServerError("503 Service Unavailable"), id="internal_server"),
+        pytest.param(lambda: ModelAPIConnectionError("connection reset"), id="api_connection"),
+    ],
+)
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_errors_do_not_trigger_early_shutdown(
+    error_factory: Callable[[], Exception],
+) -> None:
+    """All retryable errors (rate-limit, timeout, 5xx, connection) bypass the early-shutdown gate.
+
+    Regression test for #575: clustered ``ModelTimeoutError`` during provider degradation
+    used to trip the gate even though salvage could recover the rows.
+    """
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": MockRetryableErrorGenerator(
+            config=_expr_config("col"),
+            resource_provider=provider,
+            error_factory=error_factory,
+            retryable_failures=8,
+        ),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 10)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=10,
+    )
+    await scheduler.run()
+
+    assert not scheduler._early_shutdown
+    assert scheduler._recent_outcomes.count(False) == 0
     assert tracker.is_row_group_complete(0, 10, ["seed", "col"])
 
 

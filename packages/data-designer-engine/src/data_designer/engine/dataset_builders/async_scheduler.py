@@ -739,9 +739,13 @@ class AsyncTaskScheduler:
                 trace.status = "ok"
 
         except Exception as exc:
-            if not isinstance(exc, ModelRateLimitError):
-                self._check_error_rate(success=False)
             retryable = self._is_retryable(exc)
+            # Only non-retryable errors (auth, schema, code bugs) count toward
+            # the early-shutdown gate. Retryable errors (rate-limit, timeout,
+            # transient 5xx, connection blips) cluster under provider degradation
+            # and would otherwise trip the gate even when salvage could recover.
+            if not retryable:
+                self._check_error_rate(success=False)
             if not retryable and self._reporter:
                 self._reporter.record_failure(task.column)
             if self._trace and trace:
