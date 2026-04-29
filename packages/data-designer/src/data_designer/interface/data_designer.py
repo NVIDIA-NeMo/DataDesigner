@@ -61,6 +61,7 @@ from data_designer.engine.secret_resolver import (
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.interface.errors import (
+    DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
     DataDesignerProfilingError,
 )
@@ -234,6 +235,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         try:
             dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
         except Exception as e:
+            # Distinguish "early shutdown produced zero records" from generic load failures
+            # so callers can react programmatically (e.g. retry on a different alias) instead
+            # of parsing a wrapped FileNotFoundError. The scheduler's structured signal lives
+            # on the builder for the duration of the run.
+            if builder.early_shutdown:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Generation produced zero records — early shutdown was triggered. "
+                    "The non-retryable error rate exceeded the configured threshold; check the "
+                    "warnings above (and any 'Provider showing degraded performance' logs) for "
+                    "the contributing failures."
+                ) from e
             raise DataDesignerGenerationError(
                 f"🛑 Failed to load generated dataset — all records may have been dropped "
                 f"due to generation failures. Check the warnings above for details. Original error: {e}"
@@ -243,6 +255,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         # practice load_dataset_with_dropped_columns() would raise before returning a
         # zero-row DataFrame. This guard protects against future changes to that contract.
         if len(dataset_for_profiler) == 0:
+            if builder.early_shutdown:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Dataset is empty — early shutdown was triggered before any records "
+                    "could complete. Check the warnings above for the contributing failures."
+                )
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation failures. "
                 "Check the warnings above for details on which columns failed."

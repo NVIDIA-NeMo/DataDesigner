@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -39,7 +39,11 @@ from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentR
 from data_designer.engine.testing.seed_readers import LineFanoutDirectorySeedReader
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
-from data_designer.interface.errors import DataDesignerGenerationError, DataDesignerProfilingError
+from data_designer.interface.errors import (
+    DataDesignerEarlyShutdownError,
+    DataDesignerGenerationError,
+    DataDesignerProfilingError,
+)
 
 
 class CustomDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
@@ -680,6 +684,69 @@ def test_create_raises_generation_error_when_load_dataset_fails(
         with pytest.raises(DataDesignerGenerationError, match="Failed to load generated dataset") as exc_info:
             data_designer.create(stub_sampler_only_config_builder, num_records=1)
         assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+
+
+def test_create_raises_early_shutdown_error_when_load_fails_after_shutdown(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    """When the scheduler hit early shutdown and zero records were produced, surface the
+    typed DataDesignerEarlyShutdownError instead of the generic load-failure wrap."""
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with (
+        patch(
+            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+            side_effect=FileNotFoundError("No parquet files found"),
+        ),
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.early_shutdown",
+            new_callable=PropertyMock,
+            return_value=True,
+        ),
+    ):
+        with pytest.raises(DataDesignerEarlyShutdownError, match="early shutdown was triggered") as exc_info:
+            data_designer.create(stub_sampler_only_config_builder, num_records=1)
+        # Subclass of DataDesignerGenerationError so existing handlers still match.
+        assert isinstance(exc_info.value, DataDesignerGenerationError)
+        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+
+
+def test_create_raises_early_shutdown_error_on_empty_dataframe_after_shutdown(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Defensive guard path: when load_dataset_with_dropped_columns returns an empty DF
+    AND the scheduler hit early shutdown, the typed error wins over the generic one."""
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with (
+        patch(
+            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+            return_value=lazy.pd.DataFrame(),
+        ),
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.early_shutdown",
+            new_callable=PropertyMock,
+            return_value=True,
+        ),
+    ):
+        with pytest.raises(DataDesignerEarlyShutdownError, match="early shutdown was triggered"):
+            data_designer.create(stub_sampler_only_config_builder, num_records=1)
 
 
 def test_preview_raises_generation_error_when_dataset_is_empty(

@@ -113,6 +113,10 @@ class DatasetBuilder:
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
         self._use_async: bool = DATA_DESIGNER_ASYNC_ENGINE
+        # Structured signal: set by _build_async if the scheduler hit early shutdown.
+        # Stays at defaults for sync-engine and successful async runs.
+        self._early_shutdown: bool = False
+        self._partial_row_groups: tuple[int, ...] = ()
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -134,6 +138,16 @@ class DatasetBuilder:
     @property
     def task_traces(self) -> list[TaskTrace]:
         return self._task_traces
+
+    @property
+    def early_shutdown(self) -> bool:
+        """True if the most recent async run terminated via the early-shutdown gate."""
+        return self._early_shutdown
+
+    @property
+    def partial_row_groups(self) -> tuple[int, ...]:
+        """Row group ids that were partially salvaged after early shutdown (most recent run)."""
+        return self._partial_row_groups
 
     def set_processor_runner(self, processors: list[Processor]) -> None:
         """Replace the processor runner with a new one using the given processors."""
@@ -326,6 +340,8 @@ class DatasetBuilder:
         future.result()
 
         self._task_traces = scheduler.traces
+        self._early_shutdown = scheduler.early_shutdown
+        self._partial_row_groups = scheduler.partial_row_groups
 
         # Emit telemetry
         try:
