@@ -173,6 +173,52 @@ class MockRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
         return data
 
 
+class MockSelectiveFailGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Cell generator with deterministic per-seed behavior.
+
+    - Seeds in ``fail_on_seeds``: raise a non-retryable ``ValueError`` immediately.
+    - Seeds in ``slow_seeds``: block on ``slow_event`` (or ``asyncio.sleep``) so
+      they remain in-flight when the early-shutdown gate fires.
+    - All others: succeed.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        fail_on_seeds: set[int] = frozenset(),
+        slow_seeds: set[int] = frozenset(),
+        slow_timeout_s: float = 5.0,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._fail = set(fail_on_seeds)
+        self._slow = set(slow_seeds)
+        self._slow_timeout_s = slow_timeout_s
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    async def agenerate(self, data: dict) -> dict:
+        seed = data.get("seed")
+        if seed in self._fail:
+            raise ValueError(f"non-retryable on seed={seed}")
+        if seed in self._slow:
+            try:
+                await asyncio.sleep(self._slow_timeout_s)
+            except asyncio.CancelledError:
+                raise
+        data[self.config.name] = f"ok_{seed}"
+        return data
+
+    def generate(self, data: dict) -> dict:
+        seed = data.get("seed")
+        if seed in self._fail:
+            raise ValueError(f"non-retryable on seed={seed}")
+        data[self.config.name] = f"ok_{seed}"
+        return data
+
+
 class MockRetryableErrorGenerator(ColumnGenerator[ExpressionColumnConfig]):
     """Generator that raises a parametrizable retryable error then succeeds."""
 
@@ -722,6 +768,141 @@ async def test_scheduler_error_rate_shutdown() -> None:
 
     # Early shutdown: not all rows should be checkpointed (some row groups incomplete)
     assert buffer_mgr.actual_num_records < 10
+    # No leftover unfinished row groups (finalize-after-shutdown drains them).
+    assert not scheduler._rg_states
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_partial_row_group_salvaged_after_early_shutdown() -> None:
+    """Mid-run shutdown drops incomplete rows and checkpoints survivors."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    # 3 succeed (0,1,2), 3 fail non-retryable (5,6,7), 4 stay in-flight (3,4,8,9)
+    # until cancellation. Window=4, rate=0.5 → gate trips after ~3-5 outcomes.
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockSelectiveFailGenerator(
+            config=_expr_config("cell_out"),
+            resource_provider=provider,
+            fail_on_seeds={5, 6, 7},
+            slow_seeds={3, 4, 8, 9},
+        ),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 10)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    finalized: list[int] = []
+
+    def on_finalize(rg_id: int) -> None:
+        buffer_mgr.checkpoint_row_group(rg_id)
+        finalized.append(rg_id)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_finalize_row_group=on_finalize,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=4,
+    )
+    await scheduler.run()
+
+    assert scheduler.early_shutdown
+    # The row group survived with the 3 fast successes; the in-flight rows were
+    # cancelled and dropped by _finalize_after_shutdown.
+    assert 0 in finalized
+    assert scheduler.partial_row_groups == (0,)
+    # Exactly 3 rows survived (seeds 0, 1, 2).
+    assert buffer_mgr.actual_num_records == 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_zero_survivor_shutdown_does_not_raise() -> None:
+    """If every row is dropped at shutdown, the row group is freed without writing parquet."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    # All 5 seeds fail non-retryable → all rows dropped before any can complete.
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockSelectiveFailGenerator(
+            config=_expr_config("cell_out"),
+            resource_provider=provider,
+            fail_on_seeds=set(range(5)),
+        ),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 5)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    finalized: list[int] = []
+
+    def on_finalize(rg_id: int) -> None:
+        buffer_mgr.checkpoint_row_group(rg_id)
+        finalized.append(rg_id)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_finalize_row_group=on_finalize,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=2,
+    )
+    # Must not raise (no FileNotFoundError, no DataDesignerGenerationError).
+    await scheduler.run()
+
+    assert scheduler.early_shutdown
+    assert buffer_mgr.actual_num_records == 0
+    # All rows dropped → checkpoint path frees buffer without writing; on_finalize
+    # is *not* called because every row was dropped before survivors could exist.
+    assert finalized == []
+    # No partial-row-groups recorded — there were no incomplete-but-not-dropped rows.
+    assert scheduler.partial_row_groups == ()
+    storage.write_batch_to_parquet_file.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_healthy_run_has_no_partial_signal() -> None:
+    """Successful run leaves early_shutdown=False and partial_row_groups empty."""
+    scheduler, _tracker = _build_simple_pipeline(num_records=3)
+    await scheduler.run()
+    assert not scheduler.early_shutdown
+    assert scheduler.partial_row_groups == ()
 
 
 @pytest.mark.asyncio(loop_scope="session")

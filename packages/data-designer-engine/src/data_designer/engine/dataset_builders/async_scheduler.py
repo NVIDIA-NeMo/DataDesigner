@@ -195,6 +195,11 @@ class AsyncTaskScheduler:
         self._recent_retryable: deque[bool] = deque(maxlen=degraded_warn_window)
         self._last_degraded_warn_at: float = 0.0
 
+        # Row groups that were partially salvaged after early shutdown
+        # (i.e., some rows complete, some incomplete-then-dropped). Surfaced
+        # via the partial_row_groups property as a structured signal.
+        self._partial_row_groups: list[int] = []
+
         # Pre-compute row-group sizes for O(1) lookup
         self._rg_size_map: dict[int, int] = dict(row_groups)
 
@@ -238,6 +243,20 @@ class AsyncTaskScheduler:
     @property
     def active_worker_count(self) -> int:
         return sum(1 for t in self._worker_tasks if not t.done())
+
+    @property
+    def early_shutdown(self) -> bool:
+        """True if the run terminated via the early-shutdown gate."""
+        return self._early_shutdown
+
+    @property
+    def partial_row_groups(self) -> tuple[int, ...]:
+        """Row group ids that were partially salvaged after early shutdown.
+
+        Empty unless ``early_shutdown`` is True. Each id had some rows
+        complete and the rest dropped before checkpointing.
+        """
+        return tuple(self._partial_row_groups)
 
     def _spawn_worker(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task:
         """Create a tracked worker task that auto-removes itself on completion."""
@@ -304,6 +323,11 @@ class AsyncTaskScheduler:
                     with contextlib.suppress(asyncio.CancelledError):
                         await admission_task
                 await asyncio.shield(self._cancel_workers())
+                # Salvage partially-complete row groups left over from early
+                # shutdown. Must run AFTER _cancel_workers - in-flight tasks
+                # could otherwise write into a buffer that's being finalized.
+                if self._early_shutdown and self._rg_states:
+                    self._finalize_after_shutdown(all_columns)
 
             if self._reporter:
                 self._reporter.log_final()
@@ -551,6 +575,37 @@ class AsyncTaskScheduler:
         if completed:
             checkpointed = {rg_id for rg_id, _ in completed}
             self._deferred = [t for t in self._deferred if t.row_group not in checkpointed]
+
+    def _finalize_after_shutdown(self, all_columns: list[str]) -> None:
+        """Salvage row groups left in flight when early shutdown fired.
+
+        For each remaining row group, drop rows that aren't fully complete
+        (and weren't already dropped); after that, ``is_row_group_complete``
+        is true by construction over the surviving rows, so delegating to
+        ``_checkpoint_completed_row_groups`` writes survivors and frees
+        zero-survivor groups via the buffer manager's existing logic.
+        """
+        for rg_id in list(self._rg_states.keys()):
+            rg_size = self._rg_states[rg_id].size
+            had_incomplete = False
+            for ri in range(rg_size):
+                if self._tracker.is_dropped(rg_id, ri):
+                    continue
+                if all(
+                    self._tracker.is_complete(SliceRef(column=col, row_group=rg_id, row_index=ri))
+                    for col in all_columns
+                ):
+                    continue
+                had_incomplete = True
+                self._drop_row(rg_id, ri)
+            if had_incomplete:
+                survivors = sum(1 for ri in range(rg_size) if not self._tracker.is_dropped(rg_id, ri))
+                if survivors > 0:
+                    self._partial_row_groups.append(rg_id)
+                    logger.warning(f"Row group {rg_id}: salvaging {survivors} of {rg_size} rows after early shutdown.")
+                else:
+                    logger.warning(f"Row group {rg_id}: 0 of {rg_size} rows survived early shutdown - skipping write.")
+        self._checkpoint_completed_row_groups(all_columns)
 
     def _run_seeds_complete_check(self, seed_cols: frozenset[str]) -> None:
         """Run pre-batch callbacks for row groups whose seeds just completed."""

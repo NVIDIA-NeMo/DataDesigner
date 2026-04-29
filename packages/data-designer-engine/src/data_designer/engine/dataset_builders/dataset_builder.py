@@ -341,10 +341,18 @@ class DatasetBuilder:
         actual = buffer_manager.actual_num_records
         if actual < num_records:
             pct = actual / num_records * 100 if num_records > 0 else 0
-            logger.warning(
-                f"⚠️ Generated {actual} of {num_records} requested records ({pct:.0f}%). "
-                "The dataset may be incomplete due to errors or early shutdown."
-            )
+            base = f"⚠️ Generated {actual} of {num_records} requested records ({pct:.0f}%). "
+            if scheduler.early_shutdown:
+                partial = scheduler.partial_row_groups
+                detail = (
+                    f"Early shutdown was triggered (non-retryable error rate exceeded threshold); "
+                    f"{len(partial)} row group(s) salvaged with partial rows."
+                    if partial
+                    else "Early shutdown was triggered (non-retryable error rate exceeded threshold)."
+                )
+                logger.warning(base + detail)
+            else:
+                logger.warning(base + "The dataset may be incomplete due to dropped rows.")
 
     def _prepare_async_run(
         self,
