@@ -310,6 +310,10 @@ class ThrottleManager:
         with self._lock:
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.in_flight = max(0, state.in_flight - 1)
+            # Non-rate-limit failure breaks the 429 cascade: a sequence like
+            # 429 → 500 → 429 should treat the second 429 as the start of a
+            # new cascade, not the third in a row.
+            state.consecutive_429s = 0
 
     # -------------------------------------------------------------------
     # Sync / async wrappers

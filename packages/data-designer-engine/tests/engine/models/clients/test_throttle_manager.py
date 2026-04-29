@@ -183,6 +183,24 @@ def test_failure_releases_slot_without_limit_change(manager: ThrottleManager) ->
     assert state.in_flight == 0
 
 
+def test_failure_resets_consecutive_429s_cascade(manager: ThrottleManager) -> None:
+    """Non-rate-limit failure breaks the 429 cascade so 429→500→429 isn't treated as 2-in-a-row.
+
+    The cascade counter feeds the AIMD reduce-once-per-cascade logic; if a
+    non-RL failure doesn't reset it, the subsequent 429 is treated as part of
+    the previous cascade and the limit isn't reduced when it should be.
+    """
+    manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    manager.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    state = manager.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.consecutive_429s == 1
+
+    manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    manager.release_failure(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    assert state.consecutive_429s == 0
+
+
 # --- Global cap ---
 
 
