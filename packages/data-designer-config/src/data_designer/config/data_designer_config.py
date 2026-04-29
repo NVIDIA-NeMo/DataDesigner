@@ -10,6 +10,7 @@ from pydantic import Field
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.exportable_config import ExportableConfigBase
+from data_designer.config.fingerprint import fingerprint_config
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig
 from data_designer.config.processor_types import ProcessorConfigT
@@ -42,3 +43,20 @@ class DataDesignerConfig(ExportableConfigBase):
     constraints: list[ColumnConstraintInputT] | None = None
     profilers: list[ColumnProfilerConfigT] | None = None
     processors: list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]] | None = None
+
+    def fingerprint(self, *, custom_column_source: bool = False) -> dict[str, str | int]:
+        """Compute a deterministic content-addressable fingerprint of this config.
+
+        See :func:`data_designer.config.fingerprint.fingerprint_config` for the
+        full list of identity-relevant and excluded fields, and for the L1/L2
+        custom-column behavior.
+
+        Args:
+            custom_column_source: If True, additionally hash the source of each
+                custom column generator (L2). Defaults to False.
+
+        Returns:
+            A dict with ``config_hash``, ``config_hash_algo``, and
+            ``config_hash_version``.
+        """
+        return fingerprint_config(self, custom_column_source=custom_column_source)
