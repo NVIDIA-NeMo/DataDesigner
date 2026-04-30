@@ -37,7 +37,7 @@ from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetPr
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.dataset_builder import DATA_DESIGNER_ASYNC_ENGINE, DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
-from data_designer.engine.model_provider import resolve_model_provider_registry
+from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.resources.person_reader import (
     PersonReader,
@@ -151,11 +151,20 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
-        self._model_providers = self._resolve_model_providers(model_providers)
+        # Only consult the YAML's `default:` key when we are also falling back to
+        # the YAML's `providers:` list. A user-supplied `model_providers` list
+        # owns its own default (first wins), so the YAML default must not leak
+        # in and either (a) hard-fail validation when the YAML names a provider
+        # absent from the supplied list or (b) silently override the
+        # documented first-wins ordering. See issue #588.
+        if model_providers is None:
+            self._model_providers = self._resolve_model_providers(None)
+            default_provider_name = get_default_provider_name()
+        else:
+            self._model_providers = self._resolve_model_providers(model_providers)
+            default_provider_name = None
         self._mcp_providers = mcp_providers or []
-        self._model_provider_registry = resolve_model_provider_registry(
-            self._model_providers, get_default_provider_name()
-        )
+        self._model_provider_registry = resolve_model_provider_registry(self._model_providers, default_provider_name)
         self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
 
     @property
@@ -435,6 +444,32 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             The SecretResolver instance handling credentials and secrets.
         """
         return self._secret_resolver
+
+    @property
+    def model_provider_registry(self) -> ModelProviderRegistry:
+        """Get the resolved model provider registry.
+
+        Returns:
+            The ModelProviderRegistry containing the providers and default
+            resolved at construction time. The default is taken from the
+            first user-supplied provider when ``model_providers`` was passed
+            to the constructor; otherwise from the YAML's ``default:`` key
+            when set, falling back to the first provider in the YAML list.
+        """
+        return self._model_provider_registry
+
+    @property
+    def run_config(self) -> RunConfig:
+        """Get the runtime configuration applied to dataset generation.
+
+        Returns:
+            The active RunConfig instance. Note that ``RunConfig`` normalizes
+            some fields on construction (e.g., ``shutdown_error_rate`` becomes
+            ``1.0`` when ``disable_early_shutdown=True``), so the returned
+            object may not exactly equal the one originally passed to
+            ``set_run_config``.
+        """
+        return self._run_config
 
     def set_run_config(self, run_config: RunConfig) -> None:
         """Set the runtime configuration for dataset generation.

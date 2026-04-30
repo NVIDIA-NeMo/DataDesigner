@@ -485,17 +485,110 @@ def test_init_with_path_object(stub_artifact_path, stub_model_providers):
     assert designer is not None
 
 
+def test_init_user_supplied_providers_ignore_unrelated_yaml_default(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+) -> None:
+    """Regression for #588: a YAML ``default:`` that names a provider absent
+    from a user-supplied ``model_providers`` list must not leak into
+    construction.
+
+    Pre-fix this raised ``ValidationError: Specified default 'unrelated' not
+    found in providers list``.
+    """
+    with patch.object(dd_mod, "get_default_provider_name", return_value="unrelated"):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            model_providers=stub_model_providers,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+
+    assert data_designer.model_provider_registry.get_default_provider_name() == "stub-model-provider"
+
+
+def test_init_user_supplied_providers_preserve_first_wins_over_yaml_default(
+    stub_artifact_path: Path,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Regression for #588: when the YAML ``default:`` matches a user-supplied
+    provider that isn't first in the list, the documented ``model_providers[0]``
+    "first wins" behavior must not be silently overridden.
+    """
+    user_providers = [
+        ModelProvider(
+            name="first-provider",
+            endpoint="https://first.example.com/v1",
+            api_key="FIRST_API_KEY",
+        ),
+        ModelProvider(
+            name="second-provider",
+            endpoint="https://second.example.com/v1",
+            api_key="SECOND_API_KEY",
+        ),
+    ]
+
+    with patch.object(dd_mod, "get_default_provider_name", return_value="second-provider"):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            model_providers=user_providers,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+
+    assert data_designer.model_provider_registry.get_default_provider_name() == "first-provider"
+
+
+def test_init_no_user_providers_uses_yaml_default(
+    stub_artifact_path: Path,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Pin the unchanged YAML-fallback path: when the caller omits
+    ``model_providers``, DataDesigner consults both ``providers:`` and
+    ``default:`` from the YAML.
+
+    The fix in #588 only changes the user-supplied branch; this test locks the
+    YAML-fallback branch's contract so a future refactor can't silently regress
+    it.
+    """
+    yaml_providers = [
+        ModelProvider(
+            name="yaml-first",
+            endpoint="https://yaml-first.example.com/v1",
+            api_key="yaml-first-key",
+        ),
+        ModelProvider(
+            name="yaml-second",
+            endpoint="https://yaml-second.example.com/v1",
+            api_key="yaml-second-key",
+        ),
+    ]
+
+    with (
+        patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
+        patch.object(dd_mod, "get_default_provider_name", return_value="yaml-second"),
+    ):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+
+    assert data_designer.model_provider_registry.get_default_provider_name() == "yaml-second"
+
+
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
     # Test default values
-    assert data_designer._run_config.disable_early_shutdown is False
-    assert data_designer._run_config.shutdown_error_rate == 0.5
-    assert data_designer._run_config.shutdown_error_window == 10
-    assert data_designer._run_config.buffer_size == 1000
-    assert data_designer._run_config.max_conversation_restarts == 5
-    assert data_designer._run_config.max_conversation_correction_steps == 0
+    assert data_designer.run_config.disable_early_shutdown is False
+    assert data_designer.run_config.shutdown_error_rate == 0.5
+    assert data_designer.run_config.shutdown_error_window == 10
+    assert data_designer.run_config.buffer_size == 1000
+    assert data_designer.run_config.max_conversation_restarts == 5
+    assert data_designer.run_config.max_conversation_correction_steps == 0
 
     # Test setting custom values
     data_designer.set_run_config(
@@ -508,12 +601,12 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             max_conversation_correction_steps=2,
         )
     )
-    assert data_designer._run_config.disable_early_shutdown is True
-    assert data_designer._run_config.shutdown_error_rate == 1.0  # normalized when disabled
-    assert data_designer._run_config.shutdown_error_window == 25
-    assert data_designer._run_config.buffer_size == 500
-    assert data_designer._run_config.max_conversation_restarts == 7
-    assert data_designer._run_config.max_conversation_correction_steps == 2
+    assert data_designer.run_config.disable_early_shutdown is True
+    assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
+    assert data_designer.run_config.shutdown_error_window == 25
+    assert data_designer.run_config.buffer_size == 500
+    assert data_designer.run_config.max_conversation_restarts == 7
+    assert data_designer.run_config.max_conversation_correction_steps == 2
 
     # Test updating values
     data_designer.set_run_config(
@@ -526,12 +619,12 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             max_conversation_correction_steps=1,
         )
     )
-    assert data_designer._run_config.disable_early_shutdown is False
-    assert data_designer._run_config.shutdown_error_rate == 0.3
-    assert data_designer._run_config.shutdown_error_window == 5
-    assert data_designer._run_config.buffer_size == 750
-    assert data_designer._run_config.max_conversation_restarts == 9
-    assert data_designer._run_config.max_conversation_correction_steps == 1
+    assert data_designer.run_config.disable_early_shutdown is False
+    assert data_designer.run_config.shutdown_error_rate == 0.3
+    assert data_designer.run_config.shutdown_error_window == 5
+    assert data_designer.run_config.buffer_size == 750
+    assert data_designer.run_config.max_conversation_restarts == 9
+    assert data_designer.run_config.max_conversation_correction_steps == 1
 
 
 def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
@@ -545,7 +638,7 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
             shutdown_error_rate=0.7,
         )
     )
-    assert data_designer._run_config.shutdown_error_rate == 0.7
+    assert data_designer.run_config.shutdown_error_rate == 0.7
 
     # When disabled, shutdown_error_rate should be normalized to 1.0
     data_designer.set_run_config(
@@ -554,7 +647,7 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
             shutdown_error_rate=0.7,
         )
     )
-    assert data_designer._run_config.shutdown_error_rate == 1.0
+    assert data_designer.run_config.shutdown_error_rate == 1.0
 
 
 def test_run_config_rejects_invalid_buffer_size() -> None:
@@ -983,13 +1076,12 @@ def test_create_logs_secure_jinja_rendering_mode(
     stub_sampler_only_config_builder: DataDesignerConfigBuilder,
     stub_managed_assets_path: Path,
 ) -> None:
-    with patch.object(dd_mod, "get_default_provider_name", return_value="stub-model-provider"):
-        data_designer = DataDesigner(
-            artifact_path=stub_artifact_path,
-            model_providers=stub_model_providers,
-            secret_resolver=PlaintextResolver(),
-            managed_assets_path=stub_managed_assets_path,
-        )
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
     data_designer.set_run_config(RunConfig(jinja_rendering_engine=JinjaRenderingEngine.SECURE))
 
     with (
@@ -1023,13 +1115,12 @@ def test_preview_logs_native_jinja_rendering_mode(
     stub_sampler_only_config_builder: DataDesignerConfigBuilder,
     stub_managed_assets_path: Path,
 ) -> None:
-    with patch.object(dd_mod, "get_default_provider_name", return_value="stub-model-provider"):
-        data_designer = DataDesigner(
-            artifact_path=stub_artifact_path,
-            model_providers=stub_model_providers,
-            secret_resolver=PlaintextResolver(),
-            managed_assets_path=stub_managed_assets_path,
-        )
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
     data_designer.set_run_config(RunConfig(jinja_rendering_engine=JinjaRenderingEngine.NATIVE))
 
     with (
