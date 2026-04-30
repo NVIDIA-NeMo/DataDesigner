@@ -25,9 +25,20 @@ logger = logging.getLogger(__name__)
 
 # Floor for the derived sync→async bridge timeout. Defends against pathologically
 # small `inference_parameters.timeout` values; under normal operation the per-call
-# derivation in ``_AsyncBridgedModelFacade.generate`` exceeds this floor.
+# derivation in ``_compute_bridge_timeout`` exceeds this floor.
 # Module-level so tests can patch it for fast feedback.
 _BRIDGE_TIMEOUT_FLOOR_S: float = 60.0
+
+
+def _compute_bridge_timeout(request_timeout: float, max_correction_steps: int) -> float:
+    """Derive the sync→async bridge deadline for one logical generation.
+
+    A bridged call wraps ``1 + max_correction_steps`` requests against the
+    model. The 1.5x buffer absorbs HTTP connect/teardown and serialization
+    overhead. The floor (``_BRIDGE_TIMEOUT_FLOOR_S``) keeps the deadline sane
+    when ``inference_parameters.timeout`` is small or the factory default.
+    """
+    return max(_BRIDGE_TIMEOUT_FLOOR_S, (1 + max_correction_steps) * request_timeout * 1.5)
 
 
 class _AsyncBridgedModelFacade:
@@ -69,14 +80,8 @@ class _AsyncBridgedModelFacade:
 
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
 
-        # Derive bridge timeout from the model's configured per-request timeout
-        # and the call's correction-step budget. One bridged call wraps one logical
-        # generation (1 + max_correction_steps requests), and the 1.5x buffer absorbs
-        # HTTP connect/teardown and serialization overhead. Floor at
-        # ``_BRIDGE_TIMEOUT_FLOOR_S`` so a model left with the factory default still
-        # has a sane bound.
         correction_steps = int(kwargs.get("max_correction_steps", 0) or 0)
-        bridge_timeout = max(_BRIDGE_TIMEOUT_FLOOR_S, (1 + correction_steps) * facade.request_timeout * 1.5)
+        bridge_timeout = _compute_bridge_timeout(facade.request_timeout, correction_steps)
 
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)

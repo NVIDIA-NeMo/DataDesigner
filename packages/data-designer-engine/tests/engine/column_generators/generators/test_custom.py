@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import threading
 from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock, patch
@@ -21,7 +20,11 @@ if TYPE_CHECKING:
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import custom_column_generator
-from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator, _AsyncBridgedModelFacade
+from data_designer.engine.column_generators.generators.custom import (
+    CustomColumnGenerator,
+    _AsyncBridgedModelFacade,
+    _compute_bridge_timeout,
+)
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.models.clients.errors import SyncClientUnavailableError
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
@@ -635,50 +638,14 @@ def test_async_bridge_deadlock_guard_on_event_loop() -> None:
 
 
 @pytest.mark.parametrize(
-    "request_timeout,correction_steps,expected_min",
+    "request_timeout,correction_steps,expected",
     [
-        (60.0, 0, 90.0),  # 1 * 60 * 1.5 = 90, above the 60s floor
+        (60.0, 0, 90.0),  # 1 * 60 * 1.5 = 90, above floor
         (60.0, 2, 270.0),  # 3 * 60 * 1.5 = 270
-        (10.0, 0, 60.0),  # 1 * 10 * 1.5 = 15, clamped up to 60s floor
+        (10.0, 0, 60.0),  # 1 * 10 * 1.5 = 15, clamped to 60s floor
     ],
+    ids=["default-no-corrections", "default-with-corrections", "small-clamped-to-floor"],
 )
-def test_async_bridge_timeout_derives_from_request_timeout(
-    request_timeout: float, correction_steps: int, expected_min: float
-) -> None:
-    """Bridge timeout = max(floor, (1 + max_correction_steps) * request_timeout * 1.5)."""
-    facade = Mock()
-    facade.generate.side_effect = SyncClientUnavailableError("sync unavailable")
-    facade.request_timeout = request_timeout
-
-    captured: dict[str, float] = {}
-
-    async def fake_agenerate(*args: Any, **kwargs: Any) -> tuple:
-        return ("ok", [], {})
-
-    facade.agenerate = fake_agenerate
-    proxy = _AsyncBridgedModelFacade(facade)
-
-    engine_loop = asyncio.new_event_loop()
-    engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
-    engine_thread.start()
-
-    real_result = concurrent.futures.Future.result
-
-    def capture_timeout(self: concurrent.futures.Future, timeout: float | None = None) -> Any:
-        captured["timeout"] = timeout
-        return real_result(self, timeout=timeout)
-
-    try:
-        with (
-            patch(
-                "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
-                return_value=engine_loop,
-            ),
-            patch.object(concurrent.futures.Future, "result", capture_timeout),
-        ):
-            proxy.generate("hello", max_correction_steps=correction_steps)
-    finally:
-        engine_loop.call_soon_threadsafe(engine_loop.stop)
-        engine_thread.join(timeout=5)
-
-    assert captured["timeout"] == expected_min
+def test_compute_bridge_timeout(request_timeout: float, correction_steps: int, expected: float) -> None:
+    """Bridge deadline = max(floor, (1 + max_correction_steps) * request_timeout * 1.5)."""
+    assert _compute_bridge_timeout(request_timeout, correction_steps) == expected
