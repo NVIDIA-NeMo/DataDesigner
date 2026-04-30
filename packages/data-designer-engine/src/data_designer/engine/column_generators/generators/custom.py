@@ -69,7 +69,11 @@ class _AsyncBridgedModelFacade:
             return future.result(timeout=SYNC_BRIDGE_TIMEOUT)
         except concurrent.futures.TimeoutError as exc:
             future.cancel()
-            logger.warning("Async model bridge timed out after %ss; coroutine cancelled", SYNC_BRIDGE_TIMEOUT)
+            # Demoted to debug: the raised ModelTimeoutError already surfaces
+            # the timeout at the scheduler with full context, and the throttled
+            # degraded-provider WARN is the user-facing signal under sustained
+            # bridge timeouts. Per-event WARN was noise on top of those.
+            logger.debug("Async model bridge timed out after %ss; coroutine cancelled", SYNC_BRIDGE_TIMEOUT)
             # Raise as ModelTimeoutError so the scheduler classifies it retryable.
             raise ModelTimeoutError(f"model.generate() bridge timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
 

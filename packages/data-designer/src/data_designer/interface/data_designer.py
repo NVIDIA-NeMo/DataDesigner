@@ -238,8 +238,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             # Distinguish "early shutdown produced zero records" from generic load failures
             # so callers can react programmatically (e.g. retry on a different alias) instead
             # of parsing a wrapped FileNotFoundError. The scheduler's structured signal lives
-            # on the builder for the duration of the run.
-            if builder.early_shutdown:
+            # on the builder for the duration of the run. We also require the run to have
+            # produced zero records: a partial-salvage run that fails to load for unrelated
+            # reasons (corrupt parquet, dropped-columns mismatch, filesystem hiccup) should
+            # surface the original cause, not a misleading "zero records" diagnosis.
+            if builder.early_shutdown and builder.actual_num_records == 0:
                 raise DataDesignerEarlyShutdownError(
                     "🛑 Generation produced zero records — early shutdown was triggered. "
                     "The non-retryable error rate exceeded the configured threshold; check the "

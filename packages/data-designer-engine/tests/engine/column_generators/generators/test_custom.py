@@ -356,15 +356,15 @@ def test_function_error_logs_warning_cell_by_cell(caplog: pytest.LogCaptureFixtu
     assert "something broke" in caplog.text
 
 
-@pytest.mark.parametrize(
-    "exc_factory",
-    [
-        pytest.param(lambda: ModelRateLimitError("429"), id="rate_limit"),
-        pytest.param(lambda: ModelTimeoutError("timeout"), id="timeout"),
-        pytest.param(lambda: ModelInternalServerError("503"), id="internal_server"),
-        pytest.param(lambda: ModelAPIConnectionError("conn reset"), id="api_connection"),
-    ],
-)
+RETRYABLE_EXCEPTION_FACTORIES = [
+    pytest.param(lambda: ModelRateLimitError("429"), id="rate_limit"),
+    pytest.param(lambda: ModelTimeoutError("timeout"), id="timeout"),
+    pytest.param(lambda: ModelInternalServerError("503"), id="internal_server"),
+    pytest.param(lambda: ModelAPIConnectionError("conn reset"), id="api_connection"),
+]
+
+
+@pytest.mark.parametrize("exc_factory", RETRYABLE_EXCEPTION_FACTORIES)
 def test_retryable_model_errors_pass_through_sync_wrap(exc_factory: Any) -> None:
     """Retryable model errors raised inside a sync generator must NOT be wrapped.
 
@@ -381,15 +381,7 @@ def test_retryable_model_errors_pass_through_sync_wrap(exc_factory: Any) -> None
         generator.generate({"input": 1})
 
 
-@pytest.mark.parametrize(
-    "exc_factory",
-    [
-        pytest.param(lambda: ModelRateLimitError("429"), id="rate_limit"),
-        pytest.param(lambda: ModelTimeoutError("timeout"), id="timeout"),
-        pytest.param(lambda: ModelInternalServerError("503"), id="internal_server"),
-        pytest.param(lambda: ModelAPIConnectionError("conn reset"), id="api_connection"),
-    ],
-)
+@pytest.mark.parametrize("exc_factory", RETRYABLE_EXCEPTION_FACTORIES)
 @pytest.mark.asyncio
 async def test_retryable_model_errors_pass_through_async_wrap(exc_factory: Any) -> None:
     """Retryable errors raised inside an async user generator must propagate unchanged."""

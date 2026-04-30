@@ -312,8 +312,13 @@ class ThrottleManager:
             state.in_flight = max(0, state.in_flight - 1)
             # Non-rate-limit failure breaks the 429 cascade: a sequence like
             # 429 → 500 → 429 should treat the second 429 as the start of a
-            # new cascade, not the third in a row.
-            state.consecutive_429s = 0
+            # new cascade. But only after the prior burst has fully drained
+            # (in_flight == 0) - otherwise mixed responses from a single
+            # in-flight wave (429 → 500 → 429 with concurrent slots) would
+            # double-reduce the limit even though the provider hasn't
+            # recovered between the two 429s.
+            if state.in_flight == 0:
+                state.consecutive_429s = 0
 
     # -------------------------------------------------------------------
     # Sync / async wrappers

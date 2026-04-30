@@ -45,6 +45,7 @@ LLM_WAIT_POOL_MULTIPLIER: int = 2
 # Degraded-provider WARN: emit at most one warning per interval when the
 # rolling fraction of retryable errors exceeds the threshold. Distinct from
 # the early-shutdown gate (which fires on non-retryable errors).
+# TODO: thread these through RunConfig so users can tune them per run.
 DEGRADED_WARN_RATE: float = 0.5
 DEGRADED_WARN_WINDOW: int = 20
 DEGRADED_WARN_INTERVAL_S: float = 60.0
@@ -298,13 +299,9 @@ class AsyncTaskScheduler:
             # Launch admission as a background task so it interleaves with dispatch.
             admission_task = asyncio.create_task(self._admit_row_groups())
 
-            dispatch_error: BaseException | None = None
             try:
                 # Main dispatch loop
                 await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
-            except BaseException as exc:
-                dispatch_error = exc
-                raise
             finally:
                 # Always cancel admission + drain in-flight workers, regardless
                 # of how the dispatch loop exited (normal, early shutdown,
@@ -320,10 +317,12 @@ class AsyncTaskScheduler:
                 if self._early_shutdown and self._rg_states:
                     self._finalize_after_shutdown(all_columns)
 
+            # Reached only on the clean-exit path; an exception in the
+            # dispatch loop or the finally block propagates and skips this.
             if self._reporter:
                 self._reporter.log_final()
 
-            if self._rg_states and dispatch_error is None:
+            if self._rg_states:
                 incomplete = list(self._rg_states)
                 logger.error(
                     f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
@@ -339,7 +338,7 @@ class AsyncTaskScheduler:
         """Core dispatch loop extracted from ``run()``."""
         while True:
             if self._early_shutdown:
-                logger.warning("Early shutdown triggered - error rate exceeded threshold")
+                logger.warning("Early shutdown triggered - non-retryable error rate exceeded threshold")
                 if self._deferred:
                     await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
                 self._checkpoint_completed_row_groups(all_columns)
@@ -575,6 +574,13 @@ class AsyncTaskScheduler:
         is true by construction over the surviving rows, so delegating to
         ``_checkpoint_completed_row_groups`` writes survivors and frees
         zero-survivor groups via the buffer manager's existing logic.
+
+        Note on processors: ``_checkpoint_completed_row_groups`` calls
+        ``on_before_checkpoint`` (post-batch) but never ``on_seeds_complete``
+        (pre-batch). If the gate fires before seeds completed for a row
+        group, that row group's pre-batch processor never ran. Survivors
+        are checkpointed without it. This is the existing contract for
+        partial-row-group salvage.
         """
         for rg_id in list(self._rg_states.keys()):
             rg_size = self._rg_states[rg_id].size
@@ -821,7 +827,12 @@ class AsyncTaskScheduler:
                     self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
 
             self._check_error_rate(success=True)
-            self._record_retryable_outcome(retryable=False)
+            # The degraded-provider WARN is provider-scoped: only feed the
+            # window from LLM-bound tasks so a healthy non-model task mix
+            # (samplers, expressions, non-LLM customs) doesn't dilute the
+            # rate and silence the WARN under genuine provider stress.
+            if is_llm:
+                self._record_retryable_outcome(retryable=False)
             if self._reporter:
                 if cell_skipped:
                     self._reporter.record_skipped(task.column)
@@ -838,7 +849,8 @@ class AsyncTaskScheduler:
             # and would otherwise trip the gate even when salvage could recover.
             if not retryable:
                 self._check_error_rate(success=False)
-            self._record_retryable_outcome(retryable=retryable)
+            if is_llm:
+                self._record_retryable_outcome(retryable=retryable)
             if not retryable and self._reporter:
                 self._reporter.record_failure(task.column)
             if self._trace and trace:
