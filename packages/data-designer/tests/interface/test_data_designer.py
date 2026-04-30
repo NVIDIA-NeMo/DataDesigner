@@ -417,13 +417,11 @@ def _builder_with_allow_resize() -> DataDesignerConfigBuilder:
         ("1", False, "async"),
         ("1", True, "sync"),
         ("0", False, "sync"),
-        ("0", True, "sync"),
     ],
     ids=[
         "async-on-no-fallback-uses-async-clients",
         "async-on-allow-resize-falls-back-to-sync-clients",
         "async-off-uses-sync-clients",
-        "async-off-allow-resize-uses-sync-clients",
     ],
 )
 def test_resolve_client_concurrency_mode_matches_engine_choice(

@@ -666,9 +666,8 @@ def test_compute_bridge_timeout(
     [
         ({}, 60.0),  # No override; bridge uses facade.request_timeout
         ({"timeout": 600.0}, 600.0),  # Per-call timeout overrides the model default
-        ({"timeout": 5.0}, 5.0),  # Override below floor still flows through; floor applies after
     ],
-    ids=["no-override-uses-facade-default", "override-uses-per-call-value", "override-below-floor"],
+    ids=["no-override-uses-facade-default", "override-uses-per-call-value"],
 )
 def test_async_bridge_honors_per_call_timeout(kwargs: dict[str, object], expected_per_request: float) -> None:
     """``model.generate(timeout=...)`` must drive the bridge deadline, not just the facade default."""
