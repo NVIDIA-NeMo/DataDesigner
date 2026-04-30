@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -35,6 +36,14 @@ class ProviderRepository(ConfigRepository[ModelProviderRegistry]):
 
         try:
             config_dict = load_config_file(self.config_file)
+            if config_dict.get("default") is not None:
+                warnings.warn(
+                    f"The 'default:' key in {self.config_file} is deprecated and will be "
+                    "removed in a future release. Remove it and refer to providers by name "
+                    "in your ModelConfig entries. See issue #589.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
             return ModelProviderRegistry.model_validate(config_dict)
         except Exception:
             return None

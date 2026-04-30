@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -142,19 +143,28 @@ def test_get_default_providers_path_does_not_exist():
 
 
 def test_get_default_provider_name_with_default_key(tmp_path: Path):
+    """When the YAML carries a non-None ``default:``, the function must
+    return that value AND emit a ``DeprecationWarning`` (regression for #589).
+    """
     providers_file_path = tmp_path / "providers.yaml"
     providers_file_path.write_text(
         json.dumps(dict(providers=[p.model_dump() for p in get_builtin_model_providers()], default="nvidia"))
     )
     with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=providers_file_path):
-        assert get_default_provider_name() == "nvidia"
+        with pytest.warns(DeprecationWarning, match="'default:' key.*is deprecated"):
+            assert get_default_provider_name() == "nvidia"
 
 
 def test_get_default_provider_name_without_default_key(tmp_path: Path):
+    """Pin the post-deprecation happy path: a YAML without ``default:`` must
+    return ``None`` and NOT emit a ``DeprecationWarning``.
+    """
     providers_file_path = tmp_path / "providers.yaml"
     providers_file_path.write_text(json.dumps({"providers": [p.model_dump() for p in get_builtin_model_providers()]}))
     with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=providers_file_path):
-        assert get_default_provider_name() is None
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            assert get_default_provider_name() is None
 
 
 def test_get_default_provider_name_path_does_not_exist():

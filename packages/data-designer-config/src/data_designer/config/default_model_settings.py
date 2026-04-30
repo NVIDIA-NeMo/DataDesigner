@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -95,7 +96,22 @@ def get_default_providers() -> list[ModelProvider]:
 
 
 def get_default_provider_name() -> str | None:
-    return _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
+    """Return the YAML's ``default:`` provider name, if set.
+
+    Deprecated: this function and the underlying YAML key are deprecated and
+    will be removed in a future release. Specify ``provider=`` explicitly on
+    each ``ModelConfig`` instead. See issue #589.
+    """
+    default = _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
+    if default is not None:
+        warnings.warn(
+            f"The 'default:' key in {MODEL_PROVIDERS_FILE_PATH} is deprecated and will "
+            "be removed in a future release. Remove it and specify provider= explicitly "
+            "on each ModelConfig instead. See issue #589.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    return default
 
 
 def resolve_seed_default_model_settings() -> None:

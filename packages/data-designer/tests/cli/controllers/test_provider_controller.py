@@ -208,6 +208,21 @@ def test_run_changes_default_provider(
     assert controller_with_providers.service.get_default() == "test-provider-2"
 
 
+@patch("data_designer.cli.controllers.provider_controller.select_with_arrows")
+def test_handle_change_default_emits_deprecation_warning(
+    mock_select: MagicMock,
+    controller_with_providers: ProviderController,
+) -> None:
+    """Regression for #589: entering the 'Change default provider' workflow
+    must emit a ``DeprecationWarning`` so users see the migration nudge before
+    setting another value that's also slated for removal.
+    """
+    mock_select.side_effect = ["change_default", "test-provider-2"]
+
+    with pytest.warns(DeprecationWarning, match="'Change default provider' workflow is deprecated"):
+        controller_with_providers.run()
+
+
 @patch("data_designer.cli.controllers.provider_controller.confirm_action", return_value=False)
 @patch("data_designer.cli.controllers.provider_controller.select_with_arrows")
 def test_run_respects_delete_cancellation(

@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
+
 import pytest
 
 from data_designer.config.mcp import LocalStdioMCPProvider
@@ -90,6 +92,49 @@ def test_resolve_model_provider_registry_empty_error() -> None:
     """Test resolve_model_provider_registry raises error for empty providers."""
     with pytest.raises(NoModelProvidersError, match="At least one model provider"):
         resolve_model_provider_registry([])
+
+
+def test_explicit_default_emits_deprecation_warning(stub_foo_provider: ModelProvider) -> None:
+    """Regression for #589: passing ``default=`` explicitly to ``ModelProviderRegistry``
+    must emit a ``DeprecationWarning``. The registry-level default field is on its
+    way out; users should specify ``provider=`` per ``ModelConfig`` instead.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelProviderRegistry.default is deprecated"):
+        ModelProviderRegistry(providers=[stub_foo_provider], default="foo")
+
+
+def test_no_default_does_not_emit_deprecation_warning(stub_foo_provider: ModelProvider) -> None:
+    """Pin the post-deprecation happy path: omitting ``default=`` (single-provider
+    case) must NOT emit a warning, since callers haven't opted into the deprecated
+    field.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        ModelProviderRegistry(providers=[stub_foo_provider])
+
+
+def test_resolve_single_provider_quiet_under_deprecation(stub_foo_provider: ModelProvider) -> None:
+    """Pin the q3 tweak: ``resolve_model_provider_registry`` skips ``default=``
+    in the single-provider case so common construction paths stay quiet under
+    the #589 deprecation warning.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        registry = resolve_model_provider_registry([stub_foo_provider])
+
+    assert registry.get_default_provider_name() == "foo"
+
+
+def test_resolve_multi_provider_emits_deprecation_warning(
+    stub_foo_provider: ModelProvider, stub_bar_provider: ModelProvider
+) -> None:
+    """Multi-provider registries currently require ``default``, so
+    ``resolve_model_provider_registry`` keeps passing it. That construction
+    path is the deprecated one users should migrate off; the warning fires
+    accordingly.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelProviderRegistry.default is deprecated"):
+        resolve_model_provider_registry([stub_foo_provider, stub_bar_provider])
 
 
 def test_mcp_provider_registry_empty() -> None:

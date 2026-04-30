@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
@@ -503,7 +504,10 @@ class ModelConfig(ConfigBase):
         model: Model identifier (e.g., from build.nvidia.com or other providers).
         inference_parameters: Inference parameters for the model (temperature, top_p, max_tokens, etc.).
             The generation_type is determined by the type of inference_parameters.
-        provider: Optional model provider name if using custom providers.
+        provider: Name of the model provider. Required in a future release. Leaving
+            ``provider`` unset (or ``None``) currently routes through the registry's
+            implicit default and is **deprecated**; specify ``provider=`` explicitly.
+            See issue #589.
         skip_health_check: Whether to skip the health check for this model. Defaults to False.
     """
 
@@ -534,6 +538,17 @@ class ModelConfig(ConfigBase):
             else:
                 return ChatCompletionInferenceParams(**value)
         return value
+
+    @model_validator(mode="after")
+    def _warn_on_implicit_provider(self) -> Self:
+        if self.provider is None:
+            msg = (
+                f"ModelConfig.provider=None is deprecated and will be required in a future release. "
+                f"Specify provider= explicitly on ModelConfig(alias={self.alias!r}, ...). "
+                "See issue #589."
+            )
+            warnings.warn(msg, DeprecationWarning, stacklevel=2)
+        return self
 
 
 class ModelProvider(ConfigBase):

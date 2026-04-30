@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import re
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -288,6 +289,15 @@ class ProviderController:
 
     def _handle_change_default(self) -> None:
         """Handle changing the default provider."""
+        deprecation_msg = (
+            "The 'Change default provider' workflow is deprecated and will be removed "
+            "in a future release. Specify provider= explicitly on each ModelConfig "
+            "instead of relying on a registry-level default. See issue #589."
+        )
+        print_warning(deprecation_msg)
+        warnings.warn(deprecation_msg, DeprecationWarning, stacklevel=2)
+        console.print()
+
         providers = self.service.list_all()
         current_default = self.service.get_default()
 

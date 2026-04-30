@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from functools import cached_property
 
 from pydantic import BaseModel, field_validator, model_validator
@@ -16,6 +17,9 @@ from data_designer.engine.errors import NoModelProvidersError, UnknownProviderEr
 class ModelProviderRegistry(BaseModel):
     providers: list[ModelProvider]
     default: str | None = None
+    """Deprecated: registry-level default provider. Will be removed in a future
+    release; specify ``provider=`` explicitly on each ``ModelConfig`` instead.
+    See issue #589."""
 
     @field_validator("providers", mode="after")
     @classmethod
@@ -50,6 +54,22 @@ class ModelProviderRegistry(BaseModel):
             raise ValueError(f"Specified default {self.default!r} not found in providers list")
         return self
 
+    @model_validator(mode="after")
+    def _warn_on_explicit_default(self) -> Self:
+        # Fires only when the caller actually passed ``default=`` (not when it's
+        # left at the field default of None). ``resolve_model_provider_registry``
+        # avoids passing ``default=`` in the single-provider case so common
+        # construction paths stay quiet. See issue #589.
+        if "default" in self.model_fields_set:
+            warnings.warn(
+                "ModelProviderRegistry.default is deprecated and will be removed in a "
+                "future release. Specify provider= explicitly on each ModelConfig "
+                "instead of relying on a registry-level default. See issue #589.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return self
+
     def get_default_provider_name(self) -> str:
         return self.default or self.providers[0].name
 
@@ -72,6 +92,15 @@ def resolve_model_provider_registry(
 ) -> ModelProviderRegistry:
     if len(model_providers) == 0:
         raise NoModelProvidersError("At least one model provider must be defined")
+    # In the single-provider case, the registry's ``get_default_provider_name``
+    # falls back to ``providers[0].name`` when ``default`` is unset, so we can
+    # avoid passing ``default=`` and keep the common construction path quiet
+    # under the #589 deprecation warning. The multi-provider case still
+    # requires ``default`` (per ``check_implicit_default``); callers who supply
+    # multiple providers with no explicit default fall back to first-wins,
+    # matching the contract pinned in #588.
+    if len(model_providers) == 1 and default_provider_name is None:
+        return ModelProviderRegistry(providers=model_providers)
     return ModelProviderRegistry(
         providers=model_providers,
         default=default_provider_name or model_providers[0].name,

@@ -4,6 +4,7 @@
 import base64
 import json
 import tempfile
+import warnings
 from collections import Counter
 from pathlib import Path
 
@@ -413,8 +414,8 @@ def test_generation_parameters_max_tokens_validation():
 
 def test_load_model_configs():
     stub_model_configs = [
-        ModelConfig(alias="test", model="test"),
-        ModelConfig(alias="test2", model="test2"),
+        ModelConfig(alias="test", model="test", provider="test-provider"),
+        ModelConfig(alias="test2", model="test2", provider="test-provider"),
     ]
     stub_model_configs_dict_list = [mc.model_dump(mode="json") for mc in stub_model_configs]
     assert load_model_configs([]) == []
@@ -454,27 +455,52 @@ def test_load_model_configs():
 
 def test_model_config_construction():
     # test default construction
-    model_config = ModelConfig(alias="test", model="test")
+    model_config = ModelConfig(alias="test", model="test", provider="test-provider")
     assert model_config.inference_parameters == ChatCompletionInferenceParams()
     assert model_config.generation_type == GenerationType.CHAT_COMPLETION
 
     # test construction with completion inference parameters
     completion_params = ChatCompletionInferenceParams(temperature=0.5, top_p=0.5, max_tokens=100)
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=completion_params)
+    model_config = ModelConfig(
+        alias="test", model="test", provider="test-provider", inference_parameters=completion_params
+    )
     assert model_config.inference_parameters == completion_params
     assert model_config.generation_type == GenerationType.CHAT_COMPLETION
 
     # test construction with embedding inference parameters
     embedding_params = EmbeddingInferenceParams(dimensions=100)
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=embedding_params)
+    model_config = ModelConfig(
+        alias="test", model="test", provider="test-provider", inference_parameters=embedding_params
+    )
     assert model_config.inference_parameters == embedding_params
     assert model_config.generation_type == GenerationType.EMBEDDING
 
     # test construction with image inference parameters
     image_params = ImageInferenceParams(extra_body={"size": "1024x1024", "quality": "hd"})
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=image_params)
+    model_config = ModelConfig(alias="test", model="test", provider="test-provider", inference_parameters=image_params)
     assert model_config.inference_parameters == image_params
     assert model_config.generation_type == GenerationType.IMAGE
+
+
+def test_model_config_provider_none_emits_deprecation_warning():
+    """Regression for #589: omitting ``provider=`` (or passing ``provider=None``)
+    on a ``ModelConfig`` is deprecated; construction must emit a
+    ``DeprecationWarning`` pointing users at the explicit-provider migration.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig(alias="legacy", model="legacy-model")
+
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig(alias="legacy", model="legacy-model", provider=None)
+
+
+def test_model_config_with_provider_does_not_warn():
+    """Pin the post-deprecation happy path: specifying ``provider=`` must not
+    emit any deprecation warning.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        ModelConfig(alias="modern", model="modern-model", provider="some-provider")
 
 
 def test_model_config_generation_type_from_dict():
@@ -483,6 +509,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "test",
+            "provider": "test-provider",
             "inference_parameters": {"generation_type": "embedding", "dimensions": 100},
         }
     )
@@ -493,6 +520,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "test",
+            "provider": "test-provider",
             "inference_parameters": {"generation_type": "chat-completion", "temperature": 0.5},
         }
     )
@@ -503,6 +531,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "image-model",
+            "provider": "test-provider",
             "inference_parameters": {
                 "generation_type": "image",
                 "extra_body": {"size": "1024x1024", "quality": "hd"},
