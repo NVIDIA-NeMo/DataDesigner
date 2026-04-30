@@ -30,8 +30,10 @@ from data_designer.config.fingerprint import (
 )
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
+from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.sampler_constraints import InequalityOperator, ScalarInequalityConstraint
 from data_designer.config.sampler_params import CategorySamplerParams, UniformSamplerParams
-from data_designer.config.seed import SeedConfig
+from data_designer.config.seed import IndexRange, SamplingStrategy, SeedConfig
 from data_designer.config.seed_source import HuggingFaceSeedSource
 
 
@@ -174,6 +176,80 @@ def test_changing_skip_changes_hash() -> None:
         skipped,
     ]
     assert _hash(_make_minimal_config(columns=cols_no_skip)) != _hash(_make_minimal_config(columns=cols_skip))
+
+
+def test_changing_constraint_changes_hash() -> None:
+    a = _make_minimal_config()
+    b = _make_minimal_config(
+        constraints=[ScalarInequalityConstraint(target_column="x", operator=InequalityOperator.LT, rhs=0.5)],
+    )
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_top_level_processor_changes_hash() -> None:
+    a = _make_minimal_config()
+    b = _make_minimal_config(processors=[DropColumnsProcessorConfig(name="drop", column_names=["x"])])
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_extra_body_changes_hash() -> None:
+    a = _make_minimal_config()
+    b = _make_minimal_config(
+        model_configs=[
+            ModelConfig(
+                alias="m",
+                model="some-model",
+                inference_parameters=ChatCompletionInferenceParams(
+                    temperature=0.5, top_p=0.9, max_tokens=128, extra_body={"frequency_penalty": 0.5}
+                ),
+            )
+        ],
+    )
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_provider_changes_hash() -> None:
+    a = _make_minimal_config()
+    b = _make_minimal_config(
+        model_configs=[
+            ModelConfig(
+                alias="m",
+                model="some-model",
+                provider="custom-provider",
+                inference_parameters=ChatCompletionInferenceParams(temperature=0.5, top_p=0.9, max_tokens=128),
+            )
+        ],
+    )
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_sampling_strategy_changes_hash() -> None:
+    a = _make_minimal_config(
+        seed_config=SeedConfig(
+            source=HuggingFaceSeedSource(path="datasets/x/y/data.csv"),
+            sampling_strategy=SamplingStrategy.ORDERED,
+        ),
+    )
+    b = _make_minimal_config(
+        seed_config=SeedConfig(
+            source=HuggingFaceSeedSource(path="datasets/x/y/data.csv"),
+            sampling_strategy=SamplingStrategy.SHUFFLE,
+        ),
+    )
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_selection_strategy_changes_hash() -> None:
+    a = _make_minimal_config(
+        seed_config=SeedConfig(source=HuggingFaceSeedSource(path="datasets/x/y/data.csv")),
+    )
+    b = _make_minimal_config(
+        seed_config=SeedConfig(
+            source=HuggingFaceSeedSource(path="datasets/x/y/data.csv"),
+            selection_strategy=IndexRange(start=0, end=99),
+        ),
+    )
+    assert _hash(a) != _hash(b)
 
 
 # ---------------------------------------------------------------------------

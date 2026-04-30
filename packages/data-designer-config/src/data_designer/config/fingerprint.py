@@ -95,6 +95,16 @@ def fingerprint_config(
     The fingerprint identifies the workflow definition; runtime knobs that
     don't change the final dataset are out of scope.
 
+    Limitations:
+      * **L1 collisions on ``__name__``**: custom columns are identified at L1
+        by the generator's bare ``__name__``, not its qualified module path.
+        Two unrelated generators in different modules with the same name and
+        identical ``generator_params`` will produce the same L1 hash. Pass
+        ``custom_column_source=True`` to disambiguate via source.
+      * **L2 hashes raw source**: comment-only and formatting changes to a
+        generator's source will change the L2 hash even though they don't
+        affect behavior.
+
     Args:
         config: The workflow config to fingerprint.
         custom_column_source: If True, also hash ``inspect.getsource()`` of
@@ -107,7 +117,8 @@ def fingerprint_config(
     payload: dict[str, Any] = {"config": _normalize_config_dict(config.to_dict())}
     if custom_column_source:
         payload["custom_column_sources"] = _collect_custom_column_sources(config)
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    # No `default=` fallback: a non-JSON-native value would silently break determinism (e.g., repr with memory addresses).
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return {
         "config_hash": f"{CONFIG_HASH_ALGO}:{digest}",
