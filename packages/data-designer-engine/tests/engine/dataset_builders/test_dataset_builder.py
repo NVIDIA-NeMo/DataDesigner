@@ -615,6 +615,8 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
 
     class StubScheduler:
         traces: list[object] = []
+        early_shutdown: bool = False
+        partial_row_groups: tuple[int, ...] = ()
 
         async def run(self) -> None:
             return None
@@ -630,6 +632,7 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
     scheduler = StubScheduler()
     buffer_manager = Mock()
     buffer_manager.has_row_group.return_value = False
+    buffer_manager.actual_num_records = 0
 
     monkeypatch.setattr(builder, "_prepare_async_run", Mock(return_value=(scheduler, buffer_manager)))
     monkeypatch.setattr(builder_mod, "ensure_async_engine_loop", lambda: object(), raising=False)
@@ -645,6 +648,26 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
     assert result.empty
     buffer_manager.get_dataframe.assert_not_called()
     buffer_manager.free_row_group.assert_not_called()
+
+
+def test_reset_run_state_clears_per_run_signals(stub_resource_provider, stub_test_config_builder) -> None:
+    """``_reset_run_state`` must clear all per-run state so reused builders don't leak."""
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    # Simulate prior-run state.
+    builder._early_shutdown = True
+    builder._partial_row_groups = (0, 1)
+    builder._actual_num_records = 42
+    builder._task_traces = ["trace"]  # type: ignore[list-item]
+
+    builder._reset_run_state()
+
+    assert builder.early_shutdown is False
+    assert builder.partial_row_groups == ()
+    assert builder.actual_num_records == -1
+    assert builder.task_traces == []
 
 
 # Processor tests

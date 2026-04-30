@@ -61,6 +61,7 @@ from data_designer.engine.secret_resolver import (
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.interface.errors import (
+    DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
     DataDesignerProfilingError,
 )
@@ -234,6 +235,20 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         try:
             dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
         except Exception as e:
+            # Distinguish "early shutdown produced zero records" from generic load failures
+            # so callers can react programmatically (e.g. retry on a different alias) instead
+            # of parsing a wrapped FileNotFoundError. The scheduler's structured signal lives
+            # on the builder for the duration of the run. We also require the run to have
+            # produced zero records: a partial-salvage run that fails to load for unrelated
+            # reasons (corrupt parquet, dropped-columns mismatch, filesystem hiccup) should
+            # surface the original cause, not a misleading "zero records" diagnosis.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Generation produced zero records — early shutdown was triggered. "
+                    "The non-retryable error rate exceeded the configured threshold; check the "
+                    "warnings above (and any 'Provider showing degraded performance' logs) for "
+                    "the contributing failures."
+                ) from e
             raise DataDesignerGenerationError(
                 f"🛑 Failed to load generated dataset — all records may have been dropped "
                 f"due to generation failures. Check the warnings above for details. Original error: {e}"
@@ -243,6 +258,15 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         # practice load_dataset_with_dropped_columns() would raise before returning a
         # zero-row DataFrame. This guard protects against future changes to that contract.
         if len(dataset_for_profiler) == 0:
+            # Mirror the load-failure guard above: only raise the typed error when
+            # the run actually produced zero records. A partial-salvage run that
+            # somehow returns an empty DF for unrelated reasons should surface the
+            # generic error.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Dataset is empty — early shutdown was triggered before any records "
+                    "could complete. Check the warnings above for the contributing failures."
+                )
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation failures. "
                 "Check the warnings above for details on which columns failed."
@@ -288,6 +312,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Raises:
             DataDesignerGenerationError: If an error occurs during preview dataset generation.
+            DataDesignerEarlyShutdownError: If preview terminated via the early-shutdown gate
+                with zero records produced. Subclass of ``DataDesignerGenerationError``.
             DataDesignerProfilingError: If an error occurs during preview dataset profiling.
         """
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
@@ -304,6 +330,14 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}") from e
 
         if len(processed_dataset) == 0:
+            # Mirror the create() path: distinguish "early shutdown produced zero
+            # records" from generic empty-dataset failures so callers can react
+            # programmatically.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Preview is empty — early shutdown was triggered before any records "
+                    "could complete. Check the warnings above for the contributing failures."
+                )
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
                 "Check the warnings above for details on which columns failed."

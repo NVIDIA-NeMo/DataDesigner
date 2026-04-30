@@ -113,6 +113,16 @@ class DatasetBuilder:
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
         self._use_async: bool = DATA_DESIGNER_ASYNC_ENGINE
+        # Structured signal: set by _build_async if the scheduler hit early shutdown.
+        # Stays at defaults for sync-engine and successful async runs. Reset at
+        # the start of each public run path so reused builder instances don't
+        # leak state across runs.
+        self._early_shutdown: bool = False
+        self._partial_row_groups: tuple[int, ...] = ()
+        # Number of records actually written by the most recent async run.
+        # ``-1`` means "no async run has executed yet" so callers can
+        # distinguish "0 records produced" from "never ran".
+        self._actual_num_records: int = -1
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -134,6 +144,21 @@ class DatasetBuilder:
     @property
     def task_traces(self) -> list[TaskTrace]:
         return self._task_traces
+
+    @property
+    def early_shutdown(self) -> bool:
+        """True if the most recent async run terminated via the early-shutdown gate."""
+        return self._early_shutdown
+
+    @property
+    def partial_row_groups(self) -> tuple[int, ...]:
+        """Row group ids that were partially salvaged after early shutdown (most recent run)."""
+        return self._partial_row_groups
+
+    @property
+    def actual_num_records(self) -> int:
+        """Records actually written by the most recent async run (-1 if no run yet)."""
+        return self._actual_num_records
 
     def set_processor_runner(self, processors: list[Processor]) -> None:
         """Replace the processor runner with a new one using the given processors."""
@@ -179,6 +204,7 @@ class DatasetBuilder:
         Returns:
             Path to the generated dataset directory.
         """
+        self._reset_run_state()
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
         self._write_builder_config()
@@ -215,6 +241,7 @@ class DatasetBuilder:
         return self.artifact_storage.final_dataset_path
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
+        self._reset_run_state()
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
 
@@ -239,6 +266,13 @@ class DatasetBuilder:
 
         return dataset
 
+    def _reset_run_state(self) -> None:
+        """Clear per-run signals so reused builder instances don't leak state across runs."""
+        self._early_shutdown = False
+        self._partial_row_groups = ()
+        self._actual_num_records = -1
+        self._task_traces = []
+
     def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview")
@@ -256,9 +290,13 @@ class DatasetBuilder:
 
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        future.result()
-
-        self._task_traces = scheduler.traces
+        try:
+            future.result()
+        finally:
+            self._task_traces = scheduler.traces
+            self._early_shutdown = scheduler.early_shutdown
+            self._partial_row_groups = scheduler.partial_row_groups
+            self._actual_num_records = buffer_manager.actual_num_records
 
         if not buffer_manager.has_row_group(0):
             return lazy.pd.DataFrame()
@@ -320,12 +358,19 @@ class DatasetBuilder:
         group_id = uuid.uuid4().hex
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
 
-        # Run on background event loop
+        # Run on background event loop. Capture scheduler state in `finally`
+        # so the structured signal is preserved even if `scheduler.run()`
+        # raises during the salvage path - otherwise callers see a generic
+        # error and lose the early-shutdown context.
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        future.result()
-
-        self._task_traces = scheduler.traces
+        try:
+            future.result()
+        finally:
+            self._task_traces = scheduler.traces
+            self._early_shutdown = scheduler.early_shutdown
+            self._partial_row_groups = scheduler.partial_row_groups
+            self._actual_num_records = buffer_manager.actual_num_records
 
         # Emit telemetry
         try:
@@ -338,13 +383,21 @@ class DatasetBuilder:
         buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
 
         # Surface partial completion
-        actual = buffer_manager.actual_num_records
+        actual = self._actual_num_records
         if actual < num_records:
             pct = actual / num_records * 100 if num_records > 0 else 0
-            logger.warning(
-                f"⚠️ Generated {actual} of {num_records} requested records ({pct:.0f}%). "
-                "The dataset may be incomplete due to errors or early shutdown."
-            )
+            base = f"⚠️ Generated {actual} of {num_records} requested records ({pct:.0f}%). "
+            if scheduler.early_shutdown:
+                partial = scheduler.partial_row_groups
+                detail = (
+                    f"Early shutdown was triggered (non-retryable error rate exceeded threshold); "
+                    f"{len(partial)} row group(s) salvaged with partial rows."
+                    if partial
+                    else "Early shutdown was triggered (non-retryable error rate exceeded threshold)."
+                )
+                logger.warning(base + detail)
+            else:
+                logger.warning(base + "The dataset may be incomplete due to dropped rows.")
 
     def _prepare_async_run(
         self,

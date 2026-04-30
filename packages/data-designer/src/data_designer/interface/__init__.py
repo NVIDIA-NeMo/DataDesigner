@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from data_designer.interface.data_designer import DataDesigner  # noqa: F401
     from data_designer.interface.errors import (  # noqa: F401
+        DataDesignerEarlyShutdownError,
         DataDesignerGenerationError,
         DataDesignerProfilingError,
     )
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataDesigner": ("data_designer.interface.data_designer", "DataDesigner"),
+    "DataDesignerEarlyShutdownError": ("data_designer.interface.errors", "DataDesignerEarlyShutdownError"),
     "DataDesignerGenerationError": ("data_designer.interface.errors", "DataDesignerGenerationError"),
     "DataDesignerProfilingError": ("data_designer.interface.errors", "DataDesignerProfilingError"),
     "DatasetCreationResults": ("data_designer.interface.results", "DatasetCreationResults"),
