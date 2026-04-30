@@ -640,53 +640,6 @@ def test_preview_raises_error_when_profiler_fails(
         assert isinstance(exc_info.value.__cause__, ValueError)
 
 
-def test_create_raises_generation_error_when_dataset_is_empty(
-    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
-):
-    """When all records are dropped during generation, create should raise
-    DataDesignerGenerationError with a clear message instead of a misleading profiler error.
-    """
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
-    )
-
-    with patch(
-        "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
-        return_value=lazy.pd.DataFrame(),
-    ):
-        with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
-            data_designer.create(stub_sampler_only_config_builder, num_records=1)
-
-
-def test_create_raises_generation_error_when_load_dataset_fails(
-    stub_artifact_path: Path,
-    stub_model_providers: list[ModelProvider],
-    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
-    stub_managed_assets_path: Path,
-) -> None:
-    """When no parquet was written (e.g. all records dropped), load_dataset_with_dropped_columns
-    raises an exception. create() should surface this as DataDesignerGenerationError, not
-    DataDesignerProfilingError.
-    """
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
-    )
-
-    with patch(
-        "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
-        side_effect=FileNotFoundError("No parquet files found"),
-    ):
-        with pytest.raises(DataDesignerGenerationError, match="Failed to load generated dataset") as exc_info:
-            data_designer.create(stub_sampler_only_config_builder, num_records=1)
-        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
-
-
 def _patch_builder_state(*, early_shutdown: bool, actual_num_records: int = 0) -> contextlib.ExitStack:
     """Patch DatasetBuilder.early_shutdown / actual_num_records as PropertyMocks."""
     stack = contextlib.ExitStack()
@@ -720,77 +673,121 @@ def _make_data_designer(
     )
 
 
-def test_create_raises_early_shutdown_error_when_load_fails_after_shutdown(
-    stub_artifact_path: Path,
-    stub_model_providers: list[ModelProvider],
-    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
-    stub_managed_assets_path: Path,
-) -> None:
-    """When the scheduler hit early shutdown and zero records were produced, surface the
-    typed DataDesignerEarlyShutdownError instead of the generic load-failure wrap."""
-    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
-
-    with (
-        patch(
-            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
-            side_effect=FileNotFoundError("No parquet files found"),
+# Matrix of error-dispatch behavior in create() when the load step doesn't return a
+# usable dataset. Two side-effect modes (load raises FileNotFoundError vs. load
+# returns an empty DF) crossed with three builder states (no shutdown, shutdown
+# with zero records, shutdown with partial salvage). Each case asserts exactly
+# which error type create() surfaces and the message it carries.
+@pytest.mark.parametrize(
+    "load_side_effect,early_shutdown,actual_num_records,expected_exc,match,expect_filenotfound_cause",
+    [
+        # Load raises FileNotFoundError → "Failed to load generated dataset" path.
+        pytest.param(
+            "raises",
+            False,
+            -1,
+            DataDesignerGenerationError,
+            "Failed to load generated dataset",
+            True,
+            id="load_fails_no_shutdown",
         ),
-        _patch_builder_state(early_shutdown=True, actual_num_records=0),
-    ):
-        with pytest.raises(DataDesignerEarlyShutdownError, match="early shutdown was triggered") as exc_info:
-            data_designer.create(stub_sampler_only_config_builder, num_records=1)
-        # Subclass of DataDesignerGenerationError so existing handlers still match.
-        assert isinstance(exc_info.value, DataDesignerGenerationError)
-        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
-
-
-def test_create_raises_generic_error_when_partial_salvage_then_load_fails(
+        pytest.param(
+            "raises",
+            True,
+            0,
+            DataDesignerEarlyShutdownError,
+            "early shutdown was triggered",
+            True,
+            id="load_fails_shutdown_zero_records",
+        ),
+        pytest.param(
+            "raises",
+            True,
+            7,
+            DataDesignerGenerationError,
+            "Failed to load generated dataset",
+            True,
+            id="load_fails_shutdown_partial_salvage",
+        ),
+        # Load returns empty DF → "Dataset is empty" defensive guard.
+        pytest.param(
+            "empty_df",
+            False,
+            -1,
+            DataDesignerGenerationError,
+            "Dataset is empty",
+            False,
+            id="empty_df_no_shutdown",
+        ),
+        pytest.param(
+            "empty_df",
+            True,
+            0,
+            DataDesignerEarlyShutdownError,
+            "early shutdown was triggered",
+            False,
+            id="empty_df_shutdown_zero_records",
+        ),
+        pytest.param(
+            "empty_df",
+            True,
+            7,
+            DataDesignerGenerationError,
+            "Dataset is empty",
+            False,
+            id="empty_df_shutdown_partial_salvage",
+        ),
+    ],
+)
+def test_create_error_dispatch_on_load_outcome(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_sampler_only_config_builder: DataDesignerConfigBuilder,
     stub_managed_assets_path: Path,
+    load_side_effect: str,
+    early_shutdown: bool,
+    actual_num_records: int,
+    expected_exc: type[Exception],
+    match: str,
+    expect_filenotfound_cause: bool,
 ) -> None:
-    """When early shutdown salvaged some records but load fails for unrelated reasons,
-    surface the generic DataDesignerGenerationError - NOT the typed early-shutdown one.
+    """create() picks the right error type based on (load outcome × builder state).
 
-    Regression: an unrelated load failure (corrupt parquet, schema drift, disk issue)
-    after a partial-salvage run used to be misdiagnosed as 'zero records produced'.
+    The typed ``DataDesignerEarlyShutdownError`` only fires when the gate tripped
+    AND zero records were produced. Partial-salvage runs that fail to load (or
+    return empty for unrelated reasons) fall through to the generic error so the
+    real cause isn't masked.
     """
     data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
 
-    with (
-        patch(
+    if load_side_effect == "raises":
+        load_patch = patch(
             "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
-            side_effect=FileNotFoundError("Disk gone sideways"),
-        ),
-        _patch_builder_state(early_shutdown=True, actual_num_records=7),
-    ):
-        with pytest.raises(DataDesignerGenerationError, match="Failed to load generated dataset") as exc_info:
-            data_designer.create(stub_sampler_only_config_builder, num_records=10)
-        # Must NOT be the typed early-shutdown subclass.
-        assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
-        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
-
-
-def test_create_raises_early_shutdown_error_on_empty_dataframe_after_shutdown(
-    stub_artifact_path: Path,
-    stub_model_providers: list[ModelProvider],
-    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
-    stub_managed_assets_path: Path,
-) -> None:
-    """Defensive guard path: when load_dataset_with_dropped_columns returns an empty DF
-    AND the scheduler hit early shutdown with zero records, the typed error wins."""
-    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
-
-    with (
-        patch(
+            side_effect=FileNotFoundError("No parquet files found"),
+        )
+    else:
+        load_patch = patch(
             "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
             return_value=lazy.pd.DataFrame(),
-        ),
-        _patch_builder_state(early_shutdown=True, actual_num_records=0),
-    ):
-        with pytest.raises(DataDesignerEarlyShutdownError, match="early shutdown was triggered"):
-            data_designer.create(stub_sampler_only_config_builder, num_records=1)
+        )
+    state_patch = (
+        _patch_builder_state(early_shutdown=early_shutdown, actual_num_records=actual_num_records)
+        if early_shutdown
+        else contextlib.nullcontext()
+    )
+
+    with load_patch, state_patch:
+        with pytest.raises(expected_exc, match=match) as exc_info:
+            data_designer.create(stub_sampler_only_config_builder, num_records=10)
+
+    # Subclass relationship is the contract callers depend on - existing handlers
+    # for DataDesignerGenerationError must still catch the typed subclass.
+    if expected_exc is DataDesignerEarlyShutdownError:
+        assert isinstance(exc_info.value, DataDesignerGenerationError)
+    else:
+        assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
+    if expect_filenotfound_cause:
+        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
 
 def test_preview_raises_generation_error_when_dataset_is_empty(
