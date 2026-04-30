@@ -33,6 +33,7 @@ from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.seed_reader import DataFrameSeedReader
+from data_designer.engine.storage.artifact_storage import ResumeMode
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -1452,8 +1453,8 @@ def _write_metadata(dataset_dir: _Path, **fields) -> None:
 
 
 def _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, *, buffer_size: int = 2):
-    """Return a DatasetBuilder whose ArtifactStorage has resume=True."""
-    storage = _ArtifactStorage(artifact_path=tmp_path, resume=True)
+    """Return a DatasetBuilder whose ArtifactStorage has resume=ResumeMode.ALWAYS."""
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.ALWAYS)
     stub_resource_provider.artifact_storage = storage
     stub_resource_provider.run_config = RunConfig(buffer_size=buffer_size)
     return DatasetBuilder(
@@ -1480,25 +1481,49 @@ def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub
             with patch.object(builder, "_run_batch"):
                 with patch.object(builder.batch_manager, "finish"):
                     # resume=False is set internally; build dispatches to the normal (non-resume) path
-                    builder.build(num_records=4, resume=True)
+                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     assert any("interrupted before any batch completed" in record.message for record in caplog.records)
 
 
-def test_build_resume_raises_on_num_records_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
-    """resume=True raises when num_records differs from the original run."""
+def test_build_resume_raises_when_num_records_below_actual(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """resume=ALWAYS raises when num_records is less than what has already been generated."""
     dataset_dir = tmp_path / "dataset"
     _write_metadata(
         dataset_dir,
         target_num_records=10,
+        buffer_size=2,
+        num_completed_batches=3,
+        actual_num_records=6,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="num_records=4 is less than the 6 records already generated"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_allows_larger_num_records(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """resume=ALWAYS succeeds when num_records > original target (extending the dataset)."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
         buffer_size=2,
         num_completed_batches=2,
         actual_num_records=4,
     )
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
-    with pytest.raises(DatasetGenerationError, match="num_records=4 does not match"):
-        builder.build(num_records=4, resume=True)
+    with caplog.at_level(logging.WARNING):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            # 6 > 4 already generated → not already complete, should start generating
+            # Here we just verify it does NOT raise on the num_records check
+            with patch.object(builder, "_build_with_resume", return_value=True):
+                builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
 
 def test_build_resume_raises_on_buffer_size_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
@@ -1514,7 +1539,7 @@ def test_build_resume_raises_on_buffer_size_mismatch(stub_resource_provider, stu
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=3)
     with pytest.raises(DatasetGenerationError, match="buffer_size=3 does not match"):
-        builder.build(num_records=4, resume=True)
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
 
 def test_build_resume_logs_warning_when_already_complete(
@@ -1533,7 +1558,7 @@ def test_build_resume_logs_warning_when_already_complete(
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with caplog.at_level(logging.WARNING):
-        builder.build(num_records=4, resume=True)
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     assert any("already complete" in record.message for record in caplog.records)
 
@@ -1553,7 +1578,7 @@ def test_build_resume_already_complete_does_not_run_after_generation_processors(
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
-        builder.build(num_records=4, resume=True)
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     mock_after.assert_not_called()
 
@@ -1628,7 +1653,7 @@ def test_build_async_resume_logs_warning_when_already_complete(
     with caplog.at_level(logging.WARNING):
         with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
             with patch.object(builder, "_run_model_health_check_if_needed"):
-                builder.build(num_records=4, resume=True)
+                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     assert any("already complete" in record.message for record in caplog.records)
 
@@ -1652,11 +1677,11 @@ def test_build_async_resume_starts_fresh_without_metadata(
         with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
             with patch.object(builder, "_run_model_health_check_if_needed"):
                 with patch.object(builder, "_build_async", return_value=True) as mock_async:
-                    builder.build(num_records=4, resume=True)
+                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
-    # _build_async is called with resume=False because the no-metadata path resets the flag
+    # _build_async is called with resume=NEVER because the no-metadata path resets the mode
     _, kwargs = mock_async.call_args
-    assert kwargs.get("resume") is False
+    assert kwargs.get("resume") == ResumeMode.NEVER
     assert any("interrupted before any batch completed" in record.message for record in caplog.records)
 
 
@@ -1673,7 +1698,7 @@ def test_build_async_resume_already_complete_does_not_run_after_generation_proce
     with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder, "_run_model_health_check_if_needed"):
             with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
-                builder.build(num_records=4, resume=True)
+                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     mock_after.assert_not_called()
 
@@ -1699,7 +1724,7 @@ def test_find_completed_row_group_ids_used_for_initial_total_batches(
     with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder, "_run_model_health_check_if_needed"):
             with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
-                builder.build(num_records=4, resume=True)
+                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     # Already complete based on filesystem count (2 files ≥ 2 row groups) — no generation needed
     mock_after.assert_not_called()
@@ -1749,8 +1774,48 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
                     with patch.object(builder, "_run_model_health_check_if_needed"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                            builder.build(num_records=6, resume=True)
+                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # Filesystem says 2 groups done (IDs 0+1) → 2+2 = 4 records, not stale metadata value 2
     assert captured["initial_actual_num_records"] == 4
     assert captured["initial_total_num_batches"] == 2
+
+
+def test_build_async_resume_skip_row_groups_contains_completed_ids(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """skip_row_groups passed to _prepare_async_run contains exactly the completed row group IDs.
+
+    Verifies the set-based skip mechanism so the scheduler never re-generates a row group
+    that already has a parquet file on disk.
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    # 6 records, buffer_size=2 → 3 row groups total; row groups 0 and 2 already on disk
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 2])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["skip_row_groups"] = kwargs.get("skip_row_groups", frozenset())
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    assert captured["skip_row_groups"] == frozenset({0, 2})

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import json
 import logging
 import os
 import time
@@ -54,7 +55,7 @@ from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.storage.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
+from data_designer.engine.storage.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage, ResumeMode
 from data_designer.engine.storage.media_storage import StorageMode
 
 if TYPE_CHECKING:
@@ -205,7 +206,7 @@ class DatasetBuilder:
         num_records: int,
         on_batch_complete: Callable[[Path], None] | None = None,
         save_multimedia_to_disk: bool = True,
-        resume: bool = False,
+        resume: ResumeMode = ResumeMode.NEVER,
     ) -> Path:
         """Build the dataset.
 
@@ -215,10 +216,18 @@ class DatasetBuilder:
             save_multimedia_to_disk: Whether to save generated multimedia (images, audio, video) to disk.
                 If False, multimedia is stored directly in the DataFrame (e.g., images as base64).
                 Default is True.
-            resume: If True, resume generation from the last completed batch (sync engine) or
-                row group (async engine) found in the existing artifact directory. The run parameters
-                (num_records, buffer_size) must match those of the original run. Any in-flight
-                partial results from the interrupted run are discarded.
+            resume: Controls how interrupted runs are handled.
+
+                - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
+                - ``ResumeMode.ALWAYS``: resume from the last completed batch (sync) or row group
+                  (async) found in the existing artifact directory. Raises if no prior progress
+                  exists or if the run parameters (buffer_size) are incompatible. ``num_records``
+                  may be equal to or greater than the number already generated.
+                - ``ResumeMode.IF_POSSIBLE``: like ``ALWAYS`` when the current config fingerprint
+                  matches the stored config; otherwise starts a fresh run without raising an error.
+
+                In all resume modes, in-flight partial results from the interrupted run are
+                discarded before generation continues.
 
         Returns:
             Path to the generated dataset directory.
@@ -227,6 +236,17 @@ class DatasetBuilder:
 
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
+
+        # For IF_POSSIBLE: resolve to ALWAYS or NEVER before touching the artifact directory.
+        if resume == ResumeMode.IF_POSSIBLE:
+            if not self._check_resume_config_compatibility():
+                logger.info(
+                    "▶️ Config has changed since the last run — starting a fresh generation (resume=IF_POSSIBLE)."
+                )
+                resume = ResumeMode.NEVER
+            else:
+                resume = ResumeMode.ALWAYS
+
         self._write_builder_config()
 
         # Set media storage mode based on parameters
@@ -238,7 +258,7 @@ class DatasetBuilder:
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
-        if resume and not self.artifact_storage.metadata_file_path.exists():
+        if resume == ResumeMode.ALWAYS and not self.artifact_storage.metadata_file_path.exists():
             # No metadata.json means the previous run was interrupted before any batch (sync) or
             # row group (async) completed.  Nothing to resume — discard any leftover partial
             # results and start fresh.
@@ -247,13 +267,13 @@ class DatasetBuilder:
                 "completed. Starting generation from the beginning."
             )
             self.artifact_storage.clear_partial_results()
-            resume = False
+            resume = ResumeMode.NEVER
 
         generated = True
         self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
         if self._use_async:
             generated = self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
-        elif resume:
+        elif resume == ResumeMode.ALWAYS:
             generated = self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
         else:
             group_id = uuid.uuid4().hex
@@ -278,23 +298,27 @@ class DatasetBuilder:
     def _load_resume_state(self, num_records: int, buffer_size: int) -> _ResumeState:
         """Read and validate resume state from an existing metadata.json.
 
+        ``num_records`` must be >= the number of records already generated (you may extend
+        the dataset, but cannot shrink it below what has been written). ``buffer_size`` must
+        exactly match the original run because it determines row-group boundaries.
+
         Raises:
             DatasetGenerationError: If metadata is missing or incompatible with the current run parameters.
         """
         try:
             metadata = self.artifact_storage.read_metadata()
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             raise DatasetGenerationError(
                 "🛑 Cannot resume: metadata.json not found in the existing dataset directory. "
-                "Run without resume=True to start a new generation."
-            )
+                "Run without resume=ResumeMode.ALWAYS to start a new generation."
+            ) from exc
 
-        target = metadata.get("target_num_records")
-        if target != num_records:
+        actual_num_records = metadata.get("actual_num_records", 0)
+        if num_records < actual_num_records:
             raise DatasetGenerationError(
-                f"🛑 Cannot resume: num_records={num_records} does not match the original run's "
-                f"target_num_records={target}. Use the same num_records as the interrupted run, "
-                "or start a new run without resume=True."
+                f"🛑 Cannot resume: num_records={num_records} is less than the {actual_num_records} "
+                "records already generated. Use num_records >= actual_num_records, "
+                "or start a new run without resume=ResumeMode.ALWAYS."
             )
 
         meta_buffer_size = metadata.get("buffer_size")
@@ -302,12 +326,12 @@ class DatasetBuilder:
             raise DatasetGenerationError(
                 f"🛑 Cannot resume: buffer_size={buffer_size} does not match the original run's "
                 f"buffer_size={meta_buffer_size}. Use the same buffer_size as the interrupted run, "
-                "or start a new run without resume=True."
+                "or start a new run without resume=ResumeMode.ALWAYS."
             )
 
         return _ResumeState(
             num_completed_batches=metadata["num_completed_batches"],
-            actual_num_records=metadata["actual_num_records"],
+            actual_num_records=actual_num_records,
             buffer_size=buffer_size,
         )
 
@@ -462,6 +486,29 @@ class DatasetBuilder:
                 continue
         return ids
 
+    def _check_resume_config_compatibility(self) -> bool:
+        """Compare the current config fingerprint against the stored builder_config.json.
+
+        Returns True when the configs are compatible (same data-relevant fingerprint) or when
+        the stored config cannot be read (a warning is logged in that case so the corruption
+        is visible). Returns False when the fingerprints differ.
+        """
+        config_path = self.artifact_storage.base_dataset_path / SDG_CONFIG_FILENAME
+        if not config_path.exists():
+            return True
+        try:
+            stored_data = json.loads(config_path.read_text())
+            stored_config = BuilderConfig.model_validate(stored_data)
+            current_fp = self._data_designer_config.fingerprint()["config_hash"]
+            stored_fp = stored_config.data_designer.fingerprint()["config_hash"]
+            return current_fp == stored_fp
+        except Exception:
+            logger.warning(
+                "⚠️ Could not read stored config at %s for compatibility check — assuming compatible.",
+                config_path,
+            )
+            return True
+
     def _build_async(
         self,
         generators: list[ColumnGenerator],
@@ -469,7 +516,7 @@ class DatasetBuilder:
         buffer_size: int,
         on_batch_complete: Callable[[Path], None] | None = None,
         *,
-        resume: bool = False,
+        resume: ResumeMode = ResumeMode.NEVER,
     ) -> bool:
         """Async task-queue builder path - dispatches tasks based on dependency readiness.
 
@@ -486,7 +533,7 @@ class DatasetBuilder:
         initial_actual_num_records = 0
         initial_total_num_batches = 0
 
-        if resume:
+        if resume == ResumeMode.ALWAYS:
             self._load_resume_state(num_records, buffer_size)
             completed_ids = self._find_completed_row_group_ids()
             skip_row_groups = frozenset(completed_ids)

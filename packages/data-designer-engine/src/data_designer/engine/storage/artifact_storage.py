@@ -38,6 +38,12 @@ class BatchStage(StrEnum):
     PROCESSORS_OUTPUTS = "processors_outputs_path"
 
 
+class ResumeMode(StrEnum):
+    NEVER = "never"
+    ALWAYS = "always"
+    IF_POSSIBLE = "if_possible"
+
+
 class ArtifactStorage(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -47,7 +53,7 @@ class ArtifactStorage(BaseModel):
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
-    resume: bool = False
+    resume: ResumeMode = ResumeMode.NEVER
     _media_storage: MediaStorage = PrivateAttr(default=None)
 
     @property
@@ -68,7 +74,7 @@ class ArtifactStorage(BaseModel):
     def resolved_dataset_name(self) -> str:
         dataset_path = self.artifact_path / self.dataset_name
         if dataset_path.exists() and len(list(dataset_path.iterdir())) > 0:
-            if self.resume:
+            if self.resume in (ResumeMode.ALWAYS, ResumeMode.IF_POSSIBLE):
                 return self.dataset_name
             new_dataset_name = f"{self.dataset_name}_{datetime.now().strftime('%m-%d-%Y_%H%M%S')}"
             logger.info(
@@ -76,10 +82,10 @@ class ArtifactStorage(BaseModel):
                 f"\n\t\t     will be saved to {str(self.artifact_path / new_dataset_name)!r} instead."
             )
             return new_dataset_name
-        if self.resume:
+        if self.resume == ResumeMode.ALWAYS:
             raise ArtifactStorageError(
                 f"🛑 Cannot resume: no existing dataset found at {str(dataset_path)!r}. "
-                "Run without resume=True to start a new generation."
+                "Run without resume=ResumeMode.ALWAYS to start a new generation."
             )
         return self.dataset_name
 

@@ -61,7 +61,7 @@ from data_designer.engine.secret_resolver import (
     PlaintextResolver,
     SecretResolver,
 )
-from data_designer.engine.storage.artifact_storage import ArtifactStorage
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
 from data_designer.interface.errors import (
     DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
@@ -202,7 +202,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         num_records: int = DEFAULT_NUM_RECORDS,
         dataset_name: str = "dataset",
-        resume: bool = False,
+        resume: ResumeMode = ResumeMode.NEVER,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -220,12 +220,19 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
                 with the name "awesome_dataset_2025-01-01_12-00-00".
-            resume: If True, resume generation from the last completed batch (sync engine)
-                or row group (async engine) found in the existing dataset directory. If no
-                progress was checkpointed yet (i.e. the run was interrupted before the first
-                batch/row-group completed), generation restarts from the beginning. The run
-                parameters (num_records, buffer_size) must match those of the original run.
-                Any in-flight partial results from the interrupted run are discarded.
+            resume: Controls how interrupted runs are handled.
+
+                - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
+                - ``ResumeMode.ALWAYS``: resume from the last completed batch (sync) or row group
+                  (async) found in the existing dataset directory. ``num_records`` may be equal to
+                  or greater than the number already generated (you can extend the dataset). The
+                  ``buffer_size`` must match the original run. If no prior progress exists or the
+                  run is incompatible, an error is raised.
+                - ``ResumeMode.IF_POSSIBLE``: like ``ALWAYS`` when the current config fingerprint
+                  matches the stored config; otherwise starts a fresh run without raising an error.
+
+                In all resume modes, in-flight partial results from the interrupted run are
+                discarded before generation continues.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -553,7 +560,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def _create_resource_provider(
-        self, dataset_name: str, config_builder: DataDesignerConfigBuilder, *, resume: bool = False
+        self, dataset_name: str, config_builder: DataDesignerConfigBuilder, *, resume: ResumeMode = ResumeMode.NEVER
     ) -> ResourceProvider:
         ArtifactStorage.mkdir_if_needed(self._artifact_path)
 
