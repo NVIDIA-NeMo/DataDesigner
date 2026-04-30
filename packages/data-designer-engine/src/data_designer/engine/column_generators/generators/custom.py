@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
-from data_designer.engine.column_generators.generators.base import SYNC_BRIDGE_TIMEOUT, ColumnGenerator
+from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
 from data_designer.logging import LOG_INDENT
@@ -22,6 +22,12 @@ if TYPE_CHECKING:
     import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# Floor for the derived sync→async bridge timeout. Defends against pathologically
+# small `inference_parameters.timeout` values; under normal operation the per-call
+# derivation in ``_AsyncBridgedModelFacade.generate`` exceeds this floor.
+# Module-level so tests can patch it for fast feedback.
+_BRIDGE_TIMEOUT_FLOOR_S: float = 60.0
 
 
 class _AsyncBridgedModelFacade:
@@ -63,19 +69,28 @@ class _AsyncBridgedModelFacade:
 
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
 
+        # Derive bridge timeout from the model's configured per-request timeout
+        # and the call's correction-step budget. One bridged call wraps one logical
+        # generation (1 + max_correction_steps requests), and the 1.5x buffer absorbs
+        # HTTP connect/teardown and serialization overhead. Floor at
+        # ``_BRIDGE_TIMEOUT_FLOOR_S`` so a model left with the factory default still
+        # has a sane bound.
+        correction_steps = int(kwargs.get("max_correction_steps", 0) or 0)
+        bridge_timeout = max(_BRIDGE_TIMEOUT_FLOOR_S, (1 + correction_steps) * facade.request_timeout * 1.5)
+
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
         try:
-            return future.result(timeout=SYNC_BRIDGE_TIMEOUT)
+            return future.result(timeout=bridge_timeout)
         except concurrent.futures.TimeoutError as exc:
             future.cancel()
             # Demoted to debug: the raised ModelTimeoutError already surfaces
             # the timeout at the scheduler with full context, and the throttled
             # degraded-provider WARN is the user-facing signal under sustained
             # bridge timeouts. Per-event WARN was noise on top of those.
-            logger.debug("Async model bridge timed out after %ss; coroutine cancelled", SYNC_BRIDGE_TIMEOUT)
+            logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
             # Raise as ModelTimeoutError so the scheduler classifies it retryable.
-            raise ModelTimeoutError(f"model.generate() bridge timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
+            raise ModelTimeoutError(f"model.generate() bridge timed out after {bridge_timeout:.0f}s") from exc
 
     def __getattr__(self, name: str) -> Any:
         return getattr(object.__getattribute__(self, "_facade"), name)

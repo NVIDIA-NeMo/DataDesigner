@@ -266,6 +266,14 @@ Pipelines with independent columns or multi-model setups will see the largest ga
 
 The dependencies were always per-cell. Now the engine schedules them that way.
 
+---
+
+## **Update**
+
+The async engine is now the default execution path. Set `DATA_DESIGNER_ASYNC_ENGINE=0` to opt back into the legacy sync engine for one transitional release. See the [migration guide](../../migration-async-default.md) for the configuration knobs and behaviors worth knowing about.
+
+---
+
 Key Resources:
 
 1. [NeMo Data Designer on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner)

@@ -6,6 +6,7 @@ nav:
   - Getting Started:
       - Welcome: index.md
       - Contributing: CONTRIBUTING.md
+      - Migrating to the async default: migration-async-default.md
   - Concepts:
       - Columns: concepts/columns.md
       - Seed Datasets: concepts/seed-datasets.md

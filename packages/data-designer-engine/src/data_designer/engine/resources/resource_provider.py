@@ -136,7 +136,7 @@ def create_resource_provider(
 
     client_concurrency_mode = (
         ClientConcurrencyMode.ASYNC
-        if os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
+        if os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
         else ClientConcurrencyMode.SYNC
     )
 

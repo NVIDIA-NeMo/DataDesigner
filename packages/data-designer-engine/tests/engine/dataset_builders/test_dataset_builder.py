@@ -38,6 +38,19 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+@pytest.fixture(autouse=True)
+def _force_sync_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin tests in this file to the legacy sync engine.
+
+    These tests use Mock-based stub resource providers that don't satisfy the
+    contracts expected by the async task-queue scheduler (e.g. the registry's
+    ``get_aggregate_max_parallel_requests()`` returns a Mock instead of an int).
+    They cover sync-engine behavior; the async path has dedicated coverage in
+    ``test_async_builder_integration.py`` and ``test_async_scheduler.py``.
+    """
+    monkeypatch.setattr(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", False)
+
+
 @pytest.fixture
 def stub_test_column_configs():
     return [
@@ -617,6 +630,7 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
         traces: list[object] = []
         early_shutdown: bool = False
         partial_row_groups: tuple[int, ...] = ()
+        first_non_retryable_error: Exception | None = None
 
         async def run(self) -> None:
             return None

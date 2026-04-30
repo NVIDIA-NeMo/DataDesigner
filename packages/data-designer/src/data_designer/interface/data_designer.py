@@ -249,6 +249,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     "warnings above (and any 'Provider showing degraded performance' logs) for "
                     "the contributing failures."
                 ) from e
+            # Surface the original task error when the run produced 0 records due to a
+            # deterministic non-retryable failure (e.g. bad seed source). Without this,
+            # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 f"🛑 Failed to load generated dataset — all records may have been dropped "
                 f"due to generation failures. Check the warnings above for details. Original error: {e}"
@@ -267,6 +273,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     "🛑 Dataset is empty — early shutdown was triggered before any records "
                     "could complete. Check the warnings above for the contributing failures."
                 )
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation failures. "
                 "Check the warnings above for details on which columns failed."
@@ -338,6 +347,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     "🛑 Preview is empty — early shutdown was triggered before any records "
                     "could complete. Check the warnings above for the contributing failures."
                 )
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
                 "Check the warnings above for details on which columns failed."
