@@ -30,15 +30,22 @@ logger = logging.getLogger(__name__)
 _BRIDGE_TIMEOUT_FLOOR_S: float = 60.0
 
 
-def _compute_bridge_timeout(request_timeout: float, max_correction_steps: int) -> float:
+def _compute_bridge_timeout(
+    request_timeout: float,
+    max_correction_steps: int,
+    max_conversation_restarts: int = 0,
+) -> float:
     """Derive the sync→async bridge deadline for one logical generation.
 
-    A bridged call wraps ``1 + max_correction_steps`` requests against the
-    model. The 1.5x buffer absorbs HTTP connect/teardown and serialization
-    overhead. The floor (``_BRIDGE_TIMEOUT_FLOOR_S``) keeps the deadline sane
-    when ``inference_parameters.timeout`` is small or the factory default.
+    One bridged call can fire up to ``(1 + max_conversation_restarts)`` full
+    attempts, and each attempt can fire up to ``(1 + max_correction_steps)``
+    requests against the model. The 1.5x buffer absorbs HTTP connect/teardown
+    and serialization overhead. The floor (``_BRIDGE_TIMEOUT_FLOOR_S``) keeps
+    the deadline sane when ``inference_parameters.timeout`` is small or the
+    factory default.
     """
-    return max(_BRIDGE_TIMEOUT_FLOOR_S, (1 + max_correction_steps) * request_timeout * 1.5)
+    attempts = (1 + max_conversation_restarts) * (1 + max_correction_steps)
+    return max(_BRIDGE_TIMEOUT_FLOOR_S, attempts * request_timeout * 1.5)
 
 
 class _AsyncBridgedModelFacade:
@@ -80,8 +87,16 @@ class _AsyncBridgedModelFacade:
 
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
 
+        # Honor a per-call ``timeout=`` override (passed straight through to the
+        # HTTP layer); fall back to the model's configured ``inference_parameters.timeout``
+        # via ``facade.request_timeout`` when no override is set.
+        per_request_timeout_override = kwargs.get("timeout")
+        per_request_timeout = (
+            float(per_request_timeout_override) if per_request_timeout_override is not None else facade.request_timeout
+        )
         correction_steps = int(kwargs.get("max_correction_steps", 0) or 0)
-        bridge_timeout = _compute_bridge_timeout(facade.request_timeout, correction_steps)
+        conversation_restarts = int(kwargs.get("max_conversation_restarts", 0) or 0)
+        bridge_timeout = _compute_bridge_timeout(per_request_timeout, correction_steps, conversation_restarts)
 
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)

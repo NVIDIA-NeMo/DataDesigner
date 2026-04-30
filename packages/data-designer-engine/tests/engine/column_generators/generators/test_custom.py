@@ -638,14 +638,76 @@ def test_async_bridge_deadlock_guard_on_event_loop() -> None:
 
 
 @pytest.mark.parametrize(
-    "request_timeout,correction_steps,expected",
+    "request_timeout,correction_steps,conversation_restarts,expected",
     [
-        (60.0, 0, 90.0),  # 1 * 60 * 1.5 = 90, above floor
-        (60.0, 2, 270.0),  # 3 * 60 * 1.5 = 270
-        (10.0, 0, 60.0),  # 1 * 10 * 1.5 = 15, clamped to 60s floor
+        (60.0, 0, 0, 90.0),  # 1 * 1 * 60 * 1.5 = 90, above floor
+        (60.0, 2, 0, 270.0),  # 3 * 1 * 60 * 1.5 = 270
+        (60.0, 0, 2, 270.0),  # 1 * 3 * 60 * 1.5 = 270 — restarts contribute too
+        (60.0, 1, 1, 360.0),  # 2 * 2 * 60 * 1.5 = 360 — corrections × restarts compound
+        (10.0, 0, 0, 60.0),  # 1 * 1 * 10 * 1.5 = 15, clamped to 60s floor
     ],
-    ids=["default-no-corrections", "default-with-corrections", "small-clamped-to-floor"],
+    ids=[
+        "no-corrections-no-restarts",
+        "corrections-only",
+        "restarts-only",
+        "corrections-and-restarts-compound",
+        "small-clamped-to-floor",
+    ],
 )
-def test_compute_bridge_timeout(request_timeout: float, correction_steps: int, expected: float) -> None:
-    """Bridge deadline = max(floor, (1 + max_correction_steps) * request_timeout * 1.5)."""
-    assert _compute_bridge_timeout(request_timeout, correction_steps) == expected
+def test_compute_bridge_timeout(
+    request_timeout: float, correction_steps: int, conversation_restarts: int, expected: float
+) -> None:
+    """Bridge deadline = max(floor, (1+restarts) * (1+corrections) * request_timeout * 1.5)."""
+    assert _compute_bridge_timeout(request_timeout, correction_steps, conversation_restarts) == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected_per_request",
+    [
+        ({}, 60.0),  # No override; bridge uses facade.request_timeout
+        ({"timeout": 600.0}, 600.0),  # Per-call timeout overrides the model default
+        ({"timeout": 5.0}, 5.0),  # Override below floor still flows through; floor applies after
+    ],
+    ids=["no-override-uses-facade-default", "override-uses-per-call-value", "override-below-floor"],
+)
+def test_async_bridge_honors_per_call_timeout(kwargs: dict[str, object], expected_per_request: float) -> None:
+    """``model.generate(timeout=...)`` must drive the bridge deadline, not just the facade default."""
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError("sync unavailable")
+    facade.request_timeout = 60.0  # would be used if no override
+
+    captured: dict[str, float] = {}
+
+    async def fake_agenerate(*_args: object, **_kwargs: object) -> tuple:
+        return ("ok", [], {})
+
+    facade.agenerate = fake_agenerate
+    proxy = _AsyncBridgedModelFacade(facade)
+
+    real_compute = _compute_bridge_timeout
+
+    def capture_compute(per_request: float, *args: object, **inner: object) -> float:
+        captured["per_request"] = per_request
+        return real_compute(per_request, *args, **inner)
+
+    engine_loop = asyncio.new_event_loop()
+    engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
+    engine_thread.start()
+
+    try:
+        with (
+            patch(
+                "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+                return_value=engine_loop,
+            ),
+            patch(
+                "data_designer.engine.column_generators.generators.custom._compute_bridge_timeout",
+                capture_compute,
+            ),
+        ):
+            proxy.generate("hello", **kwargs)
+    finally:
+        engine_loop.call_soon_threadsafe(engine_loop.stop)
+        engine_thread.join(timeout=5)
+
+    assert captured["per_request"] == expected_per_request

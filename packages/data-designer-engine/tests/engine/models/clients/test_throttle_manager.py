@@ -505,36 +505,58 @@ async def test_acquire_async_raises_timeout_when_at_capacity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_acquire_async_default_no_deadline_waits_for_release() -> None:
-    """With timeout=None (the default), acquire blocks until a permit is released.
+@pytest.mark.parametrize(
+    "timeout,expect_raise",
+    [(0.0, True), (None, False)],
+    ids=["zero-timeout-raises", "none-timeout-waits"],
+)
+async def test_acquire_async_timeout_branches(timeout: float | None, expect_raise: bool) -> None:
+    """``timeout=0.0`` raises immediately; ``timeout=None`` waits for the permit.
 
-    Previously the default 300s deadline could fire on slow endpoints with deep
-    queues even though the throttle accountant was working correctly (#551).
-    Now queue waits scale with provider speed; only HTTP timeouts deadline work.
+    Pairing both branches in one test pins the contract: ``None`` is genuinely
+    distinct from a finite deadline (any finite value would raise once exceeded).
+    Issue #551: the previous 300s default produced spurious ``ModelTimeoutError``
+    cascades on slow endpoints with deep queues; now queue waits scale with
+    provider speed and only the HTTP timeout deadlines actual work.
     """
     tm = ThrottleManager()
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
     tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
 
-    # Schedule a release after a short delay; acquire (with no deadline) should
-    # complete after that, not raise.
+    if expect_raise:
+        with pytest.raises(TimeoutError, match="timed out"):
+            await tm.acquire_async(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=timeout)
+        return
+
+    # timeout=None: queue is held; release the permit after a delay; acquire
+    # should complete cleanly once the permit frees.
     async def release_after(delay: float) -> None:
         await asyncio.sleep(delay)
         tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
 
     asyncio.create_task(release_after(0.05))
-    # No timeout kwarg → uses the new None default, waits for the permit.
+    # asyncio.wait_for caps the test runtime; the inner acquire_async passes None.
     await asyncio.wait_for(
-        tm.acquire_async(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN),
+        tm.acquire_async(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=timeout),
         timeout=2.0,
     )
 
 
-def test_acquire_sync_default_no_deadline_waits_for_release() -> None:
-    """Sync counterpart: timeout=None default blocks until release."""
+@pytest.mark.parametrize(
+    "timeout,expect_raise",
+    [(0.0, True), (None, False)],
+    ids=["zero-timeout-raises", "none-timeout-waits"],
+)
+def test_acquire_sync_timeout_branches(timeout: float | None, expect_raise: bool) -> None:
+    """Sync counterpart of the async timeout-branches test."""
     tm = ThrottleManager()
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
     tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+
+    if expect_raise:
+        with pytest.raises(TimeoutError, match="timed out"):
+            tm.acquire_sync(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=timeout)
+        return
 
     def release_after(delay: float) -> None:
         time.sleep(delay)
@@ -542,7 +564,7 @@ def test_acquire_sync_default_no_deadline_waits_for_release() -> None:
 
     threading.Thread(target=release_after, args=(0.05,), daemon=True).start()
     start = time.monotonic()
-    tm.acquire_sync(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+    tm.acquire_sync(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=timeout)
     elapsed = time.monotonic() - start
     assert 0.04 < elapsed < 2.0, f"expected ~0.05s wait, got {elapsed:.3f}s"
 
