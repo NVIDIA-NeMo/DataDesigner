@@ -101,7 +101,7 @@ def _make_minimal_config(**overrides: object) -> DataDesignerConfig:
 # ---------------------------------------------------------------------------
 
 
-def test_changing_column_name_changes_compute_hash() -> None:
+def test_changing_column_name_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         columns=[SamplerColumnConfig(name="y", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1))],
@@ -109,7 +109,7 @@ def test_changing_column_name_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_column_type_changes_compute_hash() -> None:
+def test_changing_column_type_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         columns=[
@@ -119,7 +119,7 @@ def test_changing_column_type_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_sampler_params_changes_compute_hash() -> None:
+def test_changing_sampler_params_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         columns=[SamplerColumnConfig(name="x", sampler_type="uniform", params=UniformSamplerParams(low=0, high=2))],
@@ -127,13 +127,13 @@ def test_changing_sampler_params_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_model_identity_changes_compute_hash() -> None:
+def test_changing_model_identity_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(model_configs=[ModelConfig(alias="m", model="other-model")])
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_temperature_changes_compute_hash() -> None:
+def test_changing_temperature_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         model_configs=[
@@ -147,7 +147,7 @@ def test_changing_temperature_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_column_order_changes_compute_hash() -> None:
+def test_changing_column_order_changes_hash() -> None:
     """Column order is part of identity (DAG ordering)."""
     cols_a = [
         SamplerColumnConfig(name="x", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1)),
@@ -157,7 +157,7 @@ def test_changing_column_order_changes_compute_hash() -> None:
     assert _compute_hash(_make_minimal_config(columns=cols_a)) != _compute_hash(_make_minimal_config(columns=cols_b))
 
 
-def test_changing_skip_changes_compute_hash() -> None:
+def test_changing_skip_changes_hash() -> None:
     base_col = LLMTextColumnConfig(name="t", prompt="hi {{x}}", model_alias="m")
     skipped = LLMTextColumnConfig(
         name="t",
@@ -178,7 +178,7 @@ def test_changing_skip_changes_compute_hash() -> None:
     )
 
 
-def test_changing_constraint_changes_compute_hash() -> None:
+def test_changing_constraint_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         constraints=[ScalarInequalityConstraint(target_column="x", operator=InequalityOperator.LT, rhs=0.5)],
@@ -186,13 +186,13 @@ def test_changing_constraint_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_top_level_processor_changes_compute_hash() -> None:
+def test_changing_top_level_processor_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(processors=[DropColumnsProcessorConfig(name="drop", column_names=["x"])])
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_extra_body_changes_compute_hash() -> None:
+def test_changing_extra_body_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         model_configs=[
@@ -208,7 +208,7 @@ def test_changing_extra_body_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_provider_changes_compute_hash() -> None:
+def test_changing_provider_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         model_configs=[
@@ -223,7 +223,7 @@ def test_changing_provider_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_sampling_strategy_changes_compute_hash() -> None:
+def test_changing_sampling_strategy_changes_hash() -> None:
     a = _make_minimal_config(
         seed_config=SeedConfig(
             source=HuggingFaceSeedSource(path="datasets/x/y/data.csv"),
@@ -239,7 +239,7 @@ def test_changing_sampling_strategy_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_selection_strategy_changes_compute_hash() -> None:
+def test_changing_selection_strategy_changes_hash() -> None:
     a = _make_minimal_config(
         seed_config=SeedConfig(source=HuggingFaceSeedSource(path="datasets/x/y/data.csv")),
     )
@@ -252,25 +252,25 @@ def test_changing_selection_strategy_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_adding_tool_config_changes_compute_hash() -> None:
+def test_adding_tool_config_changes_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"])])
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_tool_config_alias_changes_compute_hash() -> None:
+def test_changing_tool_config_alias_changes_hash() -> None:
     a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t1", providers=["p"])])
     b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t2", providers=["p"])])
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_tool_config_providers_changes_compute_hash() -> None:
+def test_changing_tool_config_providers_changes_hash() -> None:
     a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p1"])])
     b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p2"])])
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_tool_config_allow_tools_changes_compute_hash() -> None:
+def test_changing_tool_config_allow_tools_changes_hash() -> None:
     a = _make_minimal_config(
         tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=["search"])],
     )
@@ -280,7 +280,7 @@ def test_changing_tool_config_allow_tools_changes_compute_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
-def test_changing_max_tool_call_turns_changes_compute_hash() -> None:
+def test_changing_max_tool_call_turns_changes_hash() -> None:
     a = _make_minimal_config(
         tool_configs=[ToolConfig(tool_alias="t", providers=["p"], max_tool_call_turns=5)],
     )
@@ -295,7 +295,7 @@ def test_changing_max_tool_call_turns_changes_compute_hash() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_skip_health_check_does_not_change_compute_hash() -> None:
+def test_skip_health_check_does_not_change_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         model_configs=[
@@ -310,7 +310,7 @@ def test_skip_health_check_does_not_change_compute_hash() -> None:
     assert _compute_hash(a) == _compute_hash(b)
 
 
-def test_max_parallel_requests_does_not_change_compute_hash() -> None:
+def test_max_parallel_requests_does_not_change_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         model_configs=[
@@ -326,7 +326,7 @@ def test_max_parallel_requests_does_not_change_compute_hash() -> None:
     assert _compute_hash(a) == _compute_hash(b)
 
 
-def test_inference_timeout_does_not_change_compute_hash() -> None:
+def test_inference_timeout_does_not_change_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(
         model_configs=[
@@ -342,7 +342,7 @@ def test_inference_timeout_does_not_change_compute_hash() -> None:
     assert _compute_hash(a) == _compute_hash(b)
 
 
-def test_tool_config_timeout_sec_does_not_change_compute_hash() -> None:
+def test_tool_config_timeout_sec_does_not_change_hash() -> None:
     a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"])])
     b = _make_minimal_config(
         tool_configs=[ToolConfig(tool_alias="t", providers=["p"], timeout_sec=30.0)],
@@ -350,13 +350,13 @@ def test_tool_config_timeout_sec_does_not_change_compute_hash() -> None:
     assert _compute_hash(a) == _compute_hash(b)
 
 
-def test_profilers_do_not_change_compute_hash() -> None:
+def test_profilers_do_not_change_hash() -> None:
     a = _make_minimal_config()
     b = _make_minimal_config(profilers=[JudgeScoreProfilerConfig(model_alias="m")])
     assert _compute_hash(a) == _compute_hash(b)
 
 
-def test_hf_seed_token_and_endpoint_do_not_change_compute_hash() -> None:
+def test_hf_seed_token_and_endpoint_do_not_change_hash() -> None:
     a = _make_minimal_config(
         seed_config=SeedConfig(source=HuggingFaceSeedSource(path="datasets/x/y/data.csv")),
     )
@@ -372,7 +372,7 @@ def test_hf_seed_token_and_endpoint_do_not_change_compute_hash() -> None:
     assert _compute_hash(a) == _compute_hash(b)
 
 
-def test_changing_hf_seed_path_changes_compute_hash() -> None:
+def test_changing_hf_seed_path_changes_hash() -> None:
     a = _make_minimal_config(seed_config=SeedConfig(source=HuggingFaceSeedSource(path="datasets/x/y/a.csv")))
     b = _make_minimal_config(seed_config=SeedConfig(source=HuggingFaceSeedSource(path="datasets/x/y/b.csv")))
     assert _compute_hash(a) != _compute_hash(b)
@@ -500,7 +500,7 @@ def test_custom_column_qualname_disambiguates_same_name() -> None:
     assert _compute_hash(_make_custom_config(fn_a)) != _compute_hash(_make_custom_config(fn_b))
 
 
-def test_custom_column_decorator_metadata_changes_compute_hash() -> None:
+def test_custom_column_decorator_metadata_changes_hash() -> None:
     """Two generators sharing `__name__` and `__qualname__` but with different
     `@custom_column_generator()` metadata (`required_columns` etc.) must
     produce different hashes — `required_columns` changes DAG order and
@@ -520,3 +520,29 @@ def test_custom_column_decorator_metadata_changes_compute_hash() -> None:
     assert fn_a.custom_column_metadata != fn_b.custom_column_metadata
 
     assert _compute_hash(_make_custom_config(fn_a)) != _compute_hash(_make_custom_config(fn_b))
+
+
+def test_closure_captured_state_is_a_known_limitation() -> None:
+    """Pin the documented closure-capture limitation.
+
+    Factory-built closures with different captured state share `__name__`,
+    `__qualname__`, `__module__`, and source, so they fingerprint identically.
+    If this test ever flips, update or remove the closure-capture Limitation
+    block in `fingerprint_config()`'s docstring (and the matching note in the
+    PR description / public docs) so the contract and the implementation stay
+    in sync.
+    """
+
+    def _make_factor_gen(factor: int) -> Any:
+        @custom_column_generator()
+        def _gen(row: dict, generator_params: _GenParamsV1) -> str:  # pragma: no cover
+            return str(row.get("x", 0) * factor)
+
+        return _gen
+
+    fn_a = _make_factor_gen(2)
+    fn_b = _make_factor_gen(7)
+    assert fn_a.__name__ == fn_b.__name__
+    assert fn_a.__qualname__ == fn_b.__qualname__
+
+    assert _compute_hash(_make_custom_config(fn_a)) == _compute_hash(_make_custom_config(fn_b))
