@@ -44,19 +44,15 @@ class DataDesignerConfig(ExportableConfigBase):
     profilers: list[ColumnProfilerConfigT] | None = None
     processors: list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]] | None = None
 
-    def fingerprint(self, *, custom_column_source: bool = False) -> dict[str, str | int]:
+    def fingerprint(self) -> dict[str, str | int]:
         """Compute a deterministic content-addressable fingerprint of this config.
 
-        See :func:`data_designer.config.fingerprint.fingerprint_config` for the
-        full list of identity-relevant and excluded fields, and for the L1/L2
-        custom-column behavior.
-
-        Args:
-            custom_column_source: If True, additionally hash the source of each
-                custom column generator (L2). Defaults to False.
+        See `data_designer.config.fingerprint.fingerprint_config` for the full
+        list of identity-relevant and excluded fields, and how custom column
+        generators are identified.
 
         Returns:
-            A dict with ``config_hash``, ``config_hash_algo``, and
-            ``config_hash_version``.
+            A dict with `config_hash`, `config_hash_algo`, and
+            `config_hash_version`.
         """
-        return fingerprint_config(self, custom_column_source=custom_column_source)
+        return fingerprint_config(self)

@@ -3,17 +3,14 @@
 
 from __future__ import annotations
 
-import inspect
 import subprocess
 import sys
-from collections.abc import Callable
 from typing import Any
 
 import pytest
 import yaml
 from pydantic import BaseModel
 
-from data_designer.config import fingerprint as fp_mod
 from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
 from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
@@ -37,8 +34,8 @@ from data_designer.config.seed import IndexRange, SamplingStrategy, SeedConfig
 from data_designer.config.seed_source import HuggingFaceSeedSource
 
 
-def _hash(config: DataDesignerConfig, *, custom_column_source: bool = False) -> str:
-    return str(fingerprint_config(config, custom_column_source=custom_column_source)["config_hash"])
+def _hash(config: DataDesignerConfig) -> str:
+    return str(fingerprint_config(config)["config_hash"])
 
 
 def test_fingerprint_shape(stub_data_designer_config: DataDesignerConfig) -> None:
@@ -82,10 +79,10 @@ sys.stdout.write(fingerprint_config(cfg)["config_hash"])
 # ---------------------------------------------------------------------------
 
 
-def _make_model() -> ModelConfig:
+def _make_model(alias: str = "m", model: str = "some-model") -> ModelConfig:
     return ModelConfig(
-        alias="m",
-        model="some-model",
+        alias=alias,
+        model=model,
         inference_parameters=ChatCompletionInferenceParams(temperature=0.5, top_p=0.9, max_tokens=128),
     )
 
@@ -151,6 +148,7 @@ def test_changing_temperature_changes_hash() -> None:
 
 
 def test_changing_column_order_changes_hash() -> None:
+    """Column order is part of identity (DAG ordering)."""
     cols_a = [
         SamplerColumnConfig(name="x", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1)),
         SamplerColumnConfig(name="y", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1)),
@@ -379,7 +377,58 @@ def test_changing_hf_seed_path_changes_hash() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Custom columns: L1 (default) and L2 (opt-in source hashing).
+# Canonicalization: alias-keyed lookup tables are order-independent, and
+# `None`/empty-list optional collections collapse to a single representation.
+# ---------------------------------------------------------------------------
+
+
+def test_model_configs_order_independent() -> None:
+    """`model_configs` is alias-keyed; reordering the list must not flip the hash."""
+    a = _make_minimal_config(model_configs=[_make_model("m1"), _make_model("m2")])
+    b = _make_minimal_config(model_configs=[_make_model("m2"), _make_model("m1")])
+    assert _hash(a) == _hash(b)
+
+
+def test_tool_configs_order_independent() -> None:
+    """`tool_configs` is alias-keyed; reordering the list must not flip the hash."""
+    a = _make_minimal_config(
+        tool_configs=[
+            ToolConfig(tool_alias="t1", providers=["p"]),
+            ToolConfig(tool_alias="t2", providers=["p"]),
+        ],
+    )
+    b = _make_minimal_config(
+        tool_configs=[
+            ToolConfig(tool_alias="t2", providers=["p"]),
+            ToolConfig(tool_alias="t1", providers=["p"]),
+        ],
+    )
+    assert _hash(a) == _hash(b)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["model_configs", "tool_configs", "constraints", "processors"],
+)
+def test_none_vs_empty_list_for_optional_top_level_fields_match(field: str) -> None:
+    """`None` and `[]` must produce identical hashes for optional top-level collections."""
+    base_kwargs: dict[str, Any] = {
+        "columns": [SamplerColumnConfig(name="x", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1))],
+    }
+    a = DataDesignerConfig(**base_kwargs, **{field: None})
+    b = DataDesignerConfig(**base_kwargs, **{field: []})
+    assert _hash(a) == _hash(b)
+
+
+def test_tool_config_allow_tools_none_vs_empty_match() -> None:
+    """`allow_tools=None` and `allow_tools=[]` must produce identical hashes."""
+    a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=None)])
+    b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=[])])
+    assert _hash(a) == _hash(b)
+
+
+# ---------------------------------------------------------------------------
+# Custom column identity: name + qualname + module + decorator metadata.
 # ---------------------------------------------------------------------------
 
 
@@ -397,7 +446,7 @@ def _generate_v2(row: dict, generator_params: _GenParamsV1) -> str:  # pragma: n
     return str(row.get("x", 0) * generator_params.factor + 1)
 
 
-def _make_custom_config(fn: Callable[..., Any], params: _GenParamsV1 | None = None) -> DataDesignerConfig:
+def _make_custom_config(fn: Any, params: _GenParamsV1 | None = None) -> DataDesignerConfig:
     return _make_minimal_config(
         columns=[
             SamplerColumnConfig(name="x", sampler_type="uniform", params=UniformSamplerParams(low=0, high=1)),
@@ -410,50 +459,62 @@ def _make_custom_config(fn: Callable[..., Any], params: _GenParamsV1 | None = No
     )
 
 
-def test_custom_column_l1_includes_generator_params() -> None:
+def test_custom_column_includes_generator_params() -> None:
     a = _make_custom_config(_generate_v1, _GenParamsV1(factor=1))
     b = _make_custom_config(_generate_v1, _GenParamsV1(factor=2))
     assert _hash(a) != _hash(b)
 
 
-def test_custom_column_l1_includes_generator_function_name() -> None:
+def test_custom_column_includes_generator_function_name() -> None:
     a = _make_custom_config(_generate_v1)
     b = _make_custom_config(_generate_v2)
-    # Different function names serialize to different values via field_serializer.
     assert _hash(a) != _hash(b)
 
 
-def test_custom_column_l2_detects_source_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    a = _make_custom_config(_generate_v1)
-    base = _hash(a, custom_column_source=True)
+def test_custom_column_qualname_disambiguates_same_name() -> None:
+    """Two functions sharing `__name__` but with different `__qualname__` must
+    produce different hashes (the fix for the same-name-different-scope
+    collision class)."""
 
-    # Simulate an implementation edit by feeding a different source string.
-    sources = iter(["original-source", "edited-source"])
-    monkeypatch.setattr(fp_mod, "_hash_custom_column_source", lambda fn, name: next(sources))
+    def _make_outer_a() -> Any:
+        @custom_column_generator()
+        def _gen(row: dict, generator_params: _GenParamsV1) -> str:  # pragma: no cover
+            return ""
 
-    edit_first = _hash(a, custom_column_source=True)
-    edit_second = _hash(a, custom_column_source=True)
-    assert edit_first != edit_second
-    assert base != edit_first
+        return _gen
 
+    def _make_outer_b() -> Any:
+        @custom_column_generator()
+        def _gen(row: dict, generator_params: _GenParamsV1) -> str:  # pragma: no cover
+            return ""
 
-def test_custom_column_unhashable_source_degrades_gracefully(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A plugin whose source can't be retrieved should warn, not raise."""
+        return _gen
 
-    def _raise_oserror(_fn: object) -> str:
-        raise OSError("compiled / zipped plugin")
+    fn_a = _make_outer_a()
+    fn_b = _make_outer_b()
+    assert fn_a.__name__ == fn_b.__name__
+    assert fn_a.__qualname__ != fn_b.__qualname__
 
-    monkeypatch.setattr(inspect, "getsource", _raise_oserror)
-
-    a = _make_custom_config(_generate_v1)
-    with caplog.at_level("WARNING", logger=fp_mod.__name__):
-        out = a.fingerprint(custom_column_source=True)
-    assert out["config_hash"].startswith(f"{CONFIG_HASH_ALGO}:")
-    assert "Could not retrieve source" in caplog.text
+    assert _hash(_make_custom_config(fn_a)) != _hash(_make_custom_config(fn_b))
 
 
-def test_l1_and_l2_produce_different_hashes() -> None:
-    a = _make_custom_config(_generate_v1)
-    assert _hash(a) != _hash(a, custom_column_source=True)
+def test_custom_column_decorator_metadata_changes_hash() -> None:
+    """Two generators sharing `__name__` and `__qualname__` but with different
+    `@custom_column_generator()` metadata (`required_columns` etc.) must
+    produce different hashes — `required_columns` changes DAG order and
+    `side_effect_columns` changes the output schema."""
+
+    def _make_with_required(required_cols: list[str]) -> Any:
+        @custom_column_generator(required_columns=required_cols)
+        def _gen(row: dict, generator_params: _GenParamsV1) -> str:  # pragma: no cover
+            return ""
+
+        return _gen
+
+    fn_a = _make_with_required(["x"])
+    fn_b = _make_with_required(["x", "y"])
+    assert fn_a.__name__ == fn_b.__name__
+    assert fn_a.__qualname__ == fn_b.__qualname__
+    assert fn_a.custom_column_metadata != fn_b.custom_column_metadata
+
+    assert _hash(_make_custom_config(fn_a)) != _hash(_make_custom_config(fn_b))
