@@ -402,14 +402,17 @@ def test_export_uppercase_extension_is_recognised(stub_dataset_creation_results,
 
 
 def test_export_parquet_incompatible_schemas_raises(stub_dataset_creation_results, tmp_path) -> None:
-    """_export_parquet wraps ArrowInvalid (incompatible column names) as InvalidFileFormatError."""
+    """_export_parquet wraps schema cast failures (incompatible column names) as InvalidFileFormatError.
+
+    With promote_options="permissive", pa.unify_schemas merges the two schemas into a superset
+    {col_a, col_b}. The cast step then raises ValueError because batch_00000 only has col_a.
+    """
     batch_dir = tmp_path / "parquet-files"
     batch_dir.mkdir()
-    # Two batches with different column names — pa.unify_schemas raises ArrowInvalid.
     lazy.pd.DataFrame({"col_a": [1, 2]}).to_parquet(batch_dir / "batch_00000.parquet", index=False)
     lazy.pd.DataFrame({"col_b": [3, 4]}).to_parquet(batch_dir / "batch_00001.parquet", index=False)
     stub_dataset_creation_results.artifact_storage.final_dataset_path = batch_dir
-    with pytest.raises(InvalidFileFormatError, match="Cannot unify batch schemas"):
+    with pytest.raises(InvalidFileFormatError, match="Cannot cast batch"):
         stub_dataset_creation_results.export(tmp_path / "out.parquet")
 
 

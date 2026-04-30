@@ -161,7 +161,7 @@ class GenerationController:
         console.print(f"  Artifacts saved to: [bold]{results.artifact_storage.base_dataset_path}[/bold]")
 
         if output_format is not None:
-            export_path = results.artifact_storage.base_dataset_path / f"dataset.{output_format}"
+            export_path = Path(results.artifact_storage.base_dataset_path) / f"dataset.{output_format}"
             try:
                 results.export(export_path)
             except Exception as e:
