@@ -439,9 +439,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Returns:
             The ModelProviderRegistry containing the providers and default
             resolved at construction time. The default is taken from the
-            first user-supplied provider (when ``model_providers`` was passed
-            to the constructor) or from the YAML's ``default:`` key (when
-            falling back to the on-disk providers list).
+            first user-supplied provider when ``model_providers`` was passed
+            to the constructor; otherwise from the YAML's ``default:`` key
+            when set, falling back to the first provider in the YAML list.
         """
         return self._model_provider_registry
 

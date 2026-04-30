@@ -475,6 +475,44 @@ def test_init_user_supplied_providers_preserve_first_wins_over_yaml_default(
     assert data_designer.model_provider_registry.get_default_provider_name() == "first-provider"
 
 
+def test_init_no_user_providers_uses_yaml_default(
+    stub_artifact_path: Path,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Pin the unchanged YAML-fallback path: when the caller omits
+    ``model_providers``, DataDesigner consults both ``providers:`` and
+    ``default:`` from the YAML.
+
+    The fix in #588 only changes the user-supplied branch; this test locks the
+    YAML-fallback branch's contract so a future refactor can't silently regress
+    it.
+    """
+    yaml_providers = [
+        ModelProvider(
+            name="yaml-first",
+            endpoint="https://yaml-first.example.com/v1",
+            api_key="yaml-first-key",
+        ),
+        ModelProvider(
+            name="yaml-second",
+            endpoint="https://yaml-second.example.com/v1",
+            api_key="yaml-second-key",
+        ),
+    ]
+
+    with (
+        patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
+        patch.object(dd_mod, "get_default_provider_name", return_value="yaml-second"),
+    ):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+
+    assert data_designer.model_provider_registry.get_default_provider_name() == "yaml-second"
+
+
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
