@@ -160,13 +160,6 @@ class DatasetBuilder:
         """Records actually written by the most recent async run (-1 if no run yet)."""
         return self._actual_num_records
 
-    def _reset_run_state(self) -> None:
-        """Clear per-run signals so reused builder instances don't leak state across runs."""
-        self._early_shutdown = False
-        self._partial_row_groups = ()
-        self._actual_num_records = -1
-        self._task_traces = []
-
     def set_processor_runner(self, processors: list[Processor]) -> None:
         """Replace the processor runner with a new one using the given processors."""
         self._processor_runner = ProcessorRunner(
@@ -272,6 +265,13 @@ class DatasetBuilder:
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return dataset
+
+    def _reset_run_state(self) -> None:
+        """Clear per-run signals so reused builder instances don't leak state across runs."""
+        self._early_shutdown = False
+        self._partial_row_groups = ()
+        self._actual_num_records = -1
+        self._task_traces = []
 
     def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""

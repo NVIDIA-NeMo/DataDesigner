@@ -679,10 +679,12 @@ class AsyncTaskScheduler:
     def _record_retryable_outcome(self, *, retryable: bool) -> None:
         """Track retryable-error rate and emit a throttled WARN under provider degradation.
 
-        Distinct from ``_check_error_rate``: every outcome (success or failure)
-        feeds this window so the rate reflects the provider's overall health, not
-        just the error mix. Only retryable errors (rate-limit, timeout, 5xx,
-        connection) count toward the rate; non-retryable failures register as 0.
+        Distinct from ``_check_error_rate``: every LLM-bound task outcome (success
+        or failure) feeds this window so the rate reflects the provider's overall
+        health, not just the error mix. The call site filters on ``is_llm`` so
+        non-LLM tasks (samplers, expressions, non-LLM customs) don't dilute the
+        rate. Only retryable errors (rate-limit, timeout, 5xx, connection) count
+        toward the rate; non-retryable failures register as 0.
         """
         if self._degraded_warn_window <= 0:
             return

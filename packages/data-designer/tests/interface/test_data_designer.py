@@ -779,7 +779,7 @@ def test_create_raises_early_shutdown_error_on_empty_dataframe_after_shutdown(
     stub_managed_assets_path: Path,
 ) -> None:
     """Defensive guard path: when load_dataset_with_dropped_columns returns an empty DF
-    AND the scheduler hit early shutdown, the typed error wins over the generic one."""
+    AND the scheduler hit early shutdown with zero records, the typed error wins."""
     data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
 
     with (
@@ -787,11 +787,7 @@ def test_create_raises_early_shutdown_error_on_empty_dataframe_after_shutdown(
             "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
             return_value=lazy.pd.DataFrame(),
         ),
-        patch(
-            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.early_shutdown",
-            new_callable=PropertyMock,
-            return_value=True,
-        ),
+        _patch_builder_state(early_shutdown=True, actual_num_records=0),
     ):
         with pytest.raises(DataDesignerEarlyShutdownError, match="early shutdown was triggered"):
             data_designer.create(stub_sampler_only_config_builder, num_records=1)
@@ -816,6 +812,47 @@ def test_preview_raises_generation_error_when_dataset_is_empty(
     ):
         with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
             data_designer.preview(stub_sampler_only_config_builder, num_records=1)
+
+
+def test_preview_raises_early_shutdown_error_on_empty_after_shutdown(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Preview mirrors create(): typed early-shutdown error fires when shutdown produced zero records."""
+    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
+
+    with (
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.process_preview",
+            return_value=lazy.pd.DataFrame(),
+        ),
+        _patch_builder_state(early_shutdown=True, actual_num_records=0),
+    ):
+        with pytest.raises(DataDesignerEarlyShutdownError, match="early shutdown was triggered"):
+            data_designer.preview(stub_sampler_only_config_builder, num_records=1)
+
+
+def test_preview_raises_generic_error_when_partial_then_empty(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Preview falls through to the generic error when records were salvaged."""
+    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
+
+    with (
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.process_preview",
+            return_value=lazy.pd.DataFrame(),
+        ),
+        _patch_builder_state(early_shutdown=True, actual_num_records=3),
+    ):
+        with pytest.raises(DataDesignerGenerationError, match="Dataset is empty") as exc_info:
+            data_designer.preview(stub_sampler_only_config_builder, num_records=10)
+        assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
 
 
 def test_create_logs_secure_jinja_rendering_mode(

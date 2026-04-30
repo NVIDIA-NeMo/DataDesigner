@@ -33,7 +33,7 @@ from data_designer.engine.dataset_builders.utils.completion_tracker import Compl
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
-    ModelAPIConnectionError,
+    RETRYABLE_MODEL_ERRORS,
     ModelInternalServerError,
     ModelRateLimitError,
     ModelTimeoutError,
@@ -1040,18 +1040,10 @@ async def test_rate_limit_errors_do_not_trigger_early_shutdown() -> None:
     assert tracker.is_row_group_complete(0, 10, ["seed", "col"])
 
 
-RETRYABLE_ERROR_FACTORIES = [
-    pytest.param(lambda: ModelRateLimitError("429 Too Many Requests"), id="rate_limit"),
-    pytest.param(lambda: ModelTimeoutError("read timeout"), id="timeout"),
-    pytest.param(lambda: ModelInternalServerError("503 Service Unavailable"), id="internal_server"),
-    pytest.param(lambda: ModelAPIConnectionError("connection reset"), id="api_connection"),
-]
-
-
-@pytest.mark.parametrize("error_factory", RETRYABLE_ERROR_FACTORIES)
+@pytest.mark.parametrize("exc_cls", RETRYABLE_MODEL_ERRORS, ids=lambda c: c.__name__)
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retryable_errors_do_not_trigger_early_shutdown(
-    error_factory: Callable[[], Exception],
+    exc_cls: type[Exception],
 ) -> None:
     """All retryable errors (rate-limit, timeout, 5xx, connection) bypass the early-shutdown gate.
 
@@ -1061,7 +1053,7 @@ async def test_retryable_errors_do_not_trigger_early_shutdown(
     cell = MockRetryableErrorGenerator(
         config=_expr_config("cell_out"),
         resource_provider=_mock_provider(),
-        error_factory=error_factory,
+        error_factory=lambda: exc_cls("boom"),
         retryable_failures=8,
     )
     generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(cell, num_records=10)

@@ -258,7 +258,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         # practice load_dataset_with_dropped_columns() would raise before returning a
         # zero-row DataFrame. This guard protects against future changes to that contract.
         if len(dataset_for_profiler) == 0:
-            if builder.early_shutdown:
+            # Mirror the load-failure guard above: only raise the typed error when
+            # the run actually produced zero records. A partial-salvage run that
+            # somehow returns an empty DF for unrelated reasons should surface the
+            # generic error.
+            if builder.early_shutdown and builder.actual_num_records == 0:
                 raise DataDesignerEarlyShutdownError(
                     "🛑 Dataset is empty — early shutdown was triggered before any records "
                     "could complete. Check the warnings above for the contributing failures."
@@ -308,6 +312,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Raises:
             DataDesignerGenerationError: If an error occurs during preview dataset generation.
+            DataDesignerEarlyShutdownError: If preview terminated via the early-shutdown gate
+                with zero records produced. Subclass of ``DataDesignerGenerationError``.
             DataDesignerProfilingError: If an error occurs during preview dataset profiling.
         """
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
@@ -324,6 +330,14 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}") from e
 
         if len(processed_dataset) == 0:
+            # Mirror the create() path: distinguish "early shutdown produced zero
+            # records" from generic empty-dataset failures so callers can react
+            # programmatically.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Preview is empty — early shutdown was triggered before any records "
+                    "could complete. Check the warnings above for the contributing failures."
+                )
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
                 "Check the warnings above for details on which columns failed."
