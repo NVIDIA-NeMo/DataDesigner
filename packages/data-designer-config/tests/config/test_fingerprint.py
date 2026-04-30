@@ -252,6 +252,44 @@ def test_changing_selection_strategy_changes_hash() -> None:
     assert _hash(a) != _hash(b)
 
 
+def test_adding_tool_config_changes_hash() -> None:
+    a = _make_minimal_config()
+    b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"])])
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_tool_config_alias_changes_hash() -> None:
+    a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t1", providers=["p"])])
+    b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t2", providers=["p"])])
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_tool_config_providers_changes_hash() -> None:
+    a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p1"])])
+    b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p2"])])
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_tool_config_allow_tools_changes_hash() -> None:
+    a = _make_minimal_config(
+        tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=["search"])],
+    )
+    b = _make_minimal_config(
+        tool_configs=[ToolConfig(tool_alias="t", providers=["p"], allow_tools=["search", "list"])],
+    )
+    assert _hash(a) != _hash(b)
+
+
+def test_changing_max_tool_call_turns_changes_hash() -> None:
+    a = _make_minimal_config(
+        tool_configs=[ToolConfig(tool_alias="t", providers=["p"], max_tool_call_turns=5)],
+    )
+    b = _make_minimal_config(
+        tool_configs=[ToolConfig(tool_alias="t", providers=["p"], max_tool_call_turns=10)],
+    )
+    assert _hash(a) != _hash(b)
+
+
 # ---------------------------------------------------------------------------
 # EXCLUDE: non-identity changes must NOT change the hash.
 # ---------------------------------------------------------------------------
@@ -304,9 +342,11 @@ def test_inference_timeout_does_not_change_hash() -> None:
     assert _hash(a) == _hash(b)
 
 
-def test_tool_configs_do_not_change_hash() -> None:
-    a = _make_minimal_config()
-    b = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"])])
+def test_tool_config_timeout_sec_does_not_change_hash() -> None:
+    a = _make_minimal_config(tool_configs=[ToolConfig(tool_alias="t", providers=["p"])])
+    b = _make_minimal_config(
+        tool_configs=[ToolConfig(tool_alias="t", providers=["p"], timeout_sec=30.0)],
+    )
     assert _hash(a) == _hash(b)
 
 

@@ -38,15 +38,17 @@ CONFIG_HASH_VERSION = 1
 CONFIG_HASH_ALGO = "sha256"
 
 # Top-level DataDesignerConfig keys excluded from the fingerprint.
-# tool_configs   -- MCP tool wiring is a runtime/execution choice
 # profilers      -- post-generation analysis, doesn't affect generated rows
-_EXCLUDED_TOP_LEVEL_KEYS: frozenset[str] = frozenset({"tool_configs", "profilers"})
+_EXCLUDED_TOP_LEVEL_KEYS: frozenset[str] = frozenset({"profilers"})
 
 # ModelConfig keys excluded -- env/runtime knobs.
 _EXCLUDED_MODEL_KEYS: frozenset[str] = frozenset({"skip_health_check"})
 
 # Inference-parameter keys excluded -- concurrency / timing only.
 _EXCLUDED_INFERENCE_KEYS: frozenset[str] = frozenset({"max_parallel_requests", "timeout"})
+
+# ToolConfig keys excluded -- per-call timing knob, analogous to inference_parameters.timeout.
+_EXCLUDED_TOOL_CONFIG_KEYS: frozenset[str] = frozenset({"timeout_sec"})
 
 # HuggingFaceSeedSource keys excluded -- auth and endpoint URL are not data identity.
 _EXCLUDED_HF_SEED_KEYS: frozenset[str] = frozenset({"token", "endpoint"})
@@ -74,15 +76,17 @@ def fingerprint_config(
         skip/drop/propagate_skip flags)
       * ``model_configs`` (alias, model, provider, sampling-relevant inference
         params -- temperature, top_p, max_tokens, extra_body)
+      * ``tool_configs`` (alias, providers, allow_tools, max_tool_call_turns):
+        the set of MCP tools an LLM can call shapes what it produces
       * ``seed_config`` (source path / sampling strategy / selection strategy)
       * ``constraints``
       * top-level ``processors``
 
     Excluded fields:
-      * ``tool_configs`` (runtime tool wiring)
       * ``profilers`` (post-generation analysis)
       * ``model_configs[*].skip_health_check``
       * ``inference_parameters.max_parallel_requests``, ``inference_parameters.timeout``
+      * ``tool_configs[*].timeout_sec`` (per-call timing knob, not output identity)
       * HuggingFace seed source ``token`` and ``endpoint``
 
     Custom column generators are always identified by registered function name
@@ -152,11 +156,18 @@ def _normalize_seed_config(seed_config: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _normalize_tool_config(tool_config: dict[str, Any]) -> dict[str, Any]:
+    return _drop_keys(tool_config, _EXCLUDED_TOOL_CONFIG_KEYS)
+
+
 def _normalize_config_dict(config_dict: dict[str, Any]) -> dict[str, Any]:
     normalized = _drop_keys(config_dict, _EXCLUDED_TOP_LEVEL_KEYS)
     model_configs = normalized.get("model_configs")
     if model_configs:
         normalized["model_configs"] = [_normalize_model_config(mc) for mc in model_configs]
+    tool_configs = normalized.get("tool_configs")
+    if tool_configs:
+        normalized["tool_configs"] = [_normalize_tool_config(tc) for tc in tool_configs]
     seed_config = normalized.get("seed_config")
     if seed_config:
         normalized["seed_config"] = _normalize_seed_config(seed_config)
