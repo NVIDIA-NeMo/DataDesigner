@@ -143,40 +143,17 @@ This repository supports agent-assisted development — see [CONTRIBUTING.md](CO
 
 ## Telemetry
 
-Data Designer collects telemetry to help us improve the library for developers. We collect:
+Data Designer collects telemetry to help us improve the library for developers. This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community. 
 
-* The names of models used
-* The count of input tokens
-* The count of output tokens
+Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and-privacy)**
 
-**No user or device information is collected.** This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community.
+### Top models
 
-Specifically, a model name that is defined a `ModelConfig` object, is what will be collected. In the below example config:
-
-```python
-ModelConfig(
-    alias="nv-reasoning",
-    model="nvidia/nemotron-3-super-120b-a12b",
-    provider="nvidia",
-    inference_parameters=ChatCompletionInferenceParams(
-        temperature=1.0,
-        top_p=0.95,
-        max_tokens=4096,
-    ),
-)
-```
-
-The value `nvidia/nemotron-3-super-120b-a12b` would be collected.
-
-To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
-
-### Top Models
-
-This chart represents the breakdown of models used for Data Designer across all synthetic data generation jobs from 2/23/2026 to 3/23/2026.
+Aggregate model usage across synthetic data generation jobs, 4/1/2026–4/30/2026:
 
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
-_Last updated on 3/23/2026_
+_Last updated on May 1, 2026_
 
 ---
 
@@ -199,3 +176,15 @@ If you use NeMo Data Designer in your research, please cite it using the followi
   note = {GitHub Repository},
 }
 ```
+
+---
+
+<a id="telemetry-and-privacy"></a>
+
+## Telemetry & privacy
+
+NeMo Data Designer includes an optional function to share anonymous telemetry data with NVIDIA for product improvement. Data collected is limited to names of models used and token counts (input and output). No user or device information is collected. This data is used to prioritize product improvements and will be shared in aggregate with the community. It is not used to track any individual user behavior.
+
+You may opt out of telemetry collection at any time. Opting out applies only to data collection by the NeMo Data Designer library itself.
+
+**Use of third-party endpoints, including NVIDIA Build:** NeMo Data Designer can be configured to use various inference endpoints, including [build.nvidia.com](https://build.nvidia.com) (NVIDIA Build). If you choose to use NVIDIA Build or any other third-party endpoint, that endpoint's own terms of service and privacy practices apply independently of this library. Any opt-out you exercise within NeMo Data Designer does not extend to data collection by your chosen endpoint. NVIDIA Build is intended for evaluation and testing purposes only and may not be used in production environments. Do not submit any confidential information or personal data when using NVIDIA Build.
