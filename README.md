@@ -147,9 +147,9 @@ Data Designer collects telemetry to help us improve the library for developers. 
 
 Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and-privacy)**
 
-### Top models
+### Top models (YTD)
 
-Aggregate model usage across synthetic data generation jobs, 4/1/2026–4/30/2026:
+Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–5/1/2026:
 
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
