@@ -47,12 +47,12 @@ This guide explains the architecture, execution model, and how to tune performan
 
 ## Execution Model
 
-!!! note "Dataset Builder"
-    This describes Data Designer's current **`DatasetBuilder`**, which generates columns sequentially within batches. Other dataset generation strategies are in development.
+!!! note "Two execution engines"
+    The default execution path is the **async engine**, which dispatches work at the cell level and overlaps independent columns — see [Async Engine](#async-engine) below for its semantics. The legacy **sync engine** is still available for one transitional release via `DATA_DESIGNER_ASYNC_ENGINE=0` and is what this section describes. The configuration knobs documented below (`buffer_size`, `max_parallel_requests`, AIMD throttle config, error handling) apply to both engines; the differences are flagged inline.
 
-Data Designer processes datasets in **batches**, with **parallel** operations within each batch.
+The sync engine processes datasets in **batches**, with **parallel** operations within each batch.
 
-### How It Works
+### How It Works (sync engine)
 
 **Step 1: Split into batches**
 
@@ -60,7 +60,7 @@ Your dataset is divided into batches of `buffer_size` records. Each batch is pro
 
 **Step 2: Process columns sequentially**
 
-Within a batch, columns are generated one at a time following the dependency graph. The order depends on column dependencies—expression columns may come before LLM columns if the LLM columns depend on them.
+Within a batch, columns are generated one at a time following the dependency graph. The order depends on column dependencies—expression columns may come before LLM columns if the LLM columns depend on them. (The async engine relaxes this: columns whose per-cell dependencies are satisfied can run concurrently with columns earlier in the order.)
 
 Example workflow:
 
@@ -93,9 +93,9 @@ Within each column, cells are processed **in parallel** up to the configured lim
 
 | Concept | Description |
 |---------|-------------|
-| **Batching** | Records are split into batches of `buffer_size`. Each batch completes entirely before the next begins. |
-| **Sequential columns** | Within a batch, columns are generated one at a time, respecting the dependency graph. |
-| **Parallel cells** | Within a column, individual cells (records) are generated in parallel up to the configured limit. |
+| **Batching** | Records are split into batches of `buffer_size`. In the sync engine, each batch completes entirely before the next begins; in the async engine, multiple row groups (the async equivalent) can be in flight concurrently. |
+| **Sequential columns** | Sync-engine only: columns within a batch are generated one at a time, respecting the dependency graph. The async engine schedules at the cell level instead. |
+| **Parallel cells** | Within a column, individual cells (records) are generated in parallel up to the configured limit. Same on both engines. |
 
 ### Concurrency Formula
 
