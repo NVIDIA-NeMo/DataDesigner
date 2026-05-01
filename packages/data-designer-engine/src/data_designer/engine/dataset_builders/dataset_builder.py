@@ -509,9 +509,7 @@ class DatasetBuilder:
         caller has had a chance to decide whether to resume or start fresh.
         """
         config_path = (
-            Path(self.artifact_storage.artifact_path)
-            / self.artifact_storage.dataset_name
-            / SDG_CONFIG_FILENAME
+            Path(self.artifact_storage.artifact_path) / self.artifact_storage.dataset_name / SDG_CONFIG_FILENAME
         )
         if not config_path.exists():
             return True
@@ -629,7 +627,6 @@ class DatasetBuilder:
 
         # Write final metadata (overwrites the last incremental write with identical content).
         buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
-        return True
 
         # Surface partial completion
         actual = self._actual_num_records
@@ -647,6 +644,8 @@ class DatasetBuilder:
                 logger.warning(base + detail)
             else:
                 logger.warning(base + "The dataset may be incomplete due to dropped rows.")
+
+        return True
 
     def _prepare_async_run(
         self,
