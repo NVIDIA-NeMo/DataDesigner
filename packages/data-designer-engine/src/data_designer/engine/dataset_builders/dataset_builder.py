@@ -238,14 +238,25 @@ class DatasetBuilder:
         self._run_mcp_tool_check_if_needed()
 
         # For IF_POSSIBLE: resolve to ALWAYS or NEVER before touching the artifact directory.
+        # _check_resume_config_compatibility() must NOT access base_dataset_path (which would
+        # cache resolved_dataset_name prematurely). After the decision, sync artifact_storage.resume
+        # so that resolved_dataset_name picks up the right semantics on its first real access.
+        #
+        # Also invalidate any stale resolved_dataset_name cache: ArtifactStorage's Pydantic
+        # validator accesses base_dataset_path at construction time, which caches resolved_dataset_name
+        # under the original resume=IF_POSSIBLE semantics. Popping it forces a fresh resolution.
         if resume == ResumeMode.IF_POSSIBLE:
             if not self._check_resume_config_compatibility():
                 logger.info(
                     "▶️ Config has changed since the last run — starting a fresh generation (resume=IF_POSSIBLE)."
                 )
                 resume = ResumeMode.NEVER
+                self.artifact_storage.resume = ResumeMode.NEVER
+                self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
             else:
                 resume = ResumeMode.ALWAYS
+                self.artifact_storage.resume = ResumeMode.ALWAYS
+                self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
 
         self._write_builder_config()
 
@@ -492,8 +503,16 @@ class DatasetBuilder:
         Returns True when the configs are compatible (same data-relevant fingerprint) or when
         the stored config cannot be read (a warning is logged in that case so the corruption
         is visible). Returns False when the fingerprints differ.
+
+        Uses artifact_path / dataset_name directly — NOT base_dataset_path — to avoid
+        prematurely triggering the resolved_dataset_name cached_property before the
+        caller has had a chance to decide whether to resume or start fresh.
         """
-        config_path = self.artifact_storage.base_dataset_path / SDG_CONFIG_FILENAME
+        config_path = (
+            Path(self.artifact_storage.artifact_path)
+            / self.artifact_storage.dataset_name
+            / SDG_CONFIG_FILENAME
+        )
         if not config_path.exists():
             return True
         try:

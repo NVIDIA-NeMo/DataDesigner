@@ -1819,3 +1819,52 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
                             builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     assert captured["skip_row_groups"] == frozenset({0, 2})
+
+
+def test_if_possible_incompatible_config_does_not_overwrite_existing_dataset(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """IF_POSSIBLE + incompatible config must NOT resolve to the existing dataset directory.
+
+    Bug: _check_resume_config_compatibility() used base_dataset_path, triggering the
+    resolved_dataset_name cached_property while artifact_storage.resume was still IF_POSSIBLE.
+    The property cached the existing directory name; after resume was reset to NEVER locally,
+    artifact_storage.resume was never updated, so _write_builder_config() still wrote into the
+    old directory.
+
+    Fix: _check_resume_config_compatibility() uses artifact_path/dataset_name directly and
+    build() syncs artifact_storage.resume = NEVER before the first real access to base_dataset_path.
+    """
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    sentinel = dataset_dir / "important_file.txt"
+    sentinel.write_text("precious data")
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    # Simulate incompatible config and mock out all I/O so build() does not actually generate data
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=False):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder, "_run_mcp_tool_check_if_needed"):
+                with patch.object(builder, "_write_builder_config"):
+                    with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+                        with patch.object(builder.batch_manager, "start"):
+                            with patch.object(builder.batch_manager, "finish"):
+                                with patch.object(builder._processor_runner, "run_after_generation"):
+                                    builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+
+    # artifact_storage.resume must be downgraded to NEVER so resolved_dataset_name uses NEVER semantics
+    assert storage.resume == ResumeMode.NEVER
+
+    # resolved_dataset_name has not been cached yet (compat check bypassed base_dataset_path,
+    # _write_builder_config was mocked). Accessing it now must give a timestamped name.
+    assert sentinel.exists(), "Existing dataset directory must not be touched"
+    assert storage.resolved_dataset_name != "dataset", (
+        "resolved_dataset_name must be a new timestamped directory, not the existing one"
+    )
