@@ -270,7 +270,7 @@ The dependencies were always per-cell. Now the engine schedules them that way.
 
 ## **Update**
 
-The async engine is now the default execution path. Set `DATA_DESIGNER_ASYNC_ENGINE=0` to opt back into the legacy sync engine for one transitional release. See the [migration guide](../../migration-async-default.md) for the configuration knobs and behaviors worth knowing about.
+The async engine is now the default execution path. Set `DATA_DESIGNER_ASYNC_ENGINE=0` to opt back into the legacy sync engine for one transitional release. The [Architecture & Performance](../../concepts/architecture-and-performance.md#async-engine) page covers the configuration knobs and behaviors worth knowing about.
 
 ---
 

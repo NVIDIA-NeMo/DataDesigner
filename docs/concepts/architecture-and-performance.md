@@ -116,8 +116,8 @@ concurrent_requests = min(
 
 This means Data Designer automatically finds the right concurrency level for your server without manual tuning.
 
-!!! note "Sync engine caveat"
-    AIMD adaptive concurrency is fully active on the **async engine** path. On the current **sync engine** path, 429 responses are first retried at the HTTP transport layer; AIMD only engages as a fallback if transport retries are exhausted. In practice the concurrency limit stays near `max_parallel_requests` for most sync workloads. The async engine is landing soon and will be the recommended path for production workloads.
+!!! note "Engine paths"
+    AIMD adaptive concurrency is fully active on the default **async engine**. The legacy **sync engine** is available for one transitional release via `DATA_DESIGNER_ASYNC_ENGINE=0`; on that path 429s are first retried at the HTTP transport layer and AIMD only engages as a fallback. See [Async engine](#async-engine) below.
 
 **Example**: With `buffer_size=100` and `max_parallel_requests=32`, Data Designer starts sending up to 32 requests in parallel. If the server returns 429s, concurrency drops automatically (e.g., to 24, then 18) and recovers once the server catches up.
 
@@ -169,7 +169,7 @@ model = dd.ModelConfig(
 
 **Default**: 4
 
-**When to increase**: Your inference backend has high throughput capacity, you're using a cloud API with generous rate limits, or you're running vLLM/TensorRT-LLM with multiple GPUs. With AIMD, setting an aggressively high value is safer than before — the system will self-correct downward if the server can't keep up. (On the async engine the salvage queue reclaims failed rows; on the sync engine the initial burst of 429s before AIMD stabilizes can drop rows, so start with a more conservative ceiling if you're using the sync path.)
+**When to increase**: Your inference backend has high throughput capacity, you're using a cloud API with generous rate limits, or you're running vLLM/TensorRT-LLM with multiple GPUs. With AIMD, setting an aggressively high value is safer than before — the system will self-correct downward if the server can't keep up. The salvage queue on the async engine (default) reclaims failed rows; on the sync engine the initial burst of 429s before AIMD stabilizes can drop rows, so start with a more conservative ceiling if you've opted into sync.
 
 **When to decrease**: You want to cap resource usage to a known safe level, or you want more predictable/debuggable execution.
 
@@ -201,8 +201,8 @@ designer.set_run_config(run_config)
 
 Data Designer uses an AIMD (Additive Increase / Multiplicative Decrease) controller to automatically adjust concurrency per model based on rate-limit feedback from the inference server. The defaults work well for most workloads. Override them via `ThrottleConfig` only when you understand the trade-offs.
 
-!!! note "Sync engine caveat"
-    Adaptive throttling is fully active on the **async engine** path, where 429 responses propagate directly to the AIMD controller. On the **sync engine** path, 429s are first retried at the HTTP transport layer; `ThrottleConfig` settings only take effect as a fallback if transport retries are exhausted. The async engine is landing soon and will be the recommended path for production workloads.
+!!! note "Engine paths"
+    Adaptive throttling is fully active on the default **async engine**, where 429 responses propagate directly to the AIMD controller. On the legacy **sync engine** (`DATA_DESIGNER_ASYNC_ENGINE=0`), 429s are first retried at the HTTP transport layer; `ThrottleConfig` settings only take effect as a fallback if transport retries are exhausted.
 
 ```python
 import data_designer.config as dd
@@ -257,6 +257,57 @@ designer.set_run_config(run_config)
 - **Strict schemas**: Increase `max_conversation_restarts` to 7, add `max_conversation_correction_steps=2`
 - **Debugging**: Set `disable_early_shutdown=True` to see all errors
 - **Simple text**: Reduce `max_conversation_restarts` to 3
+
+---
+
+## Async Engine
+
+The async engine is the default execution path. It dispatches work at the cell level rather than the column level, so independent columns overlap in time and per-(provider, model) AIMD pools tune themselves independently. See the [Async All the Way Down](../devnotes/posts/async-all-the-way-down.md) dev note for the full architecture.
+
+### Per-model timeouts drive every deadline
+
+The `inference_parameters.timeout` field on a `ModelConfig` sets the per-request HTTP timeout. The same value also drives the sync→async bridge that custom columns use when they call `model.generate()`. There is no separate queue-wait deadline — waits scale with provider speed and AIMD's adaptive concurrency. Slow self-hosted endpoints (e.g. large models on a single GPU) only need this one knob raised:
+
+```python
+import data_designer.config as dd
+
+config_builder.add_model_config(
+    dd.ModelConfig(
+        alias="slow-model",
+        model="my/slow-model",
+        provider="my-provider",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            timeout=600,
+        ),
+    )
+)
+```
+
+### Run outcomes
+
+A run can finish with fewer records than requested when non-retryable errors drop rows. Inspect `len(result.load_dataset())` to detect.
+
+If the rate of non-retryable errors crosses `RunConfig.shutdown_error_rate`, generation stops early and raises `DataDesignerEarlyShutdownError` (a subclass of `DataDesignerGenerationError`). Catch it separately when a typed retry path is appropriate:
+
+```python
+from data_designer.interface.errors import DataDesignerEarlyShutdownError
+
+try:
+    result = dd_instance.create(config_builder, num_records=1000)
+except DataDesignerEarlyShutdownError:
+    # e.g. retry against a different model alias
+    ...
+```
+
+### Opting out
+
+The legacy sync engine is available as a transitional opt-out:
+
+```bash
+DATA_DESIGNER_ASYNC_ENGINE=0 python my_pipeline.py
+```
+
+This switch will be removed in a future release.
 
 ---
 
