@@ -58,10 +58,14 @@ def test_no_duplicate_provider_names(stub_foo_provider: ModelProvider):
 
 
 def test_get_provider(stub_foo_provider: ModelProvider, stub_bar_provider: ModelProvider):
-    registry = ModelProviderRegistry(
-        providers=[stub_foo_provider, stub_bar_provider],
-        default="foo",
-    )
+    # Multi-provider construction with an explicit default exercises the #589
+    # deprecation path; wrap so this test stays green if the project ever runs
+    # with ``-W error::DeprecationWarning``.
+    with pytest.warns(DeprecationWarning, match="ModelProviderRegistry.default is deprecated"):
+        registry = ModelProviderRegistry(
+            providers=[stub_foo_provider, stub_bar_provider],
+            default="foo",
+        )
 
     assert registry.get_provider(None) == stub_foo_provider
     assert registry.get_provider("foo") == stub_foo_provider
@@ -82,8 +86,15 @@ def test_resolve_model_provider_registry(stub_foo_provider: ModelProvider) -> No
 def test_resolve_model_provider_registry_with_explicit_default(
     stub_foo_provider: ModelProvider, stub_bar_provider: ModelProvider
 ) -> None:
-    """Test resolve_model_provider_registry with explicit default."""
-    registry = resolve_model_provider_registry([stub_foo_provider, stub_bar_provider], default_provider_name="bar")
+    """Test resolve_model_provider_registry with explicit default.
+
+    The multi-provider/explicit-default path is the deprecated one (see #589),
+    so the construction emits a ``DeprecationWarning``. Wrap the call in
+    ``pytest.warns`` so this test stays green if the project ever runs under
+    ``-W error::DeprecationWarning``.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelProviderRegistry.default is deprecated"):
+        registry = resolve_model_provider_registry([stub_foo_provider, stub_bar_provider], default_provider_name="bar")
 
     assert registry.get_default_provider_name() == "bar"
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import logging
-import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
@@ -32,6 +31,7 @@ from data_designer.config.utils.image_helpers import (
     load_image_path_to_base64,
 )
 from data_designer.config.utils.io_helpers import smart_load_yaml
+from data_designer.config.utils.warning_helpers import warn_at_caller
 
 logger = logging.getLogger(__name__)
 
@@ -542,12 +542,17 @@ class ModelConfig(ConfigBase):
     @model_validator(mode="after")
     def _warn_on_implicit_provider(self) -> Self:
         if self.provider is None:
-            msg = (
+            # Use ``warn_at_caller`` so the warning is attributed to the user's
+            # ``ModelConfig(...)`` / ``model_validate(...)`` call rather than a
+            # pydantic-internal frame. Without this, every call dedupes to the
+            # same pydantic line and only the first emission is shown. See
+            # PR #594 review.
+            warn_at_caller(
                 f"ModelConfig.provider=None is deprecated and will be required in a future release. "
                 f"Specify provider= explicitly on ModelConfig(alias={self.alias!r}, ...). "
-                "See issue #589."
+                "See issue #589.",
+                DeprecationWarning,
             )
-            warnings.warn(msg, DeprecationWarning, stacklevel=2)
         return self
 
 

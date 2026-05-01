@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -464,7 +465,13 @@ def test_init_user_supplied_providers_preserve_first_wins_over_yaml_default(
         ),
     ]
 
-    with patch.object(dd_mod, "get_default_provider_name", return_value="second-provider"):
+    # Multi-provider construction (user-supplied list of length > 1) still
+    # passes ``default=`` to ``ModelProviderRegistry`` — that's the deprecated
+    # path under #589 — so the registry-level deprecation fires here.
+    with (
+        patch.object(dd_mod, "get_default_provider_name", return_value="second-provider"),
+        pytest.warns(DeprecationWarning, match="ModelProviderRegistry.default is deprecated"),
+    ):
         data_designer = DataDesigner(
             artifact_path=stub_artifact_path,
             model_providers=user_providers,
@@ -511,6 +518,61 @@ def test_init_no_user_providers_uses_yaml_default(
         )
 
     assert data_designer.model_provider_registry.get_default_provider_name() == "yaml-second"
+
+
+def test_init_yaml_default_emits_single_deprecation_warning(
+    stub_artifact_path: Path,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Regression for PR #594 review: when ``DataDesigner()`` falls back to the
+    YAML's ``providers:`` and ``default:``, the user should see a single
+    ``DeprecationWarning`` (the YAML one) rather than a duplicate cascade where
+    ``ModelProviderRegistry._warn_on_explicit_default`` also fires for the same
+    root cause. See issue #589.
+    """
+    yaml_providers = [
+        ModelProvider(
+            name="yaml-first",
+            endpoint="https://yaml-first.example.com/v1",
+            api_key="yaml-first-key",
+        ),
+        ModelProvider(
+            name="yaml-second",
+            endpoint="https://yaml-second.example.com/v1",
+            api_key="yaml-second-key",
+        ),
+    ]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        with (
+            patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
+            patch.object(dd_mod, "get_default_provider_name") as mock_get_default,
+        ):
+            mock_get_default.side_effect = lambda: (
+                warnings.warn(
+                    "The 'default:' key in /fake/path is deprecated and will "
+                    "be removed in a future release. Remove it and specify provider= "
+                    "explicitly on each ModelConfig instead. See issue #589.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                or "yaml-second"
+            )
+            DataDesigner(
+                artifact_path=stub_artifact_path,
+                secret_resolver=PlaintextResolver(),
+                managed_assets_path=stub_managed_assets_path,
+            )
+
+    deprecation_messages = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
+    yaml_default_warnings = [m for m in deprecation_messages if "'default:' key" in m]
+    registry_default_warnings = [m for m in deprecation_messages if "ModelProviderRegistry.default is deprecated" in m]
+    assert len(yaml_default_warnings) == 1, deprecation_messages
+    assert registry_default_warnings == [], (
+        "Registry-level deprecation should be suppressed in the YAML-fallback path "
+        "to avoid two warnings for the same root cause."
+    )
 
 
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):

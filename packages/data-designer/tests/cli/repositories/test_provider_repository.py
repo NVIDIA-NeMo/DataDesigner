@@ -23,10 +23,14 @@ def test_load_does_not_exist():
 
 
 def test_load_exists(tmp_path: Path, stub_model_providers: list[ModelProvider]):
+    # Roundtrip test for the load/save cycle. We deliberately leave ``default``
+    # unset so this test does not exercise the deprecated YAML ``default:`` path
+    # — that path is covered by ``test_load_with_yaml_default_emits_deprecation_warning``
+    # below. See issue #589.
     providers_file_path = tmp_path / MODEL_PROVIDERS_FILE_NAME
     save_config_file(
         providers_file_path,
-        ModelProviderRegistry(providers=stub_model_providers, default=stub_model_providers[0].name).model_dump(),
+        ModelProviderRegistry(providers=stub_model_providers).model_dump(exclude_none=True),
     )
     repository = ProviderRepository(tmp_path)
     assert repository.load() is not None
@@ -34,8 +38,10 @@ def test_load_exists(tmp_path: Path, stub_model_providers: list[ModelProvider]):
 
 
 def test_save(tmp_path: Path, stub_model_providers: list[ModelProvider]):
+    # As above, leave ``default`` unset so the roundtrip stays clear of the
+    # YAML-default deprecation. See issue #589.
     repository = ProviderRepository(tmp_path)
-    repository.save(ModelProviderRegistry(providers=stub_model_providers, default=stub_model_providers[0].name))
+    repository.save(ModelProviderRegistry(providers=stub_model_providers))
     assert repository.load() is not None
     assert repository.load().providers == stub_model_providers
 

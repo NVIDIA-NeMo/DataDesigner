@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -163,7 +164,21 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             self._model_providers = self._resolve_model_providers(model_providers)
             default_provider_name = None
         self._mcp_providers = mcp_providers or []
-        self._model_provider_registry = resolve_model_provider_registry(self._model_providers, default_provider_name)
+        # When the YAML carries a default, ``get_default_provider_name`` already
+        # nudged the user with a ``DeprecationWarning``. Building the registry
+        # below would re-fire ``ModelProviderRegistry._warn_on_explicit_default``
+        # for the same root cause, so suppress that second warning. See PR #594
+        # review.
+        with warnings.catch_warnings():
+            if default_provider_name is not None:
+                warnings.filterwarnings(
+                    "ignore",
+                    message="ModelProviderRegistry.default is deprecated",
+                    category=DeprecationWarning,
+                )
+            self._model_provider_registry = resolve_model_provider_registry(
+                self._model_providers, default_provider_name
+            )
         self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
 
     @property

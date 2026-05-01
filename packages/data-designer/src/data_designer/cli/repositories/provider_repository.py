@@ -36,14 +36,24 @@ class ProviderRepository(ConfigRepository[ModelProviderRegistry]):
 
         try:
             config_dict = load_config_file(self.config_file)
-            if config_dict.get("default") is not None:
-                warnings.warn(
-                    f"The 'default:' key in {self.config_file} is deprecated and will be "
-                    "removed in a future release. Remove it and refer to providers by name "
-                    "in your ModelConfig entries. See issue #589.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
+        except Exception:
+            return None
+
+        # Emit the deprecation warning *outside* the validation try/except below.
+        # ``DeprecationWarning`` is an ``Exception`` subclass, so under
+        # ``filterwarnings("error", DeprecationWarning)`` a warn raised inside
+        # the catch-all would be silently swallowed and ``load`` would drop the
+        # registry. See PR #594 review.
+        if config_dict.get("default") is not None:
+            warnings.warn(
+                f"The 'default:' key in {self.config_file} is deprecated and will "
+                "be removed in a future release. Remove it and specify provider= "
+                "explicitly on each ModelConfig instead. See issue #589.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        try:
             return ModelProviderRegistry.model_validate(config_dict)
         except Exception:
             return None

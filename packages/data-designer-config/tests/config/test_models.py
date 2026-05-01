@@ -494,6 +494,17 @@ def test_model_config_provider_none_emits_deprecation_warning():
         ModelConfig(alias="legacy", model="legacy-model", provider=None)
 
 
+def test_model_config_provider_none_via_model_validate_emits_deprecation_warning():
+    """Regression for #589 / PR #594 review: deserialising legacy on-disk configs
+    via ``ModelConfig.model_validate(...)`` must surface the same
+    ``DeprecationWarning`` as direct construction. Both paths funnel through
+    the same validator today, so this pin protects against a future refactor
+    that, e.g., only runs the validator on construction and not on revalidation.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig.model_validate({"alias": "legacy", "model": "legacy-model"})
+
+
 def test_model_config_with_provider_does_not_warn():
     """Pin the post-deprecation happy path: specifying ``provider=`` must not
     emit any deprecation warning.

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import warnings
 from functools import cached_property
 
 from pydantic import BaseModel, field_validator, model_validator
@@ -11,6 +10,7 @@ from typing_extensions import Self
 
 from data_designer.config.mcp import MCPProviderT
 from data_designer.config.models import ModelProvider
+from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.engine.errors import NoModelProvidersError, UnknownProviderError
 
 
@@ -56,17 +56,21 @@ class ModelProviderRegistry(BaseModel):
 
     @model_validator(mode="after")
     def _warn_on_explicit_default(self) -> Self:
-        # Fires only when the caller actually passed ``default=`` (not when it's
-        # left at the field default of None). ``resolve_model_provider_registry``
-        # avoids passing ``default=`` in the single-provider case so common
-        # construction paths stay quiet. See issue #589.
-        if "default" in self.model_fields_set:
-            warnings.warn(
+        # Fires only when the caller actually passed a non-None ``default=``.
+        # The ``model_fields_set`` guard distinguishes "caller opted into the
+        # deprecated field" from "field at its default value of None", and the
+        # ``self.default is not None`` clause additionally lets callers
+        # explicitly opt *out* via ``default=None`` without tripping the
+        # warning. ``resolve_model_provider_registry`` avoids passing
+        # ``default=`` in the single-provider case so common construction paths
+        # stay quiet. ``warn_at_caller`` keeps attribution and dedup correct
+        # under pydantic's validator dispatch. See issue #589 / PR #594 review.
+        if "default" in self.model_fields_set and self.default is not None:
+            warn_at_caller(
                 "ModelProviderRegistry.default is deprecated and will be removed in a "
                 "future release. Specify provider= explicitly on each ModelConfig "
                 "instead of relying on a registry-level default. See issue #589.",
                 DeprecationWarning,
-                stacklevel=2,
             )
         return self
 
