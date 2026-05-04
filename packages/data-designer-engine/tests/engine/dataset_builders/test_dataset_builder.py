@@ -1943,3 +1943,38 @@ def test_if_possible_starts_fresh_when_no_existing_directory(
                                 builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
 
     assert storage.resume == ResumeMode.NEVER
+
+
+def test_if_possible_starts_fresh_when_directory_is_empty(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """IF_POSSIBLE on an empty dataset directory must start fresh, not raise.
+
+    Edge case: a prior run crashed in the window between mkdir and the first file write
+    inside _write_builder_config, leaving an empty directory. _check_resume_config_compatibility
+    previously returned True (config file absent → assume compatible), causing IF_POSSIBLE to
+    upgrade to ALWAYS, which then raised ArtifactStorageError because the directory is empty.
+
+    Fix: treat an empty directory the same as a missing one — return False.
+    """
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()  # empty — no files written yet
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(builder, "_run_mcp_tool_check_if_needed"):
+            with patch.object(builder, "_write_builder_config"):
+                with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+                    with patch.object(builder.batch_manager, "start"):
+                        with patch.object(builder.batch_manager, "finish"):
+                            with patch.object(builder._processor_runner, "run_after_generation"):
+                                builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+
+    assert storage.resume == ResumeMode.NEVER

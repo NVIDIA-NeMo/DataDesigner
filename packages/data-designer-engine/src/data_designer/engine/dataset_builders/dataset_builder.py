@@ -511,7 +511,7 @@ class DatasetBuilder:
         caller has had a chance to decide whether to resume or start fresh.
         """
         dataset_dir = Path(self.artifact_storage.artifact_path) / self.artifact_storage.dataset_name
-        if not dataset_dir.exists():
+        if not dataset_dir.exists() or not any(dataset_dir.iterdir()):
             return False
         config_path = dataset_dir / SDG_CONFIG_FILENAME
         if not config_path.exists():
