@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import importlib.metadata
+import sys
+
 import typer
 
 from data_designer.cli.agent_command_defs import AGENT_COMMANDS
@@ -10,6 +13,23 @@ from data_designer.cli.lazy_group import create_lazy_typer_group
 from data_designer.cli.runtime import ensure_cli_default_model_settings
 
 _CMD = "data_designer.cli.commands"
+_PACKAGE_NAME = "data-designer"
+
+
+def _version_callback(value: bool) -> None:
+    if not value:
+        return
+    try:
+        typer.echo(importlib.metadata.version(_PACKAGE_NAME))
+    except importlib.metadata.PackageNotFoundError:
+        typer.echo(f"Unable to resolve installed {_PACKAGE_NAME} package version.", err=True)
+        raise typer.Exit(1) from None
+    raise typer.Exit()
+
+
+def _is_version_request(args: list[str]) -> bool:
+    return bool(args) and args[0] == "--version"
+
 
 # Initialize Typer app with custom configuration
 app = typer.Typer(
@@ -133,9 +153,23 @@ app.add_typer(download_app, name="download", rich_help_panel="Setup")
 app.add_typer(agent_app, name="agent", rich_help_panel="Agent")
 
 
+@app.callback()
+def app_callback(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the installed data-designer package version and exit.",
+    ),
+) -> None:
+    _ = version
+
+
 def main() -> None:
     """Main entry point for the CLI."""
-    ensure_cli_default_model_settings()
+    if not _is_version_request(sys.argv[1:]):
+        ensure_cli_default_model_settings()
     app()
 
 
