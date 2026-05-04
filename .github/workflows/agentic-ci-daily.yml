@@ -127,6 +127,11 @@ jobs:
           python -m venv /tmp/graphify-venv
           /tmp/graphify-venv/bin/python -m pip install graphifyy==0.4.23 --quiet 2>&1 | tail -3
 
+      - name: Configure git identity
+        run: |
+          git config user.email "agentic-ci@datadesigner"
+          git config user.name "Agentic CI"
+
       - name: Pre-flight checks
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
@@ -173,11 +178,13 @@ jobs:
             exit 1
           fi
 
-          # Build prompt: _runner.md + recipe body (strip YAML frontmatter)
+          # Build prompt: phase directive + _runner.md + _fix-policy.md + recipe body (strip YAML frontmatter)
+          PHASE_DIRECTIVE=$(cat .agents/recipes/_phase-audit.md)
           RUNNER_CTX=$(cat .agents/recipes/_runner.md)
+          FIX_POLICY=$(cat .agents/recipes/_fix-policy.md)
           RECIPE_BODY=$(sed '1,/^---$/{ /^---$/,/^---$/d }' "${RECIPE_DIR}/recipe.md")
 
-          PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}" \
+          PROMPT=$(printf '%s\n\n%s\n\n%s\n\n%s\n' "${PHASE_DIRECTIVE}" "${RUNNER_CTX}" "${FIX_POLICY}" "${RECIPE_BODY}" \
             | sed "s|{{suite}}|${SUITE}|g" \
             | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
             | sed "s|{{memory_path}}|.agentic-ci-state|g")
@@ -189,6 +196,49 @@ jobs:
             --output-format stream-json \
             --verbose \
             2>&1 | tee /tmp/claude-audit-log.txt
+
+      - name: Check fix backlog
+        id: backlog
+        if: success() && matrix.suite != 'test-health'
+        run: |
+          BACKLOG_SIZE=$(jq '.fix_backlog // [] | length' .agentic-ci-state/runner-state.json 2>/dev/null || echo 0)
+          echo "size=${BACKLOG_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "fix_backlog has ${BACKLOG_SIZE} entries"
+
+      - name: Run fix recipe
+        id: fix
+        if: success() && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          DISABLE_PROMPT_CACHING: "1"
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -o pipefail
+
+          RECIPE_DIR=".agents/recipes/${SUITE}"
+
+          # Build prompt: phase directive + _runner.md + _fix-policy.md + recipe body (strip YAML frontmatter)
+          PHASE_DIRECTIVE=$(cat .agents/recipes/_phase-fix.md)
+          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
+          FIX_POLICY=$(cat .agents/recipes/_fix-policy.md)
+          RECIPE_BODY=$(sed '1,/^---$/{ /^---$/,/^---$/d }' "${RECIPE_DIR}/recipe.md")
+
+          PROMPT=$(printf '%s\n\n%s\n\n%s\n\n%s\n' "${PHASE_DIRECTIVE}" "${RUNNER_CTX}" "${FIX_POLICY}" "${RECIPE_BODY}" \
+            | sed "s|{{suite}}|${SUITE}|g" \
+            | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
+            | sed "s|{{memory_path}}|.agentic-ci-state|g")
+
+          stdbuf -oL -eL claude \
+            --model "$AGENTIC_CI_MODEL" \
+            -p "$PROMPT" \
+            --max-turns 50 \
+            --output-format stream-json \
+            --verbose \
+            2>&1 | tee /tmp/claude-fix-log.txt
 
       - name: Update runner memory
         if: always()
@@ -205,7 +255,9 @@ jobs:
           except (json.JSONDecodeError, FileNotFoundError) as e:
               print(f'::warning::runner-state.json is invalid ({e}), resetting')
               state = {'suite': os.environ['SUITE'], 'known_issues': [], 'baselines': {}}
-          # Only stamp last_run if the audit actually succeeded
+          # Only stamp last_run if the audit actually succeeded.
+          # Fix phase manages its own state via attempted_fixes; its outcome
+          # does not gate last_run.
           if os.environ.get('AUDIT_OUTCOME') == 'success':
               state['last_run'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
           state['suite'] = os.environ['SUITE']
@@ -220,7 +272,9 @@ jobs:
           name: claude-audit-log-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             /tmp/claude-audit-log.txt
+            /tmp/claude-fix-log.txt
             /tmp/audit-${{ matrix.suite }}.md
+            /tmp/pr-body-${{ matrix.suite }}.md
           retention-days: 14
           if-no-files-found: ignore
 
@@ -228,8 +282,15 @@ jobs:
         if: always()
         env:
           SUITE: ${{ matrix.suite }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          FIX_OUTCOME: ${{ steps.fix.outcome }}
+          BACKLOG_SIZE: ${{ steps.backlog.outputs.size }}
         run: |
           echo "## Daily Audit: ${SUITE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Audit: \`${AUDIT_OUTCOME:-unknown}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fix backlog size: \`${BACKLOG_SIZE:-n/a}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fix: \`${FIX_OUTCOME:-skipped}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ -s "/tmp/audit-${SUITE}.md" ]; then

@@ -317,9 +317,29 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 If no findings in any category, write `NO_FINDINGS` on the first line instead.
 
+## Fix phase
+
+**This suite has no fix phase.** All categories — coverage gaps, hollow
+tests, import perf regressions, smoke check failures, test isolation
+violations — stay report-only.
+
+Rationale: the categories that look mechanical (rewriting hollow
+`assert ... is not None` checks, adding missing test files, fixing
+test-isolation violations) all require inferring intent or authoring new
+code. The audit phase only commits to *flagging* these conservatively;
+turning that into authored test changes is beyond the "self-evident"
+bar in `_fix-policy.md`.
+
+A future revision may add **test-isolation violations** (config tests
+importing engine, engine tests importing interface) as an eligible fix
+category — those are mechanical (replace the cross-boundary import with
+a test-local equivalent or fixture). Add only after `code-quality` (the
+other inference-heavy suite) has its draft-PR landing rate proven and
+`draft_until_proven` flipped to `false`.
+
 ## Constraints
 
-- Do not modify any test files. This is a read-only audit.
+- This recipe is fully read-only — do not modify any files at all.
 - Do not run the full test suite or coverage tool. Analysis is based on
   file structure and static inspection, not execution.
 - Be conservative with hollow test detection. Only flag tests you've read

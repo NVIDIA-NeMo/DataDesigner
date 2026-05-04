@@ -26,6 +26,10 @@ dependency versions. After the audit, update `known_issues` and
 `baselines.dependency_versions` with the current state. Skip reporting issues
 that already appear in `known_issues`.
 
+This recipe also maintains `fix_backlog` and `attempted_fixes` per
+`_fix-policy.md`. Update `fix_backlog` for every detected finding *before*
+the `known_issues` filter applies.
+
 ## Instructions
 
 ### 1. Inventory current dependencies
@@ -154,12 +158,40 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 If no findings in any category, write `NO_FINDINGS` on the first line instead.
 
+## Fix phase
+
+Follow the standard fix procedure in `_fix-policy.md`. Suite-specific bits:
+
+### Eligible categories
+
+| Category | Branch type | test_required | Eligibility note |
+|----------|-------------|---------------|------------------|
+| transitive-gap | `chore` | yes | Add the imported module to `[project.dependencies]` of the package that imports it. Use the version specifier from a package that already declares it; otherwise the latest stable specifier. Insert in alphabetical order; match existing quote/specifier style. |
+| unused | `chore` | yes | Remove the declaration. Eligible only when grep across the package's `src/`, lazy-import system, plugin entry points, and tests turns up zero references. |
+
+`fix_backlog.data` should record: for transitive-gap, the importing source
+files and proposed version specifier; for unused, which other packages
+also declare the dep.
+
+Before running `make test-<package>`, run `make install-dev` to confirm
+the lockfile resolves cleanly. `make install-dev` is the only sanctioned
+install command (no direct `pip install` or `uv pip install`).
+
+**Not eligible** — stays report-only:
+
+- Cross-package version reconciliation, version pinning concerns
+  (judgement-heavy).
+- CVE response (Dependabot's job).
+
 ## Constraints
 
-- Do not modify any files. This is a read-only audit.
-- Do not install packages or run `pip install`. Only inspect `pyproject.toml`
-  and source files.
+- Outside the fix phase, this recipe is read-only — do not modify files.
+- Within the fix phase, only modify `packages/*/pyproject.toml`. The
+  repo-root `pyproject.toml` is forbidden.
+- `make install-dev` is the only sanctioned install command. Do not
+  invoke `pip install` or `uv pip install` directly.
 - Do not run `pip audit` (may not be available on the runner). Focus on
   structural dependency analysis, not CVE scanning (Dependabot handles that).
 - Do not recommend changes to dependencies you haven't verified are actually
   problematic. False positives erode trust in the audit.
+- Version pinning changes are explicitly out of scope for the fix phase.
