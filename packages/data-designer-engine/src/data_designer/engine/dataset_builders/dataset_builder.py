@@ -101,6 +101,7 @@ class _ResumeState:
     num_completed_batches: int
     actual_num_records: int
     buffer_size: int
+    target_num_records: int
 
 
 class DatasetBuilder:
@@ -344,6 +345,7 @@ class DatasetBuilder:
             num_completed_batches=metadata["num_completed_batches"],
             actual_num_records=actual_num_records,
             buffer_size=buffer_size,
+            target_num_records=metadata["target_num_records"],
         )
 
     def _build_with_resume(
@@ -552,15 +554,17 @@ class DatasetBuilder:
         initial_total_num_batches = 0
 
         if resume == ResumeMode.ALWAYS:
-            self._load_resume_state(num_records, buffer_size)
+            state = self._load_resume_state(num_records, buffer_size)
             completed_ids = self._find_completed_row_group_ids()
             skip_row_groups = frozenset(completed_ids)
             # Use filesystem as source of truth for both counters — metadata may lag by one
             # row group if a crash occurred between move_partial_result_to_final_file_path
             # and write_metadata.
+            # Use the original target (not the new num_records) so the last row group of a
+            # non-aligned run gets its true size, not buffer_size.
             initial_total_num_batches = len(completed_ids)
             initial_actual_num_records = sum(
-                min(buffer_size, num_records - rg_id * buffer_size) for rg_id in completed_ids
+                min(buffer_size, state.target_num_records - rg_id * buffer_size) for rg_id in completed_ids
             )
             self.artifact_storage.clear_partial_results()
 

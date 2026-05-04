@@ -1780,6 +1780,50 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
     assert captured["initial_total_num_batches"] == 2
 
 
+def test_build_async_resume_initial_actual_num_records_uses_original_target(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """initial_actual_num_records uses the original target_num_records, not the new num_records.
+
+    When extending a non-aligned run (original num_records=5, buffer_size=2 → row groups [2,2,1]),
+    all 3 row groups completed. Resuming with num_records=7 must not use the new target in the
+    formula: min(2, 7-2*2)=min(2,3)=2 would give 6, but the actual data is 5 records.
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    # Original run: 5 records, buffer_size=2, all 3 row groups done
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 7
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            # Extend the dataset: new target is 7, original was 5
+                            builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+
+    # Row groups [2, 2, 1] from original 5-record run: 2+2+1=5, not 2+2+2=6
+    assert captured["initial_actual_num_records"] == 5
+
+
 def test_build_async_resume_skip_row_groups_contains_completed_ids(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
