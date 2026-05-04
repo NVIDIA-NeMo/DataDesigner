@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -579,6 +580,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         choice so the fallback path is functional.
         """
         if not DATA_DESIGNER_ASYNC_ENGINE:
+            # Deliberate opt-out via env var. Surface the deprecation so users
+            # know the sync path is going away. (The ``allow_resize`` auto-fallback
+            # below has its own ``DeprecationWarning`` from the builder layer; we
+            # don't double-warn here.)
+            warnings.warn(
+                "DATA_DESIGNER_ASYNC_ENGINE=0 selects the legacy sync engine, which is "
+                "deprecated and will be removed in a future release. Unset the variable "
+                "(or set it to 1) to use the async engine.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
             return ClientConcurrencyMode.SYNC
         if any(c.allow_resize for c in config_builder.get_column_configs()):
             return ClientConcurrencyMode.SYNC

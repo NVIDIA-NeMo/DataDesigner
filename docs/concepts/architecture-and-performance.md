@@ -301,13 +301,12 @@ except DataDesignerEarlyShutdownError:
 
 ### Opting out
 
-The legacy sync engine is available as a transitional opt-out:
+!!! warning "Deprecated"
+    `DATA_DESIGNER_ASYNC_ENGINE=0` selects the legacy sync engine. This is a deprecated escape hatch for the transitional release and will be removed in a future version. The opt-out also emits a `DeprecationWarning` at run time so it shows up in your logs.
 
 ```bash
 DATA_DESIGNER_ASYNC_ENGINE=0 python my_pipeline.py
 ```
-
-This switch will be removed in a future release.
 
 ---
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -412,26 +413,36 @@ def _builder_with_allow_resize() -> DataDesignerConfigBuilder:
 
 
 @pytest.mark.parametrize(
-    "env_value,with_allow_resize,expected",
+    "env_value,with_allow_resize,expected,expect_deprecation",
     [
-        ("1", False, "async"),
-        ("1", True, "sync"),
-        ("0", False, "sync"),
+        ("1", False, "async", False),
+        ("1", True, "sync", False),
+        ("0", False, "sync", True),
     ],
     ids=[
         "async-on-no-fallback-uses-async-clients",
         "async-on-allow-resize-falls-back-to-sync-clients",
-        "async-off-uses-sync-clients",
+        "async-off-uses-sync-clients-and-warns",
     ],
 )
 def test_resolve_client_concurrency_mode_matches_engine_choice(
-    env_value: str, with_allow_resize: bool, expected: str, monkeypatch: pytest.MonkeyPatch
+    env_value: str,
+    with_allow_resize: bool,
+    expected: str,
+    expect_deprecation: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Client mode must match the engine the run will actually use.
 
     Without this alignment, a sync-fallback run (e.g. ``allow_resize=True``)
     would be left with async-only clients and call sync methods on them,
     raising ``SyncClientUnavailableError`` from inside the sync engine.
+
+    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
+    ``DeprecationWarning`` so users on the legacy sync engine see a
+    pre-removal signal in their logs. The auto-fallback path
+    (``allow_resize=True``) does not double-warn here; the builder layer
+    emits its own warning when the run actually executes.
     """
     monkeypatch.setattr(dd_mod, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
     builder = _builder_with_allow_resize() if with_allow_resize else DataDesignerConfigBuilder()
@@ -444,7 +455,13 @@ def test_resolve_client_concurrency_mode_matches_engine_choice(
             )
         )
 
-    mode = DataDesigner._resolve_client_concurrency_mode(builder)
+    if expect_deprecation:
+        with pytest.warns(DeprecationWarning, match="legacy sync engine"):
+            mode = DataDesigner._resolve_client_concurrency_mode(builder)
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            mode = DataDesigner._resolve_client_concurrency_mode(builder)
     assert mode.value == expected
 
 
