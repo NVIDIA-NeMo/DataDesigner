@@ -51,6 +51,32 @@ def test_get_update_notice_fails_closed_when_check_fails(tmp_path: Path, monkeyp
     mock_fetch.assert_called_once_with(include_prereleases=False)
 
 
+def test_get_update_notice_returns_none_for_invalid_installed_version(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    mock_fetch = Mock(return_value="0.6.1")
+    monkeypatch.setattr(version_notice, "_fetch_latest_version", mock_fetch)
+
+    notice = get_update_notice("not-a-version", cache_dir=tmp_path, environ={}, now=lambda: 1_000.0)
+
+    assert notice is None
+    mock_fetch.assert_not_called()
+
+
+def test_get_update_notice_returns_none_for_local_installed_version(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    mock_fetch = Mock(return_value="0.6.1")
+    monkeypatch.setattr(version_notice, "_fetch_latest_version", mock_fetch)
+
+    notice = get_update_notice("0.6.1.dev0+gabc1234", cache_dir=tmp_path, environ={}, now=lambda: 1_000.0)
+
+    assert notice is None
+    mock_fetch.assert_not_called()
+
+
 def test_get_update_notice_respects_opt_out(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     mock_fetch = Mock(return_value="0.6.1")
     monkeypatch.setattr(version_notice, "_fetch_latest_version", mock_fetch)
@@ -74,6 +100,8 @@ def test_get_update_notice_uses_fresh_cache(tmp_path: Path, monkeypatch: MonkeyP
                 "checked_at": 1_000.0,
                 "include_prereleases": False,
                 "latest_version": "0.6.1",
+                "package_name": "data-designer",
+                "schema_version": 1,
             }
         ),
         encoding="utf-8",
@@ -88,6 +116,57 @@ def test_get_update_notice_uses_fresh_cache(tmp_path: Path, monkeypatch: MonkeyP
     mock_fetch.assert_not_called()
 
 
+def test_get_update_notice_refetches_expired_cache(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    cache_path = tmp_path / "version-check.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "checked_at": 1_000.0,
+                "include_prereleases": False,
+                "latest_version": "0.6.1",
+                "package_name": "data-designer",
+                "schema_version": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    mock_fetch = Mock(return_value="0.6.2")
+    monkeypatch.setattr(version_notice, "_fetch_latest_version", mock_fetch)
+
+    notice = get_update_notice(
+        "0.6.0",
+        cache_dir=tmp_path,
+        environ={},
+        now=lambda: 1_000.0 + (7 * 60 * 60),
+    )
+
+    assert notice is not None
+    assert notice.latest_version == "0.6.2"
+    mock_fetch.assert_called_once_with(include_prereleases=False)
+
+
+def test_get_update_notice_ignores_cache_with_old_schema(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    cache_path = tmp_path / "version-check.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "checked_at": 1_000.0,
+                "include_prereleases": False,
+                "latest_version": "0.6.1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    mock_fetch = Mock(return_value="0.6.2")
+    monkeypatch.setattr(version_notice, "_fetch_latest_version", mock_fetch)
+
+    notice = get_update_notice("0.6.0", cache_dir=tmp_path, environ={}, now=lambda: 1_001.0)
+
+    assert notice is not None
+    assert notice.latest_version == "0.6.2"
+    mock_fetch.assert_called_once_with(include_prereleases=False)
+
+
 def test_prerelease_versions_are_ignored_unless_requested() -> None:
     payload = {
         "releases": {
@@ -98,6 +177,23 @@ def test_prerelease_versions_are_ignored_unless_requested() -> None:
 
     assert version_notice._latest_version_from_pypi_payload(payload, include_prereleases=False) == "0.6.1"
     assert version_notice._latest_version_from_pypi_payload(payload, include_prereleases=True) == "0.6.2rc1"
+
+
+def test_latest_version_ignores_yanked_and_malformed_release_files() -> None:
+    payload = {
+        "releases": {
+            "0.6.1": [{"yanked": False}],
+            "0.6.2": [{"yanked": True}, "not-a-file-record"],
+            "0.6.3": [],
+        }
+    }
+
+    assert version_notice._latest_version_from_pypi_payload(payload, include_prereleases=False) == "0.6.1"
+
+
+def test_latest_version_returns_none_for_malformed_pypi_payload() -> None:
+    assert version_notice._latest_version_from_pypi_payload({}, include_prereleases=False) is None
+    assert version_notice._latest_version_from_pypi_payload({"releases": []}, include_prereleases=False) is None
 
 
 def test_installed_prerelease_opts_into_prerelease_checks(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -140,6 +236,15 @@ def test_select_upgrade_command_detects_uv_tool_environment() -> None:
     )
 
     assert command == "uv tool upgrade data-designer"
+
+
+def test_select_upgrade_command_detects_pipx_environment() -> None:
+    command = select_upgrade_command(
+        environ={},
+        python_prefix="/Users/user/.local/pipx/venvs/data-designer",
+    )
+
+    assert command == "pipx upgrade data-designer"
 
 
 def test_select_upgrade_command_detects_project_environment() -> None:

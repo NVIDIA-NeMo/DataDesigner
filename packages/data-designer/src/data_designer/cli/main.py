@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import sys
+from typing import TextIO
 
 import typer
 
@@ -14,6 +15,11 @@ from data_designer.cli.runtime import ensure_cli_default_model_settings
 
 _CMD = "data_designer.cli.commands"
 _PACKAGE_NAME = "data-designer"
+
+
+def _should_show_update_notice(stream: TextIO | None = None) -> bool:
+    stream = sys.stdout if stream is None else stream
+    return stream.isatty()
 
 
 def _version_callback(value: bool) -> None:
@@ -26,6 +32,9 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit(1) from None
 
     typer.echo(installed_version)
+    if not _should_show_update_notice():
+        raise typer.Exit()
+
     from data_designer.cli.ui import print_update_notice
     from data_designer.cli.version_notice import get_update_notice
 

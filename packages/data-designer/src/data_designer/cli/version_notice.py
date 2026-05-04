@@ -22,11 +22,13 @@ _PACKAGE_NAME = "data-designer"
 _PYPI_JSON_URL = f"https://pypi.org/pypi/{_PACKAGE_NAME}/json"
 _VERSION_CHECK_TIMEOUT_SECONDS = 0.75
 _CACHE_TTL_SECONDS = 6 * 60 * 60
+_CACHE_SCHEMA_VERSION = 1
 _CACHE_FILE_NAME = "version-check.json"
 _DISABLE_VERSION_CHECK_ENV_VAR = "DATA_DESIGNER_DISABLE_VERSION_CHECK"
 _INCLUDE_PRERELEASES_ENV_VAR = "DATA_DESIGNER_VERSION_CHECK_PRERELEASES"
 _UV_TOOL_UPGRADE_COMMAND = "uv tool upgrade data-designer"
 _PROJECT_UPGRADE_COMMAND = "uv add --upgrade data-designer"
+_PIPX_UPGRADE_COMMAND = "pipx upgrade data-designer"
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,8 @@ def get_update_notice(
     try:
         installed = Version(installed_version)
     except InvalidVersion:
+        return None
+    if installed.local is not None:
         return None
 
     include_prereleases = installed.is_prerelease or _env_flag_enabled(env, _INCLUDE_PRERELEASES_ENV_VAR)
@@ -83,6 +87,8 @@ def select_upgrade_command(
     env = os.environ if environ is None else environ
     prefix = Path(sys.prefix if python_prefix is None else python_prefix)
     prefix_parts = set(prefix.parts)
+    if "pipx" in prefix_parts and "venvs" in prefix_parts:
+        return _PIPX_UPGRADE_COMMAND
     if "uv" in prefix_parts and "tools" in prefix_parts:
         return _UV_TOOL_UPGRADE_COMMAND
     if env.get("UV_PROJECT_ENVIRONMENT") or env.get("VIRTUAL_ENV"):
@@ -138,7 +144,7 @@ def _latest_version_from_pypi_payload(payload: Mapping[str, Any], *, include_pre
 
     candidates: list[Version] = []
     for version_text, release_files in releases.items():
-        if not isinstance(version_text, str) or _is_yanked_release(release_files):
+        if not isinstance(version_text, str) or not _has_installable_release_file(release_files):
             continue
         try:
             version = Version(version_text)
@@ -154,10 +160,12 @@ def _latest_version_from_pypi_payload(payload: Mapping[str, Any], *, include_pre
     return max(candidates).public
 
 
-def _is_yanked_release(release_files: Any) -> bool:
-    if not isinstance(release_files, list) or not release_files:
-        return True
-    return all(isinstance(release_file, dict) and release_file.get("yanked", False) for release_file in release_files)
+def _has_installable_release_file(release_files: Any) -> bool:
+    if not isinstance(release_files, list):
+        return False
+    return any(
+        isinstance(release_file, dict) and not release_file.get("yanked", False) for release_file in release_files
+    )
 
 
 def _read_cached_version(
@@ -173,6 +181,10 @@ def _read_cached_version(
     if not isinstance(cache_data, dict):
         return None
 
+    if cache_data.get("schema_version") != _CACHE_SCHEMA_VERSION:
+        return None
+    if cache_data.get("package_name") != _PACKAGE_NAME:
+        return None
     if cache_data.get("include_prereleases") != include_prereleases:
         return None
 
@@ -196,11 +208,19 @@ def _write_cached_version(
         "checked_at": checked_at,
         "include_prereleases": include_prereleases,
         "latest_version": latest_version,
+        "package_name": _PACKAGE_NAME,
+        "schema_version": _CACHE_SCHEMA_VERSION,
     }
+    temp_path = cache_path.with_name(f"{cache_path.name}.{os.getpid()}.tmp")
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(cache_data), encoding="utf-8")
+        temp_path.write_text(json.dumps(cache_data), encoding="utf-8")
+        temp_path.replace(cache_path)
     except OSError:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
         return
 
 

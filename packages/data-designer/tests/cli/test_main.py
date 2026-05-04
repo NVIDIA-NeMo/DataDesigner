@@ -54,6 +54,7 @@ def test_main_skips_bootstrap_when_version_follows_another_flag(mock_bootstrap: 
 def test_app_version_prints_installed_data_designer_version() -> None:
     with (
         patch("data_designer.cli.main.importlib.metadata.version", return_value="0.6.0") as mock_version,
+        patch("data_designer.cli.main._should_show_update_notice", return_value=True),
         patch("data_designer.cli.version_notice.get_update_notice", return_value=None) as mock_notice,
     ):
         result = runner.invoke(app, ["--version"])
@@ -68,6 +69,7 @@ def test_app_version_prints_update_notice_after_installed_version() -> None:
     notice = UpdateNotice(latest_version="0.6.1", upgrade_command="uv tool upgrade data-designer")
     with (
         patch("data_designer.cli.main.importlib.metadata.version", return_value="0.6.0"),
+        patch("data_designer.cli.main._should_show_update_notice", return_value=True),
         patch("data_designer.cli.version_notice.get_update_notice", return_value=notice),
     ):
         result = runner.invoke(app, ["--version"])
@@ -78,9 +80,23 @@ def test_app_version_prints_update_notice_after_installed_version() -> None:
     assert "Upgrade with: uv tool upgrade data-designer" in result.output
 
 
+def test_app_version_skips_update_notice_when_stdout_is_not_tty() -> None:
+    with (
+        patch("data_designer.cli.main.importlib.metadata.version", return_value="0.6.0"),
+        patch("data_designer.cli.main._should_show_update_notice", return_value=False),
+        patch("data_designer.cli.version_notice.get_update_notice") as mock_notice,
+    ):
+        result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output == "0.6.0\n"
+    mock_notice.assert_not_called()
+
+
 def test_app_version_skips_update_notice_when_lookup_fails() -> None:
     with (
         patch("data_designer.cli.main.importlib.metadata.version", return_value="0.6.0"),
+        patch("data_designer.cli.main._should_show_update_notice", return_value=True),
         patch("data_designer.cli.version_notice.get_update_notice", side_effect=RuntimeError("network failure")),
     ):
         result = runner.invoke(app, ["--version"])
