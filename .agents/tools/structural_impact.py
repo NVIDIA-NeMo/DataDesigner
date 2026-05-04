@@ -37,6 +37,11 @@ _PACKAGE_SUBDIRS = [
     Path("packages") / "data-designer" / "src" / "data_designer",
 ]
 
+# Derived from _PACKAGE_SUBDIRS so adding a subdir keeps the unknown-package
+# detector in sync. New packages not in this set are silently absent from the
+# graph; the changed-files report calls them out so the failure isn't invisible.
+_KNOWN_PACKAGE_DIRS = frozenset(p.parts[1] for p in _PACKAGE_SUBDIRS)
+
 _STDLIB_LABELS = {"ABC", "BaseModel", "Enum", "Field"}
 
 
@@ -46,6 +51,20 @@ def _collect_source_files() -> list[Path]:
         if d.exists():
             files.extend(p for p in d.rglob("*.py") if not any(part.startswith(".") for part in p.relative_to(d).parts))
     return sorted(files)
+
+
+def _unknown_package_dirs(paths: list[Path]) -> list[str]:
+    """Return distinct package directory names under packages/ that are not in _KNOWN_PACKAGE_DIRS."""
+    found: set[str] = set()
+    for p in paths:
+        try:
+            rel = p.resolve().relative_to(_REPO_ROOT)
+        except ValueError:
+            continue
+        parts = rel.parts
+        if len(parts) >= 2 and parts[0] == "packages" and parts[1] not in _KNOWN_PACKAGE_DIRS:
+            found.add(parts[1])
+    return sorted(found)
 
 
 def _get_package(filepath: str) -> str:
@@ -257,6 +276,7 @@ def _changed_files_mode(changed_files: list[Path], deleted_files: list[Path] | N
 
     elapsed = time.monotonic() - t0
     file_count = len(changed_files) + n_deleted
+    unknown_pkgs = _unknown_package_dirs(list(changed_files) + list(deleted_files or []))
     lines = [
         f"### Structural Impact _(graphify, {elapsed:.1f}s)_",
         "",
@@ -265,6 +285,12 @@ def _changed_files_mode(changed_files: list[Path], deleted_files: list[Path] | N
         f"{len(affected_communities)}/{len(communities)} clusters",
         "",
     ]
+    if unknown_pkgs:
+        lines.append(
+            f"- _Note: changes touch unknown package(s) ({', '.join(unknown_pkgs)}); "
+            "analysis may be incomplete - update `_PACKAGE_SUBDIRS` in structural_impact.py._"
+        )
+        lines.append("")
     if n_deleted:
         lines.append(f"- {n_deleted} Python file(s) deleted (impact not fully analyzable)")
         lines.append("")
