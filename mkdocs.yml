@@ -69,8 +69,9 @@ nav:
           - "Frontier Judge QA Filter": recipes/vlm_long_doc/frontier_judge.md
   - Plugins:
       - Overview: plugins/overview.md
-      - Build Your Own: plugins/implement.md
-      - Catalog: plugins/available.md
+      - Build Your Own: plugins/build_your_own.md
+      - Using Models: plugins/models.md
+      - Available Plugins: plugins/available.md
   - Code Reference:
       # Keep code reference pages ordered alphabetically by nav label.
       - analysis: code_reference/analysis.md
@@ -84,6 +85,7 @@ nav:
       - processors: code_reference/processors.md
       - run_config: code_reference/run_config.md
       - sampler_params: code_reference/sampler_params.md
+      - seed_readers: code_reference/seed_readers.md
       - validator_params: code_reference/validator_params.md
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)

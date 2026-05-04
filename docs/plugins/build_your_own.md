@@ -25,6 +25,9 @@ data-designer-my-plugin/
 
     This `index-multiplier` plugin adds a custom column whose value is the row index multiplied by a configurable integer.
 
+    !!! note "Model-backed generators"
+        If your column generator interacts with models, include at least one `model_alias` field in the config and use the model registry from the implementation. See [Using Models in Plugins](models.md) for the registry access pattern.
+
     `config.py`:
 
     ```python
@@ -190,7 +193,7 @@ data-designer-my-plugin/
     prefixed-text-files = "data_designer_prefixed_text_seed_reader.plugin:plugin"
     ```
 
-    For filesystem-specific behavior, manifest selection, and hydration semantics, see [FileSystemSeedReader Plugins](filesystem_seed_reader.md).
+    For the engine API behind this example, see [Seed Readers](../code_reference/seed_readers.md).
 
 === "Processor"
 
@@ -261,7 +264,7 @@ data-designer-my-plugin/
     regex-filter = "data_designer_regex_filter.plugin:plugin"
     ```
 
-    For callback selection and processor execution details, see [Processor Plugins](processor.md).
+    For callback selection and processor execution details, see [Processors](../concepts/processors.md).
 
 ## Install and use locally
 

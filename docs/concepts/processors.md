@@ -143,13 +143,7 @@ Processors execute in the order they're added. Plan accordingly when one process
 
 ## Processor Plugins
 
-You can extend Data Designer with custom processors via the [plugin system](../plugins/overview.md). A processor plugin is a Python package that provides:
-
-- A **config class** inheriting from `ProcessorConfig` with a `processor_type: Literal["your-type"]` discriminator
-- An **implementation class** inheriting from `Processor` that overrides the desired callback methods
-- A **`Plugin` instance** connecting the two
-
-Once installed, plugin processors are automatically discovered and can be used with `add_processor()` like built-in processors.
+You can extend Data Designer with custom processors via the [plugin system](../plugins/overview.md). Once installed, plugin processors are automatically discovered and can be used with `add_processor()` like built-in processors.
 
 ```python
 from my_processor_plugin.config import MyProcessorConfig
@@ -162,14 +156,7 @@ builder.add_processor(
 )
 ```
 
-**Entry point configuration** in `pyproject.toml`:
-
-```toml
-[project.entry-points."data_designer.plugins"]
-my-processor = "my_plugin.plugin:my_processor_plugin"
-```
-
-See [Processor Plugins](../plugins/processor.md) for a complete package example and the [plugins overview](../plugins/overview.md) for discovery details.
+For implementation instructions across all plugin types, see [Build Your Own](../plugins/build_your_own.md).
 
 ## Configuration Parameters
 

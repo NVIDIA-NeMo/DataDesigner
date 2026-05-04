@@ -9,7 +9,7 @@ This keeps the example focused on the actual seed reader contract:
 - declaring `output_columns` for the hydrated schema
 - keeping `IndexRange` selection manifest-based
 
-Because the example reuses `DirectorySeedSource`, it does not register a brand-new `seed_type`. If you later want to package the same reader as an installable plugin, see [FileSystemSeedReader Plugins](../../plugins/filesystem_seed_reader.md).
+Because the example reuses `DirectorySeedSource`, it does not register a brand-new `seed_type`. To package the same reader as an installable plugin, see [Build Your Own](../../plugins/build_your_own.md).
 
 ## Run the Recipe
 

@@ -1,24 +1,15 @@
-# Catalog
+# Available Plugins
 
-The NVIDIA-maintained [DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) repository is the home for first-party Data Designer plugin packages. It includes a generated catalog of available plugins, package templates, and validation tooling for plugin maintainers.
+## NVIDIA-maintained Plugins
 
-This documentation does not mirror every package from every plugin source. Install plugins from a trusted package index or source repository, then use the package's documented config classes in your builder code. Data Designer discovers installed plugin packages that expose a `Plugin` object through the `data_designer.plugins` entry point group.
+NVIDIA-maintained plugin packages live in the [DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) repository. Review the generated [DataDesignerPlugins catalog](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/blob/main/docs/catalog.md) for available packages and plugin-specific usage notes.
 
-## Common install sources
+## Community Plugins
 
-- **Local development packages**: Use `uv pip install -e .` from the plugin package directory.
-- **NVIDIA-maintained plugins**: Review the [DataDesignerPlugins catalog](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/blob/main/docs/catalog.md) and install the package named by the plugin docs.
-- **Internal package indexes**: Publish organization-specific plugins to the same package index your team already trusts.
-- **Public package indexes**: Install community plugins only after reviewing their source, package metadata, and dependency footprint.
+We do not have community plugins listed yet, but yours could be the first! If you build a reusable plugin that others may find useful, please consider publishing it and asking us to add it here.
 
-## Evaluating a plugin
+To request a listing, please:
 
-Before adding a plugin to a production workflow, check:
-
-- The plugin supports the Data Designer version you run.
-- Its `pyproject.toml` registers entry points under `data_designer.plugins`.
-- Its docs identify the config class users should import.
-- Its discriminator value, such as `column_type`, `seed_type`, or `processor_type`, is unique in your environment.
-- Its package dependencies fit your deployment and security requirements.
-
-For authoring guidance, see the [plugin overview](overview.md), [Build Your Own](implement.md), [processor plugin guide](processor.md), and [FileSystemSeedReader plugin guide](filesystem_seed_reader.md).
+1. Build the plugin using the patterns in [Build Your Own](build_your_own.md) and the NVIDIA-maintained [DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) repository.
+2. Publish the plugin package to [PyPI](https://pypi.org/).
+3. Open a GitHub issue on the [Data Designer repository](https://github.com/NVIDIA-NeMo/DataDesigner/issues) requesting a catalog listing. Include the package name, PyPI URL, source repository, documentation link, supported Data Designer version, and plugin type.

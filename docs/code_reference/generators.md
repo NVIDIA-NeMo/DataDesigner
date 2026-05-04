@@ -2,7 +2,7 @@
 
 This page documents the base classes that execute column generation in the Data Designer engine. A column generator receives upstream data, writes its configured output column and any side-effect columns, and reports the generation strategy the scheduler should use.
 
-Built-in generators and custom extension generators use the same implementation contract. Plugin packages can register a custom generator implementation with a [Plugin](plugins.md#data_designer.plugins.plugin.Plugin) object; for that packaging flow, see [Build Your Own](../plugins/implement.md). For inline user-defined functions, see [Custom Columns](../concepts/custom_columns.md).
+Built-in generators and custom extension generators use the same implementation contract. Plugin packages can register a custom generator implementation with a [Plugin](plugins.md#data_designer.plugins.plugin.Plugin) object; for that packaging flow, see [Build Your Own](../plugins/build_your_own.md). For inline user-defined functions, see [Custom Columns](../concepts/custom_columns.md).
 
 ## Configuration
 
@@ -14,7 +14,7 @@ Column generator base classes return [GenerationStrategy](column_configs.md#data
 
 ## Implementation bases
 
-Most generators inherit from [ColumnGeneratorFullColumn](#data_designer.engine.column_generators.generators.base.ColumnGeneratorFullColumn) or [ColumnGeneratorCellByCell](#data_designer.engine.column_generators.generators.base.ColumnGeneratorCellByCell), depending on whether they operate on a full batch or one row at a time.
+Most generators inherit from [ColumnGeneratorFullColumn](#data_designer.engine.column_generators.generators.base.ColumnGeneratorFullColumn) or [ColumnGeneratorCellByCell](#data_designer.engine.column_generators.generators.base.ColumnGeneratorCellByCell), depending on whether they operate on a full batch or one row at a time. Model-backed plugin generators should use [ColumnGeneratorWithModelRegistry](#data_designer.engine.column_generators.generators.base.ColumnGeneratorWithModelRegistry) or [ColumnGeneratorWithModel](#data_designer.engine.column_generators.generators.base.ColumnGeneratorWithModel); see [Using Models in Plugins](../plugins/models.md) for authoring guidance.
 
 ### `ColumnGenerator` {#data_designer.engine.column_generators.generators.base.ColumnGenerator}
 
