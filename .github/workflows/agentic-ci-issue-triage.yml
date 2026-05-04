@@ -117,23 +117,31 @@ jobs:
           mapfile -t PARTS < <(printf '%s\n' "${PARTS[@]}" | sort -V)
           EXPECTED_PARTS=${#PARTS[@]}
 
-          # Count how many bot comments today already match the marker.
-          # `gh api --paginate` emits one JSON document per page, so we slurp
-          # them with `jq -s 'add'` to get a single count.
-          MARKER_PREFIX="agentic-ci-issue-triage:"
+          # Skip fallback only if every expected part identity (i/N) appears
+          # in a today-dated bot comment. Identity-based, not count-based:
+          # a duplicate post of one part should not mask a missing other.
           TODAY=$(date -u +%Y-%m-%d)
-          POSTED_COUNT=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
+          SEEN_PARTS=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
             --paginate \
-            --jq "[.[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER_PREFIX}\")) | select(.body | contains(\"${TODAY}\"))] | length" \
-            2>/dev/null | jq -s 'add // 0')
+            --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${TODAY}\")) | .body | capture(\"agentic-ci-issue-triage:(?<i>[0-9]+)/${EXPECTED_PARTS}\") | .i" \
+            2>/dev/null | sort -u)
 
-          if [ "${POSTED_COUNT}" -ge "${EXPECTED_PARTS}" ]; then
-            echo "Agent already posted today's report (${POSTED_COUNT}/${EXPECTED_PARTS} part(s)). Skipping fallback."
+          ALL_COVERED=1
+          MISSING=()
+          for i in $(seq 1 "${EXPECTED_PARTS}"); do
+            if ! echo "${SEEN_PARTS}" | grep -qx "${i}"; then
+              ALL_COVERED=0
+              MISSING+=("${i}")
+            fi
+          done
+
+          if [ "${ALL_COVERED}" -eq 1 ]; then
+            echo "All ${EXPECTED_PARTS} parts already posted today (identities: $(echo "${SEEN_PARTS}" | tr '\n' ',' | sed 's/,$//')). Skipping fallback."
             exit 0
           fi
 
-          if [ "${POSTED_COUNT}" -gt 0 ]; then
-            echo "::warning::Agent posted ${POSTED_COUNT} of ${EXPECTED_PARTS} expected parts. Posting all parts now to ensure coverage; this may produce duplicate comments."
+          if [ -n "${SEEN_PARTS}" ]; then
+            echo "::warning::Missing parts ${MISSING[*]} of ${EXPECTED_PARTS}; posting all parts. Duplicates may result for parts that were already posted."
           fi
 
           for PART in "${PARTS[@]}"; do
