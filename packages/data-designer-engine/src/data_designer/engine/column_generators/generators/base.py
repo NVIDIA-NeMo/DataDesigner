@@ -16,8 +16,6 @@ from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 _T = TypeVar("_T")
 
-SYNC_BRIDGE_TIMEOUT = 300
-
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -33,6 +31,13 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
 
     - No running event loop → ``asyncio.run(coro)``
     - Running event loop (e.g. notebook/service) → run in a background thread
+
+    No internal deadline: the HTTP request timeout on the underlying model call
+    (and the ``_AsyncBridgedModelFacade`` deadline derived from
+    ``inference_parameters.timeout`` for sync custom columns) bounds the actual
+    work. A defensive bridge ceiling here would only fire after the underlying
+    call already exceeded its own timeout — at that point the work has gone
+    wrong and a longer wait wouldn't help.
     """
     try:
         asyncio.get_running_loop()
@@ -40,16 +45,10 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
         return asyncio.run(coro)
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     future = pool.submit(asyncio.run, coro)
-    timed_out = False
     try:
-        result = future.result(timeout=SYNC_BRIDGE_TIMEOUT)
-    except concurrent.futures.TimeoutError as exc:
-        timed_out = True
-        logger.warning(f"⚠️ Sync bridge timed out after {SYNC_BRIDGE_TIMEOUT}s; background thread still running")
-        raise TimeoutError(f"_run_coroutine_sync timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
+        return future.result()
     finally:
-        pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
-    return result
+        pool.shutdown(wait=True)
 
 
 class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
