@@ -521,12 +521,17 @@ async def test_acquire_async_default_no_deadline_waits_for_release() -> None:
         await asyncio.sleep(delay)
         tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
 
-    asyncio.create_task(release_after(0.05))
-    # asyncio.wait_for caps the test runtime; the inner acquire_async passes None.
-    await asyncio.wait_for(
-        tm.acquire_async(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN),
-        timeout=2.0,
-    )
+    # Hold a strong reference to the task so the loop's weak-ref bookkeeping
+    # can't GC it before the inner await observes the release.
+    release_task = asyncio.create_task(release_after(0.05))
+    try:
+        # asyncio.wait_for caps the test runtime; the inner acquire_async passes None.
+        await asyncio.wait_for(
+            tm.acquire_async(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN),
+            timeout=2.0,
+        )
+    finally:
+        await release_task
 
 
 def test_acquire_sync_default_no_deadline_waits_for_release() -> None:

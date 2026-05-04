@@ -262,9 +262,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             # Surface the original task error when the run produced 0 records due to a
             # deterministic non-retryable failure (e.g. bad seed source). Without this,
             # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
+            # ``actual_num_records`` is set only on the async path; sync runs leave it at
+            # ``-1`` and ``first_non_retryable_error`` at ``None``, so this branch is
+            # async-only by construction.
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
-                raise DataDesignerGenerationError(f"🛑 {root_cause}") from root_cause
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 f"🛑 Failed to load generated dataset — all records may have been dropped "
                 f"due to generation failures. Check the warnings above for details. Original error: {e}"
@@ -285,7 +288,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 )
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
-                raise DataDesignerGenerationError(f"🛑 {root_cause}") from root_cause
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation failures. "
                 "Check the warnings above for details on which columns failed."
@@ -359,7 +362,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 )
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
-                raise DataDesignerGenerationError(f"🛑 {root_cause}") from root_cause
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
                 "Check the warnings above for details on which columns failed."
@@ -577,7 +580,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         if not DATA_DESIGNER_ASYNC_ENGINE:
             return ClientConcurrencyMode.SYNC
-        if any(getattr(c, "allow_resize", False) for c in config_builder.get_column_configs()):
+        if any(c.allow_resize for c in config_builder.get_column_configs()):
             return ClientConcurrencyMode.SYNC
         return ClientConcurrencyMode.ASYNC
 
