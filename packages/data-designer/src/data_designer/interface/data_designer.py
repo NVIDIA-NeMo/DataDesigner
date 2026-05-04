@@ -581,16 +581,19 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         if not DATA_DESIGNER_ASYNC_ENGINE:
             # Deliberate opt-out via env var. Surface the deprecation so users
-            # know the sync path is going away. (The ``allow_resize`` auto-fallback
-            # below has its own ``DeprecationWarning`` from the builder layer; we
-            # don't double-warn here.)
-            warnings.warn(
+            # know the sync path is going away. Mirror the ``allow_resize`` shape
+            # in ``_resolve_async_compatibility``: emit both a ``logger.warning``
+            # (visible in the project's logging output) and a ``DeprecationWarning``
+            # (programmatic signal callers can filter on). The ``allow_resize``
+            # auto-fallback has its own warning from the builder layer; we don't
+            # double-warn here.
+            msg = (
                 "DATA_DESIGNER_ASYNC_ENGINE=0 selects the legacy sync engine, which is "
                 "deprecated and will be removed in a future release. Unset the variable "
-                "(or set it to 1) to use the async engine.",
-                DeprecationWarning,
-                stacklevel=3,
+                "(or set it to 1) to use the async engine."
             )
+            logger.warning(f"⚠️ {msg}")
+            warnings.warn(msg, DeprecationWarning, stacklevel=3)
             return ClientConcurrencyMode.SYNC
         if any(c.allow_resize for c in config_builder.get_column_configs()):
             return ClientConcurrencyMode.SYNC
