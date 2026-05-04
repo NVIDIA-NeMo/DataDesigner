@@ -199,7 +199,7 @@ jobs:
 
       - name: Check fix backlog
         id: backlog
-        if: success() && matrix.suite != 'test-health'
+        if: steps.audit.outcome == 'success' && matrix.suite != 'test-health'
         run: |
           BACKLOG_SIZE=$(jq '.fix_backlog // [] | length' .agentic-ci-state/runner-state.json 2>/dev/null || echo 0)
           echo "size=${BACKLOG_SIZE}" >> "$GITHUB_OUTPUT"
@@ -207,7 +207,7 @@ jobs:
 
       - name: Run fix recipe
         id: fix
-        if: success() && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
+        if: steps.audit.outcome == 'success' && steps.backlog.outcome == 'success' && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}

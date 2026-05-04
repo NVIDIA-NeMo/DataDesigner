@@ -97,16 +97,25 @@ code-quality and unset elsewhere) controls draft-PR mode.
 
 - `abandoned` means the recipe could not produce a PR (tests failed,
   conflict, lint failed, allowlist rejected, etc.).
-- Reconcile against open PRs (`gh pr list`) at the start of each fix run
-  to recover from crashes that left state un-updated.
+- Reconcile against open PRs (`gh pr list`) at the start of each fix
+  run to recover from crashes that left state un-updated. The
+  reconciliation algorithm: list open PRs whose bodies contain the
+  `<!-- agentic-ci finding=<id> suite=<suite> -->` marker, parse out
+  each `<id>`, and back-fill any missing `attempted_fixes` entries with
+  `outcome: "open"` and the parsed `pr_number` and `branch`.
 - Prune: drop `merged` entries older than 90 days. Do **not** prune
   `closed` or `abandoned` entries by age — pruning a single-strike entry
   would erase the history needed to ever reach the two-strike threshold.
-  The 200-entry cap handles long-tail cleanup; eviction order is oldest
-  first by the `at` date of the entry's first attempt
-  (`attempts[0].at`).
-- Two-strike entries (≥2 `closed`/`abandoned`) surface in the report
-  under `Repeatedly-failed fix attempts` and are filtered from selection
+- The 200-entry cap handles long-tail cleanup. Eviction order:
+  non-two-strike entries first, oldest-first by `attempts[0].at`.
+  Two-strike entries (≥2 `closed`/`abandoned`) are exempt from cap
+  eviction unless every other entry has already been evicted — they
+  represent maintainer-action signals and must not be silently
+  forgotten. If two-strike entries alone exceed 200, that's itself a
+  signal worth surfacing; in that pathological case, evict oldest-first
+  by `attempts[0].at`.
+- Two-strike entries surface in the report under
+  `Repeatedly-failed fix attempts` and are filtered from selection
   permanently.
 
 ## Finding hash
