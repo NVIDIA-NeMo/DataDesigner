@@ -1434,6 +1434,8 @@ def test_skip_row_count_preserved_across_pipeline(stub_resource_provider, stub_m
 
     assert len(result) == 5, "Skip must not change the row count"
     assert result["seed_id"].tolist() == [1, 2, 3, 4, 5]
+
+
 # ---------------------------------------------------------------------------
 # Resume mechanism tests
 # ---------------------------------------------------------------------------
@@ -1486,9 +1488,7 @@ def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub
     assert any("interrupted before any batch completed" in record.message for record in caplog.records)
 
 
-def test_build_resume_raises_when_num_records_below_actual(
-    stub_resource_provider, stub_test_config_builder, tmp_path
-):
+def test_build_resume_raises_when_num_records_below_actual(stub_resource_provider, stub_test_config_builder, tmp_path):
     """resume=ALWAYS raises when num_records is less than what has already been generated."""
     dataset_dir = tmp_path / "dataset"
     _write_metadata(
@@ -1504,9 +1504,7 @@ def test_build_resume_raises_when_num_records_below_actual(
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
 
-def test_build_resume_allows_larger_num_records(
-    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
-):
+def test_build_resume_allows_larger_num_records(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
     """resume=ALWAYS succeeds when num_records > original target (extending the dataset)."""
     dataset_dir = tmp_path / "dataset"
     _write_metadata(
@@ -1760,6 +1758,7 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
         mock_scheduler = Mock()
         mock_scheduler.traces = []
         mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
     mock_future = Mock()
@@ -1805,6 +1804,7 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
         mock_scheduler = Mock()
         mock_scheduler.traces = []
         mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
     mock_future = Mock()
@@ -1868,3 +1868,34 @@ def test_if_possible_incompatible_config_does_not_overwrite_existing_dataset(
     assert storage.resolved_dataset_name != "dataset", (
         "resolved_dataset_name must be a new timestamped directory, not the existing one"
     )
+
+
+def test_if_possible_starts_fresh_when_no_existing_directory(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """IF_POSSIBLE on a first-ever run (no dataset directory) must start fresh, not raise.
+
+    Bug: _check_resume_config_compatibility returned True when config_path did not exist,
+    which caused IF_POSSIBLE to upgrade to ALWAYS. resolved_dataset_name then raised
+    ArtifactStorageError because ALWAYS requires an existing directory.
+
+    Fix: return False when the dataset directory itself is absent.
+    """
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(builder, "_run_mcp_tool_check_if_needed"):
+            with patch.object(builder, "_write_builder_config"):
+                with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+                    with patch.object(builder.batch_manager, "start"):
+                        with patch.object(builder.batch_manager, "finish"):
+                            with patch.object(builder._processor_runner, "run_after_generation"):
+                                builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+
+    assert storage.resume == ResumeMode.NEVER

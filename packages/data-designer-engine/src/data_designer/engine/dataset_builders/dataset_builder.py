@@ -508,9 +508,10 @@ class DatasetBuilder:
         prematurely triggering the resolved_dataset_name cached_property before the
         caller has had a chance to decide whether to resume or start fresh.
         """
-        config_path = (
-            Path(self.artifact_storage.artifact_path) / self.artifact_storage.dataset_name / SDG_CONFIG_FILENAME
-        )
+        dataset_dir = Path(self.artifact_storage.artifact_path) / self.artifact_storage.dataset_name
+        if not dataset_dir.exists():
+            return False
+        config_path = dataset_dir / SDG_CONFIG_FILENAME
         if not config_path.exists():
             return True
         try:
