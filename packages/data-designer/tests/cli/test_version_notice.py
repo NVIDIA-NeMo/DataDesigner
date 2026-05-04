@@ -238,6 +238,15 @@ def test_select_upgrade_command_detects_uv_tool_environment() -> None:
     assert command == "uv tool upgrade data-designer"
 
 
+def test_select_upgrade_command_treats_project_venv_under_uv_tools_as_project() -> None:
+    command = select_upgrade_command(
+        environ={},
+        python_prefix="/Users/user/projects/uv/tools/my-project/.venv",
+    )
+
+    assert command == "uv add --upgrade data-designer"
+
+
 def test_select_upgrade_command_detects_pipx_environment() -> None:
     command = select_upgrade_command(
         environ={},

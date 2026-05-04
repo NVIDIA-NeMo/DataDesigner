@@ -86,16 +86,23 @@ def select_upgrade_command(
 ) -> str:
     env = os.environ if environ is None else environ
     prefix = Path(sys.prefix if python_prefix is None else python_prefix)
-    prefix_parts = set(prefix.parts)
-    if "pipx" in prefix_parts and "venvs" in prefix_parts:
-        return _PIPX_UPGRADE_COMMAND
-    if "uv" in prefix_parts and "tools" in prefix_parts:
-        return _UV_TOOL_UPGRADE_COMMAND
-    if env.get("UV_PROJECT_ENVIRONMENT") or env.get("VIRTUAL_ENV"):
+    prefix_parts = prefix.parts
+    if env.get("UV_PROJECT_ENVIRONMENT") or prefix.name == ".venv":
         return _PROJECT_UPGRADE_COMMAND
-    if prefix.name == ".venv":
+    if _has_direct_child_path(prefix_parts, "pipx", "venvs"):
+        return _PIPX_UPGRADE_COMMAND
+    if _has_direct_child_path(prefix_parts, "uv", "tools"):
+        return _UV_TOOL_UPGRADE_COMMAND
+    if env.get("VIRTUAL_ENV"):
         return _PROJECT_UPGRADE_COMMAND
     return _UV_TOOL_UPGRADE_COMMAND
+
+
+def _has_direct_child_path(parts: tuple[str, ...], parent: str, child: str) -> bool:
+    return any(
+        parts[index] == parent and parts[index + 1] == child and index + 2 == len(parts) - 1
+        for index in range(len(parts) - 1)
+    )
 
 
 def _get_latest_version(
