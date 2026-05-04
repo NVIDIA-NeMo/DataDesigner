@@ -102,8 +102,9 @@ code-quality and unset elsewhere) controls draft-PR mode.
 - Prune: drop `merged` entries older than 90 days. Do **not** prune
   `closed` or `abandoned` entries by age — pruning a single-strike entry
   would erase the history needed to ever reach the two-strike threshold.
-  The 200-entry cap (with oldest-first eviction by `first_seen`) handles
-  long-tail cleanup.
+  The 200-entry cap handles long-tail cleanup; eviction order is oldest
+  first by the `at` date of the entry's first attempt
+  (`attempts[0].at`).
 - Two-strike entries (≥2 `closed`/`abandoned`) surface in the report
   under `Repeatedly-failed fix attempts` and are filtered from selection
   permanently.
@@ -123,13 +124,15 @@ text:
 | dependencies (unused) | `<package>:<dep>:unused` |
 | structure (missing-future) | `<source-file>:missing-future` |
 | structure (lazy-import) | `<source-file>:lazy-import:<imported-module>` |
-| code-quality (bare-except) | `<source-file>:<enclosing-symbol>:<try-body-hash>:bare-except` |
+| code-quality (bare-except) | `<source-file>:<enclosing-symbol>:<try-body-hash>:<ordinal>:bare-except` |
 
 Symbols use fully-qualified Python names.
 `try-body-hash` is `sha1(<try-block body, leading/trailing whitespace
-stripped, internal lines preserved>)[:8]` — needed because a function
-can contain multiple `try:` blocks with bare excepts that would
-otherwise collide on the same finding id.
+stripped, internal lines preserved>)[:8]`.
+`ordinal` is the 1-based position of this bare-except among bare-excepts
+in the same enclosing symbol, in source order. Both are needed: the body
+hash distinguishes most cases, and the ordinal disambiguates the rare
+case of two bare-except blocks with byte-identical try bodies.
 
 ## Ranking
 
@@ -181,9 +184,10 @@ declare only the parts that vary (eligible categories, branch type,
       remove from `fix_backlog` and continue.
    2. Apply the fix. If the diff exceeds the localized-fix bar or touches
       a non-allowlisted path, abandon and continue.
-   3. If the category sets `test_required: true`, run
-      `make test-<package>` for the package containing the change. On
-      failure: abandon and continue.
+   3. If the category sets `test_required: true`, run the per-package
+      test target (see the mapping table in "Localized fix bar" above)
+      for the package containing the change. On failure: abandon and
+      continue.
    4. Branch: `agentic-ci/<type>/<suite>-YYYYMMDD-<short-slug>`. Commit:
       `<type>(agentic-ci): <one-line>`. Push.
    5. Write the PR body to `/tmp/pr-body-{{suite}}.md`, including the

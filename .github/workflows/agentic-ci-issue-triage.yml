@@ -97,6 +97,7 @@ jobs:
         continue-on-error: true
 
       - name: Fallback post if agent did not post
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
@@ -114,17 +115,25 @@ jobs:
             exit 0
           fi
           mapfile -t PARTS < <(printf '%s\n' "${PARTS[@]}" | sort -V)
+          EXPECTED_PARTS=${#PARTS[@]}
 
-          # Skip the fallback if the agent already posted today (any number of parts).
+          # Count how many bot comments today already match the marker.
+          # `gh api --paginate` emits one JSON document per page, so we slurp
+          # them with `jq -s 'add'` to get a single count.
           MARKER_PREFIX="agentic-ci-issue-triage:"
           TODAY=$(date -u +%Y-%m-%d)
-          ALREADY_POSTED=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
+          POSTED_COUNT=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
             --paginate \
             --jq "[.[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER_PREFIX}\")) | select(.body | contains(\"${TODAY}\"))] | length" \
-            2>/dev/null || echo 0)
-          if [ "${ALREADY_POSTED}" != "0" ]; then
-            echo "Agent already posted today's report (${ALREADY_POSTED} part(s)). Skipping fallback."
+            2>/dev/null | jq -s 'add // 0')
+
+          if [ "${POSTED_COUNT}" -ge "${EXPECTED_PARTS}" ]; then
+            echo "Agent already posted today's report (${POSTED_COUNT}/${EXPECTED_PARTS} part(s)). Skipping fallback."
             exit 0
+          fi
+
+          if [ "${POSTED_COUNT}" -gt 0 ]; then
+            echo "::warning::Agent posted ${POSTED_COUNT} of ${EXPECTED_PARTS} expected parts. Posting all parts now to ensure coverage; this may produce duplicate comments."
           fi
 
           for PART in "${PARTS[@]}"; do
@@ -134,6 +143,7 @@ jobs:
 
       - name: Write job summary
         if: always()
+        shell: bash
         run: |
           shopt -s nullglob
           PARTS=(/tmp/issue-triage-report-*.md)

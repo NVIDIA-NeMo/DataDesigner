@@ -175,9 +175,10 @@ must record this *during the audit*; the fix phase rejects entries with
 no sibling source). For unused, which other packages also declare the
 dep.
 
-Before running `make test-<package>`, run `make install-dev` to confirm
-the lockfile resolves cleanly. `make install-dev` is the only sanctioned
-install command (no direct `pip install` or `uv pip install`).
+Before running the per-package test target (see `_fix-policy.md` for the
+mapping), run `make install-dev` to confirm the lockfile resolves cleanly.
+`make install-dev` is the only sanctioned install command (no direct
+`pip install` or `uv pip install`).
 
 **Not eligible** — stays report-only:
 
