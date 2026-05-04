@@ -78,6 +78,17 @@ def test_app_version_prints_update_notice_after_installed_version() -> None:
     assert "Upgrade with: uv tool upgrade data-designer" in result.output
 
 
+def test_app_version_skips_update_notice_when_lookup_fails() -> None:
+    with (
+        patch("data_designer.cli.main.importlib.metadata.version", return_value="0.6.0"),
+        patch("data_designer.cli.version_notice.get_update_notice", side_effect=RuntimeError("network failure")),
+    ):
+        result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output == "0.6.0\n"
+
+
 def test_app_version_errors_when_package_version_is_missing() -> None:
     with patch(
         "data_designer.cli.main.importlib.metadata.version",

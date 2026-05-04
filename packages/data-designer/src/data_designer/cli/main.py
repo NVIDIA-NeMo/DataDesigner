@@ -29,7 +29,11 @@ def _version_callback(value: bool) -> None:
     from data_designer.cli.ui import print_update_notice
     from data_designer.cli.version_notice import get_update_notice
 
-    notice = get_update_notice(installed_version)
+    try:
+        # The update CTA is opportunistic; version output should stay usable if lookup fails.
+        notice = get_update_notice(installed_version)
+    except Exception:
+        notice = None
     if notice is not None:
         print_update_notice(notice.latest_version, notice.upgrade_command)
     raise typer.Exit()
