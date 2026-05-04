@@ -3461,6 +3461,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3978,6 +3989,17 @@
     <span class="md-ellipsis">
       
         Try It
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update
       
     </span>
   </a>
@@ -4637,6 +4659,10 @@
 </code></pre></div>
 <p>Pipelines with independent columns or multi-model setups will see the largest gains. Sequential chains will run at roughly the same speed. No config changes required.</p>
 <p>The dependencies were always per-cell. Now the engine schedules them that way.</p>
+<hr />
+<h2 id="update"><strong>Update</strong></h2>
+<p>The async engine is now the default execution path. Set <code>DATA_DESIGNER_ASYNC_ENGINE=0</code> to opt back into the legacy sync engine for one transitional release. The <a href="../../concepts/architecture-and-performance/#async-engine">Architecture &amp; Performance</a> page covers the configuration knobs and behaviors worth knowing about.</p>
+<hr />
 <p>Key Resources:</p>
 <ol>
 <li><a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer on GitHub</a></li>
