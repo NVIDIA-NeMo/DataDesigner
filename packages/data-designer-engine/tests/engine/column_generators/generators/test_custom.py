@@ -20,7 +20,11 @@ if TYPE_CHECKING:
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import custom_column_generator
-from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator, _AsyncBridgedModelFacade
+from data_designer.engine.column_generators.generators.custom import (
+    CustomColumnGenerator,
+    _AsyncBridgedModelFacade,
+    _compute_bridge_timeout,
+)
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.models.clients.errors import SyncClientUnavailableError
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
@@ -540,6 +544,7 @@ def test_async_bridge_falls_back_to_agenerate_on_sync_client_error() -> None:
     facade.generate.side_effect = SyncClientUnavailableError(
         "Sync methods are not available on an async-mode HttpModelClient."
     )
+    facade.request_timeout = 60.0
 
     async def fake_agenerate(*args: Any, **kwargs: Any) -> tuple:
         return ("async_result", list(args), kwargs)
@@ -586,6 +591,10 @@ def test_async_bridge_timeout_raises_model_timeout_error() -> None:
     facade.generate.side_effect = SyncClientUnavailableError(
         "Sync methods are not available on an async-mode HttpModelClient."
     )
+    # Bridge derives timeout from facade.request_timeout × max_correction_steps
+    # (clamped to _BRIDGE_TIMEOUT_FLOOR_S). Patch the floor down so this test
+    # finishes in milliseconds rather than the production default of 60s.
+    facade.request_timeout = 0.01
 
     async def hangs_forever(*args: Any, **kwargs: Any) -> tuple:
         await asyncio.sleep(60)
@@ -604,7 +613,7 @@ def test_async_bridge_timeout_raises_model_timeout_error() -> None:
                 "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
                 return_value=engine_loop,
             ),
-            patch("data_designer.engine.column_generators.generators.custom.SYNC_BRIDGE_TIMEOUT", 0.05),
+            patch("data_designer.engine.column_generators.generators.custom._BRIDGE_TIMEOUT_FLOOR_S", 0.05),
             pytest.raises(ModelTimeoutError, match="bridge timed out"),
         ):
             proxy.generate("hello")
@@ -626,3 +635,78 @@ def test_async_bridge_deadlock_guard_on_event_loop() -> None:
 
     with pytest.raises(RuntimeError, match="Use 'await model.agenerate\\(\\)'"):
         asyncio.run(call_from_loop())
+
+
+@pytest.mark.parametrize(
+    "request_timeout,correction_steps,conversation_restarts,expected",
+    [
+        (60.0, 0, 0, 90.0),  # 1 * 1 * 60 * 1.5 = 90, above floor
+        (60.0, 2, 0, 270.0),  # 3 * 1 * 60 * 1.5 = 270
+        (60.0, 0, 2, 270.0),  # 1 * 3 * 60 * 1.5 = 270 — restarts contribute too
+        (60.0, 1, 1, 360.0),  # 2 * 2 * 60 * 1.5 = 360 — corrections × restarts compound
+        (10.0, 0, 0, 60.0),  # 1 * 1 * 10 * 1.5 = 15, clamped to 60s floor
+    ],
+    ids=[
+        "no-corrections-no-restarts",
+        "corrections-only",
+        "restarts-only",
+        "corrections-and-restarts-compound",
+        "small-clamped-to-floor",
+    ],
+)
+def test_compute_bridge_timeout(
+    request_timeout: float, correction_steps: int, conversation_restarts: int, expected: float
+) -> None:
+    """Bridge deadline = max(floor, (1+restarts) * (1+corrections) * request_timeout * 1.5)."""
+    assert _compute_bridge_timeout(request_timeout, correction_steps, conversation_restarts) == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected_per_request",
+    [
+        ({}, 60.0),  # No override; bridge uses facade.request_timeout
+        ({"timeout": 600.0}, 600.0),  # Per-call timeout overrides the model default
+    ],
+    ids=["no-override-uses-facade-default", "override-uses-per-call-value"],
+)
+def test_async_bridge_honors_per_call_timeout(kwargs: dict[str, object], expected_per_request: float) -> None:
+    """``model.generate(timeout=...)`` must drive the bridge deadline, not just the facade default."""
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError("sync unavailable")
+    facade.request_timeout = 60.0  # would be used if no override
+
+    captured: dict[str, float] = {}
+
+    async def fake_agenerate(*_args: object, **_kwargs: object) -> tuple:
+        return ("ok", [], {})
+
+    facade.agenerate = fake_agenerate
+    proxy = _AsyncBridgedModelFacade(facade)
+
+    real_compute = _compute_bridge_timeout
+
+    def capture_compute(per_request: float, *args: object, **inner: object) -> float:
+        captured["per_request"] = per_request
+        return real_compute(per_request, *args, **inner)
+
+    engine_loop = asyncio.new_event_loop()
+    engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
+    engine_thread.start()
+
+    try:
+        with (
+            patch(
+                "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+                return_value=engine_loop,
+            ),
+            patch(
+                "data_designer.engine.column_generators.generators.custom._compute_bridge_timeout",
+                capture_compute,
+            ),
+        ):
+            proxy.generate("hello", **kwargs)
+    finally:
+        engine_loop.call_soon_threadsafe(engine_loop.stop)
+        engine_thread.join(timeout=5)
+
+    assert captured["per_request"] == expected_per_request
