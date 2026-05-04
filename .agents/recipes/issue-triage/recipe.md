@@ -71,9 +71,10 @@ those state files are not available in the triage run; that's fine.)
 
 ### 3. Build the report
 
-Write the report to `/tmp/issue-triage-report.md`. Each part of a
-multi-comment report is a separate file: `/tmp/issue-triage-report-1.md`,
-`/tmp/issue-triage-report-2.md`, etc.
+Write each part to a numbered file: `/tmp/issue-triage-report-1.md`,
+`/tmp/issue-triage-report-2.md`, etc. Single-part reports use
+`/tmp/issue-triage-report-1.md`. The workflow's fallback step looks for
+numbered files first.
 
 Format:
 
@@ -191,11 +192,9 @@ shrinks, or stays stable.
 
 If you cannot find the tracking issue or the API calls fail repeatedly,
 write the report parts to `/tmp/issue-triage-report-*.md` and stop. The
-workflow's fallback step will post `/tmp/issue-triage-report.md` (which,
-for a single-part report, is identical to part 1; the workflow falls back
-only on single-part output). The workflow does not handle multi-part
-fallback — make sure the report fits in one part if you cannot post it
-yourself.
+workflow's fallback step posts every numbered part in order if no
+agent-authored comments containing today's date already exist on the
+tracking issue.
 
 ## Constraints
 

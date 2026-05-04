@@ -73,8 +73,10 @@ Check for patterns that violate the project's "errors normalize at
 boundaries" principle (AGENTS.md):
 
 ```bash
-# Bare except clauses (should use specific exception types)
-grep -rn "except:" packages/*/src/ --include='*.py' | grep -v "# noqa"
+# Bare except clauses (should use specific exception types).
+# Catches both `except:` and `except BaseException:` — both swallow
+# everything including KeyboardInterrupt and SystemExit.
+grep -rnE "except\s*:|except\s+BaseException" packages/*/src/ --include='*.py' | grep -v "# noqa"
 
 # Swallowed exceptions (except + pass/continue with no logging)
 grep -rn -A1 "except" packages/*/src/ --include='*.py' | grep -B1 "pass$\|continue$"

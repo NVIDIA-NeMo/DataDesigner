@@ -16,8 +16,15 @@ A finding may be converted to a fix only if all hold:
   bumps (Dependabot owns those), no schema changes, no migrations.
 - **Self-evident**: the audit established both the problem *and* the unique
   correct fix. Mechanical, not interpretive.
-- **Test-safe**: when the recipe declares `test_required`, run
-  `make test-<package>` for the affected package and abort on failure.
+- **Test-safe**: when the recipe declares `test_required`, run the
+  per-package test target for the affected package and abort on failure.
+  Mapping (the Makefile does not expose `test-<package>` directly):
+
+  | Package directory | Test target |
+  |-------------------|-------------|
+  | `packages/data-designer-config` | `make test-config` |
+  | `packages/data-designer-engine` | `make test-engine` |
+  | `packages/data-designer` | `make test-interface` |
 - **Single concern**: one finding per PR.
 - **Allowlisted paths**: matches the suite's path allowlist.
 
@@ -74,8 +81,11 @@ code-quality and unset elsewhere) controls draft-PR mode.
 
 ### `fix_backlog` rules (audit phase populates this)
 
-- Append every detected finding in an eligible category. Update `last_seen`
-  if `id` already present.
+- Append every detected finding in an eligible category. If `id` is already
+  present, **refresh both `last_seen` and `data`** with the current scan's
+  values. The `data` field is used by the fix phase to apply the change
+  without re-scanning, so stale `data` would let an old plan drive a new
+  PR after the underlying file moved or changed.
 - Drop entries with `last_seen` older than 30 days.
 - Cap at 200 entries (drop oldest by `first_seen`).
 - Populated **before** the `known_issues` filter so fixable findings persist
@@ -89,9 +99,14 @@ code-quality and unset elsewhere) controls draft-PR mode.
   conflict, lint failed, allowlist rejected, etc.).
 - Reconcile against open PRs (`gh pr list`) at the start of each fix run
   to recover from crashes that left state un-updated.
-- Prune: drop `merged` >90d, drop single `closed`/`abandoned` >30d.
-- Two-strike entries (≥2 `closed`/`abandoned`) are NOT pruned; they
-  surface in the report under `Repeatedly-failed fix attempts`.
+- Prune: drop `merged` entries older than 90 days. Do **not** prune
+  `closed` or `abandoned` entries by age — pruning a single-strike entry
+  would erase the history needed to ever reach the two-strike threshold.
+  The 200-entry cap (with oldest-first eviction by `first_seen`) handles
+  long-tail cleanup.
+- Two-strike entries (≥2 `closed`/`abandoned`) surface in the report
+  under `Repeatedly-failed fix attempts` and are filtered from selection
+  permanently.
 
 ## Finding hash
 
@@ -108,9 +123,13 @@ text:
 | dependencies (unused) | `<package>:<dep>:unused` |
 | structure (missing-future) | `<source-file>:missing-future` |
 | structure (lazy-import) | `<source-file>:lazy-import:<imported-module>` |
-| code-quality (bare-except) | `<source-file>:<enclosing-symbol>:bare-except` |
+| code-quality (bare-except) | `<source-file>:<enclosing-symbol>:<try-body-hash>:bare-except` |
 
 Symbols use fully-qualified Python names.
+`try-body-hash` is `sha1(<try-block body, leading/trailing whitespace
+stripped, internal lines preserved>)[:8]` — needed because a function
+can contain multiple `try:` blocks with bare excepts that would
+otherwise collide on the same finding id.
 
 ## Ranking
 

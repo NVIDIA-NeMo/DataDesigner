@@ -166,12 +166,14 @@ Follow the standard fix procedure in `_fix-policy.md`. Suite-specific bits:
 
 | Category | Branch type | test_required | Eligibility note |
 |----------|-------------|---------------|------------------|
-| transitive-gap | `chore` | yes | Add the imported module to `[project.dependencies]` of the package that imports it. Use the version specifier from a package that already declares it; otherwise the latest stable specifier. Insert in alphabetical order; match existing quote/specifier style. |
+| transitive-gap | `chore` | yes | Add the imported module to `[project.dependencies]` of the package that imports it, copying the version specifier from a sibling package that already declares it. Insert in alphabetical order; match existing quote/specifier style. **Ineligible** when no sibling package declares the dep — choosing a specifier from scratch is interpretive, not mechanical. Those findings stay report-only and surface for maintainer judgement. |
 | unused | `chore` | yes | Remove the declaration. Eligible only when grep across the package's `src/`, lazy-import system, plugin entry points, and tests turns up zero references. |
 
 `fix_backlog.data` should record: for transitive-gap, the importing source
-files and proposed version specifier; for unused, which other packages
-also declare the dep.
+files and the sibling package whose specifier was copied (the recipe
+must record this *during the audit*; the fix phase rejects entries with
+no sibling source). For unused, which other packages also declare the
+dep.
 
 Before running `make test-<package>`, run `make install-dev` to confirm
 the lockfile resolves cleanly. `make install-dev` is the only sanctioned

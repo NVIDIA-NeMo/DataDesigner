@@ -101,42 +101,52 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
         run: |
-          if [ ! -s "/tmp/issue-triage-report.md" ]; then
+          # Collect report parts. Numbered files (multi-part) take precedence;
+          # fall back to the unsuffixed file for single-part runs.
+          shopt -s nullglob
+          PARTS=(/tmp/issue-triage-report-*.md)
+          shopt -u nullglob
+          if [ ${#PARTS[@]} -eq 0 ] && [ -s /tmp/issue-triage-report.md ]; then
+            PARTS=(/tmp/issue-triage-report.md)
+          fi
+          if [ ${#PARTS[@]} -eq 0 ]; then
             echo "::warning::Triage report not created by agent."
             exit 0
           fi
+          mapfile -t PARTS < <(printf '%s\n' "${PARTS[@]}" | sort -V)
 
-          # Check if the agent already posted/updated the comment.
-          MARKER="<!-- agentic-ci-issue-triage -->"
-          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
-            --jq "[.[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER}\"))] | last | .id" \
-            2>/dev/null || echo "")
-
-          REPORT=$(cat /tmp/issue-triage-report.md)
-
-          # Only post if the report marker is not already in a recent comment
-          # with today's date (agent already posted).
+          # Skip the fallback if the agent already posted today (any number of parts).
+          MARKER_PREFIX="agentic-ci-issue-triage:"
           TODAY=$(date -u +%Y-%m-%d)
-          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
-            EXISTING_BODY=$(gh api "repos/${{ github.repository }}/issues/comments/${EXISTING}" --jq '.body')
-            if echo "$EXISTING_BODY" | grep -q "$TODAY"; then
-              echo "Agent already posted today's report. Skipping fallback."
-              exit 0
-            fi
-            # Update existing comment.
-            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/${EXISTING}" \
-              -f body="$REPORT"
-            echo "Updated existing triage comment."
-          else
-            gh issue comment "$TRACKING_ISSUE" --body-file /tmp/issue-triage-report.md
-            echo "Posted new triage comment."
+          ALREADY_POSTED=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
+            --paginate \
+            --jq "[.[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER_PREFIX}\")) | select(.body | contains(\"${TODAY}\"))] | length" \
+            2>/dev/null || echo 0)
+          if [ "${ALREADY_POSTED}" != "0" ]; then
+            echo "Agent already posted today's report (${ALREADY_POSTED} part(s)). Skipping fallback."
+            exit 0
           fi
+
+          for PART in "${PARTS[@]}"; do
+            gh issue comment "$TRACKING_ISSUE" --body-file "$PART"
+            echo "Posted ${PART}"
+          done
 
       - name: Write job summary
         if: always()
         run: |
-          if [ -s "/tmp/issue-triage-report.md" ]; then
-            cat /tmp/issue-triage-report.md >> "$GITHUB_STEP_SUMMARY"
+          shopt -s nullglob
+          PARTS=(/tmp/issue-triage-report-*.md)
+          shopt -u nullglob
+          if [ ${#PARTS[@]} -eq 0 ] && [ -s /tmp/issue-triage-report.md ]; then
+            PARTS=(/tmp/issue-triage-report.md)
+          fi
+          if [ ${#PARTS[@]} -gt 0 ]; then
+            mapfile -t PARTS < <(printf '%s\n' "${PARTS[@]}" | sort -V)
+            for PART in "${PARTS[@]}"; do
+              cat "${PART}" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+            done
           else
             echo "No triage report was generated." >> "$GITHUB_STEP_SUMMARY"
           fi
