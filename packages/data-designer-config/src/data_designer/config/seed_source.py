@@ -28,6 +28,10 @@ class SeedSource(BaseModel, ABC):
 
     All subclasses must define a `seed_type` field with a Literal value.
     This serves as a discriminated union discriminator.
+
+    Attributes:
+        seed_type: Discriminator field that identifies the specific seed source type.
+            Subclasses must override this field with a ``Literal`` value.
     """
 
     seed_type: str
@@ -88,6 +92,24 @@ class HuggingFaceSeedSource(SeedSource):
 
 
 class FileSystemSeedSource(SeedSource, ABC):
+    """Base class for seed sources backed by a directory of files.
+
+    Use this base when a seed reader needs to enumerate files under a directory
+    on disk and turn each (or groups of them) into seed rows. Concrete plugin
+    configs declare a ``Literal`` ``seed_type`` and pair with a
+    ``FileSystemSeedReader`` implementation.
+
+    Attributes:
+        path: Directory containing seed artifacts. Relative paths are resolved
+            from the current working directory when the config is loaded, not
+            from the config file location.
+        file_pattern: Case-sensitive filename pattern used to match files under
+            the provided directory. Patterns match basenames only, not relative
+            paths. Defaults to ``'*'``.
+        recursive: Whether to search nested subdirectories under the provided
+            directory for matching files. Defaults to ``True``.
+    """
+
     _runtime_path: str | None = PrivateAttr(default=None)
 
     path: str = Field(

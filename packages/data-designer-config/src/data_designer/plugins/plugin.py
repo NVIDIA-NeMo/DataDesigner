@@ -18,6 +18,18 @@ from data_designer.plugins.errors import PluginLoadError
 
 
 class PluginType(str, Enum):
+    """The kind of Data Designer extension a plugin contributes.
+
+    Attributes:
+        COLUMN_GENERATOR: A custom column type whose config inherits from
+            ``SingleColumnConfig`` and uses ``column_type`` as its discriminator.
+        SEED_READER: A custom seed dataset reader whose config inherits from
+            ``SeedSource`` (or ``FileSystemSeedSource``) and uses ``seed_type``
+            as its discriminator.
+        PROCESSOR: A custom processor whose config inherits from
+            ``ProcessorConfig`` and uses ``processor_type`` as its discriminator.
+    """
+
     COLUMN_GENERATOR = "column-generator"
     SEED_READER = "seed-reader"
     PROCESSOR = "processor"
@@ -65,12 +77,35 @@ def _check_class_exists_in_file(filepath: str, class_name: str) -> None:
 
 
 class Plugin(BaseModel):
+    """Declares a Data Designer plugin by tying a config class to its implementation class.
+
+    A plugin package exposes one ``Plugin`` instance per extension through an entry
+    point in the ``data_designer.plugins`` group. Data Designer discovers the entry
+    point on import, loads the referenced classes, and registers the plugin so its
+    config type is usable like any built-in Data Designer object.
+
+    Attributes:
+        impl_qualified_name: Fully-qualified import path of the implementation class,
+            e.g. ``'my_plugin.impl.MyColumnGenerator'``. The class must inherit from
+            the implementation base appropriate for the plugin type
+            (``ColumnGeneratorFullColumn``/``ColumnGeneratorCellByCell``,
+            ``SeedReader``/``FileSystemSeedReader``, or ``Processor``).
+        config_qualified_name: Fully-qualified import path of the config class,
+            e.g. ``'my_plugin.config.MyConfig'``. The class must inherit from the
+            config base appropriate for the plugin type (``SingleColumnConfig``,
+            ``SeedSource``/``FileSystemSeedSource``, or ``ProcessorConfig``) and
+            define a ``Literal`` discriminator field with a string default.
+        plugin_type: The kind of extension this plugin contributes. Determines which
+            discriminator field name is required on the config class
+            (``column_type``, ``seed_type``, or ``processor_type``).
+    """
+
     impl_qualified_name: str = Field(
         ...,
         description="The fully-qualified name of the implementation class object, e.g. 'my_plugin.generator.MyColumnGenerator'",
     )
     config_qualified_name: str = Field(
-        ..., description="The fully-qualified name o the config class object, e.g. 'my_plugin.config.MyConfig'"
+        ..., description="The fully-qualified name of the config class object, e.g. 'my_plugin.config.MyConfig'"
     )
     plugin_type: PluginType = Field(..., description="The type of plugin")
 
