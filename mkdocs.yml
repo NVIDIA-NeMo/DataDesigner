@@ -69,20 +69,22 @@ nav:
           - "Frontier Judge QA Filter": recipes/vlm_long_doc/frontier_judge.md
   - Plugins:
       - Overview: plugins/overview.md
-      - Example Plugin: plugins/example.md
-      - FileSystemSeedReader Plugins: plugins/filesystem_seed_reader.md
-      - Available Plugin List: plugins/available.md
+      - Build Your Own: plugins/implement.md
+      - Catalog: plugins/available.md
   - Code Reference:
-      - models: code_reference/models.md
-      - mcp: code_reference/mcp.md
+      # Keep code reference pages ordered alphabetically by nav label.
+      - analysis: code_reference/analysis.md
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md
+      - generators: code_reference/generators.md
+      - mcp: code_reference/mcp.md
+      - models: code_reference/models.md
+      - plugins: code_reference/plugins.md
+      - processors: code_reference/processors.md
       - run_config: code_reference/run_config.md
       - sampler_params: code_reference/sampler_params.md
       - validator_params: code_reference/validator_params.md
-      - processors: code_reference/processors.md
-      - analysis: code_reference/analysis.md
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md

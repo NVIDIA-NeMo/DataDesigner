@@ -1,8 +1,5 @@
 # FileSystemSeedReader Plugins
 
-!!! warning "Experimental Feature"
-    The plugin system is currently **experimental** and under active development. The documentation, examples, and plugin interface are subject to significant changes in future releases. If you encounter any issues, have questions, or have ideas for improvement, please consider starting [a discussion on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/discussions).
-
 `FileSystemSeedReader` is the simplest way to build a seed reader plugin when your source data lives in a directory of files. You describe the files cheaply in `build_manifest(...)`, then optionally read and reshape them in `hydrate_row(...)`.
 
 This guide focuses on the filesystem-specific contract. The fastest way to learn it is usually to start with an inline reader over `DirectorySeedSource`, then package that reader later only if you need automatic plugin discovery or a brand-new `seed_type`. For a runnable single-file example, see the [Markdown Section Seed Reader recipe](../recipes/plugin_development/markdown_seed_reader.md).
@@ -156,6 +153,160 @@ If you want the same reader to be installable and auto-discovered as a plugin, t
 - register that plugin via a `data_designer.plugins` entry point
 
 That extra packaging step is only necessary when you need a reusable plugin boundary. The reader logic itself still lives in the same `build_manifest(...)` and `hydrate_row(...)` methods shown above.
+
+Recommended package structure:
+
+```text
+data-designer-prefixed-text-seed-reader/
+|-- pyproject.toml
+`-- src/
+    `-- data_designer_prefixed_text_seed_reader/
+        |-- __init__.py
+        |-- config.py
+        |-- impl.py
+        `-- plugin.py
+```
+
+Create `src/data_designer_prefixed_text_seed_reader/config.py`:
+
+```python
+from __future__ import annotations
+
+from typing import Literal
+
+from data_designer.config.seed_source import FileSystemSeedSource
+
+
+class PrefixedTextSeedSource(FileSystemSeedSource):
+    seed_type: Literal["prefixed-text-files"] = "prefixed-text-files"
+
+    prefix: str = "plugin"
+```
+
+Create `src/data_designer_prefixed_text_seed_reader/impl.py`:
+
+```python
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import data_designer.lazy_heavy_imports as lazy
+from data_designer.engine.resources.seed_reader import (
+    FileSystemSeedReader,
+    SeedReaderFileSystemContext,
+)
+
+from data_designer_prefixed_text_seed_reader.config import PrefixedTextSeedSource
+
+
+class PrefixedTextSeedReader(FileSystemSeedReader[PrefixedTextSeedSource]):
+    output_columns = ["relative_path", "file_name", "prefixed_content"]
+
+    def build_manifest(
+        self,
+        *,
+        context: SeedReaderFileSystemContext,
+    ) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [
+            {
+                "relative_path": relative_path,
+                "file_name": Path(relative_path).name,
+            }
+            for relative_path in matched_paths
+        ]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, Any],
+        context: SeedReaderFileSystemContext,
+    ) -> dict[str, str]:
+        relative_path = str(manifest_row["relative_path"])
+        with context.fs.open(relative_path, "r", encoding="utf-8") as handle:
+            content = handle.read().strip()
+        return {
+            "relative_path": relative_path,
+            "file_name": str(manifest_row["file_name"]),
+            "prefixed_content": f"{self.source.prefix}:{content}",
+        }
+```
+
+Create `src/data_designer_prefixed_text_seed_reader/plugin.py`:
+
+```python
+from __future__ import annotations
+
+from data_designer.plugins import Plugin, PluginType
+
+plugin = Plugin(
+    config_qualified_name="data_designer_prefixed_text_seed_reader.config.PrefixedTextSeedSource",
+    impl_qualified_name="data_designer_prefixed_text_seed_reader.impl.PrefixedTextSeedReader",
+    plugin_type=PluginType.SEED_READER,
+)
+```
+
+Create `pyproject.toml`:
+
+```toml
+[project]
+name = "data-designer-prefixed-text-seed-reader"
+version = "0.1.0"
+description = "Data Designer seed reader plugin for prefixed text files"
+requires-python = ">=3.10"
+dependencies = [
+    "data-designer",
+]
+
+[project.entry-points."data_designer.plugins"]
+prefixed-text-files = "data_designer_prefixed_text_seed_reader.plugin:plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_designer_prefixed_text_seed_reader"]
+```
+
+Install it from the plugin package directory:
+
+```bash
+uv pip install -e .
+```
+
+Then use the packaged seed source like any other seed dataset source:
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+from data_designer_prefixed_text_seed_reader.config import PrefixedTextSeedSource
+
+data_designer = DataDesigner()
+
+builder = dd.DataDesignerConfigBuilder()
+builder.with_seed_dataset(
+    PrefixedTextSeedSource(
+        path="sample_data",
+        file_pattern="*.txt",
+        prefix="plugin",
+    )
+)
+builder.add_column(
+    dd.ExpressionColumnConfig(
+        name="summary",
+        expr="{{ file_name }} => {{ prefixed_content }}",
+    )
+)
+
+preview = data_designer.preview(builder, num_records=2)
+print(preview.dataset)
+```
 
 ## Advanced Hooks
 

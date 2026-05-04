@@ -5,4 +5,12 @@ The `column_configs` module defines configuration objects for all Data Designer 
 !!! info "`column_type` is a discriminator field"
     The `column_type` argument is used to identify column types when deserializing the [Data Designer Config](data_designer_config.md) from JSON/YAML. It acts as the discriminator in a [discriminated union](https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions), allowing Pydantic to automatically determine which column configuration class to instantiate.
 
+## `SingleColumnConfig` {#data_designer.config.base.SingleColumnConfig}
+
+::: data_designer.config.base.SingleColumnConfig
+    options:
+      show_root_toc_entry: false
+
+## Column configurations
+
 ::: data_designer.config.column_configs

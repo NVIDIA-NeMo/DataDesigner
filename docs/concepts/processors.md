@@ -169,7 +169,7 @@ builder.add_processor(
 my-processor = "my_plugin.plugin:my_processor_plugin"
 ```
 
-See the [plugins overview](../plugins/overview.md) for the full guide on creating plugins.
+See [Processor Plugins](../plugins/processor.md) for a complete package example and the [plugins overview](../plugins/overview.md) for discovery details.
 
 ## Configuration Parameters
 
