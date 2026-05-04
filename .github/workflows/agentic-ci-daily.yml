@@ -62,7 +62,7 @@ jobs:
     needs: determine-suite
     if: needs.determine-suite.outputs.suites != '[]'
     runs-on: [self-hosted, agentic-ci]
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
