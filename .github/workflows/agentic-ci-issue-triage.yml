@@ -120,33 +120,36 @@ jobs:
           # Skip fallback only if every expected part identity (i/N) appears
           # in a today-dated bot comment. Identity-based, not count-based:
           # a duplicate post of one part should not mask a missing other.
+          # The pre-`capture()` `test()` guard is required: jq `capture()`
+          # raises an error on non-matching input, which would truncate the
+          # stream if any unrelated today-dated bot comment lacks the
+          # triage marker (e.g. from another automated workflow).
           TODAY=$(date -u +%Y-%m-%d)
           SEEN_PARTS=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
             --paginate \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${TODAY}\")) | .body | capture(\"agentic-ci-issue-triage:(?<i>[0-9]+)/${EXPECTED_PARTS}\") | .i" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${TODAY}\")) | select(.body | test(\"agentic-ci-issue-triage:[0-9]+/${EXPECTED_PARTS}\")) | .body | capture(\"agentic-ci-issue-triage:(?<i>[0-9]+)/${EXPECTED_PARTS}\") | .i" \
             2>/dev/null | sort -u)
 
-          ALL_COVERED=1
           MISSING=()
           for i in $(seq 1 "${EXPECTED_PARTS}"); do
             if ! echo "${SEEN_PARTS}" | grep -qx "${i}"; then
-              ALL_COVERED=0
               MISSING+=("${i}")
             fi
           done
 
-          if [ "${ALL_COVERED}" -eq 1 ]; then
+          if [ ${#MISSING[@]} -eq 0 ]; then
             echo "All ${EXPECTED_PARTS} parts already posted today (identities: $(echo "${SEEN_PARTS}" | tr '\n' ',' | sed 's/,$//')). Skipping fallback."
             exit 0
           fi
 
           if [ -n "${SEEN_PARTS}" ]; then
-            echo "::warning::Missing parts ${MISSING[*]} of ${EXPECTED_PARTS}; posting all parts. Duplicates may result for parts that were already posted."
+            echo "::warning::Posting only missing parts ${MISSING[*]} of ${EXPECTED_PARTS}; the agent already posted parts $(echo "${SEEN_PARTS}" | tr '\n' ',' | sed 's/,$//')."
           fi
 
-          for PART in "${PARTS[@]}"; do
+          for i in "${MISSING[@]}"; do
+            PART="${PARTS[$((i-1))]}"
             gh issue comment "$TRACKING_ISSUE" --body-file "$PART"
-            echo "Posted ${PART}"
+            echo "Posted part ${i}: ${PART}"
           done
 
       - name: Write job summary
