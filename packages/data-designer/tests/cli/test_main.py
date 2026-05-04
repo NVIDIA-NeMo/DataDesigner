@@ -22,7 +22,8 @@ def test_main_bootstraps_before_running_app(mock_bootstrap: Mock, mock_app: Mock
     call_order.attach_mock(mock_bootstrap, "bootstrap")
     call_order.attach_mock(mock_app, "app")
 
-    main()
+    with patch("sys.argv", ["data-designer"]):
+        main()
 
     assert call_order.mock_calls == [call.bootstrap(), call.app()]
 
@@ -32,6 +33,17 @@ def test_main_bootstraps_before_running_app(mock_bootstrap: Mock, mock_app: Mock
 def test_main_skips_bootstrap_for_version(mock_bootstrap: Mock, mock_app: Mock) -> None:
     """The CLI entrypoint avoids default setup for the fast version path."""
     with patch("sys.argv", ["data-designer", "--version"]):
+        main()
+
+    mock_bootstrap.assert_not_called()
+    mock_app.assert_called_once_with()
+
+
+@patch("data_designer.cli.main.app")
+@patch("data_designer.cli.main.ensure_cli_default_model_settings")
+def test_main_skips_bootstrap_when_version_follows_another_flag(mock_bootstrap: Mock, mock_app: Mock) -> None:
+    """The CLI entrypoint detects eager version requests even after another root flag."""
+    with patch("sys.argv", ["data-designer", "--help", "--version"]):
         main()
 
     mock_bootstrap.assert_not_called()
