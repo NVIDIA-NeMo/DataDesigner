@@ -14,12 +14,16 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from graphify.analyze import god_nodes, graph_diff
 from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
+from graphify.export import to_json
 from graphify.extract import extract
+from networkx.readwrite import json_graph
 
 _REPO_ROOT_DEFAULT = Path(__file__).resolve().parent.parent.parent
 _REPO_ROOT = _REPO_ROOT_DEFAULT
@@ -74,15 +78,23 @@ def _dedup(items: list[dict], keys: tuple[str, ...] = ("from_label", "to_label",
     return out
 
 
-def _build_graph(files: list[Path]) -> dict:
+@dataclass(frozen=True, slots=True)
+class _Analysis:
+    graph: Any
+    communities: Any
+    cohesion: Any
+    god_nodes: list[dict[str, Any]]
+
+
+def _build_graph(files: list[Path]) -> _Analysis:
     """Extract, build directed graph, cluster, and find god nodes."""
     ext = extract(files)
     G = build_from_json(ext, directed=True)
     comms = cluster(G)
-    return {"graph": G, "communities": comms, "cohesion": score_all(G, comms), "god_nodes": god_nodes(G, top_n=15)}
+    return _Analysis(graph=G, communities=comms, cohesion=score_all(G, comms), god_nodes=god_nodes(G, top_n=15))
 
 
-def _cross_package_edges(G, node_ids: set[str] | None = None) -> tuple[list[dict], list[dict], dict[str, int]]:
+def _cross_package_edges(G: Any, node_ids: set[str] | None = None) -> tuple[list[dict], list[dict], dict[str, int]]:
     """Collect cross-package edges. If node_ids is given, edges touching those nodes (either direction).
 
     Returns (cross_pkg_edges, violations, direction_counts).
@@ -191,7 +203,7 @@ def _changed_files_mode(changed_files: list[Path], deleted_files: list[Path] | N
     """PR review: analyze changed files against full codebase."""
     t0 = time.monotonic()
     analysis = _build_graph(_collect_source_files())
-    G, communities, gods = analysis["graph"], analysis["communities"], analysis["god_nodes"]
+    G, communities, gods = analysis.graph, analysis.communities, analysis.god_nodes
 
     changed_paths = {str(p.resolve()) for p in changed_files}
     changed_node_ids = {nid for nid in G.nodes() if G.nodes[nid].get("source_file") in changed_paths}
@@ -267,7 +279,7 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
     """Structure audit: full codebase analysis with optional diff."""
     t0 = time.monotonic()
     analysis = _build_graph(_collect_source_files())
-    G, communities, gods = analysis["graph"], analysis["communities"], analysis["god_nodes"]
+    G, communities, gods = analysis.graph, analysis.communities, analysis.god_nodes
     elapsed = time.monotonic() - t0
 
     ranked_gods = [{"rank": i, **g} for i, g in enumerate(gods[:10], 1)]
@@ -294,8 +306,6 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
     # Graph diff against previous run.
     if previous_graph_path and Path(previous_graph_path).exists():
         try:
-            from networkx.readwrite import json_graph
-
             prev_data = json.loads(Path(previous_graph_path).read_text(encoding="utf-8"))
             try:
                 G_prev = json_graph.node_link_graph(prev_data, edges="links")
@@ -310,12 +320,10 @@ def _full_mode(previous_graph_path: str | None = None) -> str:
                     if len(diff[key]) > 8:
                         lines.append(f"  +{len(diff[key]) - 8} more")
             lines.append("")
-        except Exception as exc:
+        except (json.JSONDecodeError, KeyError, TypeError, OSError) as exc:
             lines += [f"_Could not diff against previous graph: {exc}_", ""]
 
     # Save graph + baselines for next run.
-    from graphify.export import to_json
-
     out_dir = _REPO_ROOT / "graphify-out"
     out_dir.mkdir(exist_ok=True)
     to_json(G, communities, str(out_dir / "graph.json"))

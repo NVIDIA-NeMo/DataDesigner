@@ -124,7 +124,7 @@ PREV_GRAPH=""
 if [ -f "graphify-out/graph.json" ]; then
   PREV_GRAPH="--previous-graph graphify-out/graph.json"
 fi
-python .agents/tools/structural_impact.py --full $PREV_GRAPH \
+/tmp/graphify-venv/bin/python .agents/tools/structural_impact.py --full $PREV_GRAPH \
   --output /tmp/graphify-structure.md
 ```
 
