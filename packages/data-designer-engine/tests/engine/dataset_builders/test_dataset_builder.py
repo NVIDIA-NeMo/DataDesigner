@@ -21,7 +21,7 @@ from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
-from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, _ConfigCompatibility
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.models.errors import (
     FormattedLLMErrorMessage,
@@ -1538,6 +1538,17 @@ def test_build_resume_raises_on_buffer_size_mismatch(stub_resource_provider, stu
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=3)
     with pytest.raises(DatasetGenerationError, match="buffer_size=3 does not match"):
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_always_raises_on_config_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=ALWAYS raises DatasetGenerationError when the stored config fingerprint differs."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
+        with pytest.raises(DatasetGenerationError, match="does not match the config used"):
+            builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
 
 def test_build_resume_logs_warning_when_already_complete(

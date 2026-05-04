@@ -12,6 +12,7 @@ import time
 import uuid
 import warnings
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -94,6 +95,12 @@ _CLIENT_VERSION: str = get_library_version()
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
     return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+
+class _ConfigCompatibility(StrEnum):
+    COMPATIBLE = "compatible"
+    INCOMPATIBLE = "incompatible"
+    NO_PRIOR_DATASET = "no_prior_dataset"
 
 
 @dataclass
@@ -238,26 +245,36 @@ class DatasetBuilder:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
 
-        # For IF_POSSIBLE: resolve to ALWAYS or NEVER before touching the artifact directory.
-        # _check_resume_config_compatibility() must NOT access base_dataset_path (which would
-        # cache resolved_dataset_name prematurely). After the decision, sync artifact_storage.resume
-        # so that resolved_dataset_name picks up the right semantics on its first real access.
+        # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
+        # directory. _check_resume_config_compatibility() must NOT access base_dataset_path
+        # (which would cache resolved_dataset_name prematurely). After the decision, sync
+        # artifact_storage.resume so that resolved_dataset_name picks up the right semantics
+        # on its first real access.
         #
         # Also invalidate any stale resolved_dataset_name cache: ArtifactStorage's Pydantic
         # validator accesses base_dataset_path at construction time, which caches resolved_dataset_name
-        # under the original resume=IF_POSSIBLE semantics. Popping it forces a fresh resolution.
-        if resume == ResumeMode.IF_POSSIBLE:
-            if not self._check_resume_config_compatibility():
-                logger.info(
-                    "▶️ Config has changed since the last run — starting a fresh generation (resume=IF_POSSIBLE)."
+        # under the original resume mode semantics. Popping it forces a fresh resolution.
+        if resume in (ResumeMode.IF_POSSIBLE, ResumeMode.ALWAYS):
+            compat = self._check_resume_config_compatibility()
+            if resume == ResumeMode.ALWAYS and compat == _ConfigCompatibility.INCOMPATIBLE:
+                raise DatasetGenerationError(
+                    "🛑 Cannot resume: the current config does not match the config used in the interrupted run. "
+                    "Use resume=ResumeMode.IF_POSSIBLE to start fresh automatically, or "
+                    "resume=ResumeMode.NEVER to force a new run."
                 )
-                resume = ResumeMode.NEVER
-                self.artifact_storage.resume = ResumeMode.NEVER
-                self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
-            else:
-                resume = ResumeMode.ALWAYS
-                self.artifact_storage.resume = ResumeMode.ALWAYS
-                self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
+            if resume == ResumeMode.IF_POSSIBLE:
+                if compat != _ConfigCompatibility.COMPATIBLE:
+                    if compat == _ConfigCompatibility.INCOMPATIBLE:
+                        logger.info(
+                            "▶️ Config has changed since the last run — starting a fresh generation (resume=IF_POSSIBLE)."
+                        )
+                    resume = ResumeMode.NEVER
+                    self.artifact_storage.resume = ResumeMode.NEVER
+                    self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
+                else:
+                    resume = ResumeMode.ALWAYS
+                    self.artifact_storage.resume = ResumeMode.ALWAYS
+                    self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
 
         self._write_builder_config()
 
@@ -499,12 +516,13 @@ class DatasetBuilder:
                 continue
         return ids
 
-    def _check_resume_config_compatibility(self) -> bool:
+    def _check_resume_config_compatibility(self) -> _ConfigCompatibility:
         """Compare the current config fingerprint against the stored builder_config.json.
 
-        Returns True when the configs are compatible (same data-relevant fingerprint) or when
-        the stored config cannot be read (a warning is logged in that case so the corruption
-        is visible). Returns False when the fingerprints differ.
+        Returns:
+            NO_PRIOR_DATASET  — directory absent or empty (no prior run to resume from).
+            COMPATIBLE        — fingerprints match, or stored config is unreadable (warning logged).
+            INCOMPATIBLE      — fingerprints differ; continuing would mix records from two configs.
 
         Uses artifact_path / dataset_name directly — NOT base_dataset_path — to avoid
         prematurely triggering the resolved_dataset_name cached_property before the
@@ -512,22 +530,22 @@ class DatasetBuilder:
         """
         dataset_dir = Path(self.artifact_storage.artifact_path) / self.artifact_storage.dataset_name
         if not dataset_dir.exists() or not any(dataset_dir.iterdir()):
-            return False
+            return _ConfigCompatibility.NO_PRIOR_DATASET
         config_path = dataset_dir / SDG_CONFIG_FILENAME
         if not config_path.exists():
-            return True
+            return _ConfigCompatibility.COMPATIBLE
         try:
             stored_data = json.loads(config_path.read_text())
             stored_config = BuilderConfig.model_validate(stored_data)
             current_fp = self._data_designer_config.fingerprint()["config_hash"]
             stored_fp = stored_config.data_designer.fingerprint()["config_hash"]
-            return current_fp == stored_fp
+            return _ConfigCompatibility.COMPATIBLE if current_fp == stored_fp else _ConfigCompatibility.INCOMPATIBLE
         except Exception:
             logger.warning(
                 "⚠️ Could not read stored config at %s for compatibility check — assuming compatible.",
                 config_path,
             )
-            return True
+            return _ConfigCompatibility.COMPATIBLE
 
     def _build_async(
         self,
