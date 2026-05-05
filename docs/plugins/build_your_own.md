@@ -29,7 +29,7 @@ data-designer-my-plugin/
         If your column generator interacts with models, include at least one `model_alias` field in the config and use the model registry from the implementation. See [Using Models in Plugins](models.md) for the registry access pattern.
 
     !!! info "Full-column vs cell-by-cell generators"
-        The example below uses `ColumnGeneratorFullColumn` because it can fill the whole batch from the DataFrame index. Use `ColumnGeneratorCellByCell` when each row can be generated independently from its upstream values and your `generate` method should receive and return a row dictionary. Prefer `ColumnGeneratorFullColumn` for vectorized pandas operations, batched external APIs, or logic that needs to inspect or update the full batch at once.
+        The example below uses `ColumnGeneratorFullColumn` because it can fill the whole batch from the DataFrame index. Use `ColumnGeneratorCellByCell` when each row can be generated independently from its upstream values and your `generate` method should receive and return a row dictionary. Cell-by-cell generation is especially useful for independent LLM calls because the async engine can run rows concurrently; the built-in [LLM completion generators](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/packages/data-designer-engine/src/data_designer/engine/column_generators/generators/llm_completion.py) are good examples. Prefer `ColumnGeneratorFullColumn` for vectorized pandas operations, batched external APIs, or logic that needs to inspect or update the full batch at once.
 
     `config.py`:
 
