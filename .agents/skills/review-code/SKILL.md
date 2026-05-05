@@ -112,6 +112,33 @@ Before diving into details, build a mental model:
 5. **Note cross-cutting concerns** (e.g., a rename that touches many files vs. substantive logic changes)
 6. **Check existing feedback** (PR mode): inspect both inline comments (Step 1, item 5) and PR-level review bodies (Step 1, item 5b) so you don't duplicate feedback already given
 
+## Step 3.5: Structural Impact (if available)
+
+Check for a pre-computed structural impact analysis at
+`/tmp/structural-impact-<pr-or-branch>.md`. This file is produced by
+`graphify` AST extraction and contains:
+
+- **Risk level** (LOW/MEDIUM/HIGH) based on god nodes touched, import
+  violations, and cluster spread
+- **Core abstractions modified** - the most-connected entities in the
+  codebase (high blast radius if changed)
+- **Import direction violations** - cross-package edges that violate the
+  layering rule (interface -> engine -> config)
+- **High-connectivity changes** - entities with many dependents
+- **Cross-package dependencies** - edges crossing package boundaries
+
+If the file exists, read it and use it to calibrate your review:
+
+- **HIGH risk**: apply extra scrutiny in Pass 2 (Design & Architecture).
+  Verify backward compatibility for god nodes. Check that cross-package
+  changes don't break existing callers.
+- **Import violations**: flag them as Warnings in the review if they
+  represent real dependency direction issues (not just inferred edges).
+- **LOW risk**: the structural analysis confirms a localized change. You
+  can focus more on correctness (Pass 1) and less on architecture.
+
+If the file does not exist (e.g. local branch review), skip this step.
+
 ## Step 4: Review Each Changed File (Multi-Pass)
 
 Perform **at least 2-3 passes** over the changed files. Each pass has a different focus — this catches issues that a single read-through would miss.

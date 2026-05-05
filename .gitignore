@@ -106,3 +106,6 @@ packages/data-designer/README.md
 
 # Claude worktrees
 .claude/worktrees/
+
+# Graphify structural analysis cache (CI-only, cached via actions/cache)
+graphify-out/
