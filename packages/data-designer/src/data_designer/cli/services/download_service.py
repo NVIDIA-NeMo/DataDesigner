@@ -53,6 +53,8 @@ class DownloadService:
                 "resource",
                 "download-version",
                 f"nvidia/nemotron-personas/{locale_obj.dataset_name}",
+                "--org",
+                "nvidia",
                 "--dest",
                 temp_dir,
             ]
