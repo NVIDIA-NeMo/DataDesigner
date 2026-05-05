@@ -1,6 +1,6 @@
 # Using Models in Plugins
 
-Model access is a runtime concern for column generator plugins. Keep the config declarative by asking users for model aliases, then use the model registry from the generator implementation to resolve those aliases into `ModelFacade` instances.
+Model access belongs in column generator implementations, not config objects. Keep the config declarative by asking users for model aliases, then resolve those aliases at runtime through the model registry.
 
 Do not construct model clients in plugin configs, read API keys in configs, or bypass Data Designer's model providers. The engine already builds a `ResourceProvider` for each generator, and that provider exposes the model registry at:
 
@@ -14,18 +14,26 @@ Use a model-aware column generator base whenever your plugin needs the registry:
 
 | Need | Base class | Registry access |
 |------|------------|-----------------|
-| One primary model alias | `ColumnGeneratorWithModel` | Use `self.model`, `self.model_config`, and `self.inference_parameters`. |
+| Primary model alias | `ColumnGeneratorWithModel` | Use `self.model`, `self.model_config`, and `self.inference_parameters`. |
 | Multiple aliases or provider inspection | `ColumnGeneratorWithModelRegistry` | Use `self.get_model(alias)`, `self.get_model_config(alias)`, and `self.get_model_provider_name(alias)`. |
 
-`ColumnGeneratorWithModel` is a convenience subclass of `ColumnGeneratorWithModelRegistry`. It expects the config to have a `model_alias` field and resolves that one alias for you.
+`ColumnGeneratorWithModel` is a convenience subclass of `ColumnGeneratorWithModelRegistry`. It expects the config to have a `model_alias` field and resolves that one alias for you. For independent model calls, return `GenerationStrategy.CELL_BY_CELL` so the runtime can fan out rows like the built-in LLM, embedding, and image generators. Use full-column generation only when your plugin intentionally calls a batched API for the whole DataFrame.
 
 ```python
 from __future__ import annotations
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel
+from data_designer.engine.models.parsers.errors import ParserException
 
 from data_designer_sentiment_label.config import SentimentLabelColumnConfig
+
+
+def parse_sentiment_label(response: str) -> str:
+    label = response.strip().lower()
+    if label not in {"positive", "neutral", "negative"}:
+        raise ParserException("Expected exactly one of: positive, neutral, negative.", source=response)
+    return label
 
 
 class SentimentLabelColumnGenerator(ColumnGeneratorWithModel[SentimentLabelColumnConfig]):
@@ -34,37 +42,67 @@ class SentimentLabelColumnGenerator(ColumnGeneratorWithModel[SentimentLabelColum
         return GenerationStrategy.CELL_BY_CELL
 
     async def agenerate(self, data: dict) -> dict:
-        response, _ = await self.model.agenerate(
+        label, _ = await self.model.agenerate(
             prompt=f"Classify the sentiment of this text: {data[self.config.source_column]}",
-            system_prompt="Return only positive, neutral, or negative.",
+            system_prompt="Return exactly one label: positive, neutral, or negative.",
+            parser=parse_sentiment_label,
+            max_correction_steps=self.resource_provider.run_config.max_conversation_correction_steps,
+            max_conversation_restarts=self.resource_provider.run_config.max_conversation_restarts,
             purpose=f"running generation for column '{self.config.name}'",
         )
-        data[self.config.name] = str(response).strip().lower()
+        data[self.config.name] = label
         return data
 ```
 
 The matching config should include `model_alias: str` as a normal user-facing field:
 
 ```python
+from __future__ import annotations
+
+from typing import Literal
+
+from data_designer.config.base import SingleColumnConfig
+
+
 class SentimentLabelColumnConfig(SingleColumnConfig):
     column_type: Literal["sentiment-label"] = "sentiment-label"
     source_column: str
     model_alias: str
+
+    @property
+    def required_columns(self) -> list[str]:
+        return [self.source_column]
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
 ```
 
 Users set that alias from default model settings or from `DataDesignerConfigBuilder(model_configs=...)`.
 
 ## Use multiple models
 
-Use `ColumnGeneratorWithModelRegistry` when a plugin needs to choose among aliases, call more than one model, or inspect provider metadata.
+If your plugin uses multiple model aliases, inherit from `ColumnGeneratorWithModelRegistry` and resolve each alias explicitly with `self.get_model(...)`.
+
+The config should keep a primary `model_alias` field because startup health checks collect that field from model-generated column configs. A config for this pattern might also define `judge_model_alias`, `critic_model_alias`, or another task-specific alias.
+
+Validate additional alias fields in `_validate()` or `_initialize()` with `get_model_config(...)` so missing aliases fail before generation starts. This checks that the alias exists; only the primary `model_alias` is included in the standard startup health check.
 
 ```python
 from __future__ import annotations
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
+from data_designer.engine.models.parsers.errors import ParserException
 
 from data_designer_pairwise_judge.config import PairwiseJudgeColumnConfig
+
+
+def parse_score(response: str) -> int:
+    text = response.strip()
+    if text not in {"1", "2", "3", "4", "5"}:
+        raise ParserException("Expected an integer score from 1 to 5.", source=response)
+    return int(text)
 
 
 class PairwiseJudgeColumnGenerator(ColumnGeneratorWithModelRegistry[PairwiseJudgeColumnConfig]):
@@ -79,22 +117,38 @@ class PairwiseJudgeColumnGenerator(ColumnGeneratorWithModelRegistry[PairwiseJudg
     async def agenerate(self, data: dict) -> dict:
         generator_model = self.get_model(self.config.model_alias)
         judge_model = self.get_model(self.config.judge_model_alias)
+        retry_kwargs = {
+            "max_correction_steps": self.resource_provider.run_config.max_conversation_correction_steps,
+            "max_conversation_restarts": self.resource_provider.run_config.max_conversation_restarts,
+        }
 
-        draft, _ = await generator_model.agenerate(prompt=f"Draft an answer for: {data['question']}")
-        score, _ = await judge_model.agenerate(prompt=f"Score this answer from 1 to 5: {draft}")
+        draft, _ = await generator_model.agenerate(
+            prompt=f"Draft an answer for: {data['question']}",
+            purpose=f"drafting an answer for column '{self.config.name}'",
+            **retry_kwargs,
+        )
+        score, _ = await judge_model.agenerate(
+            prompt=f"Score this answer from 1 to 5: {draft}",
+            system_prompt="Return exactly one integer from 1 to 5.",
+            parser=parse_score,
+            purpose=f"judging an answer for column '{self.config.name}'",
+            **retry_kwargs,
+        )
         data[self.config.name] = {"draft": draft, "score": score}
         return data
 ```
-
-For aliases beyond the primary `model_alias`, validate them in `_validate()` or `_initialize()` with `get_model_config(...)` so missing aliases fail before generation work starts.
 
 ## What the registry returns
 
 `get_model(...)` returns a `ModelFacade`. Call the facade based on the modality your plugin needs:
 
-- Chat completion: `model.generate(...)` or `await model.agenerate(...)`
-- Embeddings: `model.generate_text_embeddings(...)` or `await model.agenerate_text_embeddings(...)`
-- Images: `model.generate_image(...)` or `await model.agenerate_image(...)`
+- Chat completion aliases use `model.generate(...)` or `await model.agenerate(...)` and return `(parsed_output, trace)`.
+- Embedding aliases use `model.generate_text_embeddings(...)` or `await model.agenerate_text_embeddings(...)` and return `list[list[float]]`.
+- Image aliases use `model.generate_image(...)` or `await model.agenerate_image(...)` and return `list[str]` of base64-encoded image data.
+
+Choose a model alias whose `ModelConfig.inference_parameters.generation_type` matches the facade method you call. The facade merges the alias's configured inference parameters into each request.
+
+Pass runtime context such as `prompt`, `system_prompt`, `parser`, `tool_alias`, `multi_modal_context`, `max_correction_steps`, `max_conversation_restarts`, and `purpose` at the call site. Parser functions should raise `ParserException` for invalid model responses; that is what allows `ModelFacade.generate(...)` and `ModelFacade.agenerate(...)` to run correction turns and conversation restarts.
 
 Prefer implementing `agenerate(...)` for model-backed plugins. The base `generate(...)` method can bridge to `agenerate(...)` for sync runs when the subclass only implements async generation. If your plugin has a sync-specific path, implement both `generate(...)` and `agenerate(...)`, as the built-in generators do.
 
@@ -102,7 +156,7 @@ Prefer implementing `agenerate(...)` for model-backed plugins. The base `generat
 
 The model-aware bases mark the generator as LLM-bound, so the async scheduler treats the work like other model calls.
 
-Plugin discovery also treats column generator implementations that inherit from `ColumnGeneratorWithModelRegistry` as model-generated column types for startup model health checks. The standard health-check collection expects a primary `model_alias` field on the config. Additional alias fields should be explicitly validated by the plugin implementation.
+Plugin discovery treats column generator implementations that inherit from `ColumnGeneratorWithModelRegistry` as model-generated column types for startup model health checks. The standard health-check collection expects a primary `model_alias` field on the config. Additional alias fields should be validated by the plugin implementation.
 
 ## Built-in patterns
 
