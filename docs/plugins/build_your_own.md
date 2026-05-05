@@ -44,7 +44,7 @@ data-designer-my-plugin/
 
         @staticmethod
         def get_column_emoji() -> str:
-            return "x"
+            return "✖️"
 
         @property
         def required_columns(self) -> list[str]:
@@ -223,7 +223,6 @@ data-designer-my-plugin/
     ```python
     from __future__ import annotations
 
-    import re
     from typing import TYPE_CHECKING
 
     from data_designer.engine.processing.processors.base import Processor
@@ -236,8 +235,7 @@ data-designer-my-plugin/
 
     class RegexFilterProcessor(Processor[RegexFilterProcessorConfig]):
         def process_before_batch(self, data: pd.DataFrame) -> pd.DataFrame:
-            compiled = re.compile(self.config.pattern)
-            mask = data[self.config.column].astype(str).apply(lambda value: bool(compiled.search(value)))
+            mask = data[self.config.column].astype(str).str.contains(self.config.pattern, regex=True)
             if self.config.invert:
                 mask = ~mask
             return data[mask].reset_index(drop=True)
@@ -264,7 +262,7 @@ data-designer-my-plugin/
     regex-filter = "data_designer_regex_filter.plugin:plugin"
     ```
 
-    For callback selection and processor execution details, see [Processors](../concepts/processors.md).
+    For callback selection and processor execution details, see [Processors](../concepts/processors.md). For the engine API behind this example, see [Processors code reference](../code_reference/processors.md).
 
 ## Install and use locally
 
@@ -276,6 +274,9 @@ uv pip install -e .
 
 The editable install registers the `data_designer.plugins` entry point so Data Designer can discover the plugin.
 
+!!! note "Restart your kernel after installing"
+    Data Designer caches the plugin registry on first import, so an `import data_designer` that already happened in your Python process — typical in a notebook — won't pick up a freshly installed plugin. After `uv pip install -e .`, restart the kernel (or interpreter) so the next import rebuilds the registry.
+
 ## Validate plugins
 
 Data Designer provides a testing utility for common plugin structure checks:
@@ -286,6 +287,8 @@ from data_designer_index_multiplier.plugin import plugin
 
 assert_valid_plugin(plugin)
 ```
+
+`assert_valid_plugin` checks that the plugin's config inherits from `ConfigBase` and that the implementation class inherits from the appropriate base for its plugin type (`ConfigurableTask` for column generators, `SeedReader` for seed readers).
 
 For published plugins, add at least one functional test that runs the plugin through `DataDesigner.preview(...)`. This catches packaging and entry point issues that a direct implementation test can miss.
 
