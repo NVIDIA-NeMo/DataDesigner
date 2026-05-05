@@ -1,5 +1,7 @@
 # Config Package
 
-The `data-designer-config` package owns the `data_designer.config` namespace: the declarative layer users use to describe the dataset they want Data Designer to generate. It defines the configuration schemas, builder APIs, and related data models that describe generation inputs, runtime options, extensions, and result metadata.
+The `data-designer-config` package provides `data_designer.config`, the configuration layer of Data Designer. It contains the objects used to describe dataset structure, model access, tool access, seed data, sampler parameters, validators, processors, run settings, plugin registrations, and analysis results.
 
-Config objects declare dataset properties and generation requirements, but they do not execute generation directly. The engine consumes these objects and maps them to runtime behavior through registries.
+This package is the base of the dependency chain. Engine and interface code consume these config objects, but config objects do not execute generation directly.
+
+For programmatic configuration work, start with [config_builder](config_builder.md) and [data_designer_config](data_designer_config.md). Use the narrower pages for exact constructor fields for columns, models, MCP tools, seeds, processors, samplers, validators, or profiling results.

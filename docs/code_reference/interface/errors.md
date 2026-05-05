@@ -1,6 +1,6 @@
 # Interface Errors
 
-The `data_designer.interface.errors` module defines interface-level exceptions raised when generation, profiling, or buffer validation fails at the public API boundary. These errors inherit from `data_designer.errors.DataDesignerError`, allowing callers to catch either specific interface failures or the project-wide base error type.
+Interface errors represent failures surfaced at the public API boundary. DataDesignerGenerationError wraps dataset generation failures from `create()` and `preview()`, and DataDesignerProfilingError wraps profiling failures from those methods. These errors inherit from `data_designer.errors.DataDesignerError`, allowing callers to catch either specific interface failures or the project-wide base error type.
 
 The package-level `data_designer.interface` export lazily exposes [DataDesignerGenerationError](#data_designer.interface.errors.DataDesignerGenerationError) and [DataDesignerProfilingError](#data_designer.interface.errors.DataDesignerProfilingError). [InvalidBufferValueError](#data_designer.interface.errors.InvalidBufferValueError) is defined in this module.
 

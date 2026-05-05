@@ -1,11 +1,10 @@
 # Engine Processor Implementations
 
-The `data_designer.engine.processing.processors` modules implement runtime processor behavior. Processor configs live in [`data_designer.config.processors`](../config/processors.md); the engine processor registry maps those config types to the classes documented here.
+Runtime processor classes and processor registry helpers.
 
 Plugin processors inherit from [Processor](#data_designer.engine.processing.processors.base.Processor) and override one or more callback methods: `process_before_batch`, `process_after_batch`, or `process_after_generation`.
 
-!!! note "Engine"
-    This page is for Data Designer developers and processor plugin authors. For the user-facing processor config objects, see [processor configurations](../config/processors.md).
+For user-facing processor config objects, see [processor configurations](../config/processors.md).
 
 ## Base Contract
 

@@ -2,10 +2,7 @@
 
 Seed readers are engine-side adapters that turn a configured seed source into tabular seed rows. The engine attaches a `SeedSource` and secret resolver, asks the reader for column names and dataset size, then streams batches into generation.
 
-!!! note "Engine"
-    This page is for Data Designer developers and seed reader plugin authors. Config-side seed source objects live in `data_designer.config.seed_source`.
-
-Plugin authors can use these APIs from the [Build Your Own](../../plugins/build_your_own.md) guide. For config-side seed source objects, see the seed dataset guides and `data_designer.config.seed_source`.
+Related pages: [seeds](../config/seeds.md), [Seed Datasets](../../concepts/seed-datasets.md), and [Build Your Own](../../plugins/build_your_own.md).
 
 ## Core Contracts
 

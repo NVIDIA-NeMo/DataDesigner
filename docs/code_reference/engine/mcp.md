@@ -1,9 +1,8 @@
 # Engine MCP
 
-The `data_designer.engine.mcp` modules implement execution-time MCP behavior. MCP config objects live in [`data_designer.config.mcp`](../config/mcp.md); the runtime maps those configs into registries, facades, sessions, schema discovery, and tool calls.
+Execution-time MCP registries, facades, session handling, schema discovery, and tool calls.
 
-!!! note "Engine"
-    This page is for Data Designer developers working on MCP execution. For the user-facing MCP provider and tool config objects, see [MCP configuration](../config/mcp.md).
+For user-facing provider and tool config objects, see [MCP configuration](../config/mcp.md).
 
 ## Parallel Structure
 

@@ -1,15 +1,12 @@
 # Column Generators
 
-This page documents the base classes that execute column generation in the Data Designer engine. A column generator receives upstream data, writes its configured output column and any side-effect columns, and reports the generation strategy the scheduler should use.
+Column generators execute column generation in the Data Designer engine. A generator receives the upstream data needed for its task, returns row or batch data with generated values added, and reports the generation strategy the scheduler should use.
 
-!!! note "Engine"
-    This page is for Data Designer developers and column generator plugin authors. For the user-facing config objects that declare columns, see [column_configs](../config/column_configs.md).
-
-Built-in generators and custom extension generators use the same implementation contract. Plugin packages can register a custom generator implementation with a [Plugin](../config/plugins.md#data_designer.plugins.plugin.Plugin) object; for that packaging flow, see [Build Your Own](../../plugins/build_your_own.md). For inline user-defined functions, see [Custom Columns](../../concepts/custom_columns.md).
+Related pages: [column_configs](../config/column_configs.md), [Build Your Own](../../plugins/build_your_own.md), [Using Models in Plugins](../../plugins/models.md), and [Custom Columns](../../concepts/custom_columns.md).
 
 ## Configuration
 
-Column generator configs inherit from [SingleColumnConfig](../config/column_configs.md#data_designer.config.base.SingleColumnConfig) and define a unique `column_type` discriminator. See [Column Configurations](../config/column_configs.md) for the config-side API.
+User-facing column configs inherit from [SingleColumnConfig](../config/column_configs.md#data_designer.config.base.SingleColumnConfig) and define a unique `column_type` discriminator. During compilation, the engine may group related configs into multi-column configs for generators that create sampler or seed columns together.
 
 ## Generation strategy
 
@@ -17,7 +14,7 @@ Column generator base classes return [GenerationStrategy](../config/column_confi
 
 ## Implementation bases
 
-Most generators inherit from [ColumnGeneratorFullColumn](#data_designer.engine.column_generators.generators.base.ColumnGeneratorFullColumn) or [ColumnGeneratorCellByCell](#data_designer.engine.column_generators.generators.base.ColumnGeneratorCellByCell), depending on whether they operate on a full batch or one row at a time. Model-backed plugin generators should use [ColumnGeneratorWithModelRegistry](#data_designer.engine.column_generators.generators.base.ColumnGeneratorWithModelRegistry) or [ColumnGeneratorWithModel](#data_designer.engine.column_generators.generators.base.ColumnGeneratorWithModel); see [Using Models in Plugins](../../plugins/models.md) for authoring guidance.
+Generators that operate on a full batch can inherit from [ColumnGeneratorFullColumn](#data_designer.engine.column_generators.generators.base.ColumnGeneratorFullColumn). Row-oriented non-model generators can inherit from [ColumnGeneratorCellByCell](#data_designer.engine.column_generators.generators.base.ColumnGeneratorCellByCell). Generators that create initial rows use [FromScratchColumnGenerator](#data_designer.engine.column_generators.generators.base.FromScratchColumnGenerator). Model-backed plugin generators should use [ColumnGeneratorWithModelRegistry](#data_designer.engine.column_generators.generators.base.ColumnGeneratorWithModelRegistry) or [ColumnGeneratorWithModel](#data_designer.engine.column_generators.generators.base.ColumnGeneratorWithModel); see [Using Models in Plugins](../../plugins/models.md) for authoring guidance.
 
 ### `ColumnGenerator` {#data_designer.engine.column_generators.generators.base.ColumnGenerator}
 

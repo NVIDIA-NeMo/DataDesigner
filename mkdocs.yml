@@ -87,6 +87,7 @@ nav:
           - processors: code_reference/config/processors.md
           - run_config: code_reference/config/run_config.md
           - sampler_params: code_reference/config/sampler_params.md
+          - seeds: code_reference/config/seeds.md
           - validator_params: code_reference/config/validator_params.md
       - Engine:
           - Overview: code_reference/engine/index.md

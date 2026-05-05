@@ -1,8 +1,8 @@
 # Models
 
-The `data_designer.config.models` module defines configuration objects for model-based generation. [ModelProvider](#data_designer.config.models.ModelProvider) specifies connection and authentication details for custom providers. [ModelConfig](#data_designer.config.models.ModelConfig) encapsulates model details including the model alias, identifier, and inference parameters. [Inference Parameters](../../concepts/models/inference-parameters.md) controls model behavior through settings like `temperature`, `top_p`, and `max_tokens`, with support for both fixed values and distribution-based sampling. The module includes [ImageContext](#data_designer.config.models.ImageContext) for providing image inputs to multimodal models, and [ImageInferenceParams](#data_designer.config.models.ImageInferenceParams) for configuring image generation models.
+[ModelProvider](#data_designer.config.models.ModelProvider) stores connection and authentication details for model providers. [ModelConfig](#data_designer.config.models.ModelConfig) stores a model alias, model identifier, provider settings, and inference parameters. [Inference Parameters](../../concepts/models/inference-parameters.md) control model behavior. Chat-completion parameters include `temperature`, `top_p`, and `max_tokens`; `temperature` and `top_p` can be fixed values or configured distributions. [ImageContext](#data_designer.config.models.ImageContext) provides image inputs to multimodal models, and [ImageInferenceParams](#data_designer.config.models.ImageInferenceParams) configures image generation models.
 
-For more information on how they are used, see below:
+Related guides:
 
 - **[Model Providers](../../concepts/models/model-providers.md)**
 - **[Model Configs](../../concepts/models/model-configs.md)**
