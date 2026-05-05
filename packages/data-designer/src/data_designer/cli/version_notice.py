@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -37,6 +37,10 @@ class UpdateNotice:
     upgrade_command: str
 
 
+class LatestVersionFetcher(Protocol):
+    def __call__(self, *, include_prereleases: bool) -> str | None: ...
+
+
 def get_update_notice(
     installed_version: str,
     *,
@@ -44,6 +48,7 @@ def get_update_notice(
     environ: Mapping[str, str] | None = None,
     now: Callable[[], float] = time.time,
     python_prefix: str | None = None,
+    fetch_latest_version: LatestVersionFetcher | None = None,
 ) -> UpdateNotice | None:
     env = os.environ if environ is None else environ
     if _env_flag_enabled(env, _DISABLE_VERSION_CHECK_ENV_VAR):
@@ -61,6 +66,7 @@ def get_update_notice(
         include_prereleases=include_prereleases,
         cache_dir=cache_dir,
         now=now,
+        fetch_latest_version=_fetch_latest_version if fetch_latest_version is None else fetch_latest_version,
     )
     if latest_version is None:
         return None
@@ -89,20 +95,18 @@ def select_upgrade_command(
     prefix_parts = prefix.parts
     if env.get("UV_PROJECT_ENVIRONMENT") or prefix.name == ".venv":
         return _PROJECT_UPGRADE_COMMAND
-    if _has_direct_child_path(prefix_parts, "pipx", "venvs"):
+    if _path_ends_with_segments(prefix_parts, "pipx", "venvs"):
         return _PIPX_UPGRADE_COMMAND
-    if _has_direct_child_path(prefix_parts, "uv", "tools"):
+    if _path_ends_with_segments(prefix_parts, "uv", "tools"):
         return _UV_TOOL_UPGRADE_COMMAND
     if env.get("VIRTUAL_ENV"):
         return _PROJECT_UPGRADE_COMMAND
     return _UV_TOOL_UPGRADE_COMMAND
 
 
-def _has_direct_child_path(parts: tuple[str, ...], parent: str, child: str) -> bool:
-    return any(
-        parts[index] == parent and parts[index + 1] == child and index + 2 == len(parts) - 1
-        for index in range(len(parts) - 1)
-    )
+def _path_ends_with_segments(parts: tuple[str, ...], parent: str, child: str) -> bool:
+    """Return True when parts ends in .../{parent}/{child}/<one segment>."""
+    return len(parts) >= 3 and parts[-3] == parent and parts[-2] == child
 
 
 def _get_latest_version(
@@ -110,6 +114,7 @@ def _get_latest_version(
     include_prereleases: bool,
     cache_dir: Path,
     now: Callable[[], float],
+    fetch_latest_version: LatestVersionFetcher,
 ) -> str | None:
     cache_path = cache_dir / _CACHE_FILE_NAME
     cached_version = _read_cached_version(
@@ -121,7 +126,7 @@ def _get_latest_version(
         return cached_version
 
     try:
-        latest_version = _fetch_latest_version(include_prereleases=include_prereleases)
+        latest_version = fetch_latest_version(include_prereleases=include_prereleases)
     except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
         return None
 
@@ -141,10 +146,10 @@ def _fetch_latest_version(*, include_prereleases: bool) -> str | None:
         payload = json.load(response)
     if not isinstance(payload, dict):
         return None
-    return _latest_version_from_pypi_payload(payload, include_prereleases=include_prereleases)
+    return latest_version_from_pypi_payload(payload, include_prereleases=include_prereleases)
 
 
-def _latest_version_from_pypi_payload(payload: Mapping[str, Any], *, include_prereleases: bool) -> str | None:
+def latest_version_from_pypi_payload(payload: Mapping[str, Any], *, include_prereleases: bool) -> str | None:
     releases = payload.get("releases")
     if not isinstance(releases, dict):
         return None

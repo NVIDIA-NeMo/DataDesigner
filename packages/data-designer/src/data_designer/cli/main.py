@@ -17,7 +17,7 @@ _CMD = "data_designer.cli.commands"
 _PACKAGE_NAME = "data-designer"
 
 
-def _should_show_update_notice(stream: TextIO | None = None) -> bool:
+def should_show_update_notice(stream: TextIO | None = None) -> bool:
     stream = sys.stdout if stream is None else stream
     return stream.isatty()
 
@@ -32,7 +32,7 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit(1) from None
 
     typer.echo(installed_version)
-    if not _should_show_update_notice():
+    if not should_show_update_notice():
         raise typer.Exit()
 
     from data_designer.cli.ui import print_update_notice
