@@ -288,7 +288,7 @@ The `target_columns` parameter specifies which columns to validate. All target c
 
 ### Configuration Parameters
 
-See more about parameters used to instantiate `ValidationColumnConfig` in the [code reference](../../code_reference/column_configs/#data_designer.config.column_configs.ValidationColumnConfig).
+See more about parameters used to instantiate `ValidationColumnConfig` in the [code reference](../code_reference/config/column_configs.md#data_designer.config.column_configs.ValidationColumnConfig).
 
 ### Batch Size Considerations
 
@@ -330,4 +330,4 @@ builder.add_column(
 
 ## See Also
 
-- [Validator Parameters Reference](../code_reference/validator_params.md): Configuration object schemas
+- [Validator Parameters Reference](../code_reference/config/validator_params.md): Configuration object schemas

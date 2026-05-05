@@ -8,7 +8,7 @@ and the Jinja rendering engine used by the runtime.
 when you want Jinja2's broader built-in sandbox behavior instead of Data Designer's
 hardened renderer.
 
-For guidance on when to use each mode, see [Security](../concepts/security.md).
+For guidance on when to use each mode, see [Security](../../concepts/security.md).
 
 ## Usage
 

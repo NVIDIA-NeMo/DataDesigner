@@ -200,4 +200,4 @@ For example, this is often reasonable in a notebook, local script, or other sing
 ## Related Reading
 
 - [Deployment Options](deployment-options.md)
-- [Run Config Reference](../code_reference/run_config.md)
+- [Run Config Reference](../code_reference/config/run_config.md)

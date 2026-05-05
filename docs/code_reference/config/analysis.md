@@ -1,6 +1,6 @@
 # Analysis
 
-The `analysis` modules provide tools for profiling and analyzing generated datasets. It includes statistics tracking, column profiling, and reporting capabilities.
+The `data_designer.config.analysis` modules define result objects and report helpers for analysis data produced after generation. These pages live under Config because callers consume the schemas as part of generated results; engine-side profiling code computes the values.
 
 ## Column Statistics
 

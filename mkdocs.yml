@@ -73,20 +73,24 @@ nav:
       - Using Models: plugins/models.md
       - Available Plugins: plugins/available.md
   - Code Reference:
-      # Keep code reference pages ordered alphabetically by nav label.
-      - analysis: code_reference/analysis.md
-      - column_configs: code_reference/column_configs.md
-      - config_builder: code_reference/config_builder.md
-      - data_designer_config: code_reference/data_designer_config.md
-      - generators: code_reference/generators.md
-      - mcp: code_reference/mcp.md
-      - models: code_reference/models.md
-      - plugins: code_reference/plugins.md
-      - processors: code_reference/processors.md
-      - run_config: code_reference/run_config.md
-      - sampler_params: code_reference/sampler_params.md
-      - seed_readers: code_reference/seed_readers.md
-      - validator_params: code_reference/validator_params.md
+      # Keep module reference pages ordered alphabetically by nav label within each package group.
+      - Config:
+          - analysis: code_reference/config/analysis.md
+          - column_configs: code_reference/config/column_configs.md
+          - config_builder: code_reference/config/config_builder.md
+          - data_designer_config: code_reference/config/data_designer_config.md
+          - mcp: code_reference/config/mcp.md
+          - models: code_reference/config/models.md
+          - plugins: code_reference/config/plugins.md
+          - processors: code_reference/config/processors.md
+          - run_config: code_reference/config/run_config.md
+          - sampler_params: code_reference/config/sampler_params.md
+          - validator_params: code_reference/config/validator_params.md
+      - Engine:
+          - column_generators: code_reference/engine/column_generators.md
+          - mcp: code_reference/engine/mcp.md
+          - processors: code_reference/engine/processors.md
+          - seed_readers: code_reference/engine/seed_readers.md
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
