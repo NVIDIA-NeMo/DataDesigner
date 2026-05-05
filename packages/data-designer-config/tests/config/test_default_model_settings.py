@@ -167,6 +167,32 @@ def test_get_default_provider_name_without_default_key(tmp_path: Path):
             assert get_default_provider_name() is None
 
 
+def test_get_default_provider_name_warning_attributes_to_user_frame(tmp_path: Path):
+    """Regression for PR #594 review (andreatgretel): the YAML-default warning
+    must attribute to the user's call site, not to ``default_model_settings.py``.
+    Python's default filter ignores library-attributed ``DeprecationWarning``
+    entries, so the previous ``stacklevel=2`` attribution rendered the warning
+    invisible under default filters on the only real call path
+    (``DataDesigner.__init__``). See issue #589.
+    """
+    providers_file_path = tmp_path / "providers.yaml"
+    providers_file_path.write_text(
+        json.dumps(dict(providers=[p.model_dump() for p in get_builtin_model_providers()], default="nvidia"))
+    )
+    with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=providers_file_path):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            assert get_default_provider_name() == "nvidia"
+
+    matches = [w for w in caught if "'default:' key" in str(w.message)]
+    assert len(matches) == 1, [str(w.message) for w in caught]
+    assert matches[0].filename == __file__, (
+        f"Warning attributed to {matches[0].filename!r} (line {matches[0].lineno}) "
+        f"instead of the test file. Library-attributed DeprecationWarnings are "
+        f"silenced under default filters."
+    )
+
+
 def test_get_default_provider_name_path_does_not_exist():
     with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=Path("non_existent_path")):
         with pytest.raises(FileNotFoundError, match=r"Default model providers file not found at 'non_existent_path'"):

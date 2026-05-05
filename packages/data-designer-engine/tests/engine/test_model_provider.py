@@ -124,6 +124,43 @@ def test_no_default_does_not_emit_deprecation_warning(stub_foo_provider: ModelPr
         ModelProviderRegistry(providers=[stub_foo_provider])
 
 
+def test_explicit_default_none_does_not_emit_deprecation_warning(stub_foo_provider: ModelProvider) -> None:
+    """Pin the predicate tightening from PR #594 review: passing ``default=None``
+    explicitly is semantically equivalent to omitting it (caller is opting *out*
+    of a registry-level default), so the deprecation must NOT fire.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        ModelProviderRegistry(providers=[stub_foo_provider], default=None)
+
+
+def test_explicit_default_warning_attributes_to_user_frame(
+    stub_foo_provider: ModelProvider, stub_bar_provider: ModelProvider
+) -> None:
+    """Regression for PR #594 review (andreatgretel): the ``default=`` deprecation
+    warning must attribute to the *user's* call site, not the pydantic-internal
+    or ``data_designer`` library frame that emits it. Library-attributed
+    ``DeprecationWarning`` entries are silenced under Python's default
+    ``ignore::DeprecationWarning`` filter, so attribution determines whether
+    the warning is actually visible.
+
+    Construction goes through ``resolve_model_provider_registry`` so the walk
+    has to escape both pydantic (validator dispatch) and ``data_designer``
+    (the helper that builds the registry) before landing on the test frame.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        resolve_model_provider_registry([stub_foo_provider, stub_bar_provider], default_provider_name="bar")
+
+    matches = [w for w in caught if "ModelProviderRegistry.default is deprecated" in str(w.message)]
+    assert len(matches) == 1, [str(w.message) for w in caught]
+    assert matches[0].filename == __file__, (
+        f"Warning attributed to {matches[0].filename!r} (line {matches[0].lineno}) "
+        f"instead of the test file. Library-attributed DeprecationWarnings are "
+        f"silenced under default filters."
+    )
+
+
 def test_resolve_single_provider_quiet_under_deprecation(stub_foo_provider: ModelProvider) -> None:
     """Pin the q3 tweak: ``resolve_model_provider_registry`` skips ``default=``
     in the single-provider case so common construction paths stay quiet under

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import logging
 import os
-import warnings
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -25,6 +24,7 @@ from data_designer.config.utils.constants import (
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
 from data_designer.config.utils.io_helpers import load_config_file, save_config_file
+from data_designer.config.utils.warning_helpers import warn_at_caller
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +104,18 @@ def get_default_provider_name() -> str | None:
     """
     default = _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
     if default is not None:
-        warnings.warn(
+        # ``warn_at_caller`` (rather than ``warnings.warn(stacklevel=2)``) so the
+        # warning attributes to the user's call site rather than this library
+        # module. The only real call path is ``DataDesigner.__init__``, which
+        # is itself a ``data_designer`` frame; under default Python filters,
+        # library-attributed ``DeprecationWarning`` entries are silenced
+        # (``ignore::DeprecationWarning``), so library attribution = invisible
+        # warning. See PR #594 review.
+        warn_at_caller(
             f"The 'default:' key in {MODEL_PROVIDERS_FILE_PATH} is deprecated and will "
             "be removed in a future release. Remove it and specify provider= explicitly "
             "on each ModelConfig instead. See issue #589.",
             DeprecationWarning,
-            stacklevel=2,
         )
     return default
 
