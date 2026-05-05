@@ -97,6 +97,21 @@ def test_from_config(stub_data_designer_builder_config_str):
     assert isinstance(builder_from_object.get_column_config(name="code_id"), SamplerColumnConfig)
 
 
+def test_from_config_restores_processors_and_profilers(stub_model_configs: list[ModelConfig]) -> None:
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    builder.add_column(SamplerColumnConfig(name="test_id", sampler_type="uuid", params=UUIDSamplerParams()))
+    processor_config = SchemaTransformProcessorConfig(name="records", template={"id": "{{ test_id }}"})
+    profiler_config = JudgeScoreProfilerConfig(model_alias="stub-model", summary_score_sample_size=5)
+
+    builder.add_processor(processor_config)
+    builder.add_profiler(profiler_config)
+
+    loaded_builder = DataDesignerConfigBuilder.from_config(builder.get_builder_config())
+
+    assert loaded_builder.get_processor_configs() == [processor_config]
+    assert loaded_builder.get_profilers() == [profiler_config]
+
+
 def test_from_config_auto_wraps_bare_data_designer_config(stub_data_designer_config_str: str) -> None:
     """Test that from_config auto-wraps a bare DataDesignerConfig (no 'data_designer' wrapper)."""
     builder = DataDesignerConfigBuilder.from_config(config=stub_data_designer_config_str)
