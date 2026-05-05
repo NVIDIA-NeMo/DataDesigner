@@ -91,6 +91,10 @@ nav:
           - mcp: code_reference/engine/mcp.md
           - processors: code_reference/engine/processors.md
           - seed_readers: code_reference/engine/seed_readers.md
+      - Interface:
+          - data_designer: code_reference/interface/data_designer.md
+          - errors: code_reference/interface/errors.md
+          - results: code_reference/interface/results.md
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
