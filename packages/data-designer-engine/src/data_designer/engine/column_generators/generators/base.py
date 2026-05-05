@@ -67,7 +67,7 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
 
     @property
     def is_llm_bound(self) -> bool:
-        """Whether this generator makes LLM/HTTP calls during generation."""
+        """Whether this generator makes model/API calls during generation."""
         return False
 
     @property

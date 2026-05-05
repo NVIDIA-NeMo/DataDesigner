@@ -22,7 +22,7 @@ class DataDesignerConfig(ExportableConfigBase):
     """Configuration for NeMo Data Designer.
 
     This class defines the main configuration structure for NeMo Data Designer,
-    which orchestrates the generation of synthetic data.
+    which the engine consumes when generating synthetic data.
 
     Attributes:
         columns: Required list of column configurations defining how each column
@@ -34,6 +34,7 @@ class DataDesignerConfig(ExportableConfigBase):
         seed_config: Optional seed dataset settings to use for generation.
         constraints: Optional list of column constraints.
         profilers: Optional list of column profilers for analyzing generated data characteristics.
+        processors: Optional list of processor configurations for post-generation transformations.
     """
 
     columns: list[Annotated[ColumnConfigT, Field(discriminator="column_type")]] = Field(min_length=1)

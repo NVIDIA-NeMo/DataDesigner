@@ -86,18 +86,14 @@ class Plugin(BaseModel):
 
     Attributes:
         impl_qualified_name: Fully-qualified import path of the implementation class,
-            e.g. ``'my_plugin.impl.MyColumnGenerator'``. The class must inherit from
-            the implementation base appropriate for the plugin type
-            (``ColumnGeneratorFullColumn``/``ColumnGeneratorCellByCell``,
-            ``SeedReader``/``FileSystemSeedReader``, or ``Processor``).
+            e.g. ``'my_plugin.impl.MyColumnGenerator'``. The plugin loader verifies
+            that the referenced class exists.
         config_qualified_name: Fully-qualified import path of the config class,
-            e.g. ``'my_plugin.config.MyConfig'``. The class must inherit from the
-            config base appropriate for the plugin type (``SingleColumnConfig``,
-            ``SeedSource``/``FileSystemSeedSource``, or ``ProcessorConfig``) and
-            define a ``Literal`` discriminator field with a string default.
+            e.g. ``'my_plugin.config.MyConfig'``. The class must define a Literal
+            discriminator field with a string default.
         plugin_type: The kind of extension this plugin contributes. Determines which
-            discriminator field name is required on the config class
-            (``column_type``, ``seed_type``, or ``processor_type``).
+            discriminator field name is required on the config class: ``column_type``,
+            ``seed_type``, or ``processor_type``.
     """
 
     impl_qualified_name: str = Field(

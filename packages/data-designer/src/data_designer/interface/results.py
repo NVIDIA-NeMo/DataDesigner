@@ -57,7 +57,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
 
         Returns:
             DatasetProfilerResults containing statistical analysis and quality metrics
-                for each column in the generated dataset.
+                for configured columns in the generated dataset.
         """
         return self._analysis
 

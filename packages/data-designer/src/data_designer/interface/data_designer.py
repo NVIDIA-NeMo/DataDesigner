@@ -132,7 +132,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             This allows clients to customize how managed datasets are accessed (e.g.,
             using custom fsspec clients for S3 or other remote storage).
         mcp_providers: Optional list of MCP provider configurations to enable tool-calling for
-            LLM generation columns. Supports both MCPProvider (remote/SSE) and
+            LLM generation columns. Supports both MCPProvider (remote SSE or Streamable HTTP) and
             LocalStdioMCPProvider (local subprocess).
     """
 
