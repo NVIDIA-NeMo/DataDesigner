@@ -67,6 +67,34 @@ def test_load_with_yaml_default_emits_deprecation_warning(
     assert registry.default == stub_model_providers[0].name
 
 
+def test_load_with_yaml_default_attributes_warning_to_caller(
+    tmp_path: Path, stub_model_providers: list[ModelProvider]
+) -> None:
+    """Regression for PR #594 review: the YAML-default ``DeprecationWarning``
+    must attribute to the *caller's* frame (this test file), not to a
+    ``data_designer.cli.*`` library frame. Library-attributed
+    ``DeprecationWarning`` entries fall under Python's default
+    ``ignore::DeprecationWarning`` filter and are silenced, so attribution at
+    a library frame == invisible warning. ``warn_at_caller`` keeps this
+    visible; a regression to ``warnings.warn(stacklevel=2)`` would land on
+    ``provider_repository.py`` and silently break the user nudge.
+    """
+    providers_file_path = tmp_path / MODEL_PROVIDERS_FILE_NAME
+    save_config_file(
+        providers_file_path,
+        ModelProviderRegistry(providers=stub_model_providers, default=stub_model_providers[0].name).model_dump(),
+    )
+    repository = ProviderRepository(tmp_path)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        repository.load()
+
+    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert len(deprecations) == 1
+    assert deprecations[0].filename == __file__
+
+
 def test_load_without_yaml_default_does_not_warn(tmp_path: Path, stub_model_providers: list[ModelProvider]) -> None:
     """Pin the post-deprecation happy path: a YAML without a ``default:`` key
     must load cleanly with no ``DeprecationWarning``.

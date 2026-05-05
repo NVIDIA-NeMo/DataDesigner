@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -216,11 +217,28 @@ def test_handle_change_default_emits_deprecation_warning(
     """Regression for #589: entering the 'Change default provider' workflow
     must emit a ``DeprecationWarning`` so users see the migration nudge before
     setting another value that's also slated for removal.
+
+    Also pins the attribution contract from PR #594 review: the warning must
+    land on the caller's frame (this test file), not on a
+    ``data_designer.cli.*`` library frame. Library attribution falls under
+    Python's default ``ignore::DeprecationWarning`` filter and would silently
+    suppress the user-facing nudge for any caller that isn't using
+    ``simplefilter("always")``.
     """
     mock_select.side_effect = ["change_default", "test-provider-2"]
 
-    with pytest.warns(DeprecationWarning, match="'Change default provider' workflow is deprecated"):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         controller_with_providers.run()
+
+    deprecations = [
+        w
+        for w in caught
+        if issubclass(w.category, DeprecationWarning)
+        and "'Change default provider' workflow is deprecated" in str(w.message)
+    ]
+    assert len(deprecations) == 1
+    assert deprecations[0].filename == __file__
 
 
 @patch("data_designer.cli.controllers.provider_controller.confirm_action", return_value=False)

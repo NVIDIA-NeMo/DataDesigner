@@ -101,6 +101,14 @@ def test_resolve_async_compatibility(configs: list[Mock], expected: bool) -> Non
         assert len(w) == 1
         assert issubclass(w[0].category, DeprecationWarning)
         assert "allow_resize" in str(w[0].message)
+        # Regression for PR #594 review: the warning must attribute to the
+        # caller's frame (this test file), not to a ``data_designer.*`` library
+        # frame. Library-attributed ``DeprecationWarning`` entries fall under
+        # Python's default ``ignore::DeprecationWarning`` filter and are
+        # silenced. A regression to ``warnings.warn(..., stacklevel=N)`` would
+        # land somewhere inside the engine package and silently break the
+        # user-facing nudge.
+        assert w[0].filename == __file__
     else:
         assert len(w) == 0
 

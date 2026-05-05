@@ -9,7 +9,6 @@ import logging
 import os
 import time
 import uuid
-import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -23,6 +22,7 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
@@ -319,7 +319,17 @@ class DatasetBuilder:
                 "use workflow chaining instead (see issue #552)."
             )
             logger.warning(f"⚠️ {msg}")
-            warnings.warn(msg, DeprecationWarning, stacklevel=4)
+            # ``warn_at_caller`` rather than ``warnings.warn(stacklevel=N)`` so
+            # attribution lands on the user's call site instead of an internal
+            # ``DatasetBuilder.build`` / ``data_designer.interface`` frame.
+            # The exact internal-frame depth from this method up to user code
+            # depends on which entry point invoked the builder (build vs.
+            # build_preview, sync vs. async wrapping), so a hard-coded
+            # ``stacklevel`` is brittle; ``warn_at_caller`` walks past every
+            # ``data_designer.*`` frame regardless of chain shape. Library
+            # attribution would also be silenced under Python's default
+            # ``ignore::DeprecationWarning`` filter. See PR #594 review.
+            warn_at_caller(msg, DeprecationWarning)
             return False
         return True
 
