@@ -3,20 +3,23 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import CustomColumnConfig, ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
@@ -39,7 +42,11 @@ from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentR
 from data_designer.engine.testing.seed_readers import LineFanoutDirectorySeedReader
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
-from data_designer.interface.errors import DataDesignerGenerationError, DataDesignerProfilingError
+from data_designer.interface.errors import (
+    DataDesignerEarlyShutdownError,
+    DataDesignerGenerationError,
+    DataDesignerProfilingError,
+)
 
 
 class CustomDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
@@ -380,6 +387,84 @@ def stub_seed_reader():
     return StubHuggingFaceSeedReader()
 
 
+def _builder_with_allow_resize() -> DataDesignerConfigBuilder:
+    """Config with one allow_resize=True column — forces sync-engine fallback."""
+
+    @custom_column_generator()
+    def _expander(row: dict) -> list[dict]:
+        return [{**row, "item": i} for i in range(2)]
+
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(
+        SamplerColumnConfig(
+            name="seed",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["a"]),
+        )
+    )
+    builder.add_column(
+        CustomColumnConfig(
+            name="item",
+            generator_function=_expander,
+            allow_resize=True,
+        )
+    )
+    return builder
+
+
+@pytest.mark.parametrize(
+    "env_value,with_allow_resize,expected,expect_deprecation",
+    [
+        ("1", False, "async", False),
+        ("1", True, "sync", False),
+        ("0", False, "sync", True),
+    ],
+    ids=[
+        "async-on-no-fallback-uses-async-clients",
+        "async-on-allow-resize-falls-back-to-sync-clients",
+        "async-off-uses-sync-clients-and-warns",
+    ],
+)
+def test_resolve_client_concurrency_mode_matches_engine_choice(
+    env_value: str,
+    with_allow_resize: bool,
+    expected: str,
+    expect_deprecation: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Client mode must match the engine the run will actually use.
+
+    Without this alignment, a sync-fallback run (e.g. ``allow_resize=True``)
+    would be left with async-only clients and call sync methods on them,
+    raising ``SyncClientUnavailableError`` from inside the sync engine.
+
+    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
+    ``DeprecationWarning`` so users on the legacy sync engine see a
+    pre-removal signal in their logs. The auto-fallback path
+    (``allow_resize=True``) does not double-warn here; the builder layer
+    emits its own warning when the run actually executes.
+    """
+    monkeypatch.setattr(dd_mod, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
+    builder = _builder_with_allow_resize() if with_allow_resize else DataDesignerConfigBuilder()
+    if not with_allow_resize:
+        builder.add_column(
+            SamplerColumnConfig(
+                name="seed",
+                sampler_type=SamplerType.CATEGORY,
+                params=CategorySamplerParams(values=["a"]),
+            )
+        )
+
+    if expect_deprecation:
+        with pytest.warns(DeprecationWarning, match="legacy sync engine"):
+            mode = DataDesigner._resolve_client_concurrency_mode(builder)
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            mode = DataDesigner._resolve_client_concurrency_mode(builder)
+    assert mode.value == expected
+
+
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
     """Test DataDesigner initialization with custom secret resolver."""
     designer = DataDesigner(
@@ -415,17 +500,110 @@ def test_init_with_path_object(stub_artifact_path, stub_model_providers):
     assert designer is not None
 
 
+def test_init_user_supplied_providers_ignore_unrelated_yaml_default(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+) -> None:
+    """Regression for #588: a YAML ``default:`` that names a provider absent
+    from a user-supplied ``model_providers`` list must not leak into
+    construction.
+
+    Pre-fix this raised ``ValidationError: Specified default 'unrelated' not
+    found in providers list``.
+    """
+    with patch.object(dd_mod, "get_default_provider_name", return_value="unrelated"):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            model_providers=stub_model_providers,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+
+    assert data_designer.model_provider_registry.get_default_provider_name() == "stub-model-provider"
+
+
+def test_init_user_supplied_providers_preserve_first_wins_over_yaml_default(
+    stub_artifact_path: Path,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Regression for #588: when the YAML ``default:`` matches a user-supplied
+    provider that isn't first in the list, the documented ``model_providers[0]``
+    "first wins" behavior must not be silently overridden.
+    """
+    user_providers = [
+        ModelProvider(
+            name="first-provider",
+            endpoint="https://first.example.com/v1",
+            api_key="FIRST_API_KEY",
+        ),
+        ModelProvider(
+            name="second-provider",
+            endpoint="https://second.example.com/v1",
+            api_key="SECOND_API_KEY",
+        ),
+    ]
+
+    with patch.object(dd_mod, "get_default_provider_name", return_value="second-provider"):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            model_providers=user_providers,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+
+    assert data_designer.model_provider_registry.get_default_provider_name() == "first-provider"
+
+
+def test_init_no_user_providers_uses_yaml_default(
+    stub_artifact_path: Path,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Pin the unchanged YAML-fallback path: when the caller omits
+    ``model_providers``, DataDesigner consults both ``providers:`` and
+    ``default:`` from the YAML.
+
+    The fix in #588 only changes the user-supplied branch; this test locks the
+    YAML-fallback branch's contract so a future refactor can't silently regress
+    it.
+    """
+    yaml_providers = [
+        ModelProvider(
+            name="yaml-first",
+            endpoint="https://yaml-first.example.com/v1",
+            api_key="yaml-first-key",
+        ),
+        ModelProvider(
+            name="yaml-second",
+            endpoint="https://yaml-second.example.com/v1",
+            api_key="yaml-second-key",
+        ),
+    ]
+
+    with (
+        patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
+        patch.object(dd_mod, "get_default_provider_name", return_value="yaml-second"),
+    ):
+        data_designer = DataDesigner(
+            artifact_path=stub_artifact_path,
+            secret_resolver=PlaintextResolver(),
+            managed_assets_path=stub_managed_assets_path,
+        )
+
+    assert data_designer.model_provider_registry.get_default_provider_name() == "yaml-second"
+
+
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
     # Test default values
-    assert data_designer._run_config.disable_early_shutdown is False
-    assert data_designer._run_config.shutdown_error_rate == 0.5
-    assert data_designer._run_config.shutdown_error_window == 10
-    assert data_designer._run_config.buffer_size == 1000
-    assert data_designer._run_config.max_conversation_restarts == 5
-    assert data_designer._run_config.max_conversation_correction_steps == 0
+    assert data_designer.run_config.disable_early_shutdown is False
+    assert data_designer.run_config.shutdown_error_rate == 0.5
+    assert data_designer.run_config.shutdown_error_window == 10
+    assert data_designer.run_config.buffer_size == 1000
+    assert data_designer.run_config.max_conversation_restarts == 5
+    assert data_designer.run_config.max_conversation_correction_steps == 0
 
     # Test setting custom values
     data_designer.set_run_config(
@@ -438,12 +616,12 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             max_conversation_correction_steps=2,
         )
     )
-    assert data_designer._run_config.disable_early_shutdown is True
-    assert data_designer._run_config.shutdown_error_rate == 1.0  # normalized when disabled
-    assert data_designer._run_config.shutdown_error_window == 25
-    assert data_designer._run_config.buffer_size == 500
-    assert data_designer._run_config.max_conversation_restarts == 7
-    assert data_designer._run_config.max_conversation_correction_steps == 2
+    assert data_designer.run_config.disable_early_shutdown is True
+    assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
+    assert data_designer.run_config.shutdown_error_window == 25
+    assert data_designer.run_config.buffer_size == 500
+    assert data_designer.run_config.max_conversation_restarts == 7
+    assert data_designer.run_config.max_conversation_correction_steps == 2
 
     # Test updating values
     data_designer.set_run_config(
@@ -456,12 +634,12 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             max_conversation_correction_steps=1,
         )
     )
-    assert data_designer._run_config.disable_early_shutdown is False
-    assert data_designer._run_config.shutdown_error_rate == 0.3
-    assert data_designer._run_config.shutdown_error_window == 5
-    assert data_designer._run_config.buffer_size == 750
-    assert data_designer._run_config.max_conversation_restarts == 9
-    assert data_designer._run_config.max_conversation_correction_steps == 1
+    assert data_designer.run_config.disable_early_shutdown is False
+    assert data_designer.run_config.shutdown_error_rate == 0.3
+    assert data_designer.run_config.shutdown_error_window == 5
+    assert data_designer.run_config.buffer_size == 750
+    assert data_designer.run_config.max_conversation_restarts == 9
+    assert data_designer.run_config.max_conversation_correction_steps == 1
 
 
 def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
@@ -475,7 +653,7 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
             shutdown_error_rate=0.7,
         )
     )
-    assert data_designer._run_config.shutdown_error_rate == 0.7
+    assert data_designer.run_config.shutdown_error_rate == 0.7
 
     # When disabled, shutdown_error_rate should be normalized to 1.0
     data_designer.set_run_config(
@@ -484,7 +662,7 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
             shutdown_error_rate=0.7,
         )
     )
-    assert data_designer._run_config.shutdown_error_rate == 1.0
+    assert data_designer.run_config.shutdown_error_rate == 1.0
 
 
 def test_run_config_rejects_invalid_buffer_size() -> None:
@@ -635,51 +813,214 @@ def test_preview_raises_error_when_profiler_fails(
         assert isinstance(exc_info.value.__cause__, ValueError)
 
 
-def test_create_raises_generation_error_when_dataset_is_empty(
-    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
-):
-    """When all records are dropped during generation, create should raise
-    DataDesignerGenerationError with a clear message instead of a misleading profiler error.
-    """
-    data_designer = DataDesigner(
+def _patch_builder_state(
+    *,
+    early_shutdown: bool,
+    actual_num_records: int = 0,
+    first_non_retryable_error: Exception | None = None,
+) -> contextlib.ExitStack:
+    """Patch DatasetBuilder.early_shutdown / actual_num_records / first_non_retryable_error."""
+    stack = contextlib.ExitStack()
+    stack.enter_context(
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.early_shutdown",
+            new_callable=PropertyMock,
+            return_value=early_shutdown,
+        )
+    )
+    stack.enter_context(
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.actual_num_records",
+            new_callable=PropertyMock,
+            return_value=actual_num_records,
+        )
+    )
+    stack.enter_context(
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.first_non_retryable_error",
+            new_callable=PropertyMock,
+            return_value=first_non_retryable_error,
+        )
+    )
+    return stack
+
+
+def _make_data_designer(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+) -> DataDesigner:
+    return DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
     )
 
-    with patch(
-        "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
-        return_value=lazy.pd.DataFrame(),
-    ):
-        with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
-            data_designer.create(stub_sampler_only_config_builder, num_records=1)
 
-
-def test_create_raises_generation_error_when_load_dataset_fails(
+# Matrix of error-dispatch behavior in create() when the load step doesn't return a
+# usable dataset. Two side-effect modes (load raises FileNotFoundError vs. load
+# returns an empty DF) crossed with three builder states (no shutdown, shutdown
+# with zero records, shutdown with partial salvage). Each case asserts exactly
+# which error type create() surfaces and the message it carries.
+@pytest.mark.parametrize(
+    "load_side_effect,early_shutdown,actual_num_records,expected_exc,match,expect_filenotfound_cause",
+    [
+        # Load raises FileNotFoundError → "Failed to load generated dataset" path.
+        pytest.param(
+            "raises",
+            False,
+            -1,
+            DataDesignerGenerationError,
+            "Failed to load generated dataset",
+            True,
+            id="load_fails_no_shutdown",
+        ),
+        pytest.param(
+            "raises",
+            True,
+            0,
+            DataDesignerEarlyShutdownError,
+            "early shutdown was triggered",
+            True,
+            id="load_fails_shutdown_zero_records",
+        ),
+        pytest.param(
+            "raises",
+            True,
+            7,
+            DataDesignerGenerationError,
+            "Failed to load generated dataset",
+            True,
+            id="load_fails_shutdown_partial_salvage",
+        ),
+        # Load returns empty DF → "Dataset is empty" defensive guard.
+        pytest.param(
+            "empty_df",
+            False,
+            -1,
+            DataDesignerGenerationError,
+            "Dataset is empty",
+            False,
+            id="empty_df_no_shutdown",
+        ),
+        pytest.param(
+            "empty_df",
+            True,
+            0,
+            DataDesignerEarlyShutdownError,
+            "early shutdown was triggered",
+            False,
+            id="empty_df_shutdown_zero_records",
+        ),
+        pytest.param(
+            "empty_df",
+            True,
+            7,
+            DataDesignerGenerationError,
+            "Dataset is empty",
+            False,
+            id="empty_df_shutdown_partial_salvage",
+        ),
+    ],
+)
+def test_create_error_dispatch_on_load_outcome(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_sampler_only_config_builder: DataDesignerConfigBuilder,
     stub_managed_assets_path: Path,
+    load_side_effect: str,
+    early_shutdown: bool,
+    actual_num_records: int,
+    expected_exc: type[Exception],
+    match: str,
+    expect_filenotfound_cause: bool,
 ) -> None:
-    """When no parquet was written (e.g. all records dropped), load_dataset_with_dropped_columns
-    raises an exception. create() should surface this as DataDesignerGenerationError, not
-    DataDesignerProfilingError.
+    """create() picks the right error type based on (load outcome × builder state).
+
+    The typed ``DataDesignerEarlyShutdownError`` only fires when the gate tripped
+    AND zero records were produced. Partial-salvage runs that fail to load (or
+    return empty for unrelated reasons) fall through to the generic error so the
+    real cause isn't masked.
     """
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
+    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
+
+    if load_side_effect == "raises":
+        load_patch = patch(
+            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+            side_effect=FileNotFoundError("No parquet files found"),
+        )
+    else:
+        load_patch = patch(
+            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+            return_value=lazy.pd.DataFrame(),
+        )
+    state_patch = (
+        _patch_builder_state(early_shutdown=early_shutdown, actual_num_records=actual_num_records)
+        if early_shutdown
+        else contextlib.nullcontext()
     )
 
-    with patch(
-        "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
-        side_effect=FileNotFoundError("No parquet files found"),
-    ):
-        with pytest.raises(DataDesignerGenerationError, match="Failed to load generated dataset") as exc_info:
-            data_designer.create(stub_sampler_only_config_builder, num_records=1)
+    with load_patch, state_patch:
+        with pytest.raises(expected_exc, match=match) as exc_info:
+            data_designer.create(stub_sampler_only_config_builder, num_records=10)
+
+    # Subclass relationship is the contract callers depend on - existing handlers
+    # for DataDesignerGenerationError must still catch the typed subclass.
+    if expected_exc is DataDesignerEarlyShutdownError:
+        assert isinstance(exc_info.value, DataDesignerGenerationError)
+    else:
+        assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
+    if expect_filenotfound_cause:
         assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+
+
+@pytest.mark.parametrize(
+    "load_side_effect",
+    ["raises", "empty_df"],
+    ids=["load-raises-filenotfound", "load-returns-empty-df"],
+)
+def test_create_surfaces_first_non_retryable_error_when_zero_records(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+    load_side_effect: str,
+) -> None:
+    """When 0 records were produced due to a deterministic non-retryable error
+    (no early-shutdown), surface that error's message instead of a wrapped
+    FileNotFoundError on the parquet path. The interface chains the original
+    exception via ``__cause__`` so callers still have full context.
+    """
+    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
+    root_cause = ValueError("invalid seed source: no rows after hydration")
+
+    if load_side_effect == "raises":
+        load_patch = patch(
+            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+            side_effect=FileNotFoundError("No parquet files found"),
+        )
+    else:
+        load_patch = patch(
+            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+            return_value=lazy.pd.DataFrame(),
+        )
+
+    with (
+        load_patch,
+        _patch_builder_state(
+            early_shutdown=False,
+            actual_num_records=0,
+            first_non_retryable_error=root_cause,
+        ),
+    ):
+        with pytest.raises(DataDesignerGenerationError, match="invalid seed source") as exc_info:
+            data_designer.create(stub_sampler_only_config_builder, num_records=10)
+
+    # Original cause is preserved via __cause__, not lost behind the parquet error.
+    assert exc_info.value.__cause__ is root_cause
+    # The typed DataDesignerEarlyShutdownError must NOT fire here — the gate didn't trip.
+    assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
 
 
 def test_preview_raises_generation_error_when_dataset_is_empty(
@@ -703,19 +1044,59 @@ def test_preview_raises_generation_error_when_dataset_is_empty(
             data_designer.preview(stub_sampler_only_config_builder, num_records=1)
 
 
+def test_preview_raises_early_shutdown_error_on_empty_after_shutdown(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Preview mirrors create(): typed early-shutdown error fires when shutdown produced zero records."""
+    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
+
+    with (
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.process_preview",
+            return_value=lazy.pd.DataFrame(),
+        ),
+        _patch_builder_state(early_shutdown=True, actual_num_records=0),
+    ):
+        with pytest.raises(DataDesignerEarlyShutdownError, match="early shutdown was triggered"):
+            data_designer.preview(stub_sampler_only_config_builder, num_records=1)
+
+
+def test_preview_raises_generic_error_when_partial_then_empty(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Preview falls through to the generic error when records were salvaged."""
+    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
+
+    with (
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.process_preview",
+            return_value=lazy.pd.DataFrame(),
+        ),
+        _patch_builder_state(early_shutdown=True, actual_num_records=3),
+    ):
+        with pytest.raises(DataDesignerGenerationError, match="Dataset is empty") as exc_info:
+            data_designer.preview(stub_sampler_only_config_builder, num_records=10)
+        assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
+
+
 def test_create_logs_secure_jinja_rendering_mode(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_sampler_only_config_builder: DataDesignerConfigBuilder,
     stub_managed_assets_path: Path,
 ) -> None:
-    with patch.object(dd_mod, "get_default_provider_name", return_value="stub-model-provider"):
-        data_designer = DataDesigner(
-            artifact_path=stub_artifact_path,
-            model_providers=stub_model_providers,
-            secret_resolver=PlaintextResolver(),
-            managed_assets_path=stub_managed_assets_path,
-        )
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
     data_designer.set_run_config(RunConfig(jinja_rendering_engine=JinjaRenderingEngine.SECURE))
 
     with (
@@ -749,13 +1130,12 @@ def test_preview_logs_native_jinja_rendering_mode(
     stub_sampler_only_config_builder: DataDesignerConfigBuilder,
     stub_managed_assets_path: Path,
 ) -> None:
-    with patch.object(dd_mod, "get_default_provider_name", return_value="stub-model-provider"):
-        data_designer = DataDesigner(
-            artifact_path=stub_artifact_path,
-            model_providers=stub_model_providers,
-            secret_resolver=PlaintextResolver(),
-            managed_assets_path=stub_managed_assets_path,
-        )
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
     data_designer.set_run_config(RunConfig(jinja_rendering_engine=JinjaRenderingEngine.NATIVE))
 
     with (

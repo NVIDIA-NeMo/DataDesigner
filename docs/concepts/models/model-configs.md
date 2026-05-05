@@ -70,21 +70,21 @@ model_configs = [
     # Reasoning and structured tasks
     dd.ModelConfig(
         alias="reasoning-model",
-        model="openai/gpt-oss-20b",
+        model="nvidia/nemotron-3-super-120b-a12b",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
-            temperature=0.3,
-            top_p=0.9,
+            temperature=1.0,
+            top_p=0.95,
             max_tokens=4096,
         ),
     ),
     # Vision tasks
     dd.ModelConfig(
         alias="vision-model",
-        model="nvidia/nemotron-nano-12b-v2-vl",
+        model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
-            temperature=0.7,
+            temperature=0.60,
             top_p=0.95,
             max_tokens=2048,
         ),

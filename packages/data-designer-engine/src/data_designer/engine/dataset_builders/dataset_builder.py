@@ -9,6 +9,7 @@ import logging
 import os
 import time
 import uuid
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -58,23 +59,21 @@ from data_designer.engine.storage.media_storage import StorageMode
 if TYPE_CHECKING:
     import pandas as pd
 
+    from data_designer.config.run_config import RunConfig
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
 
-DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
+# Async engine is the default execution path. Set ``DATA_DESIGNER_ASYNC_ENGINE=0``
+# to opt back into the legacy sync engine for one transitional release; the sync
+# path is scheduled for removal afterwards.
+DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
 
 if DATA_DESIGNER_ASYNC_ENGINE:
     import asyncio
-    import sys
 
-    if sys.version_info < (3, 11):
-        raise RuntimeError(
-            "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
-            f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
-        )
     from data_designer.engine.dataset_builders.async_scheduler import (
         DEFAULT_TASK_POOL_SIZE,
         LLM_WAIT_POOL_MULTIPLIER,
@@ -89,6 +88,10 @@ if DATA_DESIGNER_ASYNC_ENGINE:
 
 
 _CLIENT_VERSION: str = get_library_version()
+
+
+def _is_async_trace_enabled(settings: RunConfig) -> bool:
+    return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
 
 
 class DatasetBuilder:
@@ -106,6 +109,21 @@ class DatasetBuilder:
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
+        self._use_async: bool = DATA_DESIGNER_ASYNC_ENGINE
+        # Structured signal: set by _build_async if the scheduler hit early shutdown.
+        # Stays at defaults for sync-engine and successful async runs. Reset at
+        # the start of each public run path so reused builder instances don't
+        # leak state across runs.
+        self._early_shutdown: bool = False
+        self._partial_row_groups: tuple[int, ...] = ()
+        # Number of records actually written by the most recent async run.
+        # ``-1`` means "no async run has executed yet" so callers can
+        # distinguish "0 records produced" from "never ran".
+        self._actual_num_records: int = -1
+        # First non-retryable error captured by the scheduler in the most recent
+        # async run, if any. Used by the interface to surface the original cause
+        # when a run produces 0 records due to deterministic failures.
+        self._first_non_retryable_error: Exception | None = None
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -127,6 +145,26 @@ class DatasetBuilder:
     @property
     def task_traces(self) -> list[TaskTrace]:
         return self._task_traces
+
+    @property
+    def early_shutdown(self) -> bool:
+        """True if the most recent async run terminated via the early-shutdown gate."""
+        return self._early_shutdown
+
+    @property
+    def partial_row_groups(self) -> tuple[int, ...]:
+        """Row group ids that were partially salvaged after early shutdown (most recent run)."""
+        return self._partial_row_groups
+
+    @property
+    def actual_num_records(self) -> int:
+        """Records actually written by the most recent async run (-1 if no run yet)."""
+        return self._actual_num_records
+
+    @property
+    def first_non_retryable_error(self) -> Exception | None:
+        """First non-retryable error captured by the scheduler in the most recent run."""
+        return self._first_non_retryable_error
 
     def set_processor_runner(self, processors: list[Processor]) -> None:
         """Replace the processor runner with a new one using the given processors."""
@@ -172,6 +210,7 @@ class DatasetBuilder:
         Returns:
             Path to the generated dataset directory.
         """
+        self._reset_run_state()
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
         self._write_builder_config()
@@ -185,8 +224,8 @@ class DatasetBuilder:
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
-        if DATA_DESIGNER_ASYNC_ENGINE:
-            self._validate_async_compatibility()
+        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        if self._use_async:
             self._build_async(generators, num_records, buffer_size, on_batch_complete)
         else:
             group_id = uuid.uuid4().hex
@@ -208,6 +247,7 @@ class DatasetBuilder:
         return self.artifact_storage.final_dataset_path
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
+        self._reset_run_state()
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
 
@@ -218,8 +258,8 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        if DATA_DESIGNER_ASYNC_ENGINE:
-            self._validate_async_compatibility()
+        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        if self._use_async:
             dataset = self._build_async_preview(generators, num_records)
         else:
             group_id = uuid.uuid4().hex
@@ -232,22 +272,39 @@ class DatasetBuilder:
 
         return dataset
 
+    def _reset_run_state(self) -> None:
+        """Clear per-run signals so reused builder instances don't leak state across runs."""
+        self._early_shutdown = False
+        self._partial_row_groups = ()
+        self._actual_num_records = -1
+        self._first_non_retryable_error = None
+        self._task_traces = []
+
     def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview")
+
+        settings = self._resource_provider.run_config
+        trace_enabled = _is_async_trace_enabled(settings)
 
         scheduler, buffer_manager = self._prepare_async_run(
             generators,
             num_records,
             buffer_size=num_records,
             run_post_batch_in_scheduler=False,
+            trace=trace_enabled,
         )
 
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        future.result()
-
-        self._task_traces = scheduler.traces
+        try:
+            future.result()
+        finally:
+            self._task_traces = scheduler.traces
+            self._early_shutdown = scheduler.early_shutdown
+            self._partial_row_groups = scheduler.partial_row_groups
+            self._actual_num_records = buffer_manager.actual_num_records
+            self._first_non_retryable_error = scheduler.first_non_retryable_error
 
         if not buffer_manager.has_row_group(0):
             return lazy.pd.DataFrame()
@@ -256,15 +313,23 @@ class DatasetBuilder:
         buffer_manager.free_row_group(0)
         return dataset
 
-    def _validate_async_compatibility(self) -> None:
-        """Raise if any column uses allow_resize=True with the async scheduler."""
+    def _resolve_async_compatibility(self) -> bool:
+        """Check if the async engine can be used; auto-fallback to sync if not.
+
+        Returns True if async is usable, False if allow_resize forces sync fallback.
+        """
         offending = [config.name for config in self.single_column_configs if getattr(config, "allow_resize", False)]
         if offending:
-            raise DatasetGenerationError(
-                f"allow_resize=True is not supported with DATA_DESIGNER_ASYNC_ENGINE=1. "
-                f"Offending column(s): {offending}. Either remove allow_resize=True or "
-                f"disable the async scheduler."
+            msg = (
+                f"allow_resize=True detected on column(s) {offending}. "
+                "Falling back to sync engine for this run. "
+                "allow_resize is deprecated and will be removed in a future release; "
+                "use workflow chaining instead (see issue #552)."
             )
+            logger.warning(f"⚠️ {msg}")
+            warnings.warn(msg, DeprecationWarning, stacklevel=4)
+            return False
+        return True
 
     def _build_async(
         self,
@@ -277,7 +342,7 @@ class DatasetBuilder:
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
 
         settings = self._resource_provider.run_config
-        trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+        trace_enabled = _is_async_trace_enabled(settings)
 
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
@@ -301,12 +366,20 @@ class DatasetBuilder:
         group_id = uuid.uuid4().hex
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
 
-        # Run on background event loop
+        # Run on background event loop. Capture scheduler state in `finally`
+        # so the structured signal is preserved even if `scheduler.run()`
+        # raises during the salvage path - otherwise callers see a generic
+        # error and lose the early-shutdown context.
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        future.result()
-
-        self._task_traces = scheduler.traces
+        try:
+            future.result()
+        finally:
+            self._task_traces = scheduler.traces
+            self._early_shutdown = scheduler.early_shutdown
+            self._partial_row_groups = scheduler.partial_row_groups
+            self._actual_num_records = buffer_manager.actual_num_records
+            self._first_non_retryable_error = scheduler.first_non_retryable_error
 
         # Emit telemetry
         try:
@@ -317,6 +390,23 @@ class DatasetBuilder:
 
         # Write metadata
         buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
+
+        # Surface partial completion
+        actual = self._actual_num_records
+        if actual < num_records:
+            pct = actual / num_records * 100 if num_records > 0 else 0
+            base = f"⚠️ Generated {actual} of {num_records} requested records ({pct:.0f}%). "
+            if scheduler.early_shutdown:
+                partial = scheduler.partial_row_groups
+                detail = (
+                    f"Early shutdown was triggered (non-retryable error rate exceeded threshold); "
+                    f"{len(partial)} row group(s) salvaged with partial rows."
+                    if partial
+                    else "Early shutdown was triggered (non-retryable error rate exceeded threshold)."
+                )
+                logger.warning(base + detail)
+            else:
+                logger.warning(base + "The dataset may be incomplete due to dropped rows.")
 
     def _prepare_async_run(
         self,
@@ -366,10 +456,10 @@ class DatasetBuilder:
         buffer_manager = RowGroupBufferManager(self.artifact_storage)
 
         # Pre-batch processor callback: runs after seed tasks complete for a row group.
-        # If it raises, the scheduler drops all rows in the row group (skips it).
+        # If it raises, the scheduler propagates the error as DatasetGenerationError (fail-fast).
         def on_seeds_complete(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_pre_batch_on_df(df)
+            df = self._processor_runner.run_pre_batch_on_df(df, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
             for ri in range(rg_size):
                 if buffer_manager.is_dropped(rg_id, ri) and not tracker.is_dropped(rg_id, ri):
@@ -378,7 +468,7 @@ class DatasetBuilder:
         # Post-batch processor callback: runs after all columns, before finalization.
         def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
+            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
 
         # Coarse upper bound: sums all registered aliases, not just those used
@@ -505,7 +595,7 @@ class DatasetBuilder:
         max_workers = self._resource_provider.run_config.non_inference_max_parallel_workers
         if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
-        if DATA_DESIGNER_ASYNC_ENGINE:
+        if self._use_async:
             logger.info("⚡ Using async engine for concurrent execution")
             self._fan_out_with_async(generator, max_workers=max_workers)
         else:

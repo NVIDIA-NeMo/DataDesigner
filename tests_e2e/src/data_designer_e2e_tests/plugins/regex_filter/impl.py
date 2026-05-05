@@ -14,9 +14,14 @@ if TYPE_CHECKING:
 
 
 class RegexFilterProcessor(Processor[RegexFilterProcessorConfig]):
-    """Filters batch rows based on a regex pattern."""
+    """Filters rows based on a regex pattern.
 
-    def process_before_batch(self, data: pd.DataFrame) -> pd.DataFrame:
+    Runs at the ``process_after_generation`` stage so row-count changes are
+    applied to the final dataset. The pre-/post-batch stages enforce row-count
+    invariance under the async engine.
+    """
+
+    def process_after_generation(self, data: pd.DataFrame) -> pd.DataFrame:
         compiled = re.compile(self.config.pattern)
         mask = data[self.config.column].astype(str).apply(lambda v: bool(compiled.search(v)))
         if self.config.invert:

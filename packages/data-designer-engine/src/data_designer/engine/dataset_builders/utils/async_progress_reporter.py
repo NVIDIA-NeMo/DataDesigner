@@ -101,9 +101,11 @@ class AsyncProgressReporter:
 
     def _update_bar(self) -> None:
         elapsed = time.perf_counter() - self._start_time
+        updates: dict[str, tuple[int, int, int]] = {}
         for col, tracker in self._trackers.items():
             completed, _total, success, failed, _skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
-            self._bar.update(col, completed=completed, success=success, failed=failed)
+            updates[col] = (completed, success, failed)
+        self._bar.update_many(updates)
 
     def _emit(self) -> None:
         current_total = sum(tracker.get_snapshot(0.0)[0] for tracker in self._trackers.values())

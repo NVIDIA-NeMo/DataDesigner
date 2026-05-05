@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -23,7 +24,6 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
-from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
@@ -75,29 +75,34 @@ class MockFullCol(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
 
 
 @pytest.mark.parametrize(
-    "configs,should_raise",
+    "configs,expected",
     [
         pytest.param(
             [Mock(name="col_a", allow_resize=True), Mock(name="col_b", allow_resize=False)],
-            True,
-            id="raises_on_allow_resize",
+            False,
+            id="fallback_on_allow_resize",
         ),
         pytest.param(
             [Mock(name="col_a", allow_resize=False), Mock(name="col_b", allow_resize=False)],
-            False,
-            id="passes_without_allow_resize",
+            True,
+            id="async_without_allow_resize",
         ),
     ],
 )
-def test_validate_async_compatibility(configs: list[Mock], should_raise: bool) -> None:
-    """Validation rejects allow_resize=True with the async engine."""
+def test_resolve_async_compatibility(configs: list[Mock], expected: bool) -> None:
+    """allow_resize=True triggers auto-fallback to sync with a deprecation warning."""
     builder = Mock(spec=DatasetBuilder)
     builder.single_column_configs = configs
-    if should_raise:
-        with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
-            DatasetBuilder._validate_async_compatibility(builder)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = DatasetBuilder._resolve_async_compatibility(builder)
+    assert result is expected
+    if not expected:
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+        assert "allow_resize" in str(w[0].message)
     else:
-        DatasetBuilder._validate_async_compatibility(builder)
+        assert len(w) == 0
 
 
 # -- _build_async integration test with mock generators -----------------------
@@ -262,3 +267,55 @@ async def test_checkpoint_produces_correct_parquet_calls() -> None:
     assert storage.write_batch_to_parquet_file.call_count == 2
     assert storage.move_partial_result_to_final_file_path.call_count == 2
     assert buffer_manager.actual_num_records == 5
+
+
+# -- Partial completion warning ------------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_dropped_rows_reduce_actual_record_count() -> None:
+    """When all rows in a row group are dropped, actual_num_records reflects the shortfall
+    and write_metadata records the correct actual vs target counts."""
+    provider = _mock_provider()
+    seed_gen = MockSeed(config=_expr_config("seed"), resource_provider=provider)
+
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["X"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    gen_map = {"seed": seed_gen}
+
+    graph = ExecutionGraph.create(configs, strategies)
+    num_records = 6
+    row_groups = [(0, 3), (1, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+
+    buffer_manager = RowGroupBufferManager(storage)
+
+    def drop_all_in_rg1(rg_id: int, rg_size: int) -> None:
+        if rg_id == 1:
+            for ri in range(rg_size):
+                tracker.drop_row(rg_id, ri)
+                buffer_manager.drop_row(rg_id, ri)
+
+    scheduler = AsyncTaskScheduler(
+        generators=gen_map,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        on_finalize_row_group=lambda rg_id: buffer_manager.checkpoint_row_group(rg_id),
+        on_seeds_complete=drop_all_in_rg1,
+    )
+    await scheduler.run()
+
+    assert buffer_manager.actual_num_records < num_records
+
+    buffer_manager.write_metadata(target_num_records=num_records, buffer_size=3)
+    written = storage.write_metadata.call_args[0][0]
+    assert written["actual_num_records"] == buffer_manager.actual_num_records
+    assert written["target_num_records"] == num_records
