@@ -14,6 +14,8 @@ Data Designer supports three plugin types:
 
 Plugin packages register their `Plugin` objects through Python package [entry points](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata). Data Designer discovers installed plugin entry points automatically, so no extra registration code is required. Simply install the plugin package and use its new object types in your Data Designer workflow.
 
+If you install a plugin after `data_designer` has already been imported, restart the Python process so plugin discovery can rebuild from the new entry points.
+
 ## Build a Plugin
 
 For implementation instructions across all plugin types, see the [Build Your Own](build_your_own.md) section.
