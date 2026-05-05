@@ -17,8 +17,9 @@ from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import CustomColumnConfig, ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
@@ -384,6 +385,84 @@ def stub_model_providers():
 @pytest.fixture
 def stub_seed_reader():
     return StubHuggingFaceSeedReader()
+
+
+def _builder_with_allow_resize() -> DataDesignerConfigBuilder:
+    """Config with one allow_resize=True column — forces sync-engine fallback."""
+
+    @custom_column_generator()
+    def _expander(row: dict) -> list[dict]:
+        return [{**row, "item": i} for i in range(2)]
+
+    builder = DataDesignerConfigBuilder()
+    builder.add_column(
+        SamplerColumnConfig(
+            name="seed",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["a"]),
+        )
+    )
+    builder.add_column(
+        CustomColumnConfig(
+            name="item",
+            generator_function=_expander,
+            allow_resize=True,
+        )
+    )
+    return builder
+
+
+@pytest.mark.parametrize(
+    "env_value,with_allow_resize,expected,expect_deprecation",
+    [
+        ("1", False, "async", False),
+        ("1", True, "sync", False),
+        ("0", False, "sync", True),
+    ],
+    ids=[
+        "async-on-no-fallback-uses-async-clients",
+        "async-on-allow-resize-falls-back-to-sync-clients",
+        "async-off-uses-sync-clients-and-warns",
+    ],
+)
+def test_resolve_client_concurrency_mode_matches_engine_choice(
+    env_value: str,
+    with_allow_resize: bool,
+    expected: str,
+    expect_deprecation: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Client mode must match the engine the run will actually use.
+
+    Without this alignment, a sync-fallback run (e.g. ``allow_resize=True``)
+    would be left with async-only clients and call sync methods on them,
+    raising ``SyncClientUnavailableError`` from inside the sync engine.
+
+    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
+    ``DeprecationWarning`` so users on the legacy sync engine see a
+    pre-removal signal in their logs. The auto-fallback path
+    (``allow_resize=True``) does not double-warn here; the builder layer
+    emits its own warning when the run actually executes.
+    """
+    monkeypatch.setattr(dd_mod, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
+    builder = _builder_with_allow_resize() if with_allow_resize else DataDesignerConfigBuilder()
+    if not with_allow_resize:
+        builder.add_column(
+            SamplerColumnConfig(
+                name="seed",
+                sampler_type=SamplerType.CATEGORY,
+                params=CategorySamplerParams(values=["a"]),
+            )
+        )
+
+    if expect_deprecation:
+        with pytest.warns(DeprecationWarning, match="legacy sync engine"):
+            mode = DataDesigner._resolve_client_concurrency_mode(builder)
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            mode = DataDesigner._resolve_client_concurrency_mode(builder)
+    assert mode.value == expected
 
 
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
@@ -795,8 +874,13 @@ def test_preview_raises_error_when_profiler_fails(
         assert isinstance(exc_info.value.__cause__, ValueError)
 
 
-def _patch_builder_state(*, early_shutdown: bool, actual_num_records: int = 0) -> contextlib.ExitStack:
-    """Patch DatasetBuilder.early_shutdown / actual_num_records as PropertyMocks."""
+def _patch_builder_state(
+    *,
+    early_shutdown: bool,
+    actual_num_records: int = 0,
+    first_non_retryable_error: Exception | None = None,
+) -> contextlib.ExitStack:
+    """Patch DatasetBuilder.early_shutdown / actual_num_records / first_non_retryable_error."""
     stack = contextlib.ExitStack()
     stack.enter_context(
         patch(
@@ -810,6 +894,13 @@ def _patch_builder_state(*, early_shutdown: bool, actual_num_records: int = 0) -
             "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.actual_num_records",
             new_callable=PropertyMock,
             return_value=actual_num_records,
+        )
+    )
+    stack.enter_context(
+        patch(
+            "data_designer.engine.dataset_builders.dataset_builder.DatasetBuilder.first_non_retryable_error",
+            new_callable=PropertyMock,
+            return_value=first_non_retryable_error,
         )
     )
     return stack
@@ -943,6 +1034,54 @@ def test_create_error_dispatch_on_load_outcome(
         assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
     if expect_filenotfound_cause:
         assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+
+
+@pytest.mark.parametrize(
+    "load_side_effect",
+    ["raises", "empty_df"],
+    ids=["load-raises-filenotfound", "load-returns-empty-df"],
+)
+def test_create_surfaces_first_non_retryable_error_when_zero_records(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+    load_side_effect: str,
+) -> None:
+    """When 0 records were produced due to a deterministic non-retryable error
+    (no early-shutdown), surface that error's message instead of a wrapped
+    FileNotFoundError on the parquet path. The interface chains the original
+    exception via ``__cause__`` so callers still have full context.
+    """
+    data_designer = _make_data_designer(stub_artifact_path, stub_model_providers, stub_managed_assets_path)
+    root_cause = ValueError("invalid seed source: no rows after hydration")
+
+    if load_side_effect == "raises":
+        load_patch = patch(
+            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+            side_effect=FileNotFoundError("No parquet files found"),
+        )
+    else:
+        load_patch = patch(
+            "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+            return_value=lazy.pd.DataFrame(),
+        )
+
+    with (
+        load_patch,
+        _patch_builder_state(
+            early_shutdown=False,
+            actual_num_records=0,
+            first_non_retryable_error=root_cause,
+        ),
+    ):
+        with pytest.raises(DataDesignerGenerationError, match="invalid seed source") as exc_info:
+            data_designer.create(stub_sampler_only_config_builder, num_records=10)
+
+    # Original cause is preserved via __cause__, not lost behind the parquet error.
+    assert exc_info.value.__cause__ is root_cause
+    # The typed DataDesignerEarlyShutdownError must NOT fire here — the gate didn't trip.
+    assert not isinstance(exc_info.value, DataDesignerEarlyShutdownError)
 
 
 def test_preview_raises_generation_error_when_dataset_is_empty(

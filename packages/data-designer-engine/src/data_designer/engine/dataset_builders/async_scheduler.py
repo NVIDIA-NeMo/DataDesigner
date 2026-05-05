@@ -192,6 +192,14 @@ class AsyncTaskScheduler:
         # via the partial_row_groups property as a structured signal.
         self._partial_row_groups: list[int] = []
 
+        # First non-retryable error encountered, if any. Surfaced via the
+        # ``first_non_retryable_error`` property so the interface can include
+        # the original cause in user-facing errors when a run produces 0 records
+        # (e.g. a deterministic seed-source failure). Sync engine preserved this
+        # context naturally because the from_scratch task raised; the async
+        # engine drops rows and continues, losing the cause unless we capture it.
+        self._first_non_retryable_error: Exception | None = None
+
         # Pre-compute row-group sizes for O(1) lookup
         self._rg_size_map: dict[int, int] = dict(row_groups)
 
@@ -249,6 +257,16 @@ class AsyncTaskScheduler:
         complete and the rest dropped before checkpointing.
         """
         return tuple(self._partial_row_groups)
+
+    @property
+    def first_non_retryable_error(self) -> Exception | None:
+        """The first non-retryable error captured by the scheduler, if any.
+
+        Surfaced so callers can preserve the original cause when a run produces
+        0 records due to deterministic failures (e.g. invalid seed sources).
+        Returns ``None`` for runs that completed without non-retryable errors.
+        """
+        return self._first_non_retryable_error
 
     def _spawn_worker(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task:
         """Create a tracked worker task that auto-removes itself on completion."""
@@ -862,6 +880,11 @@ class AsyncTaskScheduler:
             if retryable:
                 self._deferred.append(task)
             else:
+                # Capture the first non-retryable error for the interface to surface
+                # as the root cause when the run produces 0 records (e.g. deterministic
+                # seed failures). Subsequent failures are still logged below.
+                if self._first_non_retryable_error is None:
+                    self._first_non_retryable_error = exc
                 # Non-retryable: drop the affected row(s)
                 if task.row_index is not None:
                     self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
@@ -898,7 +921,17 @@ class AsyncTaskScheduler:
         if isinstance(generator, FromScratchColumnGenerator):
             result_df = await generator.agenerate_from_scratch(rg_size)
         else:
-            result_df = await generator.agenerate(lazy.pd.DataFrame())
+            # Non-FromScratch generators dispatched as seeds (no upstream columns)
+            # operate on existing buffer rows — same contract as the sync engine's
+            # FULL_COLUMN path. Pass an ``rg_size``-row snapshot so the generator
+            # produces ``rg_size`` rows back, instead of an empty DataFrame which
+            # would yield zero values and fail ``update_batch``.
+            if self._buffer_manager is not None:
+                records = [self._buffer_manager.get_row(task.row_group, ri) for ri in range(rg_size)]
+                input_df = lazy.pd.DataFrame(records)
+            else:
+                input_df = lazy.pd.DataFrame(index=range(rg_size))
+            result_df = await generator.agenerate(input_df)
 
         # Write results to buffer (include side-effect columns)
         if self._buffer_manager is not None:

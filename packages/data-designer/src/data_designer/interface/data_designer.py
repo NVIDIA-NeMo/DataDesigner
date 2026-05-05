@@ -36,9 +36,10 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DATA_DESIGNER_ASYNC_ENGINE, DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.resources.person_reader import (
     PersonReader,
     create_person_reader,
@@ -273,6 +274,15 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     "warnings above (and any 'Provider showing degraded performance' logs) for "
                     "the contributing failures."
                 ) from e
+            # Surface the original task error when the run produced 0 records due to a
+            # deterministic non-retryable failure (e.g. bad seed source). Without this,
+            # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
+            # ``actual_num_records`` is set only on the async path; sync runs leave it at
+            # ``-1`` and ``first_non_retryable_error`` at ``None``, so this branch is
+            # async-only by construction.
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 f"🛑 Failed to load generated dataset — all records may have been dropped "
                 f"due to generation failures. Check the warnings above for details. Original error: {e}"
@@ -291,6 +301,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     "🛑 Dataset is empty — early shutdown was triggered before any records "
                     "could complete. Check the warnings above for the contributing failures."
                 )
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation failures. "
                 "Check the warnings above for details on which columns failed."
@@ -362,6 +375,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     "🛑 Preview is empty — early shutdown was triggered before any records "
                     "could complete. Check the warnings above for the contributing failures."
                 )
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
                 "Check the warnings above for details on which columns failed."
@@ -563,7 +579,39 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             run_config=self._run_config,
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
+            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
         )
+
+    @staticmethod
+    def _resolve_client_concurrency_mode(config_builder: DataDesignerConfigBuilder) -> ClientConcurrencyMode:
+        """Pick the model-client mode that matches the engine the run will use.
+
+        The async engine is the default, but ``allow_resize=True`` columns force
+        a sync-engine fallback (see ``DatasetBuilder._resolve_async_compatibility``).
+        Without aligning the client mode here, those runs would create async-only
+        clients and then call sync methods on them — raising ``SyncClientUnavailableError``
+        from inside the sync engine. Match the client mode to the actual engine
+        choice so the fallback path is functional.
+        """
+        if not DATA_DESIGNER_ASYNC_ENGINE:
+            # Deliberate opt-out via env var. Surface the deprecation so users
+            # know the sync path is going away. Mirror the ``allow_resize`` shape
+            # in ``_resolve_async_compatibility``: emit both a ``logger.warning``
+            # (visible in the project's logging output) and a ``DeprecationWarning``
+            # (programmatic signal callers can filter on). The ``allow_resize``
+            # auto-fallback has its own warning from the builder layer; we don't
+            # double-warn here.
+            msg = (
+                "DATA_DESIGNER_ASYNC_ENGINE=0 selects the legacy sync engine, which is "
+                "deprecated and will be removed in a future release. Unset the variable "
+                "(or set it to 1) to use the async engine."
+            )
+            logger.warning(f"⚠️ {msg}")
+            warnings.warn(msg, DeprecationWarning, stacklevel=3)
+            return ClientConcurrencyMode.SYNC
+        if any(c.allow_resize for c in config_builder.get_column_configs()):
+            return ClientConcurrencyMode.SYNC
+        return ClientConcurrencyMode.ASYNC
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:
         return InterfaceInfo(model_providers=model_providers)
