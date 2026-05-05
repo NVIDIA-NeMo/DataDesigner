@@ -28,6 +28,9 @@ data-designer-my-plugin/
     !!! note "Model-backed generators"
         If your column generator interacts with models, include at least one `model_alias` field in the config and use the model registry from the implementation. See [Using Models in Plugins](models.md) for the registry access pattern.
 
+    !!! info "Full-column vs cell-by-cell generators"
+        The example below uses `ColumnGeneratorFullColumn` because it can fill the whole batch from the DataFrame index. Use `ColumnGeneratorCellByCell` when each row can be generated independently from its upstream values and your `generate` method should receive and return a row dictionary. Prefer `ColumnGeneratorFullColumn` for vectorized pandas operations, batched external APIs, or logic that needs to inspect or update the full batch at once.
+
     `config.py`:
 
     ```python
