@@ -152,6 +152,17 @@ class ModelFacade:
         return self._model_config.inference_parameters.max_parallel_requests
 
     @property
+    def request_timeout(self) -> float:
+        """Effective per-request HTTP timeout in seconds.
+
+        Mirrors the fallback in ``clients/factory.py`` so callers that want to
+        derive bounded waits (e.g. the sync→async bridge) get a value that
+        matches what the client is actually using.
+        """
+        raw = self._model_config.inference_parameters.timeout
+        return float(raw) if raw is not None else 60.0
+
+    @property
     def usage_stats(self) -> ModelUsageStats:
         return self._usage_stats
 

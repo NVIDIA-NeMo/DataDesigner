@@ -81,10 +81,10 @@ model_configs = [
     # Vision tasks
     dd.ModelConfig(
         alias="vision-model",
-        model="nvidia/nemotron-nano-12b-v2-vl",
+        model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
-            temperature=0.7,
+            temperature=0.60,
             top_p=0.95,
             max_tokens=2048,
         ),

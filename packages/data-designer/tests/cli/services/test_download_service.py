@@ -137,6 +137,8 @@ def test_download_persona_dataset_success(
         "resource",
         "download-version",
         "nvidia/nemotron-personas/nemotron-personas-dataset-en_us",
+        "--org",
+        "nvidia",
         "--dest",
         temp_dir_path,
     ]

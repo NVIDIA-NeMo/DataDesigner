@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10 - 3.13](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/250+_Billion-Tokens_Generated-76b900.svg?logo=nvidia&logoColor=white)
+[![Python 3.10 - 3.13](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/350+_Billion-Tokens_Generated-76b900.svg?logo=nvidia&logoColor=white)
 
 **Generate high-quality synthetic datasets from scratch or using your own seed data.**
 
@@ -22,13 +22,11 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 
 ---
 
-### ⚠️ Security Notice: LiteLLM Supply-Chain Incident (2026-03-24)
+### 📣 Heads-up: async engine is now the default
 
-On March 24, 2026, malicious versions of `litellm` ([1.82.7 and 1.82.8](https://github.com/BerriAI/litellm/issues/24518)) were published to PyPI containing a credential stealer. The compromised packages were available for [approximately five hours](https://www.okta.com/blog/threat-intelligence/litellm-supply-chain-attack--an-explainer-for-identity-pros/) (10:39 – 16:00 UTC) before being removed.
+Data Designer now runs pipelines on a cell-level async engine that overlaps independent columns and adapts concurrency per (provider, model). On most pipelines this is faster with no config changes; on slow self-hosted endpoints, set `inference_parameters.timeout` to your real per-request latency. See [Architecture & Performance → Async Engine](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/architecture-and-performance/#async-engine) for the behaviors worth knowing about.
 
-The only Data Designer releases that could resolve to these versions are **v0.2.2** (Dec 2025) and **v0.2.3** (Jan 2026), which carried a looser `litellm<2` upper bound. These are nearly three months old and have been superseded by eight subsequent releases — both have been yanked from PyPI as a precaution. All other releases (v0.3.0 – v0.5.3) pinned `litellm` to `>=1.73.6,<1.80.12` and were never compatible with 1.82.x. Starting with v0.5.4, `litellm` is no longer a dependency.
-
-To have been impacted through Data Designer, you would need to have had one of these two old versions explicitly pinned *and* run a fresh `pip install` or dependency-cache update that resolved `litellm` during the five-hour window on March 24. If you believe you may be affected, see [BerriAI's incident report](https://github.com/BerriAI/litellm/issues/24518) for remediation steps.
+If you hit anything unexpected, fall back to the legacy sync engine for one transitional release with `DATA_DESIGNER_ASYNC_ENGINE=0`, and please [open an issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new) so we can fix the async path.
 
 ---
 
@@ -143,40 +141,17 @@ This repository supports agent-assisted development — see [CONTRIBUTING.md](CO
 
 ## Telemetry
 
-Data Designer collects telemetry to help us improve the library for developers. We collect:
+Data Designer collects telemetry to help us improve the library for developers. This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community. 
 
-* The names of models used
-* The count of input tokens
-* The count of output tokens
+Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and-privacy)**
 
-**No user or device information is collected.** This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community.
+### Top models (YTD)
 
-Specifically, a model name that is defined a `ModelConfig` object, is what will be collected. In the below example config:
-
-```python
-ModelConfig(
-    alias="nv-reasoning",
-    model="nvidia/nemotron-3-super-120b-a12b",
-    provider="nvidia",
-    inference_parameters=ChatCompletionInferenceParams(
-        temperature=1.0,
-        top_p=0.95,
-        max_tokens=4096,
-    ),
-)
-```
-
-The value `nvidia/nemotron-3-super-120b-a12b` would be collected.
-
-To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
-
-### Top Models
-
-This chart represents the breakdown of models used for Data Designer across all synthetic data generation jobs from 2/23/2026 to 3/23/2026.
+Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–5/1/2026:
 
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
-_Last updated on 3/23/2026_
+_Last updated on May 1, 2026_
 
 ---
 
@@ -199,3 +174,15 @@ If you use NeMo Data Designer in your research, please cite it using the followi
   note = {GitHub Repository},
 }
 ```
+
+---
+
+<a id="telemetry-and-privacy"></a>
+
+## Telemetry & privacy
+
+NeMo Data Designer includes an optional function to share anonymous telemetry data with NVIDIA for product improvement. Data collected is limited to names of models used and token counts (input and output). No user or device information is collected. This data is used to prioritize product improvements and will be shared in aggregate with the community. It is not used to track any individual user behavior.
+
+You may opt out of telemetry collection at any time. Opting out applies only to data collection by the NeMo Data Designer library itself.
+
+**Use of third-party endpoints, including NVIDIA Build:** NeMo Data Designer can be configured to use various inference endpoints, including [build.nvidia.com](https://build.nvidia.com) (NVIDIA Build). If you choose to use NVIDIA Build or any other third-party endpoint, that endpoint's own terms of service and privacy practices apply independently of this library. Any opt-out you exercise within NeMo Data Designer does not extend to data collection by your chosen endpoint. NVIDIA Build is intended for evaluation and testing purposes only and may not be used in production environments. Do not submit any confidential information or personal data when using NVIDIA Build.

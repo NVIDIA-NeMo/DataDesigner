@@ -16,6 +16,14 @@ from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 _T = TypeVar("_T")
 
+# Preserved deliberately. Two other 300s deadlines were retired in the
+# async-default flip (PR #592): the throttle queue-wait and the
+# ``_AsyncBridgedModelFacade`` bridge in ``custom.py`` — both have
+# ``ModelFacade`` context and could derive a per-call deadline from
+# ``inference_parameters.timeout``. This generic ``ColumnGenerator.generate()``
+# fallback has no facade reachable, so a defensive backstop stays here for
+# now. Wiring a per-call timeout through to ``_run_coroutine_sync`` is
+# tracked as a structural follow-up.
 SYNC_BRIDGE_TIMEOUT = 300
 
 if TYPE_CHECKING:

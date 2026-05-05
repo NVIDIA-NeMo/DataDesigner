@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -35,9 +36,10 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DATA_DESIGNER_ASYNC_ENGINE, DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
-from data_designer.engine.model_provider import resolve_model_provider_registry
+from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.resources.person_reader import (
     PersonReader,
     create_person_reader,
@@ -61,6 +63,7 @@ from data_designer.engine.secret_resolver import (
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.interface.errors import (
+    DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
     DataDesignerProfilingError,
 )
@@ -149,11 +152,34 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
-        self._model_providers = self._resolve_model_providers(model_providers)
+        # Only consult the YAML's `default:` key when we are also falling back to
+        # the YAML's `providers:` list. A user-supplied `model_providers` list
+        # owns its own default (first wins), so the YAML default must not leak
+        # in and either (a) hard-fail validation when the YAML names a provider
+        # absent from the supplied list or (b) silently override the
+        # documented first-wins ordering. See issue #588.
+        if model_providers is None:
+            self._model_providers = self._resolve_model_providers(None)
+            default_provider_name = get_default_provider_name()
+        else:
+            self._model_providers = self._resolve_model_providers(model_providers)
+            default_provider_name = None
         self._mcp_providers = mcp_providers or []
-        self._model_provider_registry = resolve_model_provider_registry(
-            self._model_providers, get_default_provider_name()
-        )
+        # When the YAML carries a default, ``get_default_provider_name`` already
+        # nudged the user with a ``DeprecationWarning``. Building the registry
+        # below would re-fire ``ModelProviderRegistry._warn_on_explicit_default``
+        # for the same root cause, so suppress that second warning. See PR #594
+        # review.
+        with warnings.catch_warnings():
+            if default_provider_name is not None:
+                warnings.filterwarnings(
+                    "ignore",
+                    message="ModelProviderRegistry.default is deprecated",
+                    category=DeprecationWarning,
+                )
+            self._model_provider_registry = resolve_model_provider_registry(
+                self._model_providers, default_provider_name
+            )
         self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
 
     @property
@@ -234,6 +260,29 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         try:
             dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
         except Exception as e:
+            # Distinguish "early shutdown produced zero records" from generic load failures
+            # so callers can react programmatically (e.g. retry on a different alias) instead
+            # of parsing a wrapped FileNotFoundError. The scheduler's structured signal lives
+            # on the builder for the duration of the run. We also require the run to have
+            # produced zero records: a partial-salvage run that fails to load for unrelated
+            # reasons (corrupt parquet, dropped-columns mismatch, filesystem hiccup) should
+            # surface the original cause, not a misleading "zero records" diagnosis.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Generation produced zero records — early shutdown was triggered. "
+                    "The non-retryable error rate exceeded the configured threshold; check the "
+                    "warnings above (and any 'Provider showing degraded performance' logs) for "
+                    "the contributing failures."
+                ) from e
+            # Surface the original task error when the run produced 0 records due to a
+            # deterministic non-retryable failure (e.g. bad seed source). Without this,
+            # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
+            # ``actual_num_records`` is set only on the async path; sync runs leave it at
+            # ``-1`` and ``first_non_retryable_error`` at ``None``, so this branch is
+            # async-only by construction.
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 f"🛑 Failed to load generated dataset — all records may have been dropped "
                 f"due to generation failures. Check the warnings above for details. Original error: {e}"
@@ -243,6 +292,18 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         # practice load_dataset_with_dropped_columns() would raise before returning a
         # zero-row DataFrame. This guard protects against future changes to that contract.
         if len(dataset_for_profiler) == 0:
+            # Mirror the load-failure guard above: only raise the typed error when
+            # the run actually produced zero records. A partial-salvage run that
+            # somehow returns an empty DF for unrelated reasons should surface the
+            # generic error.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Dataset is empty — early shutdown was triggered before any records "
+                    "could complete. Check the warnings above for the contributing failures."
+                )
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation failures. "
                 "Check the warnings above for details on which columns failed."
@@ -288,6 +349,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Raises:
             DataDesignerGenerationError: If an error occurs during preview dataset generation.
+            DataDesignerEarlyShutdownError: If preview terminated via the early-shutdown gate
+                with zero records produced. Subclass of ``DataDesignerGenerationError``.
             DataDesignerProfilingError: If an error occurs during preview dataset profiling.
         """
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
@@ -304,6 +367,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}") from e
 
         if len(processed_dataset) == 0:
+            # Mirror the create() path: distinguish "early shutdown produced zero
+            # records" from generic empty-dataset failures so callers can react
+            # programmatically.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Preview is empty — early shutdown was triggered before any records "
+                    "could complete. Check the warnings above for the contributing failures."
+                )
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
             raise DataDesignerGenerationError(
                 "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
                 "Check the warnings above for details on which columns failed."
@@ -388,6 +462,32 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             The SecretResolver instance handling credentials and secrets.
         """
         return self._secret_resolver
+
+    @property
+    def model_provider_registry(self) -> ModelProviderRegistry:
+        """Get the resolved model provider registry.
+
+        Returns:
+            The ModelProviderRegistry containing the providers and default
+            resolved at construction time. The default is taken from the
+            first user-supplied provider when ``model_providers`` was passed
+            to the constructor; otherwise from the YAML's ``default:`` key
+            when set, falling back to the first provider in the YAML list.
+        """
+        return self._model_provider_registry
+
+    @property
+    def run_config(self) -> RunConfig:
+        """Get the runtime configuration applied to dataset generation.
+
+        Returns:
+            The active RunConfig instance. Note that ``RunConfig`` normalizes
+            some fields on construction (e.g., ``shutdown_error_rate`` becomes
+            ``1.0`` when ``disable_early_shutdown=True``), so the returned
+            object may not exactly equal the one originally passed to
+            ``set_run_config``.
+        """
+        return self._run_config
 
     def set_run_config(self, run_config: RunConfig) -> None:
         """Set the runtime configuration for dataset generation.
@@ -479,7 +579,39 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             run_config=self._run_config,
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
+            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
         )
+
+    @staticmethod
+    def _resolve_client_concurrency_mode(config_builder: DataDesignerConfigBuilder) -> ClientConcurrencyMode:
+        """Pick the model-client mode that matches the engine the run will use.
+
+        The async engine is the default, but ``allow_resize=True`` columns force
+        a sync-engine fallback (see ``DatasetBuilder._resolve_async_compatibility``).
+        Without aligning the client mode here, those runs would create async-only
+        clients and then call sync methods on them — raising ``SyncClientUnavailableError``
+        from inside the sync engine. Match the client mode to the actual engine
+        choice so the fallback path is functional.
+        """
+        if not DATA_DESIGNER_ASYNC_ENGINE:
+            # Deliberate opt-out via env var. Surface the deprecation so users
+            # know the sync path is going away. Mirror the ``allow_resize`` shape
+            # in ``_resolve_async_compatibility``: emit both a ``logger.warning``
+            # (visible in the project's logging output) and a ``DeprecationWarning``
+            # (programmatic signal callers can filter on). The ``allow_resize``
+            # auto-fallback has its own warning from the builder layer; we don't
+            # double-warn here.
+            msg = (
+                "DATA_DESIGNER_ASYNC_ENGINE=0 selects the legacy sync engine, which is "
+                "deprecated and will be removed in a future release. Unset the variable "
+                "(or set it to 1) to use the async engine."
+            )
+            logger.warning(f"⚠️ {msg}")
+            warnings.warn(msg, DeprecationWarning, stacklevel=3)
+            return ClientConcurrencyMode.SYNC
+        if any(c.allow_resize for c in config_builder.get_column_configs()):
+            return ClientConcurrencyMode.SYNC
+        return ClientConcurrencyMode.ASYNC
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:
         return InterfaceInfo(model_providers=model_providers)
