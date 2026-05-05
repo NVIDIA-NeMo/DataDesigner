@@ -214,6 +214,7 @@ markdown_extensions:
       base_path:
         - docs/
         - .
+      url_download: true
   - pymdownx.highlight:
         pygments_lang_class: true
         use_pygments: true

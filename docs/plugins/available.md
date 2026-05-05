@@ -2,7 +2,9 @@
 
 ## NVIDIA-maintained Plugins
 
-NVIDIA-maintained plugin packages live in the [DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) repository. Review the generated [DataDesignerPlugins catalog](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/blob/main/docs/catalog.md) for available packages and plugin-specific usage notes.
+NVIDIA-maintained plugin packages live in the [DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) repository. The catalog below is embedded from the generated [DataDesignerPlugins catalog](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/blob/main/docs/catalog.md).
+
+--8<-- "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesignerPlugins/main/docs/catalog.md:5:"
 
 ## Community Plugins
 
