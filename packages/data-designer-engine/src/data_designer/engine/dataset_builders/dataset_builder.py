@@ -601,7 +601,13 @@ class DatasetBuilder:
             # non-aligned run gets its true size, not buffer_size.
             initial_total_num_batches = len(completed_ids)
             initial_actual_num_records = sum(
-                min(buffer_size, state.target_num_records - rg_id * buffer_size) for rg_id in completed_ids
+                min(
+                    buffer_size,
+                    state.target_num_records - rg_id * buffer_size
+                    if rg_id * buffer_size < state.target_num_records
+                    else num_records - rg_id * buffer_size,
+                )
+                for rg_id in completed_ids
             )
             self.artifact_storage.clear_partial_results()
 

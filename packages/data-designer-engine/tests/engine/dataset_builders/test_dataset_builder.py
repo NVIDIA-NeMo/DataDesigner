@@ -1791,6 +1791,53 @@ def test_build_async_resume_initial_actual_num_records_uses_original_target(
     assert captured["initial_actual_num_records"] == 5
 
 
+def test_build_async_resume_initial_actual_num_records_extension_crash_window(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Extension row groups on disk use new num_records in the size formula, not original target.
+
+    Crash window: original run had num_records=5, buffer_size=2 (row groups [2,2,1], all done).
+    Extension starts with num_records=9; row group 3 (2 records) is written to disk but
+    write_metadata crashes before updating the file. On resume, completed_ids={0,1,2,3}
+    while metadata still reports target_num_records=5.
+
+    Correct count: groups 0,1 → 2+2; group 2 (last original, non-aligned) → 1; group 3
+    (extension) → min(2, 9-6)=2. Total = 7, not 4 (which the unguarded formula gives,
+    since min(2, 5-6) = -1).
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 9
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+
+    # 2+2+1 (original) + 2 (extension group 3) = 7, not 4 (which unguarded formula gives)
+    assert captured["initial_actual_num_records"] == 7
+
+
 def test_build_async_resume_skip_row_groups_contains_completed_ids(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
