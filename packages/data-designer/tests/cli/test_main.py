@@ -6,12 +6,18 @@ from __future__ import annotations
 import importlib.metadata
 from unittest.mock import Mock, call, patch
 
+from pydantic import BaseModel
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app, main
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+from data_designer.recipes.recipe import DataDesignerRecipe
 
 runner = CliRunner()
+
+
+class DemoRecipeConfig(BaseModel):
+    """Demo recipe config."""
 
 
 @patch("data_designer.cli.main.app")
@@ -84,4 +90,31 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
+    )
+
+
+@patch("data_designer.cli.commands.recipes.DataDesigner")
+@patch("data_designer.cli.commands.recipes.RecipeRegistry")
+def test_app_dispatches_lazy_run_recipe_command(mock_registry_cls: Mock, mock_data_designer_cls: Mock) -> None:
+    """The Typer app dispatches the recipe command through the lazy command loader."""
+    mock_config_builder = Mock()
+    recipe = DataDesignerRecipe(
+        name="demo",
+        description="Demo recipe",
+        config_model=DemoRecipeConfig,
+        build_config=Mock(return_value=mock_config_builder),
+    )
+    mock_registry_cls.return_value.get_recipe.return_value = recipe
+    mock_results = Mock()
+    mock_results.load_dataset.return_value = [object()]
+    mock_data_designer_cls.return_value.create.return_value = mock_results
+
+    result = runner.invoke(app, ["run-recipe", "demo", "--num-records", "1"])
+
+    assert result.exit_code == 0
+    mock_registry_cls.return_value.get_recipe.assert_called_once_with("demo")
+    mock_data_designer_cls.return_value.create.assert_called_once_with(
+        mock_config_builder,
+        num_records=1,
+        dataset_name="dataset",
     )

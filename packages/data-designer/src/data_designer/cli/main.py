@@ -55,6 +55,12 @@ app = typer.Typer(
                 "help": "Validate a Data Designer configuration",
                 "rich_help_panel": "Generation",
             },
+            "run-recipe": {
+                "module": f"{_CMD}.recipes",
+                "attr": "run_recipe_command",
+                "help": "Run an installed Data Designer recipe",
+                "rich_help_panel": "Recipes",
+            },
         }
     ),
     add_completion=False,
@@ -120,6 +126,26 @@ download_app = typer.Typer(
     no_args_is_help=True,
 )
 
+recipes_app = typer.Typer(
+    name="recipes",
+    help="Discover installed Data Designer recipes",
+    cls=create_lazy_typer_group(
+        {
+            "list": {
+                "module": f"{_CMD}.recipes",
+                "attr": "list_command",
+                "help": "List installed recipes",
+            },
+            "show": {
+                "module": f"{_CMD}.recipes",
+                "attr": "show_command",
+                "help": "Show recipe metadata and config schema",
+            },
+        }
+    ),
+    no_args_is_help=True,
+)
+
 _AGENT_CMD = f"{_CMD}.agent"
 
 
@@ -150,6 +176,7 @@ agent_app.add_typer(agent_state_app, name="state")
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup")
 app.add_typer(download_app, name="download", rich_help_panel="Setup")
+app.add_typer(recipes_app, name="recipes", rich_help_panel="Recipes")
 app.add_typer(agent_app, name="agent", rich_help_panel="Agent")
 
 
