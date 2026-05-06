@@ -11,7 +11,6 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -27,6 +26,7 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
