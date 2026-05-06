@@ -22,6 +22,13 @@
 export interface ToolCall {
   fn: "search" | "open" | "find" | "answer";
   arg?: string;
+  /**
+   * Final-answer HTML body. Rendered via `dangerouslySetInnerHTML` — must be
+   * pre-rendered HTML, NOT raw markdown. Use `<br />` for line breaks and
+   * `<strong>...</strong>` for emphasis. Pure-text answers can be safely
+   * passed too; HTML special chars are not escaped, so the fixture data is
+   * the trust boundary (same model as NotebookViewer's HTML output cells).
+   */
   body?: string;
   isGolden?: boolean;
 }

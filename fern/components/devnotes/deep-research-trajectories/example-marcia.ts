@@ -357,7 +357,7 @@ const trajectory: Omit<TrajectoryViewerProps, "defaultOpen"> = {
       "calls": [
         {
           "fn": "answer",
-          "body": "Based on my extensive research, I have gathered the following evidence:\n\n1. **The Roman Empire reached its greatest territorial extent under Trajan** (117 CE) — confirmed by multiple documents\n2. **Trajan's mother was from the Gens Marcia** — the Trajan document states he \"on his mother's side from the Gens Marcia, of an Italic family of Sabine origin\"\n3. **Egypt was colonized/annexed by Rome** after Cleopatra's death (30 BC), making it a Roman province\n4. **Egypt had border conflicts with Libya (ancient Marmaricae/Cyrenaica region)** in the 1st century BC\n\nThe answer is **Marcia**."
+          "body": "Based on my extensive research, I have gathered the following evidence:<br /><br />1. <strong>The Roman Empire reached its greatest territorial extent under Trajan</strong> (117 CE) — confirmed by multiple documents<br />2. <strong>Trajan's mother was from the Gens Marcia</strong> — the Trajan document states he \"on his mother's side from the Gens Marcia, of an Italic family of Sabine origin\"<br />3. <strong>Egypt was colonized/annexed by Rome</strong> after Cleopatra's death (30 BC), making it a Roman province<br />4. <strong>Egypt had border conflicts with Libya (ancient Marmaricae/Cyrenaica region)</strong> in the 1st century BC<br /><br />The answer is <strong>Marcia</strong>."
         }
       ]
     }

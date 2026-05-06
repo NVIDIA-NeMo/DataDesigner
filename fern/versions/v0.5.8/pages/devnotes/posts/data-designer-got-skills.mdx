@@ -45,7 +45,7 @@ The problem isn't the agent. Data Designer has a small config API — three or f
 
 ## **The Baseline: Let the Agent Figure It Out**
 
-To see what this looks like in practice, let's walk through a simple example. We prompted Claude Code to build a text-to-python dataset with Data Designer, providing a relatively detailed dataset description, instructions to locate the library source, and a CLI command to discover valid [model aliases](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) in the user's environment.
+To see what this looks like in practice, let's walk through a simple example. We prompted Claude Code to build a text-to-python dataset with Data Designer, providing a relatively detailed dataset description, instructions to locate the library source, and a CLI command to discover valid [model aliases](/concepts/models/default-model-settings) in the user's environment.
 
 The prompt we used is shown below. Note that the hints at the bottom matter more than you might think. Providing the package path and the CLI commands up front streamlines the work the agent needs to do to understand the library and use it.
 
