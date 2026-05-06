@@ -64,11 +64,151 @@ libraries:
     lang: python
 
 redirects:
-  # Section-only paths land on the section's first page (mirrors Curator's home/welcome pattern).
+  # ---- Section-only landing ----
+  # Mirrors Curator's /home -> /home/welcome convention.
   - source: "/nemo/datadesigner/getting-started"
     destination: "/nemo/datadesigner/getting-started/welcome"
-  # Sphinx HTML used .../path/to/page/index.html; Fern canonical URLs omit index.html.
-  # Add a pair when you add a new `versions:` slug. See also the catch-all below.
+
+  # ---- MkDocs path renames (most specific first) ----
+  # The legacy site lived at https://nvidia-nemo.github.io/DataDesigner/ and used
+  # MkDocs-Material's directory-URL conventions (mkdocstrings + blog plugin +
+  # mkdocs-jupyter). The Fern migration changed several path segments because
+  # Fern slugifies section/page titles. These rules catch search-engine indexed
+  # links and copy-pasted bookmarks that arrive at the new host.
+
+  # Tutorials: mkdocs-jupyter rendered .ipynb at /notebooks/<filename>/;
+  # Fern uses the slugified page title under /tutorials/.
+  - source: "/nemo/datadesigner/notebooks/1-the-basics"
+    destination: "/nemo/datadesigner/tutorials/the-basics"
+  - source: "/nemo/datadesigner/notebooks/2-structured-outputs-and-jinja-expressions"
+    destination: "/nemo/datadesigner/tutorials/structured-outputs-jinja-expressions-and-conditional-generation"
+  - source: "/nemo/datadesigner/notebooks/3-seeding-with-a-dataset"
+    destination: "/nemo/datadesigner/tutorials/seeding-with-an-external-dataset"
+  - source: "/nemo/datadesigner/notebooks/4-providing-images-as-context"
+    destination: "/nemo/datadesigner/tutorials/providing-images-as-context"
+  - source: "/nemo/datadesigner/notebooks/5-generating-images"
+    destination: "/nemo/datadesigner/tutorials/generating-images"
+  - source: "/nemo/datadesigner/notebooks/6-editing-images-with-image-context"
+    destination: "/nemo/datadesigner/tutorials/image-to-image-editing"
+  - source: "/nemo/datadesigner/notebooks/README"
+    destination: "/nemo/datadesigner/tutorials/overview"
+  - source: "/nemo/datadesigner/notebooks"
+    destination: "/nemo/datadesigner/tutorials/overview"
+
+  # Recipes: subsection slugs went from snake_case to kebab-case, AND most
+  # recipe page names changed (mkdocs used the .py filename like `basic_mcp`;
+  # Fern uses the page title slug like `basic-mcp-tool-use`). Per-page rules
+  # come first so they match before the subsection :rest* fallbacks.
+  # Index:
+  - source: "/nemo/datadesigner/recipes/cards"
+    destination: "/nemo/datadesigner/recipes/recipe-cards"
+  # Code generation:
+  - source: "/nemo/datadesigner/recipes/code_generation/text_to_python"
+    destination: "/nemo/datadesigner/recipes/code-generation/text-to-python"
+  - source: "/nemo/datadesigner/recipes/code_generation/text_to_sql"
+    destination: "/nemo/datadesigner/recipes/code-generation/text-to-sql"
+  - source: "/nemo/datadesigner/recipes/code_generation/enterprise_text_to_sql"
+    destination: "/nemo/datadesigner/recipes/code-generation/nemotron-super-text-to-sql"
+  # MCP and tool use:
+  - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/basic_mcp"
+    destination: "/nemo/datadesigner/recipes/mcp-and-tool-use/basic-mcp-tool-use"
+  - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/pdf_qa"
+    destination: "/nemo/datadesigner/recipes/mcp-and-tool-use/pdf-document-qa"
+  - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/search_agent"
+    destination: "/nemo/datadesigner/recipes/mcp-and-tool-use/nemotron-super-search-agent"
+  # QA and chat:
+  - source: "/nemo/datadesigner/recipes/qa_and_chat/product_info_qa"
+    destination: "/nemo/datadesigner/recipes/qa-and-chat/product-info-qa"
+  - source: "/nemo/datadesigner/recipes/qa_and_chat/multi_turn_chat"
+    destination: "/nemo/datadesigner/recipes/qa-and-chat/multi-turn-chat"
+  # Plugin development:
+  - source: "/nemo/datadesigner/recipes/plugin_development/markdown_seed_reader"
+    destination: "/nemo/datadesigner/recipes/plugin-development/markdown-section-seed-reader-plugin"
+  # Trace ingestion:
+  - source: "/nemo/datadesigner/recipes/trace_ingestion/agent_rollout_distillation"
+    destination: "/nemo/datadesigner/recipes/trace-ingestion/agent-rollout-trace-distillation"
+  # Subsection :rest* fallbacks for any URL we missed (only the underscored
+  # subsection segment gets rewritten; page slug passes through unchanged):
+  - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/:rest*"
+    destination: "/nemo/datadesigner/recipes/mcp-and-tool-use/:rest*"
+  - source: "/nemo/datadesigner/recipes/code_generation/:rest*"
+    destination: "/nemo/datadesigner/recipes/code-generation/:rest*"
+  - source: "/nemo/datadesigner/recipes/qa_and_chat/:rest*"
+    destination: "/nemo/datadesigner/recipes/qa-and-chat/:rest*"
+  - source: "/nemo/datadesigner/recipes/plugin_development/:rest*"
+    destination: "/nemo/datadesigner/recipes/plugin-development/:rest*"
+  - source: "/nemo/datadesigner/recipes/trace_ingestion/:rest*"
+    destination: "/nemo/datadesigner/recipes/trace-ingestion/:rest*"
+
+  # Concepts: the "MCP" subsection got promoted to "Tool Use & MCP", and the
+  # standalone tool_use_and_mcp.mdx became its overview page.
+  - source: "/nemo/datadesigner/concepts/tool_use_and_mcp"
+    destination: "/nemo/datadesigner/concepts/tool-use-mcp/overview"
+  # "Safety & Limits" page title slugs to safety-limits (& dropped),
+  # but the legacy filename was safety-and-limits.md.
+  - source: "/nemo/datadesigner/concepts/mcp/safety-and-limits"
+    destination: "/nemo/datadesigner/concepts/tool-use-mcp/safety-limits"
+  # "CLI Configuration" page title slugs to cli-configuration; legacy
+  # filename was configure-mcp-cli.md.
+  - source: "/nemo/datadesigner/concepts/mcp/configure-mcp-cli"
+    destination: "/nemo/datadesigner/concepts/tool-use-mcp/cli-configuration"
+  - source: "/nemo/datadesigner/concepts/mcp/:rest*"
+    destination: "/nemo/datadesigner/concepts/tool-use-mcp/:rest*"
+  - source: "/nemo/datadesigner/concepts/custom_columns"
+    destination: "/nemo/datadesigner/concepts/custom-columns"
+  - source: "/nemo/datadesigner/concepts/person_sampling"
+    destination: "/nemo/datadesigner/concepts/person-sampling"
+
+  # Plugins: page slug differs from filename (Fern uses the page-title slug).
+  - source: "/nemo/datadesigner/plugins/filesystem_seed_reader"
+    destination: "/nemo/datadesigner/plugins/file-system-seed-reader-plugins"
+  - source: "/nemo/datadesigner/plugins/example"
+    destination: "/nemo/datadesigner/plugins/example-plugin"
+  - source: "/nemo/datadesigner/plugins/available"
+    destination: "/nemo/datadesigner/plugins/available-plugin-list"
+
+  # Code Reference: mkdocstrings tree -> Fern Topic Overviews subsection.
+  # Underscored page names get kebab'd at the page-slug level too (Fern's title
+  # slugifier drops underscores), so the snake_case modules need per-page rules.
+  - source: "/nemo/datadesigner/code_reference/column_configs"
+    destination: "/nemo/datadesigner/code-reference/topic-overviews/column-configs"
+  - source: "/nemo/datadesigner/code_reference/config_builder"
+    destination: "/nemo/datadesigner/code-reference/topic-overviews/config-builder"
+  - source: "/nemo/datadesigner/code_reference/data_designer_config"
+    destination: "/nemo/datadesigner/code-reference/topic-overviews/data-designer-config"
+  - source: "/nemo/datadesigner/code_reference/run_config"
+    destination: "/nemo/datadesigner/code-reference/topic-overviews/run-config"
+  - source: "/nemo/datadesigner/code_reference/sampler_params"
+    destination: "/nemo/datadesigner/code-reference/topic-overviews/sampler-params"
+  - source: "/nemo/datadesigner/code_reference/validator_params"
+    destination: "/nemo/datadesigner/code-reference/topic-overviews/validator-params"
+  # Modules whose page slug already matches the filename (no underscores):
+  - source: "/nemo/datadesigner/code_reference/:module*"
+    destination: "/nemo/datadesigner/code-reference/topic-overviews/:module*"
+
+  # Dev Notes: mkdocs-material blog plugin URL shape.
+  # Section title "Dev Notes" -> /dev-notes; intermediate posts/ directory dropped.
+  # Most posts kept their filename slug, but two were retitled during migration
+  # so their Fern page-title slug differs from the legacy filename:
+  - source: "/nemo/datadesigner/devnotes/posts/text-to-sql"
+    destination: "/nemo/datadesigner/dev-notes/text-to-sql-for-nemotron-super"
+  - source: "/nemo/datadesigner/devnotes/posts/rqa"
+    destination: "/nemo/datadesigner/dev-notes/rqa-dataset"
+  - source: "/nemo/datadesigner/devnotes/posts/:slug"
+    destination: "/nemo/datadesigner/dev-notes/:slug"
+  - source: "/nemo/datadesigner/devnotes/:slug"
+    destination: "/nemo/datadesigner/dev-notes/:slug"
+  - source: "/nemo/datadesigner/devnotes"
+    destination: "/nemo/datadesigner/dev-notes/overview"
+
+  # MkDocs uses directory URLs (every page URL ends in /); Fern's runtime
+  # accepts both /foo and /foo/ natively, so no explicit slash-strip rule is
+  # needed. The renamed-path rules above already match the no-slash form;
+  # legacy /foo/ requests get the trailing slash trimmed by Fern, then matched.
+
+  # ---- Sphinx-era inheritance (kept as defensive) ----
+  # The legacy mkdocs site predates an even-older Sphinx era. These catch
+  # any *.html / */index.html links that managed to survive in external indexes.
   - source: "/nemo/datadesigner/index.html"
     destination: "/nemo/datadesigner/getting-started/welcome"
   - source: "/nemo/datadesigner/latest/:path*/index.html"
@@ -77,7 +217,6 @@ redirects:
     destination: "/nemo/datadesigner/v0.5.8/:path*"
   - source: "/nemo/datadesigner/:path*/index.html"
     destination: "/nemo/datadesigner/:path*"
-  # Sphinx page URLs (foo.html); must follow all :path*/index.html rules above
   - source: "/nemo/datadesigner/latest/:path*.html"
     destination: "/nemo/datadesigner/latest/:path*"
   - source: "/nemo/datadesigner/v0.5.8/:path*.html"
