@@ -51,23 +51,32 @@ class SeedReaderError(DataDesignerError): ...
 
 @dataclass(frozen=True)
 class SeedReaderFileSystemContext:
+    """Filesystem and root path available to filesystem seed-reader plugins."""
+
     fs: AbstractFileSystem
     root_path: Path
 
 
 class SeedReaderBatch(Protocol):
+    """Batch object returned by seed readers and convertible to a DataFrame."""
+
     def to_pandas(self) -> pd.DataFrame: ...
 
 
 class SeedReaderBatchReader(Protocol):
+    """Reader that yields seed batches until exhausted."""
+
     def read_next_batch(self) -> SeedReaderBatch: ...
 
 
 @dataclass
 class PandasSeedReaderBatch:
+    """Seed-reader batch backed by an in-memory pandas DataFrame."""
+
     dataframe: pd.DataFrame
 
     def to_pandas(self) -> pd.DataFrame:
+        """Return the batch as a pandas DataFrame."""
         return self.dataframe
 
 
@@ -76,6 +85,7 @@ def create_seed_reader_output_dataframe(
     records: list[dict[str, Any]],
     output_columns: list[str],
 ) -> pd.DataFrame:
+    """Create a DataFrame and verify hydrated records match the declared output schema."""
     if not records:
         return lazy.pd.DataFrame(records, columns=output_columns)
 

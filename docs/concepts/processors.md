@@ -88,7 +88,7 @@ processor = dd.SchemaTransformProcessorConfig(
 - Each key in `template` becomes a column in the transformed dataset
 - Values are Jinja2 templates with access to all columns in the batch
 - Complex structures (lists, nested dicts) are supported
-- Output is saved to the `processors-outputs/{name}/` directory
+- Output is saved to the `processors-files/{name}/` directory
 - The original dataset passes through unchanged
 
 **Template Capabilities:**

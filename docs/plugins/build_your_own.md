@@ -237,7 +237,7 @@ data-designer-my-plugin/
 
 
     class RegexFilterProcessor(Processor[RegexFilterProcessorConfig]):
-        def process_before_batch(self, data: pd.DataFrame) -> pd.DataFrame:
+        def process_after_generation(self, data: pd.DataFrame) -> pd.DataFrame:
             mask = data[self.config.column].astype(str).str.contains(self.config.pattern, regex=True)
             if self.config.invert:
                 mask = ~mask
