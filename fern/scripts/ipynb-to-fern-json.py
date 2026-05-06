@@ -27,16 +27,24 @@ Run after: make convert-execute-notebooks && make generate-colab-notebooks
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import re
 import sys
 from pathlib import Path
 
 from markdown_it import MarkdownIt
+from PIL import Image
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
+
+# Cap each image's longest edge so notebook .ts payloads stay small enough for
+# Fern's SSR bundler (a 22MB module from full-resolution Flux outputs broke
+# server-render evaluation). 800px is plenty for in-doc viewing.
+MAX_IMAGE_DIMENSION = 800
 
 # CommonMark-compliant markdown renderer with table + strikethrough +
 # raw-HTML support. Used to pre-render markdown cell sources to HTML at
@@ -78,6 +86,32 @@ def is_colab_badge_cell(cell: dict) -> bool:
     return bool(COLAB_BADGE_RE.search(src))
 
 
+def shrink_image_b64(b64: str, max_dim: int = MAX_IMAGE_DIMENSION) -> tuple[str, str]:
+    """Decode a base64 PNG, resize so its longest edge is at most max_dim, and
+    re-encode as JPEG (q=82) for photographic Flux outputs. Massively cheaper
+    than PNG for the .ts payload — full-resolution Flux PNGs blow past Fern's
+    SSR module-size threshold (a 22MB combined .ts breaks server-render).
+
+    Returns (b64, mime). On any failure, returns the original PNG bytes."""
+    try:
+        raw = base64.b64decode(b64)
+        img = Image.open(io.BytesIO(raw))
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        if img.mode in ("RGBA", "LA"):
+            # Flatten alpha onto white before JPEG encode
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            bg.paste(img, mask=img.split()[-1])
+            img = bg
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=82, optimize=True, progressive=True)
+        return base64.b64encode(buf.getvalue()).decode("ascii"), "image/jpeg"
+    except Exception:
+        return b64, "image/png"
+
+
 def extract_outputs(outputs: list) -> list[dict]:
     result: list[dict] = []
     for out in outputs:
@@ -92,7 +126,8 @@ def extract_outputs(outputs: list) -> list[dict]:
                 b64 = data["image/png"]
                 if isinstance(b64, list):
                     b64 = "".join(b64)
-                result.append({"type": "image", "data": b64})
+                b64, mime = shrink_image_b64(b64)
+                result.append({"type": "image", "data": b64, "mime": mime})
             elif "text/html" in data:
                 html = data["text/html"]
                 if isinstance(html, list):

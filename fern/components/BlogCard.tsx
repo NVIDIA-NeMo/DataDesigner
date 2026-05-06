@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { ReactNode } from "react";
+
 import { authors as REGISTRY } from "./devnotes/authors-data";
 
 /**
@@ -62,7 +64,7 @@ export interface BlogCardProps {
    *
    *   <BlogCard image={<img src="/assets/foo/hero.png" alt="" />} … />
    */
-  image?: React.ReactNode;
+  image?: ReactNode;
 }
 
 /** Deterministic hash → number ∈ [0, 360). Same input → same color. */
@@ -148,6 +150,6 @@ export function BlogCard({
   );
 }
 
-export function BlogGrid({ children }: { children: React.ReactNode }) {
+export function BlogGrid({ children }: { children: ReactNode }) {
   return <div className="blog-grid">{children}</div>;
 }

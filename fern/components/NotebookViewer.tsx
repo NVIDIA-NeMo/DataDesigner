@@ -52,6 +52,9 @@ export interface CellOutput {
   type: "text" | "image";
   data: string;
   format?: "plain" | "html";
+  /** MIME for image outputs. Defaults to image/png; the converter sets
+   * image/jpeg when it re-encodes large outputs to keep the .ts payload small. */
+  mime?: string;
 }
 
 export interface NotebookCell {
@@ -337,7 +340,7 @@ function renderCell(cell: NotebookCell, index: number, showOutputs: boolean) {
                   out.type === "image" ? (
                     <img
                       key={i}
-                      src={`data:image/png;base64,${out.data}`}
+                      src={`data:${out.mime ?? "image/png"};base64,${out.data}`}
                       alt="Output"
                       className="notebook-viewer__output-image"
                     />
