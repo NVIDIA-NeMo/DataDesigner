@@ -25,7 +25,14 @@ export default { cells: [
     "type": "code",
     "source": "data_designer = DataDesigner()",
     "language": "python",
-    "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n"
+    "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n",
+    "outputs": [
+      {
+        "type": "text",
+        "data": "/var/folders/r2/h5ycn0g13n1bc1rctfs2q65m0000gp/T/ipykernel_4903/184243683.py:1: DeprecationWarning: ModelProviderRegistry.default is deprecated and will be removed in a future release. Specify provider= explicitly on each ModelConfig instead of relying on a registry-level default. See issue #589.\n  data_designer = DataDesigner()",
+        "format": "plain"
+      }
+    ]
   },
   {
     "type": "markdown",
@@ -80,7 +87,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:38:49] [INFO] ✅ Validation passed",
+        "data": "[13:29:57] [INFO] ✅ Validation passed",
         "format": "plain"
       }
     ]
@@ -98,237 +105,242 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:38:49] [INFO] 🔭 Preview generation in progress",
+        "data": "[13:29:57] [INFO] 📸 Preview generation in progress",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+        "data": "[13:29:57] [INFO]   |-- 🔒 Jinja rendering engine: secure",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO] ✅ Validation passed",
+        "data": "[13:29:57] [INFO] ✅ Validation passed",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+        "data": "[13:29:57] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO] 🩺 Running health checks for models...",
+        "data": "[13:29:57] [INFO] 🩺 Running health checks for models...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
+        "data": "[13:29:57] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO]   |-- ✅ Passed!",
+        "data": "[13:29:57] [INFO]   |-- ✅ Passed!",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO] 🌱 Sampling 2 records from seed dataset",
+        "data": "[13:29:57] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO]   |-- seed dataset size: 820 records",
+        "data": "[13:29:57] [INFO] 📝 llm-text model config for column 'physician_notes'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO]   |-- sampling strategy: ordered",
+        "data": "[13:29:57] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:49] [INFO] 🎲 Preparing samplers to generate 2 records across 5 columns",
+        "data": "[13:29:57] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO] (💾 + 💾) Concatenating 2 datasets",
+        "data": "[13:29:57] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO] 🧩 Generating column `first_name` from expression",
+        "data": "[13:29:57] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO] 🧩 Generating column `last_name` from expression",
+        "data": "[13:29:57] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO] 🧩 Generating column `dob` from expression",
+        "data": "[13:29:57] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO] 🧩 Generating column `physician` from expression",
+        "data": "[13:29:57] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO] 📝 llm-text model config for column 'physician_notes'",
+        "data": "[13:29:57] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:57] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:57] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:57] [INFO] ⚡️ Async generation: 1 column(s) (physician_notes), 2 tasks across 1 row group(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |-- inference parameters:",
+        "data": "[13:29:57] [INFO] 🚀 (1/1) Dispatching with 2 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:57] [INFO] 🎲 (1/1) Preparing samplers to generate 2 records across 5 columns",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:57] [INFO] 🌱 (1/1) Sampling 2 records from seed dataset",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:57] [INFO]   |-- seed dataset size: 820 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:57] [INFO]   |-- sampling strategy: ordered",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:57] [INFO] 🧩 (1/1) Generating column `first_name` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:57] [INFO] 🧩 (1/1) Generating column `physician` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO] ⚡️ Processing llm-text column 'physician_notes' with 4 concurrent workers",
+        "data": "[13:29:57] [INFO] 🧩 (1/1) Generating column `last_name` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:50] [INFO] ⏱️ llm-text column 'physician_notes' will report progress after each record",
+        "data": "[13:29:57] [INFO] 🧩 (1/1) Generating column `dob` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:54] [INFO]   |-- 🐥 llm-text column 'physician_notes' progress: 1/2 (50%) complete, 1 ok, 0 failed, 0.25 rec/s, eta 4.0s",
+        "data": "[13:30:02] [INFO] 📊 Progress [5.4s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🐔 llm-text column 'physician_notes' progress: 2/2 (100%) complete, 2 ok, 0 failed, 0.35 rec/s, eta 0.0s",
+        "data": "[13:30:02] [INFO]   |-- 🌕 physician_notes: 2/2 (100%) 0.4 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO] 📊 Model usage summary:",
+        "data": "[13:30:02] [INFO] ✅ Async generation complete [5.4s]: 2 ok, 0 failed across 1 column(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
+        "data": "[13:30:02] [INFO] 📊 Model usage summary:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- tokens: input=331, output=2542, total=2873, tps=408",
+        "data": "[13:30:02] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- requests: success=2, failed=0, total=2, rpm=17",
+        "data": "[13:30:02] [INFO]   |-- tokens: input=327, output=1579, total=1906, tps=355",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO] 📐 Measuring dataset column statistics:",
+        "data": "[13:30:02] [INFO]   |-- requests: success=2, failed=0, total=2, rpm=22",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🎲 column: 'patient_sampler'",
+        "data": "[13:30:02] [INFO] 📐 Measuring dataset column statistics:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🎲 column: 'doctor_sampler'",
+        "data": "[13:30:02] [INFO]   |-- 🎲 column: 'patient_sampler'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🎲 column: 'patient_id'",
+        "data": "[13:30:02] [INFO]   |-- 🎲 column: 'doctor_sampler'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🧩 column: 'first_name'",
+        "data": "[13:30:02] [INFO]   |-- 🎲 column: 'patient_id'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🧩 column: 'last_name'",
+        "data": "[13:30:02] [INFO]   |-- 🧩 column: 'first_name'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🧩 column: 'dob'",
+        "data": "[13:30:02] [INFO]   |-- 🧩 column: 'last_name'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🎲 column: 'symptom_onset_date'",
+        "data": "[13:30:02] [INFO]   |-- 🧩 column: 'dob'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🎲 column: 'date_of_visit'",
+        "data": "[13:30:02] [INFO]   |-- 🎲 column: 'symptom_onset_date'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 🧩 column: 'physician'",
+        "data": "[13:30:02] [INFO]   |-- 🎲 column: 'date_of_visit'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:56] [INFO]   |-- 📝 column: 'physician_notes'",
+        "data": "[13:30:02] [INFO]   |-- 🧩 column: 'physician'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🥳 Preview complete!",
+        "data": "[13:30:02] [INFO]   |-- 📝 column: 'physician_notes'",
+        "format": "plain"
+      },
+      {
+        "type": "text",
+        "data": "[13:30:02] [INFO] ☀️ Preview complete!",
         "format": "plain"
       }
     ]
@@ -346,7 +358,7 @@ export default { cells: [
       },
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                                 Seed Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name            </span>┃<span style=\"font-weight: bold\"> Value                                                                                    </span>┃\n┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ diagnosis       │ cervical spondylosis                                                                     │\n├─────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤\n│ patient_summary │ I've been having a lot of pain in my neck and back. I've also been having trouble with   │\n│                 │ my balance and coordination. I've been coughing a lot and my limbs feel weak.            │\n└─────────────────┴──────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name               </span>┃<span style=\"font-weight: bold\"> Value                                                                                 </span>┃\n┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler    │ <span style=\"font-weight: bold\">{</span>                                                                                     │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'uuid'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'7a020759-5ec2-4f43-9b9c-fccd7006c00f'</span>,                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'locale'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'en_US'</span>,                                                                │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'first_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Kyle'</span>,                                                             │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'last_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Lindsey'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'middle_name'</span>: <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'sex'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Male'</span>,                                                                    │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'989'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Barry Neck'</span>,                                                      │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'city'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Smithfort'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'state'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Virginia'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'postcode'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'55389'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'age'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">62</span>,                                                                        │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'birth_date'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'1964-02-10'</span>,                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'country'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Qatar'</span>,                                                               │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'marital_status'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'widowed'</span>,                                                      │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'education_level'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'secondary_education'</span>,                                         │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'unit'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">''</span>,                                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'occupation'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Museum/gallery conservator'</span>,                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'phone_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'208-566-3189'</span>,                                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'bachelors_field'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'no_degree'</span>                                                    │\n│                    │ <span style=\"font-weight: bold\">}</span>                                                                                     │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ doctor_sampler     │ <span style=\"font-weight: bold\">{</span>                                                                                     │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'uuid'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'1751b8c5-5d3c-404f-a18f-80a2649ede3b'</span>,                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'locale'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'en_US'</span>,                                                                │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'first_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Larry'</span>,                                                            │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'last_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Davis'</span>,                                                             │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'middle_name'</span>: <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'sex'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Male'</span>,                                                                    │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'733'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Gutierrez Pass'</span>,                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'city'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'North Jerry'</span>,                                                            │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'state'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Wisconsin'</span>,                                                             │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'postcode'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'07755'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'age'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">101</span>,                                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'birth_date'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'1924-09-16'</span>,                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'country'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Brazil'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'marital_status'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'never_married'</span>,                                                │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'education_level'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'some_college'</span>,                                                │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'unit'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">''</span>,                                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'occupation'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Wellsite geologist'</span>,                                               │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'phone_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'659-893-1795x154'</span>,                                               │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'bachelors_field'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'no_degree'</span>                                                    │\n│                    │ <span style=\"font-weight: bold\">}</span>                                                                                     │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ patient_id         │ PT-5E2A76B1                                                                           │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ symptom_onset_date │ 2024-03-21T00:00:00                                                                   │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ date_of_visit      │ 2024-04-03T00:00:00                                                                   │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ physician_notes    │ **Dr. Larry Davis – Clinical Notes**                                                  │\n│                    │ **Patient:** Kyle Lindsey | **DOB:** [redacted] | **MRN:** [redacted]                 │\n│                    │ **Visit Date/Time:** 2024-04-03 09:45 AM                                              │\n│                    │ **Setting:** Primary Care – In‑person                                                 │\n│                    │                                                                                       │\n│                    │ ---                                                                                   │\n│                    │                                                                                       │\n│                    │ ### Chief Complaint (CC):                                                             │\n│                    │ - “Neck and upper back pain”                                                          │\n│                    │ - “Trouble with balance and coordination”                                             │\n│                    │ - “Coughing”                                                                          │\n│                    │ - “Weak limbs”                                                                        │\n│                    │                                                                                       │\n│                    │ ### History of Present Illness (HPI):                                                 │\n│                    │ - 62‑year‑old male with known cervical spondylosis (first noticed **2024‑03‑21**).    │\n│                    │ - Progressive neck/back pain worsening over past 3 weeks; described as deep, aching,  │\n│                    │ worsens with neck extension and sitting &gt;30 min.                                      │\n│                    │ - New onset lower back discomfort noted; pain radiates to shoulders and upper         │\n│                    │ thoracic region.                                                                      │\n│                    │ - Reports intermittent numbness/tingling in fingers, especially when reaching         │\n│                    │ overhead.                                                                             │\n│                    │ - Gait instability: feels “off‑balance” when walking, occasional hand‑to‑hand         │\n│                    │ coordination difficulty (drop objects &gt;1 wk).                                         │\n│                    │ - Episodic cough: dry, non‑productive, worsened by activity; no fever, pneumonia      │\n│                    │ symptoms, or recent respiratory infection.                                            │\n│                    │ - Generalized weakness in upper and lower extremities (Patient rates 2/5 on MMT in    │\n│                    │ proximal muscles, 3/5 distal) compared to baseline; no clear trigger.                 │\n│                    │ - Denies recent trauma, falls, or hospitalizations.                                   │\n│                    │ - No changes in medication adherence; currently on NSAID PRN (as prescribed           │\n│                    │ 2024‑02‑15) and occasional muscle relaxant (cyclobenzaprine 5 mg qhs, used &lt;2         │\n│                    │ times/week).                                                                          │\n│                    │ - No prior cervical surgery; history of hypertension well‑controlled; social history: │\n│                    │ smoker 1 ppd, occasional alcohol.                                                     │\n│                    │                                                                                       │\n│                    │ ### Review of Systems (pertinent):                                                    │\n│                    │ - **Neurologic:** Episodes of paresthesia in hands, mild upper extremity weakness,    │\n│                    │ unsteady gait. Denies seizures, headaches, visual changes.                            │\n│                    │ - **Respiratory:** Persistent cough x 3 weeks, non‑bloody, no wheeze or sputum.       │\n│                    │ - **Musculoskeletal:** Neck pain, lower back pain, stiffness on extension; no         │\n│                    │ swelling, no joint deformities.                                                       │\n│                    │ - **Dermatologic:** Skin intact, no rashes.                                           │\n│                    │ - **Cardiovascular:** No chest pain, palpitations.                                    │\n│                    │ - **GI/URO:** No nausea, vomiting, dysuria.                                           │\n│                    │                                                                                       │\n│                    │ ### Pertinent Past Medical History (PMH):                                             │\n│                    │ - Cervical spondylosis diagnosed 2022.                                                │\n│                    │ - Hypertension, controlled on lisinopril 10 mg daily.                                 │\n│                    │ - Hyperlipidemia, on atorvastatin 20 mg nightly.                                      │\n│                    │                                                                                       │\n│                    │ ### Medications:                                                                      │\n│                    │ - Lisinopril 10 mg PO daily                                                           │\n│                    │ - Atorvastatin 20 mg PO nightly                                                       │\n│                    │ - Ibuprofen 600 mg PO q8h PRN (90 caps remaining)                                     │\n│                    │ - Cyclobenzaprine 5 mg PO qhs PRN (used ~1 ×/wk)                                      │\n│                    │                                                                                       │\n│                    │ ### Allergies:                                                                        │\n│                    │ - NKDA                                                                                │\n│                    │                                                                                       │\n│                    │ ### Objective Findings:                                                               │\n│                    │ - **Vitals:** BP 132/84 mmHg; HR 78 bpm; RR 16; SpO₂ 98% RA; Temp 98.6°F.             │\n│                    │ - **General:** Well‑nourished, alert, oriented × 3.                                   │\n│                    │ - **HEENT:** Normal.                                                                  │\n│                    │ - **Neck:** Limited flexion/extension, localized tenderness mid‑cervical, mild radial │\n│                    │ nerve stretch positive, no crepitus.                                                  │\n│                    │ - **Spine:** Tenderness T1–T3 paraspinal; no step-offs or deformity.                  │\n│                    │ - **Neurologic:**                                                                     │\n│                    │   - Cranial NII–XII intact.                                                           │\n│                    │   - Motor: 4/5 strength in proximal UE &amp; LE; 5/5 distal UE/LE.                        │\n│                    │   - Reflexes: 2+ symmetric; Babinski negative.                                        │\n│                    │   - Sensation: Mild decreased pinprick in C6–C7 dermatomes bilaterally.               │\n│                    │   - Gait: Wide‑based, mild ataxia on tandem walk.                                     │\n│                    │ - **Respiratory:** Clear to auscultation bilaterally.                                 │\n│                    │ - **Skin:** No rashes.                                                                │\n│                    │                                                                                       │\n│                    │ ### Assessment / Differential Diagnosis:                                              │\n│                    │ 1. **Progressive cervical spondylosis with radiculopathy** – contributing to neck     │\n│                    │ pain, upper extremity weakness, paresthesias.                                         │\n│                    │ 2. **Lumbar degenerative changes** – new‑onset low back pain likely unrelated to      │\n│                    │ cervical pathology.                                                                   │\n│                    │ 3. **Speech/Neuromuscular coordination issues** – possible gait ataxia, could be      │\n│                    │ early cervical myelopathy or peripheral neuropathy; need imaging.                     │\n│                    │ 4. **Chronic cough** – likely benign dry cough secondary to post‑nasal drip or GERD;  │\n│                    │ rule out pulmonary etiology.                                                          │\n│                    │ 5. **Generalized weakness** – likely deconditioning secondary to chronic pain and     │\n│                    │ limited activity; also consider medication side‑effects (cyclosporine? – not on).     │\n│                    │                                                                                       │\n│                    │ ### Plan:                                                                             │\n│                    │ 1. **Imaging:**                                                                       │\n│                    │    - Obtain **MRI of the cervical spine (C1–C7)** with and without contrast to        │\n│                    │ evaluate for canal stenosis, cord compression, and radiculopathic changes.            │\n│                    │    - **MRI of the lumbar spine (L1–S1)** if back pain persists beyond 4 weeks or      │\n│                    │ neurologic symptoms progress.                                                         │\n│                    │ 2. **Referral:**                                                                      │\n│                    │    - Neurology – for comprehensive neuromuscular assessment and EMG/NCS if indicated. │\n│                    │    - Physical Therapy – gait training and core stabilization program; monitor for     │\n│                    │ fall risk.                                                                            │\n│                    │ 3. **Medication Review:**                                                             │\n│                    │    - Continue NSAID as needed; limit to ≤2 weeks without re‑evaluation.               │\n│                    │    - Consider tapering cyclobenzaprine if drowsiness contributes to fall risk;        │\n│                    │ reassess pain control.                                                                │\n│                    │    - Prescribe a short course of **gabapentin 300 mg PO TID** after confirming normal │\n│                    │ renal function (eGFR &gt; 60) for neuropathic pain if MRI confirms radiculopathy.        │\n│                    │ 4. **Cough Management:**                                                              │\n│                    │    - Initiate **hydrochlorothiazide trial** if post‑nasal drip suspected; otherwise   │\n│                    │ consider low‑dose **dextromethorphan** PRN.                                           │\n│                    │    - Evaluate for GERD: start **omeprazole 20 mg PO daily** if heartburn noted;       │\n│                    │ advise elevating head of bed and avoiding late meals.                                 │\n│                    │ 5. **Fall Prevention:**                                                               │\n│                    │    - Review home environment for safety (grab bars, adequate lighting).               │\n│                    │    - Initiate home PT for balance exercises.                                          │\n│                    │ 6. **Lifestyle Modifications:**                                                       │\n│                    │    - Smoking cessation counseling; offer nicotine replacement therapy.                │\n│                    │    - Encourage gradual increase in aerobic activity (e.g., walking 15 min daily) as   │\n│                    │ tolerated.                                                                            │\n│                    │ 7. **Follow‑up:**                                                                     │\n│                    │    - Return in **2 weeks** for review of imaging results and PT progress.             │\n│                    │    - Call clinic urgently if new **weakness, numbness, urinary incontinence**, or     │\n│                    │ worsening cough.                                                                      │\n│                    │                                                                                       │\n│                    │ **Signature:**                                                                        │\n│                    │ Dr. Larry Davis, MD                                                                   │\n│                    │ Primary Care Physician                                                                │\n│                    │ [Practice Name] – Internal Medicine                                                   │\n│                    │ Contact: (555) 123‑4567                                                               │\n│                    │ EMR #: [redacted]                                                                     │\n│                    │                                                                                       │\n│                    │ ---                                                                                   │\n│                    │                                                                                       │\n│                    │ *End of Notes*                                                                        │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ first_name         │ Kyle                                                                                  │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ last_name          │ Lindsey                                                                               │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ dob                │ 1964-02-10                                                                            │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ physician          │ Dr. Davis                                                                             │\n└────────────────────┴───────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                                 Seed Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name            </span>┃<span style=\"font-weight: bold\"> Value                                                                                    </span>┃\n┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ diagnosis       │ cervical spondylosis                                                                     │\n├─────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤\n│ patient_summary │ I've been having a lot of pain in my neck and back. I've also been having trouble with   │\n│                 │ my balance and coordination. I've been coughing a lot and my limbs feel weak.            │\n└─────────────────┴──────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name               </span>┃<span style=\"font-weight: bold\"> Value                                                                                 </span>┃\n┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler    │ <span style=\"font-weight: bold\">{</span>                                                                                     │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'uuid'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'aa3c86e3-49d5-444c-b6cf-b204121b6985'</span>,                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'locale'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'en_US'</span>,                                                                │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'first_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Lisa'</span>,                                                             │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'last_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Baker'</span>,                                                             │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'middle_name'</span>: <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'sex'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Female'</span>,                                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'96817'</span>,                                                         │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Michael Spring'</span>,                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'city'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'South Angela'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'state'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'West Virginia'</span>,                                                         │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'postcode'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'37312'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'age'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">99</span>,                                                                        │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'birth_date'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'1927-03-23'</span>,                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'country'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Pitcairn Islands'</span>,                                                    │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'marital_status'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'married_present'</span>,                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'education_level'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'doctorate'</span>,                                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'unit'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">''</span>,                                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'occupation'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Engineer, site'</span>,                                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'phone_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'(575)211-3649'</span>,                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'bachelors_field'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'education'</span>                                                    │\n│                    │ <span style=\"font-weight: bold\">}</span>                                                                                     │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ doctor_sampler     │ <span style=\"font-weight: bold\">{</span>                                                                                     │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'uuid'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'80d87fea-07c2-4f5a-98de-82f5c33ec39b'</span>,                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'locale'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'en_US'</span>,                                                                │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'first_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Nancy'</span>,                                                            │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'last_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Aguilar'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'middle_name'</span>: <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'sex'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Female'</span>,                                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'6822'</span>,                                                          │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Barton Ville'</span>,                                                    │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'city'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Birdfort'</span>,                                                               │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'state'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Ohio'</span>,                                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'postcode'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'66475'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'age'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">54</span>,                                                                        │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'birth_date'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'1972-03-23'</span>,                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'country'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Gibraltar'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'marital_status'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'widowed'</span>,                                                      │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'education_level'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'associates'</span>,                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'unit'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">''</span>,                                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'occupation'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Scientist, biomedical'</span>,                                            │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'phone_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'7519721790'</span>,                                                     │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'bachelors_field'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'no_degree'</span>                                                    │\n│                    │ <span style=\"font-weight: bold\">}</span>                                                                                     │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ patient_id         │ PT-76CE4438                                                                           │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ symptom_onset_date │ 2024-08-19T00:00:00                                                                   │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ date_of_visit      │ 2024-09-15T00:00:00                                                                   │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ physician_notes    │ **COMMENTS:**                                                                         │\n│                    │ 66 y/o WM. Chronic neck + back pain, hx cervical spondylosis (onset 3/2024). Current  │\n│                    │ exacerbation limiting ADLs. New sx: frequent cough, lower-extremity weakness/falling, │\n│                    │ impaired balance, frequent tripping. Denies neuropathic pain, numbness, muscle        │\n│                    │ spasms; no radiculopathy reported. PMH significant for cardiovascular disease.        │\n│                    │                                                                                       │\n│                    │ **O/S:**                                                                              │\n│                    │ Vitals: Afebrile; BP elevated (160/90). Neuro: Positive Romberg; gait unsteady; lower │\n│                    │ extremity strength 4/5 (vs 5/5 prior). No sensory deficits. CV: Slight hand           │\n│                    │ claudication noted; requires further cardiac workup.                                  │\n│                    │                                                                                       │\n│                    │ **ASSESSMENT:**                                                                       │\n│                    │ NECK/SPINE: Cervical spondylosis symptoms worsened; correlates with imaging           │\n│                    │ (degenerative changes at C5-C6; canal narrowing). New CNS manifestations              │\n│                    │ (balance/weakness) suggest possible myelopathic involvement. Cardiac workup pending.  │\n│                    │                                                                                       │\n│                    │ **PLAN:**                                                                             │\n│                    │ 1. **Imaging:** Request follow-up CT scan (cervical spine, sagittal T2-weighted       │\n│                    │ images) to reassess canal dimensions and myelopathy.                                  │\n│                    │ 2. **Cardiac:** Initiate stress test to evaluate claudication pattern; refer to       │\n│                    │ cardiology.                                                                           │\n│                    │ 3. **Referral:** Neurology referral (Suspect MSA-CNM or vascular parkinsonism; no     │\n│                    │ Shh/AtxN50 involvement; exclude HSP).                                                 │\n│                    │ 4. **Monitoring:** Schedule 3-month follow-up with ENT/audiology (cough focus);       │\n│                    │ physical therapy referral (gait training, balance exercises).                         │\n│                    │ 5. **Symptom Tracking:** Patient to log *exact timing* of falls and cough episodes;   │\n│                    │ assess response to neck brace (if used).                                              │\n│                    │ 6. **Next FU:** 2 weeks (9/29/2024) for imaging results review + cardiac consult      │\n│                    │ summary.                                                                              │\n│                    │                                                                                       │\n│                    │ **NOTE:** Avoid excessive symptom inquiry; focus on *objective triggers* (e.g.,       │\n│                    │ \"cough preceded fall\"). Patient appears anxious; maintain concise, action-oriented    │\n│                    │ communication.                                                                        │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ first_name         │ Lisa                                                                                  │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ last_name          │ Baker                                                                                 │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ dob                │ 1927-03-23                                                                            │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ physician          │ Dr. Aguilar                                                                           │\n└────────────────────┴───────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
         "format": "html"
       }
     ]
@@ -359,7 +371,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>diagnosis</th>\n      <th>patient_summary</th>\n      <th>patient_sampler</th>\n      <th>doctor_sampler</th>\n      <th>patient_id</th>\n      <th>symptom_onset_date</th>\n      <th>date_of_visit</th>\n      <th>first_name</th>\n      <th>last_name</th>\n      <th>dob</th>\n      <th>physician</th>\n      <th>physician_notes</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>cervical spondylosis</td>\n      <td>I've been having a lot of pain in my neck and ...</td>\n      <td>{'uuid': '7a020759-5ec2-4f43-9b9c-fccd7006c00f...</td>\n      <td>{'uuid': '1751b8c5-5d3c-404f-a18f-80a2649ede3b...</td>\n      <td>PT-5E2A76B1</td>\n      <td>2024-03-21T00:00:00</td>\n      <td>2024-04-03T00:00:00</td>\n      <td>Kyle</td>\n      <td>Lindsey</td>\n      <td>1964-02-10</td>\n      <td>Dr. Davis</td>\n      <td>**Dr. Larry Davis – Clinical Notes**  \\n**Pati...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>impetigo</td>\n      <td>I have a rash on my face that is getting worse...</td>\n      <td>{'uuid': '419af83f-123e-4d86-9e7d-77b8ceac83e6...</td>\n      <td>{'uuid': '6a70daab-998e-4ce0-b6fb-eeaaa89923d2...</td>\n      <td>PT-FB02C464</td>\n      <td>2024-02-19T00:00:00</td>\n      <td>2024-03-17T00:00:00</td>\n      <td>Scott</td>\n      <td>Stout</td>\n      <td>1957-06-11</td>\n      <td>Dr. Mccall</td>\n      <td>— 2024‑03‑17  \\n**S.P.** 38 y/o M, presents w/...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>diagnosis</th>\n      <th>patient_summary</th>\n      <th>patient_sampler</th>\n      <th>doctor_sampler</th>\n      <th>patient_id</th>\n      <th>symptom_onset_date</th>\n      <th>date_of_visit</th>\n      <th>first_name</th>\n      <th>physician</th>\n      <th>last_name</th>\n      <th>dob</th>\n      <th>physician_notes</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>cervical spondylosis</td>\n      <td>I've been having a lot of pain in my neck and ...</td>\n      <td>{'uuid': 'aa3c86e3-49d5-444c-b6cf-b204121b6985...</td>\n      <td>{'uuid': '80d87fea-07c2-4f5a-98de-82f5c33ec39b...</td>\n      <td>PT-76CE4438</td>\n      <td>2024-08-19T00:00:00</td>\n      <td>2024-09-15T00:00:00</td>\n      <td>Lisa</td>\n      <td>Dr. Aguilar</td>\n      <td>Baker</td>\n      <td>1927-03-23</td>\n      <td>**COMMENTS:**  \\n66 y/o WM. Chronic neck + bac...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>impetigo</td>\n      <td>I have a rash on my face that is getting worse...</td>\n      <td>{'uuid': 'ac9cc57b-c890-40ed-af2f-47fc48c640d9...</td>\n      <td>{'uuid': 'daffb218-d6bf-4c74-acbd-3c2146c77e48...</td>\n      <td>PT-70743A50</td>\n      <td>2024-05-16T00:00:00</td>\n      <td>2024-05-22T00:00:00</td>\n      <td>Wendy</td>\n      <td>Dr. Walker</td>\n      <td>Prince</td>\n      <td>1998-06-22</td>\n      <td>- **Patient:** Wendy Prince  \\n- **DOB:** 2024...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
         "format": "html"
       }
     ]
@@ -377,7 +389,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 10                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                   </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler               │            dict │                       2 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ doctor_sampler                │            dict │                       2 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ patient_id                    │          string │                       2 (100.0%) │                       uuid │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ symptom_onset_date            │          string │                       2 (100.0%) │                   datetime │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ date_of_visit                 │          string │                       2 (100.0%) │                  timedelta │\n└───────────────────────────────┴─────────────────┴──────────────────────────────────┴────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ physician_notes       │        string │                 2 (100.0%) │     135.5 +/- 2.5 │       1248.5 +/- 463.1 │\n└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                    </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                 data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                               number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ first_name                     │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ last_name                      │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ dob                            │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ physician                      │                    string │                                         2 (100.0%) │\n└────────────────────────────────┴───────────────────────────┴────────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 10                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                   </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler               │            dict │                       2 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ doctor_sampler                │            dict │                       2 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ patient_id                    │          string │                       2 (100.0%) │                       uuid │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ symptom_onset_date            │          string │                       2 (100.0%) │                   datetime │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ date_of_visit                 │          string │                       2 (100.0%) │                  timedelta │\n└───────────────────────────────┴─────────────────┴──────────────────────────────────┴────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ physician_notes       │        string │                 2 (100.0%) │     134.5 +/- 4.5 │        754.0 +/- 432.8 │\n└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                    </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                 data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                               number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ first_name                     │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ last_name                      │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ dob                            │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ physician                      │                    string │                                         2 (100.0%) │\n└────────────────────────────────┴───────────────────────────┴────────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
         "format": "html"
       }
     ]
@@ -395,282 +407,257 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🎨 Creating Data Designer dataset",
+        "data": "[13:30:03] [INFO] 🎨 Creating Data Designer dataset",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+        "data": "[13:30:03] [INFO]   |-- 🔒 Jinja rendering engine: secure",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 📂 Dataset path '/Users/llane/conductor/workspaces/DataDesigner/tacoma-v3/docs/notebook_source/artifacts/tutorial-3' already exists. Dataset from this session\n\t\t     will be saved to '/Users/llane/conductor/workspaces/DataDesigner/tacoma-v3/docs/notebook_source/artifacts/tutorial-3_04-28-2026_143857' instead.",
+        "data": "[13:30:03] [INFO] ✅ Validation passed",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] ✅ Validation passed",
+        "data": "[13:30:03] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+        "data": "[13:30:03] [INFO] 🩺 Running health checks for models...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🩺 Running health checks for models...",
+        "data": "[13:30:03] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
+        "data": "[13:30:03] [INFO]   |-- ✅ Passed!",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- ✅ Passed!",
+        "data": "[13:30:03] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] ⏳ Processing batch 1 of 1",
+        "data": "[13:30:03] [INFO] 📝 llm-text model config for column 'physician_notes'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🌱 Sampling 10 records from seed dataset",
+        "data": "[13:30:03] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- seed dataset size: 820 records",
+        "data": "[13:30:03] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- sampling strategy: ordered",
+        "data": "[13:30:03] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🎲 Preparing samplers to generate 10 records across 5 columns",
+        "data": "[13:30:03] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] (💾 + 💾) Concatenating 2 datasets",
+        "data": "[13:30:03] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🧩 Generating column `first_name` from expression",
+        "data": "[13:30:03] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🧩 Generating column `last_name` from expression",
+        "data": "[13:30:03] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🧩 Generating column `dob` from expression",
+        "data": "[13:30:03] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 🧩 Generating column `physician` from expression",
+        "data": "[13:30:03] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] 📝 llm-text model config for column 'physician_notes'",
+        "data": "[13:30:03] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:30:03] [INFO] ⚡️ Async generation: 1 column(s) (physician_notes), 10 tasks across 1 row group(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:30:03] [INFO] 🚀 (1/1) Dispatching with 10 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:30:03] [INFO] 🎲 (1/1) Preparing samplers to generate 10 records across 5 columns",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |-- inference parameters:",
+        "data": "[13:30:03] [INFO] 🌱 (1/1) Sampling 10 records from seed dataset",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:30:03] [INFO]   |-- seed dataset size: 820 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:30:03] [INFO]   |-- sampling strategy: ordered",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:30:03] [INFO] 🧩 (1/1) Generating column `first_name` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:30:03] [INFO] 🧩 (1/1) Generating column `physician` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:30:03] [INFO] 🧩 (1/1) Generating column `last_name` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:30:03] [INFO] 🧩 (1/1) Generating column `dob` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] ⚡️ Processing llm-text column 'physician_notes' with 4 concurrent workers",
+        "data": "[13:30:09] [INFO] 📊 Progress [5.5s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:57] [INFO] ⏱️ llm-text column 'physician_notes' will report progress after each record",
+        "data": "[13:30:09] [INFO]   |-- 🌦️ physician_notes: 3/10 (30%) 0.5 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:58] [INFO]   |-- 🌑 llm-text column 'physician_notes' progress: 1/10 (10%) complete, 1 ok, 0 failed, 1.15 rec/s, eta 7.8s",
+        "data": "[13:30:15] [INFO] 📊 Progress [11.7s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:01] [INFO]   |-- 🌑 llm-text column 'physician_notes' progress: 2/10 (20%) complete, 2 ok, 0 failed, 0.58 rec/s, eta 13.8s",
+        "data": "[13:30:15] [INFO]   |-- ⛅ physician_notes: 7/10 (70%) 0.6 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:02] [INFO]   |-- 🌘 llm-text column 'physician_notes' progress: 3/10 (30%) complete, 3 ok, 0 failed, 0.64 rec/s, eta 10.9s",
+        "data": "[13:30:21] [INFO] 📊 Progress [18.0s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:02] [INFO]   |-- 🌘 llm-text column 'physician_notes' progress: 4/10 (40%) complete, 4 ok, 0 failed, 0.79 rec/s, eta 7.6s",
+        "data": "[13:30:21] [INFO]   |-- ☀️ physician_notes: 10/10 (100%) 0.6 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:04] [INFO]   |-- 🌗 llm-text column 'physician_notes' progress: 5/10 (50%) complete, 5 ok, 0 failed, 0.72 rec/s, eta 7.0s",
+        "data": "[13:30:21] [INFO] ✅ Async generation complete [18.0s]: 10 ok, 0 failed across 1 column(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:05] [INFO]   |-- 🌗 llm-text column 'physician_notes' progress: 6/10 (60%) complete, 6 ok, 0 failed, 0.77 rec/s, eta 5.2s",
+        "data": "[13:30:22] [INFO] 📊 Model usage summary:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:06] [INFO]   |-- 🌗 llm-text column 'physician_notes' progress: 7/10 (70%) complete, 7 ok, 0 failed, 0.76 rec/s, eta 4.0s",
+        "data": "[13:30:22] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:07] [INFO]   |-- 🌖 llm-text column 'physician_notes' progress: 8/10 (80%) complete, 8 ok, 0 failed, 0.85 rec/s, eta 2.4s",
+        "data": "[13:30:22] [INFO]   |-- tokens: input=1616, output=8590, total=10206, tps=555",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🌖 llm-text column 'physician_notes' progress: 9/10 (90%) complete, 9 ok, 0 failed, 0.86 rec/s, eta 1.2s",
+        "data": "[13:30:22] [INFO]   |-- requests: success=10, failed=0, total=10, rpm=32",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🌕 llm-text column 'physician_notes' progress: 10/10 (100%) complete, 10 ok, 0 failed, 0.94 rec/s, eta 0.0s",
+        "data": "[13:30:22] [INFO] 📐 Measuring dataset column statistics:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO] 📊 Model usage summary:",
+        "data": "[13:30:22] [INFO]   |-- 🎲 column: 'patient_sampler'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
+        "data": "[13:30:22] [INFO]   |-- 🎲 column: 'doctor_sampler'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- tokens: input=1612, output=9044, total=10656, tps=949",
+        "data": "[13:30:22] [INFO]   |-- 🎲 column: 'patient_id'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- requests: success=10, failed=0, total=10, rpm=53",
+        "data": "[13:30:22] [INFO]   |-- 🧩 column: 'first_name'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO] 📐 Measuring dataset column statistics:",
+        "data": "[13:30:22] [INFO]   |-- 🧩 column: 'last_name'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🎲 column: 'patient_sampler'",
+        "data": "[13:30:22] [INFO]   |-- 🧩 column: 'dob'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🎲 column: 'doctor_sampler'",
+        "data": "[13:30:22] [INFO]   |-- 🎲 column: 'symptom_onset_date'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🎲 column: 'patient_id'",
+        "data": "[13:30:22] [INFO]   |-- 🎲 column: 'date_of_visit'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🧩 column: 'first_name'",
+        "data": "[13:30:22] [INFO]   |-- 🧩 column: 'physician'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🧩 column: 'last_name'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🧩 column: 'dob'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🎲 column: 'symptom_onset_date'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🎲 column: 'date_of_visit'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 🧩 column: 'physician'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:39:08] [INFO]   |-- 📝 column: 'physician_notes'",
+        "data": "[13:30:22] [INFO]   |-- 📝 column: 'physician_notes'",
         "format": "plain"
       }
     ]
@@ -683,7 +670,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>diagnosis</th>\n      <th>patient_summary</th>\n      <th>patient_sampler</th>\n      <th>doctor_sampler</th>\n      <th>patient_id</th>\n      <th>symptom_onset_date</th>\n      <th>date_of_visit</th>\n      <th>first_name</th>\n      <th>last_name</th>\n      <th>dob</th>\n      <th>physician</th>\n      <th>physician_notes</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>cervical spondylosis</td>\n      <td>I've been having a lot of pain in my neck and ...</td>\n      <td>{'age': 67, 'bachelors_field': 'stem', 'birth_...</td>\n      <td>{'age': 66, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-EB17C16B</td>\n      <td>2024-03-09T00:00:00</td>\n      <td>2024-03-22T00:00:00</td>\n      <td>Adrienne</td>\n      <td>Yates</td>\n      <td>1958-07-30</td>\n      <td>Dr. Sandoval</td>\n      <td>**Note – Adrienne Yates**  \n**Date:** 2024-03-...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>impetigo</td>\n      <td>I have a rash on my face that is getting worse...</td>\n      <td>{'age': 71, 'bachelors_field': 'business', 'bi...</td>\n      <td>{'age': 75, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-BDB23F1A</td>\n      <td>2024-04-13T00:00:00</td>\n      <td>2024-05-07T00:00:00</td>\n      <td>Bradley</td>\n      <td>Edwards</td>\n      <td>1954-06-22</td>\n      <td>Dr. Curtis</td>\n      <td>**Patient:** Bradley Edwards  \n**DOB:** 05/14/...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>urinary tract infection</td>\n      <td>I have been urinating blood. I sometimes feel ...</td>\n      <td>{'age': 86, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>{'age': 109, 'bachelors_field': 'no_degree', '...</td>\n      <td>PT-953E2DEE</td>\n      <td>2024-02-08T00:00:00</td>\n      <td>2024-03-06T00:00:00</td>\n      <td>Shannon</td>\n      <td>Smith</td>\n      <td>1939-07-08</td>\n      <td>Dr. Herrera</td>\n      <td>S: 38F, 28d hematuria, dysuria, nausea/vomitin...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>arthritis</td>\n      <td>I have been having trouble with my muscles and...</td>\n      <td>{'age': 38, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>{'age': 105, 'bachelors_field': 'no_degree', '...</td>\n      <td>PT-4F2E465C</td>\n      <td>2024-09-16T00:00:00</td>\n      <td>2024-09-19T00:00:00</td>\n      <td>Lisa</td>\n      <td>Jones</td>\n      <td>1988-04-17</td>\n      <td>Dr. Garcia</td>\n      <td>**Dr. Jared Garcia – Progress Notes**  \n**Visi...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>dengue</td>\n      <td>I have been feeling really sick. My body hurts...</td>\n      <td>{'age': 84, 'bachelors_field': 'stem_related',...</td>\n      <td>{'age': 68, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-B20ED40E</td>\n      <td>2024-04-14T00:00:00</td>\n      <td>2024-04-25T00:00:00</td>\n      <td>Jack</td>\n      <td>Gilbert</td>\n      <td>1941-05-28</td>\n      <td>Dr. Rush</td>\n      <td>**Visit Note – Dr. C. Rush**  \nDate: 2024‑04‑2...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>diagnosis</th>\n      <th>patient_summary</th>\n      <th>patient_sampler</th>\n      <th>doctor_sampler</th>\n      <th>patient_id</th>\n      <th>symptom_onset_date</th>\n      <th>date_of_visit</th>\n      <th>first_name</th>\n      <th>physician</th>\n      <th>last_name</th>\n      <th>dob</th>\n      <th>physician_notes</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>cervical spondylosis</td>\n      <td>I've been having a lot of pain in my neck and ...</td>\n      <td>{'age': 76, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>{'age': 79, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-0C1A7533</td>\n      <td>2024-10-03T00:00:00</td>\n      <td>2024-10-26T00:00:00</td>\n      <td>Jason</td>\n      <td>Dr. Mora</td>\n      <td>Crawford</td>\n      <td>1950-01-09</td>\n      <td>**Visit Notes - Dr. Pamela Mora**  \n**Date:** ...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>impetigo</td>\n      <td>I have a rash on my face that is getting worse...</td>\n      <td>{'age': 65, 'bachelors_field': 'arts_humanitie...</td>\n      <td>{'age': 87, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-754796B4</td>\n      <td>2024-10-30T00:00:00</td>\n      <td>2024-11-06T00:00:00</td>\n      <td>Franklin</td>\n      <td>Dr. Nguyen</td>\n      <td>Frederick</td>\n      <td>1960-11-14</td>\n      <td>- 2024-11-06 — Pt F.F. (45M) present with acut...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>urinary tract infection</td>\n      <td>I have been urinating blood. I sometimes feel ...</td>\n      <td>{'age': 103, 'bachelors_field': 'arts_humaniti...</td>\n      <td>{'age': 95, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-5D48914C</td>\n      <td>2024-02-22T00:00:00</td>\n      <td>2024-03-21T00:00:00</td>\n      <td>Brian</td>\n      <td>Dr. Garza</td>\n      <td>Gray</td>\n      <td>1922-06-27</td>\n      <td>**HPI:** 35F presents w/ hematuria (+) and dys...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>arthritis</td>\n      <td>I have been having trouble with my muscles and...</td>\n      <td>{'age': 90, 'bachelors_field': 'stem', 'birth_...</td>\n      <td>{'age': 97, 'bachelors_field': 'education', 'b...</td>\n      <td>PT-8EC95EB2</td>\n      <td>2024-01-18T00:00:00</td>\n      <td>2024-02-06T00:00:00</td>\n      <td>Mark</td>\n      <td>Dr. Ramos</td>\n      <td>Turner</td>\n      <td>1936-02-17</td>\n      <td>**CODE: 124-7891**  \n**DATE/TIME:** 2024-02-06...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>dengue</td>\n      <td>I have been feeling really sick. My body hurts...</td>\n      <td>{'age': 35, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>{'age': 28, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-6B3821DC</td>\n      <td>2024-10-22T00:00:00</td>\n      <td>2024-11-20T00:00:00</td>\n      <td>Michael</td>\n      <td>Dr. Martin</td>\n      <td>Bradshaw</td>\n      <td>1991-03-23</td>\n      <td>**SOAP NOTE**  \n**Patient:** Michael Bradshaw ...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
         "format": "html"
       }
     ]
@@ -696,7 +683,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 10                              │ 10                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                   </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler               │            dict │                      10 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ doctor_sampler                │            dict │                      10 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ patient_id                    │          string │                      10 (100.0%) │                       uuid │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ symptom_onset_date            │          string │                      10 (100.0%) │                   datetime │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ date_of_visit                 │          string │                      10 (100.0%) │                  timedelta │\n└───────────────────────────────┴─────────────────┴──────────────────────────────────┴────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ physician_notes       │        string │                10 (100.0%) │     129.5 +/- 6.0 │        838.5 +/- 366.3 │\n└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                    </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                 data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                               number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ first_name                     │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ last_name                      │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ dob                            │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ physician                      │                    string │                                        10 (100.0%) │\n└────────────────────────────────┴───────────────────────────┴────────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 10                              │ 10                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                   </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler               │            dict │                      10 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ doctor_sampler                │            dict │                      10 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ patient_id                    │          string │                      10 (100.0%) │                       uuid │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ symptom_onset_date            │          string │                        9 (90.0%) │                   datetime │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ date_of_visit                 │          string │                      10 (100.0%) │                  timedelta │\n└───────────────────────────────┴─────────────────┴──────────────────────────────────┴────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ physician_notes       │        string │                10 (100.0%) │     129.5 +/- 5.4 │        731.0 +/- 407.6 │\n└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                    </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                 data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                               number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ first_name                     │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ last_name                      │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ dob                            │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ physician                      │                    string │                                        10 (100.0%) │\n└────────────────────────────────┴───────────────────────────┴────────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
         "format": "html"
       }
     ]

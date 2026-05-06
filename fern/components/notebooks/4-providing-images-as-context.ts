@@ -30,7 +30,14 @@ export default { cells: [
     "type": "code",
     "source": "data_designer = DataDesigner()",
     "language": "python",
-    "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n"
+    "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n",
+    "outputs": [
+      {
+        "type": "text",
+        "data": "/var/folders/r2/h5ycn0g13n1bc1rctfs2q65m0000gp/T/ipykernel_6277/184243683.py:1: DeprecationWarning: ModelProviderRegistry.default is deprecated and will be removed in a future release. Specify provider= explicitly on each ModelConfig instead of relying on a registry-level default. See issue #589.\n  data_designer = DataDesigner()",
+        "format": "plain"
+      }
+    ]
   },
   {
     "type": "markdown",
@@ -112,7 +119,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:39:24] [INFO] ✅ Validation passed",
+        "data": "[13:30:32] [INFO] ✅ Validation passed",
         "format": "plain"
       }
     ]
@@ -130,152 +137,162 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:39:24] [INFO] 🎥 Preview generation in progress",
+        "data": "[13:30:32] [INFO] 🔭 Preview generation in progress",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:24] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+        "data": "[13:30:32] [INFO]   |-- 🔒 Jinja rendering engine: secure",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:24] [INFO] ✅ Validation passed",
+        "data": "[13:30:32] [INFO] ✅ Validation passed",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:24] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+        "data": "[13:30:32] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:24] [INFO] 🩺 Running health checks for models...",
+        "data": "[13:30:32] [INFO] 🩺 Running health checks for models...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:24] [INFO]   |-- 👀 Checking 'nvidia/nemotron-nano-12b-v2-vl' in provider named 'nvidia' for model alias 'nvidia-vision'...",
+        "data": "[13:30:32] [INFO]   |-- 👀 Checking 'nvidia/nemotron-nano-12b-v2-vl' in provider named 'nvidia' for model alias 'nvidia-vision'...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |-- ✅ Passed!",
+        "data": "[13:30:33] [INFO]   |-- ✅ Passed!",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO] 🌱 Sampling 2 records from seed dataset",
+        "data": "[13:30:33] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |-- seed dataset size: 512 records",
+        "data": "[13:30:33] [INFO] 📝 llm-text model config for column 'description'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |-- sampling strategy: ordered",
+        "data": "[13:30:33] [INFO]   |-- model: 'nvidia/nemotron-nano-12b-v2-vl'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO] 📝 llm-text model config for column 'description'",
+        "data": "[13:30:33] [INFO]   |-- model alias: 'nvidia-vision'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |-- model: 'nvidia/nemotron-nano-12b-v2-vl'",
+        "data": "[13:30:33] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |-- model alias: 'nvidia-vision'",
+        "data": "[13:30:33] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:30:33] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |-- inference parameters:",
+        "data": "[13:30:33] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:30:33] [INFO]   |  |-- temperature=0.85",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:30:33] [INFO]   |  |-- top_p=0.95",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |  |-- temperature=0.85",
+        "data": "[13:30:33] [INFO] ⚡️ Async generation: 1 column(s) (description), 2 tasks across 1 row group(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO]   |  |-- top_p=0.95",
+        "data": "[13:30:33] [INFO] 🚀 (1/1) Dispatching with 2 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO] ⚡️ Processing llm-text column 'description' with 4 concurrent workers",
+        "data": "[13:30:33] [INFO] 🌱 (1/1) Sampling 2 records from seed dataset",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:25] [INFO] ⏱️ llm-text column 'description' will report progress after each record",
+        "data": "[13:30:33] [INFO]   |-- seed dataset size: 512 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:42] [INFO]   |-- 🌗 llm-text column 'description' progress: 1/2 (50%) complete, 1 ok, 0 failed, 0.06 rec/s, eta 16.7s",
+        "data": "[13:30:33] [INFO]   |-- sampling strategy: ordered",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:42] [INFO]   |-- 🌕 llm-text column 'description' progress: 2/2 (100%) complete, 2 ok, 0 failed, 0.12 rec/s, eta 0.0s",
+        "data": "[13:30:36] [INFO] 📊 Progress [3.6s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO] 📊 Model usage summary:",
+        "data": "[13:30:36] [INFO]   |-- ☀️ description: 2/2 (100%) 0.6 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO]   |-- model: nvidia/nemotron-nano-12b-v2-vl",
+        "data": "[13:30:36] [INFO] ✅ Async generation complete [3.6s]: 2 ok, 0 failed across 1 column(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO]   |-- tokens: input=606, output=618, total=1224, tps=70",
+        "data": "[13:30:36] [INFO] 📊 Model usage summary:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO]   |-- requests: success=2, failed=0, total=2, rpm=6",
+        "data": "[13:30:36] [INFO]   |-- model: nvidia/nemotron-nano-12b-v2-vl",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO] 📐 Measuring dataset column statistics:",
+        "data": "[13:30:36] [INFO]   |-- tokens: input=606, output=523, total=1129, tps=311",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO]   |-- 📝 column: 'description'",
+        "data": "[13:30:36] [INFO]   |-- requests: success=2, failed=0, total=2, rpm=33",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO] ☀️ Preview complete!",
+        "data": "[13:30:36] [INFO] 📐 Measuring dataset column statistics:",
+        "format": "plain"
+      },
+      {
+        "type": "text",
+        "data": "[13:30:36] [INFO]   |-- 📝 column: 'description'",
+        "format": "plain"
+      },
+      {
+        "type": "text",
+        "data": "[13:30:36] [INFO] 🥳 Preview complete!",
         "format": "plain"
       }
     ]
@@ -293,7 +310,7 @@ export default { cells: [
       },
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                                 Seed Columns                                                 </span>\n┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name         </span>┃<span style=\"font-weight: bold\"> Value                                                                                       </span>┃\n┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ uuid         │ 6f6dbe67-d004-4d01-8c51-83569ad7800f                                                        │\n├──────────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤\n│ label        │ 0                                                                                           │\n├──────────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤\n│ base64_image │ iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAAEAAElEQVR4nOz96XIkR5IlCvvusWJP5J5JJskkWdVV07… │\n└──────────────┴─────────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name        </span>┃<span style=\"font-weight: bold\"> Value                                                                                        </span>┃\n┡━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description │ ```markdown                                                                                  │\n│             │ # Close-Up of a Black and White Cat                                                          │\n│             │                                                                                              │\n│             │ In this image, we see a close-up portrait of a **black and white cat** with striking         │\n│             │ **greenish-yellow eyes**. The cat's face is prominently featured, capturing the viewer's     │\n│             │ attention with its piercing gaze.                                                            │\n│             │                                                                                              │\n│             │ ## Key Features:                                                                             │\n│             │                                                                                              │\n│             │ - **Facial Markings**: The cat has a unique pattern of black and white fur. The face is      │\n│             │ predominantly black, with a white patch running down the center of the nose and forehead.    │\n│             │ - **Eyes**: The eyes are large and expressive, with a golden-yellow hue and vertical pupils. │\n│             │ - **Whiskers**: Long, white whiskers extend from the sides of the face, adding to the cat's  │\n│             │ alert expression.                                                                            │\n│             │ - **Background**: The background is blurred and neutral, with a hint of a **wooden texture** │\n│             │ on the right side, possibly a wall or door.                                                  │\n│             │                                                                                              │\n│             │ ## Colors:                                                                                   │\n│             │                                                                                              │\n│             │ - **Black**: Dominates the outer areas of the cat's face, including the ears, cheeks, and    │\n│             │ forehead.                                                                                    │\n│             │ - **White**: Contrasts sharply with the black, covering the nose, mouth, and chin.           │\n│             │ - **Greenish-Yellow**: The eyes stand out due to their bright color and intensity.           │\n│             │                                                                                              │\n│             │ ## Notable Details:                                                                          │\n│             │                                                                                              │\n│             │ - The cat's expression appears calm but focused, suggesting it is aware of its surroundings. │\n│             │ - The white fur around the mouth extends slightly downward, giving the cat a distinct        │\n│             │ \"mustache\" appearance.                                                                       │\n│             │ - The fur texture looks soft and well-groomed, indicating the cat is well-cared for.         │\n│             │                                                                                              │\n│             │ This image captures the elegance and charm of the cat, highlighting the beauty of its        │\n│             │ contrasting fur pattern and expressive eyes.                                                 │\n│             │ ```                                                                                          │\n└─────────────┴──────────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                                 Seed Columns                                                 </span>\n┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name         </span>┃<span style=\"font-weight: bold\"> Value                                                                                       </span>┃\n┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ uuid         │ 6f6dbe67-d004-4d01-8c51-83569ad7800f                                                        │\n├──────────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤\n│ label        │ 0                                                                                           │\n├──────────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤\n│ base64_image │ iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAAEAAElEQVR4nOz96XIkR5IlCvvusWJP5J5JJskkWdVV07… │\n└──────────────┴─────────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name        </span>┃<span style=\"font-weight: bold\"> Value                                                                                        </span>┃\n┡━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description │ # Black and White Cat Portrait                                                               │\n│             │                                                                                              │\n│             │ ## Description                                                                               │\n│             │                                                                                              │\n│             │ The image features a close-up portrait of a black and white cat.                             │\n│             │                                                                                              │\n│             │ ### Main Subject                                                                             │\n│             │                                                                                              │\n│             │ The main subject of the image is a cat with distinctive black and white fur. The cat's fur   │\n│             │ is predominantly black, with white patches on its face, chest, and paws. Its eyes are a      │\n│             │ striking green color, and its nose is black.                                                 │\n│             │                                                                                              │\n│             │ ### Background                                                                               │\n│             │                                                                                              │\n│             │ The background of the image is a plain white wall. There is a small brown object in the      │\n│             │ background, but it is not the focus of the image.                                            │\n│             │                                                                                              │\n│             │ ### Colors                                                                                   │\n│             │                                                                                              │\n│             │ The colors in the image are primarily black and white, with the cat's fur being the main     │\n│             │ source of contrast. The cat's eyes are a bright green color, which adds a pop of color to    │\n│             │ the image.                                                                                   │\n│             │                                                                                              │\n│             │ ### Notable Details                                                                          │\n│             │                                                                                              │\n│             │ *   The cat's fur is well-groomed and appears soft and silky.                                │\n│             │ *   The cat's eyes are wide open, giving it an alert and curious expression.                 │\n│             │ *   The cat's nose is small and black, with a slight pink tint around the edges.             │\n│             │ *   The cat's whiskers are long and white, extending out from its face.                      │\n│             │                                                                                              │\n│             │ Overall, the image captures the unique beauty of a black and white cat, with its striking    │\n│             │ colors and expressive eyes.                                                                  │\n└─────────────┴──────────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
         "format": "html"
       }
     ]
@@ -306,7 +323,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>uuid</th>\n      <th>label</th>\n      <th>base64_image</th>\n      <th>description</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>6f6dbe67-d004-4d01-8c51-83569ad7800f</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAA...</td>\n      <td>```markdown\\n# Close-Up of a Black and White C...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>fc2a46e1-0225-4705-b0ed-6d83addc3ab8</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAiQAAAIACAIAAAA9rOAHAA...</td>\n      <td>```markdown\\n# Description of Cat in Image\\n\\n...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>uuid</th>\n      <th>label</th>\n      <th>base64_image</th>\n      <th>description</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>6f6dbe67-d004-4d01-8c51-83569ad7800f</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAA...</td>\n      <td># Black and White Cat Portrait\\n\\n## Descripti...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>fc2a46e1-0225-4705-b0ed-6d83addc3ab8</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAiQAAAIACAIAAAA9rOAHAA...</td>\n      <td>```markdown\\n# Detailed Description of Cat in ...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
         "format": "html"
       }
     ]
@@ -324,7 +341,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 1                               │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                  </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              per record </span>┃\n┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description      │        string │                   2 (100.0%) │        29.0 +/- 0.0 │          307.0 +/- 42.4 │\n└──────────────────┴───────────────┴──────────────────────────────┴─────────────────────┴─────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 1                               │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                  </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              per record </span>┃\n┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description      │        string │                   2 (100.0%) │        29.0 +/- 0.0 │           260.0 +/- 0.0 │\n└──────────────────┴───────────────┴──────────────────────────────┴─────────────────────┴─────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
         "format": "html"
       }
     ]
@@ -356,7 +373,7 @@ export default { cells: [
       },
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">╭─ Image Description ─────────────────────────────────────────────────────────────────────────────────────────────╮\n│ ```markdown                                                                                                     │\n│ # Close-Up of a Black and White Cat                                                                             │\n│                                                                                                                 │\n│ In this image, we see a close-up portrait of a **black and white cat** with striking **greenish-yellow eyes**.  │\n│ The cat's face is prominently featured, capturing the viewer's attention with its piercing gaze.                │\n│                                                                                                                 │\n│ ## Key Features:                                                                                                │\n│                                                                                                                 │\n│ - **Facial Markings**: The cat has a unique pattern of black and white fur. The face is predominantly black,    │\n│ with a white patch running down the center of the nose and forehead.                                            │\n│ - **Eyes**: The eyes are large and expressive, with a golden-yellow hue and vertical pupils.                    │\n│ - **Whiskers**: Long, white whiskers extend from the sides of the face, adding to the cat's alert expression.   │\n│ - **Background**: The background is blurred and neutral, with a hint of a **wooden texture** on the right side, │\n│ possibly a wall or door.                                                                                        │\n│                                                                                                                 │\n│ ## Colors:                                                                                                      │\n│                                                                                                                 │\n│ - **Black**: Dominates the outer areas of the cat's face, including the ears, cheeks, and forehead.             │\n│ - **White**: Contrasts sharply with the black, covering the nose, mouth, and chin.                              │\n│ - **Greenish-Yellow**: The eyes stand out due to their bright color and intensity.                              │\n│                                                                                                                 │\n│ ## Notable Details:                                                                                             │\n│                                                                                                                 │\n│ - The cat's expression appears calm but focused, suggesting it is aware of its surroundings.                    │\n│ - The white fur around the mouth extends slightly downward, giving the cat a distinct \"mustache\" appearance.    │\n│ - The fur texture looks soft and well-groomed, indicating the cat is well-cared for.                            │\n│                                                                                                                 │\n│ This image captures the elegance and charm of the cat, highlighting the beauty of its contrasting fur pattern   │\n│ and expressive eyes.                                                                                            │\n│ ```                                                                                                             │\n╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯\n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">╭─ Image Description ─────────────────────────────────────────────────────────────────────────────────────────────╮\n│ # Black and White Cat Portrait                                                                                  │\n│                                                                                                                 │\n│ ## Description                                                                                                  │\n│                                                                                                                 │\n│ The image features a close-up portrait of a black and white cat.                                                │\n│                                                                                                                 │\n│ ### Main Subject                                                                                                │\n│                                                                                                                 │\n│ The main subject of the image is a cat with distinctive black and white fur. The cat's fur is predominantly     │\n│ black, with white patches on its face, chest, and paws. Its eyes are a striking green color, and its nose is    │\n│ black.                                                                                                          │\n│                                                                                                                 │\n│ ### Background                                                                                                  │\n│                                                                                                                 │\n│ The background of the image is a plain white wall. There is a small brown object in the background, but it is   │\n│ not the focus of the image.                                                                                     │\n│                                                                                                                 │\n│ ### Colors                                                                                                      │\n│                                                                                                                 │\n│ The colors in the image are primarily black and white, with the cat's fur being the main source of contrast.    │\n│ The cat's eyes are a bright green color, which adds a pop of color to the image.                                │\n│                                                                                                                 │\n│ ### Notable Details                                                                                             │\n│                                                                                                                 │\n│ *   The cat's fur is well-groomed and appears soft and silky.                                                   │\n│ *   The cat's eyes are wide open, giving it an alert and curious expression.                                    │\n│ *   The cat's nose is small and black, with a slight pink tint around the edges.                                │\n│ *   The cat's whiskers are long and white, extending out from its face.                                         │\n│                                                                                                                 │\n│ Overall, the image captures the unique beauty of a black and white cat, with its striking colors and expressive │\n│ eyes.                                                                                                           │\n╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯\n</pre>\n",
         "format": "html"
       }
     ]
@@ -374,202 +391,167 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:39:43] [INFO] 🎨 Creating Data Designer dataset",
+        "data": "[13:30:36] [INFO] 🎨 Creating Data Designer dataset",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+        "data": "[13:30:36] [INFO]   |-- 🔒 Jinja rendering engine: secure",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO] 📂 Dataset path '/Users/llane/conductor/workspaces/DataDesigner/tacoma-v3/docs/notebook_source/artifacts/tutorial-4' already exists. Dataset from this session\n\t\t     will be saved to '/Users/llane/conductor/workspaces/DataDesigner/tacoma-v3/docs/notebook_source/artifacts/tutorial-4_04-28-2026_143943' instead.",
+        "data": "[13:30:36] [INFO] ✅ Validation passed",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO] ✅ Validation passed",
+        "data": "[13:30:36] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+        "data": "[13:30:36] [INFO] 🩺 Running health checks for models...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO] 🩺 Running health checks for models...",
+        "data": "[13:30:36] [INFO]   |-- 👀 Checking 'nvidia/nemotron-nano-12b-v2-vl' in provider named 'nvidia' for model alias 'nvidia-vision'...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:43] [INFO]   |-- 👀 Checking 'nvidia/nemotron-nano-12b-v2-vl' in provider named 'nvidia' for model alias 'nvidia-vision'...",
+        "data": "[13:30:37] [INFO]   |-- ✅ Passed!",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |-- ✅ Passed!",
+        "data": "[13:30:37] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO] ⏳ Processing batch 1 of 1",
+        "data": "[13:30:37] [INFO] 📝 llm-text model config for column 'description'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO] 🌱 Sampling 10 records from seed dataset",
+        "data": "[13:30:37] [INFO]   |-- model: 'nvidia/nemotron-nano-12b-v2-vl'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |-- seed dataset size: 512 records",
+        "data": "[13:30:37] [INFO]   |-- model alias: 'nvidia-vision'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |-- sampling strategy: ordered",
+        "data": "[13:30:37] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO] 📝 llm-text model config for column 'description'",
+        "data": "[13:30:37] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |-- model: 'nvidia/nemotron-nano-12b-v2-vl'",
+        "data": "[13:30:37] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |-- model alias: 'nvidia-vision'",
+        "data": "[13:30:37] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:30:37] [INFO]   |  |-- temperature=0.85",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |-- inference parameters:",
+        "data": "[13:30:37] [INFO]   |  |-- top_p=0.95",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:30:37] [INFO] ⚡️ Async generation: 1 column(s) (description), 10 tasks across 1 row group(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:30:37] [INFO] 🚀 (1/1) Dispatching with 10 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |  |-- temperature=0.85",
+        "data": "[13:30:37] [INFO] 🌱 (1/1) Sampling 10 records from seed dataset",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO]   |  |-- top_p=0.95",
+        "data": "[13:30:37] [INFO]   |-- seed dataset size: 512 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO] ⚡️ Processing llm-text column 'description' with 4 concurrent workers",
+        "data": "[13:30:37] [INFO]   |-- sampling strategy: ordered",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:46] [INFO] ⏱️ llm-text column 'description' will report progress after each record",
+        "data": "[13:30:42] [INFO] 📊 Progress [5.6s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:48] [WARNING] ⚠️ Generation for record at index 0 failed in column 'description' (generation error). Will omit this record from the dataset. Detail: Model 'nvidia/nemotron-nano-12b-v2-vl' is currently experiencing internal server issues while running generation for column 'description'.",
+        "data": "[13:30:42] [INFO]   |-- 🚗 description: 5/10 (50%) 0.9 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:48] [INFO]   |-- 🌑 llm-text column 'description' progress: 1/10 (10%) complete, 0 ok, 1 failed, 0.59 rec/s, eta 15.4s",
+        "data": "[13:30:48] [INFO] 📊 Progress [11.1s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:39:53] [INFO]   |-- 🌑 llm-text column 'description' progress: 2/10 (20%) complete, 1 ok, 1 failed, 0.31 rec/s, eta 26.1s",
+        "data": "[13:30:48] [INFO]   |-- 🚀 description: 10/10 (100%) 0.9 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:40:00] [INFO]   |-- 🌘 llm-text column 'description' progress: 3/10 (30%) complete, 2 ok, 1 failed, 0.22 rec/s, eta 31.1s",
+        "data": "[13:30:48] [INFO] ✅ Async generation complete [11.2s]: 10 ok, 0 failed across 1 column(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:40:00] [INFO]   |-- 🌘 llm-text column 'description' progress: 4/10 (40%) complete, 3 ok, 1 failed, 0.29 rec/s, eta 20.6s",
+        "data": "[13:30:48] [INFO] 📊 Model usage summary:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:40:13] [INFO]   |-- 🌗 llm-text column 'description' progress: 5/10 (50%) complete, 4 ok, 1 failed, 0.19 rec/s, eta 26.3s",
+        "data": "[13:30:48] [INFO]   |-- model: nvidia/nemotron-nano-12b-v2-vl",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:40:18] [INFO]   |-- 🌗 llm-text column 'description' progress: 6/10 (60%) complete, 5 ok, 1 failed, 0.19 rec/s, eta 21.0s",
+        "data": "[13:30:48] [INFO]   |-- tokens: input=22998, output=2586, total=25584, tps=2209",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:40:22] [INFO]   |-- 🌗 llm-text column 'description' progress: 7/10 (70%) complete, 6 ok, 1 failed, 0.20 rec/s, eta 15.2s",
+        "data": "[13:30:48] [INFO]   |-- requests: success=10, failed=0, total=10, rpm=51",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:40:44] [INFO]   |-- 🌖 llm-text column 'description' progress: 8/10 (80%) complete, 7 ok, 1 failed, 0.14 rec/s, eta 14.3s",
+        "data": "[13:30:48] [INFO] 📐 Measuring dataset column statistics:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:40:44] [INFO]   |-- 🌖 llm-text column 'description' progress: 9/10 (90%) complete, 8 ok, 1 failed, 0.16 rec/s, eta 6.4s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:41:32] [INFO]   |-- 🌕 llm-text column 'description' progress: 10/10 (100%) complete, 9 ok, 1 failed, 0.09 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:41:32] [INFO] 📊 Model usage summary:",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:41:32] [INFO]   |-- model: nvidia/nemotron-nano-12b-v2-vl",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:41:32] [INFO]   |-- tokens: input=22695, output=1958, total=24653, tps=232",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:41:32] [INFO]   |-- requests: success=9, failed=1, total=10, rpm=5",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:41:32] [INFO] 📐 Measuring dataset column statistics:",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:41:32] [INFO]   |-- 📝 column: 'description'",
+        "data": "[13:30:48] [INFO]   |-- 📝 column: 'description'",
         "format": "plain"
       }
     ]
@@ -582,7 +564,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>uuid</th>\n      <th>label</th>\n      <th>base64_image</th>\n      <th>description</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>fc2a46e1-0225-4705-b0ed-6d83addc3ab8</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAiQAAAIACAIAAAA9rOAHAA...</td>\n      <td>The image features a close-up of a cat resting...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>7c9ce878-1e3b-45b9-8e95-9c7aa431d034</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAqoAAAIACAIAAADFYNm1AA...</td>\n      <td>This image showcases a **grey tabby cat** with...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>1a5ff096-5e00-4b7e-887b-b452cea4d03a</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAwAAAAIACAIAAAC6lJxtAA...</td>\n      <td># Image Description\n\n## Main Subject\n\nThe main...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>dce563dc-9963-4c0b-8676-c34b9d87265c</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAqoAAAIACAIAAADFYNm1AA...</td>\n      <td># Cat and Toy Image\n\n![Cat and Toy](https://ww...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>092da801-2f89-45c6-8028-6faaabcdde0a</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAmEAAAIACAIAAABFPyzjAA...</td>\n      <td>Here is a detailed description of the image:\n\n...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>uuid</th>\n      <th>label</th>\n      <th>base64_image</th>\n      <th>description</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>6f6dbe67-d004-4d01-8c51-83569ad7800f</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAA...</td>\n      <td>```markdown\n# Detailed Description of the Imag...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>fc2a46e1-0225-4705-b0ed-6d83addc3ab8</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAiQAAAIACAIAAAA9rOAHAA...</td>\n      <td>```markdown\n# Detailed Description of the Imag...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>7c9ce878-1e3b-45b9-8e95-9c7aa431d034</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAqoAAAIACAIAAADFYNm1AA...</td>\n      <td>```markdown\n# Image Description: Gray and Whit...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>1a5ff096-5e00-4b7e-887b-b452cea4d03a</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAwAAAAIACAIAAAC6lJxtAA...</td>\n      <td>```| Characteristic | Description |\n| --- | --...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>dce563dc-9963-4c0b-8676-c34b9d87265c</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAqoAAAIACAIAAADFYNm1AA...</td>\n      <td># A Playful Moment Captured\n\n## **Description:...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
         "format": "html"
       }
     ]
@@ -595,7 +577,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 9                               │ 1                               │ 90.0%                                       │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                  </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              per record </span>┃\n┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description      │        string │                   9 (100.0%) │        29.0 +/- 0.0 │          224.0 +/- 95.6 │\n└──────────────────┴───────────────┴──────────────────────────────┴─────────────────────┴─────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 10                              │ 1                               │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                  </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              per record </span>┃\n┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description      │        string │                  10 (100.0%) │        29.0 +/- 0.0 │         275.5 +/- 116.6 │\n└──────────────────┴───────────────┴──────────────────────────────┴─────────────────────┴─────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
         "format": "html"
       }
     ]

@@ -25,7 +25,14 @@ export default { cells: [
     "type": "code",
     "source": "data_designer = DataDesigner()",
     "language": "python",
-    "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n"
+    "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n",
+    "outputs": [
+      {
+        "type": "text",
+        "data": "/var/folders/r2/h5ycn0g13n1bc1rctfs2q65m0000gp/T/ipykernel_4138/184243683.py:1: DeprecationWarning: ModelProviderRegistry.default is deprecated and will be removed in a future release. Specify provider= explicitly on each ModelConfig instead of relying on a registry-level default. See issue #589.\n  data_designer = DataDesigner()",
+        "format": "plain"
+      }
+    ]
   },
   {
     "type": "markdown",
@@ -73,7 +80,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:38:28] [INFO] ✅ Validation passed",
+        "data": "[13:29:33] [INFO] ✅ Validation passed",
         "format": "plain"
       }
     ]
@@ -91,7 +98,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:38:28] [INFO] ✅ Validation passed",
+        "data": "[13:29:33] [INFO] ✅ Validation passed",
         "format": "plain"
       }
     ]
@@ -150,7 +157,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:38:28] [INFO] ✅ Validation passed",
+        "data": "[13:29:33] [INFO] ✅ Validation passed",
         "format": "plain"
       }
     ]
@@ -168,517 +175,497 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:38:28] [INFO] 📺 Preview generation in progress",
+        "data": "[13:29:33] [INFO] 🎥 Preview generation in progress",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:28] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+        "data": "[13:29:33] [INFO]   |-- 🔒 Jinja rendering engine: secure",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:28] [INFO] ✅ Validation passed",
+        "data": "[13:29:33] [INFO] ✅ Validation passed",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:28] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+        "data": "[13:29:33] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:28] [INFO] 🩺 Running health checks for models...",
+        "data": "[13:29:33] [INFO] 🩺 Running health checks for models...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:28] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
+        "data": "[13:29:33] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:29] [INFO]   |-- ✅ Passed!",
+        "data": "[13:29:34] [INFO]   |-- ✅ Passed!",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:29] [INFO] 🎲 Preparing samplers to generate 2 records across 5 columns",
+        "data": "[13:29:34] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO] 🧩 Generating column `customer_name` from expression",
+        "data": "[13:29:34] [INFO] 🗂️ llm-structured model config for column 'product'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO] 🧩 Generating column `customer_age` from expression",
+        "data": "[13:29:34] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO] 🗂️ llm-structured model config for column 'product'",
+        "data": "[13:29:34] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:34] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:34] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:34] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |-- inference parameters:",
+        "data": "[13:29:34] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:34] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:34] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:34] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:34] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:34] [INFO] 🗂️ llm-structured model config for column 'customer_review'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:34] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO] ⚡️ Processing llm-structured column 'product' with 4 concurrent workers",
+        "data": "[13:29:34] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:30] [INFO] ⏱️ llm-structured column 'product' will report progress after each record",
+        "data": "[13:29:34] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- 🌗 llm-structured column 'product' progress: 1/2 (50%) complete, 1 ok, 0 failed, 1.66 rec/s, eta 0.6s",
+        "data": "[13:29:34] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- 🌕 llm-structured column 'product' progress: 2/2 (100%) complete, 2 ok, 0 failed, 3.05 rec/s, eta 0.0s",
+        "data": "[13:29:34] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] 🗂️ llm-structured model config for column 'customer_review'",
+        "data": "[13:29:34] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:34] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:34] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:34] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- inference parameters:",
+        "data": "[13:29:34] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:34] [INFO] 📝 llm-text model config for column 'complaint_analysis'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:34] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:34] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:34] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:34] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:34] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] ⚡️ Processing llm-structured column 'customer_review' with 4 concurrent workers",
+        "data": "[13:29:34] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] ⏱️ llm-structured column 'customer_review' will report progress after each record",
+        "data": "[13:29:34] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- ⛅ llm-structured column 'customer_review' progress: 1/2 (50%) complete, 1 ok, 0 failed, 1.92 rec/s, eta 0.5s",
+        "data": "[13:29:34] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- ☀️ llm-structured column 'customer_review' progress: 2/2 (100%) complete, 2 ok, 0 failed, 3.82 rec/s, eta 0.0s",
+        "data": "[13:29:34] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] 📝 llm-text model config for column 'complaint_analysis'",
+        "data": "[13:29:34] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:34] [INFO] 📝 llm-text model config for column 'action_items'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:34] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:34] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- inference parameters:",
+        "data": "[13:29:34] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:34] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:34] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:34] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:34] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:34] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:34] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] ⚡️ Processing llm-text column 'complaint_analysis' with 4 concurrent workers",
+        "data": "[13:29:34] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] ⏱️ llm-text column 'complaint_analysis' will report progress after each record",
+        "data": "[13:29:34] [INFO] 📝 llm-text model config for column 'review_summary'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- 🐥 llm-text column 'complaint_analysis' progress: 1/2 (50%) complete, 0 ok, 0 failed, 1 skipped, 1106.09 rec/s, eta 0.0s",
+        "data": "[13:29:34] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- 🐔 llm-text column 'complaint_analysis' progress: 2/2 (100%) complete, 0 ok, 0 failed, 2 skipped, 1601.01 rec/s, eta 0.0s",
+        "data": "[13:29:34] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] 📝 llm-text model config for column 'review_summary'",
+        "data": "[13:29:34] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:34] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:34] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:34] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |-- inference parameters:",
+        "data": "[13:29:34] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:34] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:34] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:34] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:34] [INFO] ⚡️ Async generation: 5 column(s) (product, customer_review, complaint_analysis, action_items, review_summary), 10 tasks across 1 row group(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:34] [INFO] 🚀 (1/1) Dispatching with 2 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:34] [INFO] 🎲 (1/1) Preparing samplers to generate 2 records across 5 columns",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] ⚡️ Processing llm-text column 'review_summary' with 4 concurrent workers",
+        "data": "[13:29:34] [INFO] 🧩 (1/1) Generating column `customer_name` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:31] [INFO] ⏱️ llm-text column 'review_summary' will report progress after each record",
+        "data": "[13:29:34] [INFO] 🧩 (1/1) Generating column `customer_age` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🚗 llm-text column 'review_summary' progress: 1/2 (50%) complete, 1 ok, 0 failed, 1.98 rec/s, eta 0.5s",
+        "data": "[13:29:39] [INFO] 📊 Progress [5.3s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🚀 llm-text column 'review_summary' progress: 2/2 (100%) complete, 2 ok, 0 failed, 3.96 rec/s, eta 0.0s",
+        "data": "[13:29:39] [INFO]   |-- 🐔 product: 2/2 (100%) 0.4 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] 📝 llm-text model config for column 'action_items'",
+        "data": "[13:29:39] [INFO]   |-- 🐥 customer_review: 1/2 (50%) 0.2 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:39] [INFO]   |-- 🐥 complaint_analysis: 1/2 (50%) 0.2 rec/s, 1 skipped",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:39] [INFO]   |-- 😐 action_items: 1/2 (50%) 0.2 rec/s, 1 skipped",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:39] [INFO]   |-- 😸 review_summary: 1/2 (50%) 0.2 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- inference parameters:",
+        "data": "[13:29:41] [INFO] 📊 Progress [6.9s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:41] [INFO]   |-- 🐔 product: 2/2 (100%) 0.3 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:41] [INFO]   |-- 🐔 customer_review: 2/2 (100%) 0.3 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:41] [INFO]   |-- 🐔 complaint_analysis: 2/2 (100%) 0.3 rec/s, 2 skipped",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:41] [INFO]   |-- 🤩 action_items: 2/2 (100%) 0.3 rec/s, 2 skipped",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:41] [INFO]   |-- 🦁 review_summary: 2/2 (100%) 0.3 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:41] [INFO] ✅ Async generation complete [6.9s]: 6 ok, 0 failed, 4 skipped across 5 column(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] ⚡️ Processing llm-text column 'action_items' with 4 concurrent workers",
+        "data": "[13:29:41] [INFO] 📊 Model usage summary:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] ⏱️ llm-text column 'action_items' will report progress after each record",
+        "data": "[13:29:41] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🌗 llm-text column 'action_items' progress: 1/2 (50%) complete, 0 ok, 0 failed, 1 skipped, 2253.94 rec/s, eta 0.0s",
+        "data": "[13:29:41] [INFO]   |-- tokens: input=2103, output=1075, total=3178, tps=455",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🌕 llm-text column 'action_items' progress: 2/2 (100%) complete, 0 ok, 0 failed, 2 skipped, 3104.79 rec/s, eta 0.0s",
+        "data": "[13:29:41] [INFO]   |-- requests: success=6, failed=0, total=6, rpm=51",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] 📊 Model usage summary:",
+        "data": "[13:29:41] [INFO] 🙈 Dropping columns: ['customer']",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
+        "data": "[13:29:41] [INFO] 📐 Measuring dataset column statistics:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- tokens: input=1494, output=457, total=1951, tps=547",
+        "data": "[13:29:41] [INFO]   |-- 🎲 column: 'product_category'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- requests: success=6, failed=0, total=6, rpm=101",
+        "data": "[13:29:41] [INFO]   |-- 🎲 column: 'product_subcategory'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] 🙈 Dropping columns: ['customer']",
+        "data": "[13:29:41] [INFO]   |-- 🎲 column: 'target_age_range'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] 📐 Measuring dataset column statistics:",
+        "data": "[13:29:41] [INFO]   |-- 🎲 column: 'review_style'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🎲 column: 'product_category'",
+        "data": "[13:29:41] [INFO]   |-- 🧩 column: 'customer_name'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🎲 column: 'product_subcategory'",
+        "data": "[13:29:41] [INFO]   |-- 🧩 column: 'customer_age'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🎲 column: 'target_age_range'",
+        "data": "[13:29:41] [INFO]   |-- 🗂️ column: 'product'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🎲 column: 'review_style'",
+        "data": "[13:29:41] [INFO]   |-- 🗂️ column: 'customer_review'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🧩 column: 'customer_name'",
+        "data": "[13:29:41] [INFO]   |-- 📝 column: 'complaint_analysis'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🧩 column: 'customer_age'",
+        "data": "[13:29:41] [INFO]   |-- 📝 column: 'action_items'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🗂️ column: 'product'",
+        "data": "[13:29:41] [INFO]   |-- 📝 column: 'review_summary'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🗂️ column: 'customer_review'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 📝 column: 'complaint_analysis'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 📝 column: 'action_items'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 📝 column: 'review_summary'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:32] [INFO] 🙌 Preview complete!",
+        "data": "[13:29:41] [INFO] ✅ Preview complete!",
         "format": "plain"
       }
     ]
@@ -696,7 +683,7 @@ export default { cells: [
       },
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name                </span>┃<span style=\"font-weight: bold\"> Value                                                                                </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category    │ Home &amp; Kitchen                                                                       │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ product_subcategory │ Appliances                                                                           │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ target_age_range    │ 25-35                                                                                │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ review_style        │ brief                                                                                │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ complaint_analysis  │ None                                                                                 │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ action_items        │ None                                                                                 │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ review_summary      │ The EcoChill Smart Coffee Maker earns a 4/5 for its energy‑efficient brewing,        │\n│                     │ programmable temperature and voice‑activation features, and eco‑friendly reusable    │\n│                     │ filter, though its advanced functionalities introduce complexity that may not appeal │\n│                     │ to all users.                                                                        │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ product             │ <span style=\"font-weight: bold\">{</span>                                                                                    │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'EcoChill Smart Coffee Maker'</span>,                                           │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'description'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'A sleek, countertop coffee maker that brews café-quality drinks </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">with programmable temperature control, voice activation, and an eco-friendly </span>        │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">reusable filter system. Perfect for busy professionals who value convenience and </span>    │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">sustainability.'</span>,                                                                    │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'price'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">179.99</span>                                                                  │\n│                     │ <span style=\"font-weight: bold\">}</span>                                                                                    │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ customer_review     │ <span style=\"font-weight: bold\">{</span>                                                                                    │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'rating'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">4</span>,                                                                     │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'customer_mood'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'happy'</span>,                                                        │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'review'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'EcoChill delivers efficient brewing with programmable temperature </span>    │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">control and voice activation, while its reusable filter aligns well with sustainable</span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">practices; however, the advanced features add complexity that may not suit every </span>    │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">user.'</span>                                                                               │\n│                     │ <span style=\"font-weight: bold\">}</span>                                                                                    │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ customer_name       │ Misty Daniel                                                                         │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ customer_age        │ <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">26</span>                                                                                   │\n└─────────────────────┴──────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name                </span>┃<span style=\"font-weight: bold\"> Value                                                                                </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category    │ Books                                                                                │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ product_subcategory │ Textbooks                                                                            │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ target_age_range    │ 65+                                                                                  │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ review_style        │ rambling                                                                             │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ complaint_analysis  │ None                                                                                 │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ action_items        │ None                                                                                 │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ review_summary      │ A lovingly curated, large‑print collection that offers seniors accessible,           │\n│                     │ thoughtfully paired titles—from classic literature to practical guides—at a modest   │\n│                     │ price, delivering comfort, durability, and lifelong learning in every well‑designed  │\n│                     │ volume.                                                                              │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ product             │ <span style=\"font-weight: bold\">{</span>                                                                                    │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">\"Gentle Readers' Book Club Collection: Large Print Classics\"</span>,            │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'description'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'A curated selection of oversized print textbooks and reference </span>  │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">books designed for seniors. Features large, easy-to-read fonts, high-contrast text, </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">and durable, ergonomic spines. Includes subjects like American History, Basic </span>       │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">Computer Skills, Gardening Fundamentals, and Memory Improvement Guides. Perfect for </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">lifelong learners and cozy reading sessions at any age.'</span>,                            │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'price'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">29.99</span>                                                                   │\n│                     │ <span style=\"font-weight: bold\">}</span>                                                                                    │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ customer_review     │ <span style=\"font-weight: bold\">{</span>                                                                                    │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'rating'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">5</span>,                                                                     │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'customer_mood'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'happy'</span>,                                                        │\n│                     │     <span style=\"color: #008000; text-decoration-color: #008000\">'review'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">\"As George Gay of Wilsonstad, Michigan, I am delighted to share my </span>    │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">thoughts on the Gentle Readers' Book Club Collection: Large Print Classics. This </span>    │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">elegant volume, priced at a modest $29.99, embodies a thoughtful convergence of </span>     │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">accessibility and scholarly rigor, tailored precisely for the discerning senior </span>     │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">reader who seeks both comfort and intellectual nourishment. The large, high‑contrast</span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">typeface engages the eye with a clarity that eliminates the fatigue of conventional </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">print, while the oversized, ergonomically designed spine invites a relaxed grip, </span>    │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">encouraging prolonged, unhurried perusal. Each title—whether it be a meticulously </span>   │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">annotated American History compendium, a gentle guide to Basic Computer Skills, a </span>   │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">foundational treatise on Gardening Fundamentals, or a reflective Memory Improvement </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">Guide—has been selected not merely for its content but for its capacity to spark </span>    │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">curiosity and foster a sense of continuity across generations.\\n\\nThe collection's </span>  │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">curation reflects an admirable balance between breadth and depth, offering subjects </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">that resonate with the lived experiences of lifelong learners while simultaneously </span>  │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">opening new horizons. The durable binding withstands the gentle wear of repeated </span>    │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">handling, promising that these pages will remain a faithful companion on countless </span>  │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">evenings of cozy reading by the lamp's soft glow. Moreover, the inclusion of Memory </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">Improvement Guides acknowledges the subtle challenges that accompany advancing </span>      │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">years, providing strategies that are both evidence‑based and presented in an </span>        │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">approachable manner, thereby empowering readers to preserve mental acuity alongside </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">their literary pursuits.\\n\\nIn sum, this volume transcends the role of a mere </span>       │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">textbook; it functions as a bridge between generations, a repository of collective </span>  │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">memory, and a celebration of the joys inherent in continuous learning. Its </span>          │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">large‑print format, thoughtful design, and curated content render it an </span>             │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">indispensable addition to any home library, particularly for those who, like myself,</span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">cherish the ritual of reading as a source of both comfort and intellectual vitality.</span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">I would, without reservation, recommend this collection to anyone seeking to enrich </span> │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">their reading experience with works that honor both accessibility and scholarly </span>     │\n│                     │ <span style=\"color: #008000; text-decoration-color: #008000\">excellence.\"</span>                                                                         │\n│                     │ <span style=\"font-weight: bold\">}</span>                                                                                    │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ customer_name       │ George Gay                                                                           │\n├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤\n│ customer_age        │ <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">99</span>                                                                                   │\n└─────────────────────┴──────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
         "format": "html"
       }
     ]
@@ -709,7 +696,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>product_category</th>\n      <th>product_subcategory</th>\n      <th>target_age_range</th>\n      <th>review_style</th>\n      <th>customer_name</th>\n      <th>customer_age</th>\n      <th>product</th>\n      <th>customer_review</th>\n      <th>complaint_analysis</th>\n      <th>review_summary</th>\n      <th>action_items</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>Home &amp; Kitchen</td>\n      <td>Appliances</td>\n      <td>25-35</td>\n      <td>brief</td>\n      <td>Misty Daniel</td>\n      <td>26</td>\n      <td>{'name': 'EcoChill Smart Coffee Maker', 'descr...</td>\n      <td>{'rating': 4, 'customer_mood': 'happy', 'revie...</td>\n      <td>None</td>\n      <td>The EcoChill Smart Coffee Maker earns a 4/5 fo...</td>\n      <td>None</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>Books</td>\n      <td>Non-Fiction</td>\n      <td>25-35</td>\n      <td>brief</td>\n      <td>Geoffrey Rogers</td>\n      <td>113</td>\n      <td>{'name': 'Mindful Moments: Non-Fiction Journal...</td>\n      <td>{'rating': 5, 'customer_mood': 'happy', 'revie...</td>\n      <td>None</td>\n      <td>Mindful Moments earns a 5/5 for its seamless b...</td>\n      <td>None</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>product_category</th>\n      <th>product_subcategory</th>\n      <th>target_age_range</th>\n      <th>review_style</th>\n      <th>customer_age</th>\n      <th>customer_name</th>\n      <th>product</th>\n      <th>customer_review</th>\n      <th>complaint_analysis</th>\n      <th>action_items</th>\n      <th>review_summary</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>Books</td>\n      <td>Textbooks</td>\n      <td>65+</td>\n      <td>rambling</td>\n      <td>99</td>\n      <td>George Gay</td>\n      <td>{'name': 'Gentle Readers' Book Club Collection...</td>\n      <td>{'rating': 5, 'customer_mood': 'happy', 'revie...</td>\n      <td>None</td>\n      <td>None</td>\n      <td>A lovingly curated, large‑print collection tha...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>Books</td>\n      <td>Non-Fiction</td>\n      <td>50-65</td>\n      <td>detailed</td>\n      <td>87</td>\n      <td>Danielle Walker</td>\n      <td>{'name': 'The Legacy Blueprint: Mapping Your L...</td>\n      <td>{'rating': 5, 'customer_mood': 'happy', 'revie...</td>\n      <td>None</td>\n      <td>None</td>\n      <td>The Legacy Blueprint offers a well‑structured,...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
         "format": "html"
       }
     ]
@@ -727,7 +714,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 11                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category                 │           string │                         2 (100.0%) │             category │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ product_subcategory              │           string │                         2 (100.0%) │          subcategory │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ target_age_range                 │           string │                          1 (50.0%) │             category │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ review_style                     │           string │                          1 (50.0%) │             category │\n└──────────────────────────────────┴──────────────────┴────────────────────────────────────┴──────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                         </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">    completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name             </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">    data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">           per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩\n│ complaint_analysis      │         <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span> │                   0 (0.0%) │     110.5 +/- 12.5 │          1.0 +/- 0.0 │\n├─────────────────────────┼──────────────┼────────────────────────────┼────────────────────┼──────────────────────┤\n│ action_items            │         <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span> │                   0 (0.0%) │       22.0 +/- 0.0 │          1.0 +/- 0.0 │\n├─────────────────────────┼──────────────┼────────────────────────────┼────────────────────┼──────────────────────┤\n│ review_summary          │       string │                 2 (100.0%) │      82.0 +/- 13.0 │         48.5 +/- 2.1 │\n└─────────────────────────┴──────────────┴────────────────────────────┴────────────────────┴──────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                             🗂️ LLM-Structured Columns                                             </span>\n┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name          </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">            per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product              │          dict │                 2 (100.0%) │       266.0 +/- 1.0 │         76.0 +/- 17.0 │\n├──────────────────────┼───────────────┼────────────────────────────┼─────────────────────┼───────────────────────┤\n│ customer_review      │          dict │                 2 (100.0%) │      329.5 +/- 11.5 │         70.5 +/- 14.8 │\n└──────────────────────┴───────────────┴────────────────────────────┴─────────────────────┴───────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                             number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ customer_name                     │                   string │                                       2 (100.0%) │\n├───────────────────────────────────┼──────────────────────────┼──────────────────────────────────────────────────┤\n│ customer_age                      │                   string │                                       2 (100.0%) │\n└───────────────────────────────────┴──────────────────────────┴──────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 11                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category                 │           string │                          1 (50.0%) │             category │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ product_subcategory              │           string │                         2 (100.0%) │          subcategory │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ target_age_range                 │           string │                         2 (100.0%) │             category │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ review_style                     │           string │                         2 (100.0%) │             category │\n└──────────────────────────────────┴──────────────────┴────────────────────────────────────┴──────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                         </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">    completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name             </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">    data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">           per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩\n│ complaint_analysis      │         <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span> │                   0 (0.0%) │     375.5 +/- 87.5 │          1.0 +/- 0.0 │\n├─────────────────────────┼──────────────┼────────────────────────────┼────────────────────┼──────────────────────┤\n│ action_items            │         <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span> │                   0 (0.0%) │       22.0 +/- 0.0 │          1.0 +/- 0.0 │\n├─────────────────────────┼──────────────┼────────────────────────────┼────────────────────┼──────────────────────┤\n│ review_summary          │       string │                 2 (100.0%) │     347.0 +/- 87.0 │        53.0 +/- 11.3 │\n└─────────────────────────┴──────────────┴────────────────────────────┴────────────────────┴──────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                             🗂️ LLM-Structured Columns                                             </span>\n┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name          </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">            per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product              │          dict │                 2 (100.0%) │       264.0 +/- 1.0 │        110.0 +/- 21.2 │\n├──────────────────────┼───────────────┼────────────────────────────┼─────────────────────┼───────────────────────┤\n│ customer_review      │          dict │                 2 (100.0%) │      363.0 +/- 16.0 │       333.5 +/- 128.0 │\n└──────────────────────┴───────────────┴────────────────────────────┴─────────────────────┴───────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                             number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ customer_name                     │                   string │                                       2 (100.0%) │\n├───────────────────────────────────┼──────────────────────────┼──────────────────────────────────────────────────┤\n│ customer_age                      │                   string │                                       2 (100.0%) │\n└───────────────────────────────────┴──────────────────────────┴──────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
         "format": "html"
       }
     ]
@@ -745,722 +732,492 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] 🎨 Creating Data Designer dataset",
+        "data": "[13:29:41] [INFO] 🎨 Creating Data Designer dataset",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+        "data": "[13:29:41] [INFO]   |-- 🔒 Jinja rendering engine: secure",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] 📂 Dataset path '/Users/llane/conductor/workspaces/DataDesigner/tacoma-v3/docs/notebook_source/artifacts/tutorial-2' already exists. Dataset from this session\n\t\t     will be saved to '/Users/llane/conductor/workspaces/DataDesigner/tacoma-v3/docs/notebook_source/artifacts/tutorial-2_04-28-2026_143832' instead.",
+        "data": "[13:29:41] [INFO] ✅ Validation passed",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] ✅ Validation passed",
+        "data": "[13:29:41] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+        "data": "[13:29:41] [INFO] 🩺 Running health checks for models...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO] 🩺 Running health checks for models...",
+        "data": "[13:29:41] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:32] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
+        "data": "[13:29:41] [INFO]   |-- ✅ Passed!",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |-- ✅ Passed!",
+        "data": "[13:29:41] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO] ⏳ Processing batch 1 of 1",
+        "data": "[13:29:41] [INFO] 🗂️ llm-structured model config for column 'product'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO] 🎲 Preparing samplers to generate 10 records across 5 columns",
+        "data": "[13:29:41] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO] 🧩 Generating column `customer_name` from expression",
+        "data": "[13:29:41] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO] 🧩 Generating column `customer_age` from expression",
+        "data": "[13:29:41] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO] 🗂️ llm-structured model config for column 'product'",
+        "data": "[13:29:41] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:41] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:41] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:41] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |-- inference parameters:",
+        "data": "[13:29:41] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:41] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:41] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:41] [INFO] 🗂️ llm-structured model config for column 'customer_review'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:41] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:41] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:41] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO] ⚡️ Processing llm-structured column 'product' with 4 concurrent workers",
+        "data": "[13:29:41] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO] ⏱️ llm-structured column 'product' will report progress after each record",
+        "data": "[13:29:41] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |-- 🌧️ llm-structured column 'product' progress: 1/10 (10%) complete, 1 ok, 0 failed, 1.47 rec/s, eta 6.1s",
+        "data": "[13:29:41] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |-- 🌧️ llm-structured column 'product' progress: 2/10 (20%) complete, 2 ok, 0 failed, 2.78 rec/s, eta 2.9s",
+        "data": "[13:29:41] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:33] [INFO]   |-- 🌦️ llm-structured column 'product' progress: 3/10 (30%) complete, 3 ok, 0 failed, 4.13 rec/s, eta 1.7s",
+        "data": "[13:29:41] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:34] [INFO]   |-- 🌦️ llm-structured column 'product' progress: 4/10 (40%) complete, 4 ok, 0 failed, 4.79 rec/s, eta 1.3s",
+        "data": "[13:29:41] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:34] [INFO]   |-- ⛅ llm-structured column 'product' progress: 5/10 (50%) complete, 5 ok, 0 failed, 3.83 rec/s, eta 1.3s",
+        "data": "[13:29:41] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:34] [INFO]   |-- ⛅ llm-structured column 'product' progress: 6/10 (60%) complete, 6 ok, 0 failed, 4.45 rec/s, eta 0.9s",
+        "data": "[13:29:41] [INFO] 📝 llm-text model config for column 'complaint_analysis'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:34] [INFO]   |-- ⛅ llm-structured column 'product' progress: 7/10 (70%) complete, 7 ok, 0 failed, 5.00 rec/s, eta 0.6s",
+        "data": "[13:29:41] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:34] [INFO]   |-- 🌤️ llm-structured column 'product' progress: 8/10 (80%) complete, 8 ok, 0 failed, 5.69 rec/s, eta 0.4s",
+        "data": "[13:29:41] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |-- 🌤️ llm-structured column 'product' progress: 9/10 (90%) complete, 9 ok, 0 failed, 4.58 rec/s, eta 0.2s",
+        "data": "[13:29:41] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |-- ☀️ llm-structured column 'product' progress: 10/10 (100%) complete, 10 ok, 0 failed, 4.85 rec/s, eta 0.0s",
+        "data": "[13:29:41] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO] 🗂️ llm-structured model config for column 'customer_review'",
+        "data": "[13:29:41] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:41] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:41] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:41] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |-- inference parameters:",
+        "data": "[13:29:41] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:41] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:41] [INFO] 📝 llm-text model config for column 'action_items'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:41] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:41] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:41] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:41] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO] ⚡️ Processing llm-structured column 'customer_review' with 4 concurrent workers",
+        "data": "[13:29:41] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:35] [INFO] ⏱️ llm-structured column 'customer_review' will report progress after each record",
+        "data": "[13:29:41] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:36] [INFO]   |-- 😴 llm-structured column 'customer_review' progress: 1/10 (10%) complete, 1 ok, 0 failed, 1.40 rec/s, eta 6.4s",
+        "data": "[13:29:41] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:36] [INFO]   |-- 😴 llm-structured column 'customer_review' progress: 2/10 (20%) complete, 2 ok, 0 failed, 2.79 rec/s, eta 2.9s",
+        "data": "[13:29:41] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:36] [INFO]   |-- 🥱 llm-structured column 'customer_review' progress: 3/10 (30%) complete, 3 ok, 0 failed, 4.16 rec/s, eta 1.7s",
+        "data": "[13:29:41] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:36] [INFO]   |-- 🥱 llm-structured column 'customer_review' progress: 4/10 (40%) complete, 4 ok, 0 failed, 3.11 rec/s, eta 1.9s",
+        "data": "[13:29:41] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:36] [INFO]   |-- 😐 llm-structured column 'customer_review' progress: 5/10 (50%) complete, 5 ok, 0 failed, 3.62 rec/s, eta 1.4s",
+        "data": "[13:29:41] [INFO] 📝 llm-text model config for column 'review_summary'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:36] [INFO]   |-- 😐 llm-structured column 'customer_review' progress: 6/10 (60%) complete, 6 ok, 0 failed, 3.60 rec/s, eta 1.1s",
+        "data": "[13:29:41] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:37] [INFO]   |-- 😐 llm-structured column 'customer_review' progress: 7/10 (70%) complete, 7 ok, 0 failed, 3.06 rec/s, eta 1.0s",
+        "data": "[13:29:41] [INFO]   |-- model alias: 'nemotron-nano-v3'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:37] [INFO]   |-- 😊 llm-structured column 'customer_review' progress: 8/10 (80%) complete, 8 ok, 0 failed, 3.34 rec/s, eta 0.6s",
+        "data": "[13:29:41] [INFO]   |-- model provider: 'nvidia'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:38] [INFO]   |-- 😊 llm-structured column 'customer_review' progress: 9/10 (90%) complete, 9 ok, 0 failed, 3.19 rec/s, eta 0.3s",
+        "data": "[13:29:41] [INFO]   |-- inference parameters:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🤩 llm-structured column 'customer_review' progress: 10/10 (100%) complete, 10 ok, 0 failed, 2.53 rec/s, eta 0.0s",
+        "data": "[13:29:41] [INFO]   |  |-- generation_type=chat-completion",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO] 📝 llm-text model config for column 'complaint_analysis'",
+        "data": "[13:29:41] [INFO]   |  |-- max_parallel_requests=4",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:41] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:41] [INFO]   |  |-- temperature=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:41] [INFO]   |  |-- top_p=1.00",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- inference parameters:",
+        "data": "[13:29:41] [INFO]   |  |-- max_tokens=2048",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:41] [INFO] ⚡️ Async generation: 5 column(s) (product, customer_review, complaint_analysis, action_items, review_summary), 50 tasks across 1 row group(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:41] [INFO] 🚀 (1/1) Dispatching with 10 records",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:41] [INFO] 🎲 (1/1) Preparing samplers to generate 10 records across 5 columns",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:42] [INFO] 🧩 (1/1) Generating column `customer_name` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:42] [INFO] 🧩 (1/1) Generating column `customer_age` from expression",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:47] [INFO] 📊 Progress [5.5s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO] ⚡️ Processing llm-text column 'complaint_analysis' with 4 concurrent workers",
+        "data": "[13:29:47] [INFO]   |-- 🌖 product: 9/10 (90%) 1.6 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO] ⏱️ llm-text column 'complaint_analysis' will report progress after each record",
+        "data": "[13:29:47] [INFO]   |-- 🌗 customer_review: 6/10 (60%) 1.1 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🌧️ llm-text column 'complaint_analysis' progress: 1/10 (10%) complete, 0 ok, 0 failed, 1 skipped, 2066.65 rec/s, eta 0.0s",
+        "data": "[13:29:47] [INFO]   |-- 🚗 complaint_analysis: 5/10 (50%) 0.9 rec/s, 5 skipped",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🌧️ llm-text column 'complaint_analysis' progress: 2/10 (20%) complete, 0 ok, 0 failed, 2 skipped, 2718.93 rec/s, eta 0.0s",
+        "data": "[13:29:47] [INFO]   |-- ⛅ action_items: 5/10 (50%) 0.9 rec/s, 5 skipped",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🌦️ llm-text column 'complaint_analysis' progress: 3/10 (30%) complete, 0 ok, 0 failed, 3 skipped, 2795.47 rec/s, eta 0.0s",
+        "data": "[13:29:47] [INFO]   |-- 🐣 review_summary: 4/10 (40%) 0.7 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🌦️ llm-text column 'complaint_analysis' progress: 4/10 (40%) complete, 0 ok, 0 failed, 4 skipped, 2836.29 rec/s, eta 0.0s",
+        "data": "[13:29:50] [INFO] 🙈 Dropping columns: ['customer']",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- ⛅ llm-text column 'complaint_analysis' progress: 5/10 (50%) complete, 0 ok, 0 failed, 5 skipped, 2826.46 rec/s, eta 0.0s",
+        "data": "[13:29:50] [INFO] 📊 Progress [8.4s]:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- ⛅ llm-text column 'complaint_analysis' progress: 6/10 (60%) complete, 0 ok, 0 failed, 6 skipped, 2920.72 rec/s, eta 0.0s",
+        "data": "[13:29:50] [INFO]   |-- 🌕 product: 10/10 (100%) 1.2 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- ⛅ llm-text column 'complaint_analysis' progress: 7/10 (70%) complete, 0 ok, 0 failed, 7 skipped, 3074.22 rec/s, eta 0.0s",
+        "data": "[13:29:50] [INFO]   |-- 🌕 customer_review: 10/10 (100%) 1.2 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🌤️ llm-text column 'complaint_analysis' progress: 8/10 (80%) complete, 0 ok, 0 failed, 8 skipped, 3196.70 rec/s, eta 0.0s",
+        "data": "[13:29:50] [INFO]   |-- 🚀 complaint_analysis: 10/10 (100%) 1.2 rec/s, 10 skipped",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🌤️ llm-text column 'complaint_analysis' progress: 9/10 (90%) complete, 0 ok, 0 failed, 9 skipped, 3268.32 rec/s, eta 0.0s",
+        "data": "[13:29:50] [INFO]   |-- ☀️ action_items: 10/10 (100%) 1.2 rec/s, 10 skipped",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- ☀️ llm-text column 'complaint_analysis' progress: 10/10 (100%) complete, 0 ok, 0 failed, 10 skipped, 3302.33 rec/s, eta 0.0s",
+        "data": "[13:29:50] [INFO]   |-- 🐔 review_summary: 10/10 (100%) 1.2 rec/s",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO] 📝 llm-text model config for column 'review_summary'",
+        "data": "[13:29:50] [INFO] ✅ Async generation complete [8.4s]: 30 ok, 0 failed, 20 skipped across 5 column(s)",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+        "data": "[13:29:50] [INFO] 📊 Model usage summary:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+        "data": "[13:29:50] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- model provider: 'nvidia'",
+        "data": "[13:29:50] [INFO]   |-- tokens: input=9974, output=4764, total=14738, tps=1683",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- inference parameters:",
+        "data": "[13:29:50] [INFO]   |-- requests: success=31, failed=0, total=31, rpm=212",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- generation_type=chat-completion",
+        "data": "[13:29:50] [INFO] 📐 Measuring dataset column statistics:",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- max_parallel_requests=4",
+        "data": "[13:29:50] [INFO]   |-- 🎲 column: 'product_category'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+        "data": "[13:29:50] [INFO]   |-- 🎲 column: 'product_subcategory'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- temperature=1.00",
+        "data": "[13:29:50] [INFO]   |-- 🎲 column: 'target_age_range'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- top_p=1.00",
+        "data": "[13:29:50] [INFO]   |-- 🎲 column: 'review_style'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |  |-- max_tokens=2048",
+        "data": "[13:29:50] [INFO]   |-- 🧩 column: 'customer_name'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO] ⚡️ Processing llm-text column 'review_summary' with 4 concurrent workers",
+        "data": "[13:29:50] [INFO]   |-- 🧩 column: 'customer_age'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO] ⏱️ llm-text column 'review_summary' will report progress after each record",
+        "data": "[13:29:50] [INFO]   |-- 🗂️ column: 'product'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🥚 llm-text column 'review_summary' progress: 1/10 (10%) complete, 1 ok, 0 failed, 2.52 rec/s, eta 3.6s",
+        "data": "[13:29:50] [INFO]   |-- 🗂️ column: 'customer_review'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🥚 llm-text column 'review_summary' progress: 2/10 (20%) complete, 2 ok, 0 failed, 3.87 rec/s, eta 2.1s",
+        "data": "[13:29:50] [INFO]   |-- 📝 column: 'complaint_analysis'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:39] [INFO]   |-- 🐣 llm-text column 'review_summary' progress: 3/10 (30%) complete, 3 ok, 0 failed, 5.70 rec/s, eta 1.2s",
+        "data": "[13:29:50] [INFO]   |-- 📝 column: 'action_items'",
         "format": "plain"
       },
       {
         "type": "text",
-        "data": "[14:38:40] [INFO]   |-- 🐣 llm-text column 'review_summary' progress: 4/10 (40%) complete, 4 ok, 0 failed, 5.46 rec/s, eta 1.1s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:40] [INFO]   |-- 🐥 llm-text column 'review_summary' progress: 5/10 (50%) complete, 5 ok, 0 failed, 6.17 rec/s, eta 0.8s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:40] [INFO]   |-- 🐥 llm-text column 'review_summary' progress: 6/10 (60%) complete, 6 ok, 0 failed, 6.23 rec/s, eta 0.6s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:40] [INFO]   |-- 🐥 llm-text column 'review_summary' progress: 7/10 (70%) complete, 7 ok, 0 failed, 7.23 rec/s, eta 0.4s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:40] [INFO]   |-- 🐤 llm-text column 'review_summary' progress: 8/10 (80%) complete, 8 ok, 0 failed, 6.92 rec/s, eta 0.3s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:40] [INFO]   |-- 🐤 llm-text column 'review_summary' progress: 9/10 (90%) complete, 9 ok, 0 failed, 7.01 rec/s, eta 0.1s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🐔 llm-text column 'review_summary' progress: 10/10 (100%) complete, 10 ok, 0 failed, 5.61 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO] 📝 llm-text model config for column 'action_items'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- model alias: 'nemotron-nano-v3'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- model provider: 'nvidia'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- inference parameters:",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |  |-- generation_type=chat-completion",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |  |-- max_parallel_requests=4",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |  |-- temperature=1.00",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |  |-- top_p=1.00",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |  |-- max_tokens=2048",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO] ⚡️ Processing llm-text column 'action_items' with 4 concurrent workers",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO] ⏱️ llm-text column 'action_items' will report progress after each record",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🐱 llm-text column 'action_items' progress: 1/10 (10%) complete, 0 ok, 0 failed, 1 skipped, 1344.39 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🐱 llm-text column 'action_items' progress: 2/10 (20%) complete, 0 ok, 0 failed, 2 skipped, 1728.67 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 😺 llm-text column 'action_items' progress: 3/10 (30%) complete, 0 ok, 0 failed, 3 skipped, 1991.15 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 😺 llm-text column 'action_items' progress: 4/10 (40%) complete, 0 ok, 0 failed, 4 skipped, 2201.99 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 😸 llm-text column 'action_items' progress: 5/10 (50%) complete, 0 ok, 0 failed, 5 skipped, 2395.50 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 😸 llm-text column 'action_items' progress: 6/10 (60%) complete, 0 ok, 0 failed, 6 skipped, 2412.46 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 😸 llm-text column 'action_items' progress: 7/10 (70%) complete, 0 ok, 0 failed, 7 skipped, 2509.97 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 😼 llm-text column 'action_items' progress: 8/10 (80%) complete, 0 ok, 0 failed, 8 skipped, 2617.27 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 😼 llm-text column 'action_items' progress: 9/10 (90%) complete, 0 ok, 0 failed, 9 skipped, 2698.38 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🦁 llm-text column 'action_items' progress: 10/10 (100%) complete, 0 ok, 0 failed, 10 skipped, 2737.98 rec/s, eta 0.0s",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO] 🙈 Dropping columns: ['customer']",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO] 📊 Model usage summary:",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- tokens: input=8933, output=3862, total=12795, tps=1531",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- requests: success=30, failed=0, total=30, rpm=215",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO] 📐 Measuring dataset column statistics:",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🎲 column: 'product_category'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🎲 column: 'product_subcategory'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🎲 column: 'target_age_range'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🎲 column: 'review_style'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🧩 column: 'customer_name'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🧩 column: 'customer_age'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🗂️ column: 'product'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 🗂️ column: 'customer_review'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 📝 column: 'complaint_analysis'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 📝 column: 'action_items'",
-        "format": "plain"
-      },
-      {
-        "type": "text",
-        "data": "[14:38:41] [INFO]   |-- 📝 column: 'review_summary'",
+        "data": "[13:29:50] [INFO]   |-- 📝 column: 'review_summary'",
         "format": "plain"
       }
     ]
@@ -1473,7 +1230,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>product_category</th>\n      <th>product_subcategory</th>\n      <th>target_age_range</th>\n      <th>review_style</th>\n      <th>customer_name</th>\n      <th>customer_age</th>\n      <th>product</th>\n      <th>customer_review</th>\n      <th>complaint_analysis</th>\n      <th>review_summary</th>\n      <th>action_items</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>Electronics</td>\n      <td>Smartphones</td>\n      <td>50-65</td>\n      <td>brief</td>\n      <td>Matthew Austin</td>\n      <td>54</td>\n      <td>{'description': 'A large‑display smartphone de...</td>\n      <td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>\n      <td>None</td>\n      <td>The ZenPhone Senior earns 5 stars for its 6.5‑...</td>\n      <td>None</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>Home &amp; Kitchen</td>\n      <td>Cookware</td>\n      <td>25-35</td>\n      <td>brief</td>\n      <td>Megan Carroll</td>\n      <td>84</td>\n      <td>{'description': 'Eco-friendly, non-stick silic...</td>\n      <td>{'customer_mood': 'excited', 'rating': 5, 'rev...</td>\n      <td>None</td>\n      <td>The Silipan Multi-Performance Silicone Baking ...</td>\n      <td>None</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>Clothing</td>\n      <td>Activewear</td>\n      <td>65+</td>\n      <td>structured with bullet points</td>\n      <td>William Hart</td>\n      <td>32</td>\n      <td>{'description': 'A sun-protective, moisture-wi...</td>\n      <td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>\n      <td>None</td>\n      <td>The SunGuard Lightweight Long-Sleeve Tee earns...</td>\n      <td>None</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>Electronics</td>\n      <td>Cameras</td>\n      <td>18-25</td>\n      <td>rambling</td>\n      <td>Scott Walker</td>\n      <td>99</td>\n      <td>{'description': 'A compact, lightweight camera...</td>\n      <td>{'customer_mood': 'excited', 'rating': 5, 'rev...</td>\n      <td>None</td>\n      <td>The UltraLight Mini Pocket Camera impresses te...</td>\n      <td>None</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>Home &amp; Kitchen</td>\n      <td>Organization</td>\n      <td>25-35</td>\n      <td>rambling</td>\n      <td>Ashley Barrera</td>\n      <td>68</td>\n      <td>{'description': 'A customizable, stackable dra...</td>\n      <td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>\n      <td>None</td>\n      <td>A sleek, tool‑free acrylic organizer with a no...</td>\n      <td>None</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+        "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>product_category</th>\n      <th>product_subcategory</th>\n      <th>target_age_range</th>\n      <th>review_style</th>\n      <th>customer_name</th>\n      <th>customer_age</th>\n      <th>product</th>\n      <th>customer_review</th>\n      <th>complaint_analysis</th>\n      <th>action_items</th>\n      <th>review_summary</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>Home &amp; Kitchen</td>\n      <td>Cookware</td>\n      <td>18-25</td>\n      <td>rambling</td>\n      <td>Lawrence Watson</td>\n      <td>99</td>\n      <td>{'description': 'A vibrant 18-piece cookware s...</td>\n      <td>{'customer_mood': 'happy', 'rating': 4, 'revie...</td>\n      <td>None</td>\n      <td>None</td>\n      <td>Lawrence Watson praises the EcoGlow 18‑Piece N...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>Clothing</td>\n      <td>Women's Clothing</td>\n      <td>18-25</td>\n      <td>rambling</td>\n      <td>Wendy Harris</td>\n      <td>29</td>\n      <td>{'description': 'A set of two lightweight, ult...</td>\n      <td>{'customer_mood': 'happy', 'rating': 4, 'revie...</td>\n      <td>None</td>\n      <td>None</td>\n      <td>The reviewer finds the Urban Mesh Crop Tank Se...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>Books</td>\n      <td>Textbooks</td>\n      <td>65+</td>\n      <td>structured with bullet points</td>\n      <td>Frank Day</td>\n      <td>105</td>\n      <td>{'description': 'A comprehensive, large-print ...</td>\n      <td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>\n      <td>None</td>\n      <td>None</td>\n      <td>This 5-star review praises the *Classic Textbo...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>Books</td>\n      <td>Non-Fiction</td>\n      <td>18-25</td>\n      <td>rambling</td>\n      <td>Patrick Drake</td>\n      <td>66</td>\n      <td>{'description': 'A curated collection of non‑f...</td>\n      <td>{'customer_mood': 'excited', 'rating': 4, 'rev...</td>\n      <td>None</td>\n      <td>None</td>\n      <td>A relatable, review‑by‑an enthusiastic student...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>Home Office</td>\n      <td>Lighting</td>\n      <td>25-35</td>\n      <td>detailed</td>\n      <td>David Bryant</td>\n      <td>39</td>\n      <td>{'description': 'A sleek, adjustable LED desk ...</td>\n      <td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>\n      <td>None</td>\n      <td>None</td>\n      <td>The Smart Warm LED Desk Lamp earns a 5‑star ra...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
         "format": "html"
       }
     ]
@@ -1486,7 +1243,7 @@ export default { cells: [
     "outputs": [
       {
         "type": "text",
-        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 10                              │ 11                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category                 │           string │                          4 (40.0%) │             category │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ product_subcategory              │           string │                          8 (80.0%) │          subcategory │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ target_age_range                 │           string │                          5 (50.0%) │             category │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ review_style                     │           string │                          4 (40.0%) │             category │\n└──────────────────────────────────┴──────────────────┴────────────────────────────────────┴──────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                         </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">    completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name             </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">    data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">           per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩\n│ complaint_analysis      │         <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span> │                  0 (0.0%) │     161.5 +/- 115.5 │          1.0 +/- 0.0 │\n├─────────────────────────┼──────────────┼───────────────────────────┼─────────────────────┼──────────────────────┤\n│ action_items            │         <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span> │                  0 (0.0%) │        22.0 +/- 0.0 │          1.0 +/- 0.0 │\n├─────────────────────────┼──────────────┼───────────────────────────┼─────────────────────┼──────────────────────┤\n│ review_summary          │       string │               10 (100.0%) │     133.5 +/- 115.9 │        56.0 +/- 14.2 │\n└─────────────────────────┴──────────────┴───────────────────────────┴─────────────────────┴──────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                             🗂️ LLM-Structured Columns                                             </span>\n┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name          </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">            per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product              │          dict │                10 (100.0%) │       265.0 +/- 0.8 │         95.0 +/- 17.8 │\n├──────────────────────┼───────────────┼────────────────────────────┼─────────────────────┼───────────────────────┤\n│ customer_review      │          dict │                10 (100.0%) │      347.5 +/- 17.4 │       129.0 +/- 124.8 │\n└──────────────────────┴───────────────┴────────────────────────────┴─────────────────────┴───────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                             number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ customer_name                     │                   string │                                      10 (100.0%) │\n├───────────────────────────────────┼──────────────────────────┼──────────────────────────────────────────────────┤\n│ customer_age                      │                   string │                                        9 (90.0%) │\n└───────────────────────────────────┴──────────────────────────┴──────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+        "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 10                              │ 11                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩\n│ product_category                 │           string │                          5 (50.0%) │             category │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ product_subcategory              │           string │                          8 (80.0%) │          subcategory │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ target_age_range                 │           string │                          4 (40.0%) │             category │\n├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤\n│ review_style                     │           string │                          3 (30.0%) │             category │\n└──────────────────────────────────┴──────────────────┴────────────────────────────────────┴──────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                         </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">    completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name             </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">    data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">           per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩\n│ complaint_analysis      │         <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span> │                   0 (0.0%) │     301.0 +/- 91.0 │          1.0 +/- 0.0 │\n├─────────────────────────┼──────────────┼────────────────────────────┼────────────────────┼──────────────────────┤\n│ action_items            │         <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span> │                   0 (0.0%) │       22.0 +/- 0.0 │          1.0 +/- 0.0 │\n├─────────────────────────┼──────────────┼────────────────────────────┼────────────────────┼──────────────────────┤\n│ review_summary          │       string │                10 (100.0%) │     272.0 +/- 90.8 │        63.0 +/- 12.6 │\n└─────────────────────────┴──────────────┴────────────────────────────┴────────────────────┴──────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                             🗂️ LLM-Structured Columns                                             </span>\n┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name          </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">            per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩\n│ product              │          dict │                10 (100.0%) │       265.0 +/- 0.9 │         90.5 +/- 22.3 │\n├──────────────────────┼───────────────┼────────────────────────────┼─────────────────────┼───────────────────────┤\n│ customer_review      │          dict │                10 (100.0%) │      346.0 +/- 21.0 │        258.5 +/- 96.3 │\n└──────────────────────┴───────────────┴────────────────────────────┴─────────────────────┴───────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                             number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ customer_name                     │                   string │                                      10 (100.0%) │\n├───────────────────────────────────┼──────────────────────────┼──────────────────────────────────────────────────┤\n│ customer_age                      │                   string │                                      10 (100.0%) │\n└───────────────────────────────────┴──────────────────────────┴──────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
         "format": "html"
       }
     ]
