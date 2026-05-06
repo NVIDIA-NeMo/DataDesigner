@@ -2,7 +2,7 @@
 
 Model access belongs in column generator implementations, not config objects. Keep the config declarative by asking users for model aliases, then resolve those aliases at runtime through the model registry.
 
-Do not construct model clients in plugin configs, read API keys in configs, or bypass Data Designer's model providers. The engine already builds a `ResourceProvider` for each generator, and that provider exposes the model registry at:
+Do not construct model clients in plugin configs, read API keys in configs, or bypass Data Designer's model providers. The engine builds a `ResourceProvider` and exposes its model registry to every generator at:
 
 ```python
 self.resource_provider.model_registry
@@ -54,7 +54,7 @@ class SentimentLabelColumnGenerator(ColumnGeneratorWithModel[SentimentLabelColum
         return data
 ```
 
-The matching config should include `model_alias: str` as a normal user-facing field:
+The matching config must include `model_alias: str` as a normal user-facing field:
 
 ```python
 from __future__ import annotations
@@ -84,9 +84,34 @@ Users set that alias from default model settings or from `DataDesignerConfigBuil
 
 If your plugin uses multiple model aliases, inherit from `ColumnGeneratorWithModelRegistry` and resolve each alias explicitly with `self.get_model(...)`.
 
-The config should keep a primary `model_alias` field because startup health checks collect that field from model-generated column configs. A config for this pattern might also define `judge_model_alias`, `critic_model_alias`, or another task-specific alias.
+The config must include a primary `model_alias: str` field. Startup health checks read it directly from any column config whose generator inherits from `ColumnGeneratorWithModelRegistry`, including generators that inherit through `ColumnGeneratorWithModel`. A config for this pattern might also define `judge_model_alias`, `critic_model_alias`, or another task-specific alias.
 
-Validate additional alias fields in `_validate()` or `_initialize()` with `get_model_config(...)` so missing aliases fail before generation starts. This checks that the alias exists; only the primary `model_alias` is included in the standard startup health check.
+Validate additional alias fields in `_validate()` or `_initialize()` with `get_model_config(...)` so missing aliases fail before generation starts. `get_model_config(alias)` only verifies that the alias is registered; it does not call the endpoint. Endpoint reachability is only exercised for the primary `model_alias` collected by the standard startup health check.
+
+The matching config shows which alias gets the standard startup health check and which alias the plugin validates itself:
+
+```python
+from __future__ import annotations
+
+from typing import Literal
+
+from data_designer.config.base import SingleColumnConfig
+
+
+class PairwiseJudgeColumnConfig(SingleColumnConfig):
+    column_type: Literal["pairwise-judge"] = "pairwise-judge"
+    question_column: str
+    model_alias: str
+    judge_model_alias: str
+
+    @property
+    def required_columns(self) -> list[str]:
+        return [self.question_column]
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
+```
 
 ```python
 from __future__ import annotations
@@ -123,7 +148,7 @@ class PairwiseJudgeColumnGenerator(ColumnGeneratorWithModelRegistry[PairwiseJudg
         }
 
         draft, _ = await generator_model.agenerate(
-            prompt=f"Draft an answer for: {data['question']}",
+            prompt=f"Draft an answer for: {data[self.config.question_column]}",
             purpose=f"drafting an answer for column '{self.config.name}'",
             **retry_kwargs,
         )
@@ -156,7 +181,7 @@ Prefer implementing `agenerate(...)` for model-backed plugins. The base `generat
 
 The model-aware bases mark the generator as LLM-bound, so the async scheduler treats the work like other model calls.
 
-Plugin discovery treats column generator implementations that inherit from `ColumnGeneratorWithModelRegistry` as model-generated column types for startup model health checks. The standard health-check collection expects a primary `model_alias` field on the config. Additional alias fields should be validated by the plugin implementation.
+Plugin discovery treats column generator implementations that inherit from `ColumnGeneratorWithModelRegistry` as model-generated column types for startup model health checks. The standard health-check collection reads a primary `model_alias` field directly from the config. Additional alias fields should be registration-validated by the plugin implementation; their endpoints are not pinged by the standard startup health check.
 
 ## Built-in patterns
 
