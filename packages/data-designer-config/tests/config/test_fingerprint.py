@@ -79,10 +79,11 @@ sys.stdout.write(fingerprint_config(cfg)["config_hash"])
 # ---------------------------------------------------------------------------
 
 
-def _make_model(alias: str = "m", model: str = "some-model") -> ModelConfig:
+def _make_model(alias: str = "m", model: str = "some-model", provider: str = "some-provider") -> ModelConfig:
     return ModelConfig(
         alias=alias,
         model=model,
+        provider=provider,
         inference_parameters=ChatCompletionInferenceParams(temperature=0.5, top_p=0.9, max_tokens=128),
     )
 
@@ -129,7 +130,7 @@ def test_changing_sampler_params_changes_hash() -> None:
 
 def test_changing_model_identity_changes_hash() -> None:
     a = _make_minimal_config()
-    b = _make_minimal_config(model_configs=[ModelConfig(alias="m", model="other-model")])
+    b = _make_minimal_config(model_configs=[ModelConfig(alias="m", model="other-model", provider="some-provider")])
     assert _compute_hash(a) != _compute_hash(b)
 
 
@@ -140,6 +141,7 @@ def test_changing_temperature_changes_hash() -> None:
             ModelConfig(
                 alias="m",
                 model="some-model",
+                provider="some-provider",
                 inference_parameters=ChatCompletionInferenceParams(temperature=0.99, top_p=0.9, max_tokens=128),
             )
         ],
@@ -199,6 +201,7 @@ def test_changing_extra_body_changes_hash() -> None:
             ModelConfig(
                 alias="m",
                 model="some-model",
+                provider="some-provider",
                 inference_parameters=ChatCompletionInferenceParams(
                     temperature=0.5, top_p=0.9, max_tokens=128, extra_body={"frequency_penalty": 0.5}
                 ),
@@ -302,6 +305,7 @@ def test_skip_health_check_does_not_change_hash() -> None:
             ModelConfig(
                 alias="m",
                 model="some-model",
+                provider="some-provider",
                 inference_parameters=ChatCompletionInferenceParams(temperature=0.5, top_p=0.9, max_tokens=128),
                 skip_health_check=True,
             )
@@ -317,6 +321,7 @@ def test_max_parallel_requests_does_not_change_hash() -> None:
             ModelConfig(
                 alias="m",
                 model="some-model",
+                provider="some-provider",
                 inference_parameters=ChatCompletionInferenceParams(
                     temperature=0.5, top_p=0.9, max_tokens=128, max_parallel_requests=32
                 ),
@@ -333,6 +338,7 @@ def test_inference_timeout_does_not_change_hash() -> None:
             ModelConfig(
                 alias="m",
                 model="some-model",
+                provider="some-provider",
                 inference_parameters=ChatCompletionInferenceParams(
                     temperature=0.5, top_p=0.9, max_tokens=128, timeout=30
                 ),

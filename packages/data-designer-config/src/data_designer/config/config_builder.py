@@ -140,6 +140,12 @@ class DataDesignerConfigBuilder:
                 selection_strategy=seed_config.selection_strategy,
             )
 
+        for processor in data_designer_config.processors or []:
+            builder.add_processor(processor)
+
+        for profiler in data_designer_config.profilers or []:
+            builder.add_profiler(profiler)
+
         return builder
 
     def __init__(

@@ -167,6 +167,7 @@ dd.ModelConfig(
 dd.ModelConfig(
     alias="dalle",
     model="dall-e-3",
+    provider="openai",
     inference_parameters=dd.ImageInferenceParams(
         extra_body={"size": "1024x1024", "quality": "hd"}
     ),
