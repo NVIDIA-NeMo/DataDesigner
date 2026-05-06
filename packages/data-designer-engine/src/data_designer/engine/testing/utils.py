@@ -14,6 +14,8 @@ _PLUGIN_IMPLEMENTATION_BASES: dict[PluginType, type[object]] = {
     PluginType.SEED_READER: SeedReader,
     PluginType.PROCESSOR: Processor,
 }
+if set(_PLUGIN_IMPLEMENTATION_BASES) != set(PluginType):
+    raise AssertionError("Plugin implementation base map must cover all plugin types")
 
 
 def _assert_subclass(cls: type[object], base_cls: type[object], message: str) -> None:
