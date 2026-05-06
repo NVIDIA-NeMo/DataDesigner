@@ -31,6 +31,7 @@ from data_designer.config.utils.image_helpers import (
     load_image_path_to_base64,
 )
 from data_designer.config.utils.io_helpers import smart_load_yaml
+from data_designer.config.utils.warning_helpers import warn_at_caller
 
 logger = logging.getLogger(__name__)
 
@@ -503,7 +504,10 @@ class ModelConfig(ConfigBase):
         model: Model identifier (e.g., from build.nvidia.com or other providers).
         inference_parameters: Inference parameters for the model (temperature, top_p, max_tokens, etc.).
             The generation_type is determined by the type of inference_parameters.
-        provider: Optional model provider name if using custom providers.
+        provider: Name of the model provider. Required in a future release. Leaving
+            ``provider`` unset (or ``None``) currently routes through the registry's
+            implicit default and is **deprecated**; specify ``provider=`` explicitly.
+            See issue #589.
         skip_health_check: Whether to skip the health check for this model. Defaults to False.
     """
 
@@ -534,6 +538,22 @@ class ModelConfig(ConfigBase):
             else:
                 return ChatCompletionInferenceParams(**value)
         return value
+
+    @model_validator(mode="after")
+    def _warn_on_implicit_provider(self) -> Self:
+        if self.provider is None:
+            # Use ``warn_at_caller`` so the warning is attributed to the user's
+            # ``ModelConfig(...)`` / ``model_validate(...)`` call rather than a
+            # pydantic-internal frame. Without this, every call dedupes to the
+            # same pydantic line and only the first emission is shown. See
+            # PR #594 review.
+            warn_at_caller(
+                f"ModelConfig.provider=None is deprecated and will be required in a future release. "
+                f"Specify provider= explicitly on ModelConfig(alias={self.alias!r}, ...). "
+                "See issue #589.",
+                DeprecationWarning,
+            )
+        return self
 
 
 class ModelProvider(ConfigBase):

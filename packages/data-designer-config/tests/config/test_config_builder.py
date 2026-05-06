@@ -868,6 +868,7 @@ def test_add_model_config(stub_empty_builder):
     new_model_config = ModelConfig(
         alias="new-model",
         model="openai/gpt-4",
+        provider="openai",
         inference_parameters=ChatCompletionInferenceParams(
             temperature=0.7,
             top_p=0.95,
@@ -915,6 +916,7 @@ def test_add_model_config_duplicate_alias(stub_empty_builder):
     duplicate_model_config = ModelConfig(
         alias="stub-model",
         model="different/model",
+        provider="some-provider",
         inference_parameters=ChatCompletionInferenceParams(temperature=0.5),
     )
 
@@ -931,11 +933,13 @@ def test_delete_model_config(stub_empty_builder):
     model_config_1 = ModelConfig(
         alias="model-to-delete",
         model="model/delete",
+        provider="some-provider",
         inference_parameters=ChatCompletionInferenceParams(temperature=0.5),
     )
     model_config_2 = ModelConfig(
         alias="model-to-keep",
         model="model/keep",
+        provider="some-provider",
         inference_parameters=ChatCompletionInferenceParams(temperature=0.6),
     )
     stub_empty_builder.add_model_config(model_config_1)
