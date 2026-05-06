@@ -586,29 +586,30 @@ class DatasetBuilder:
         settings = self._resource_provider.run_config
         trace_enabled = _is_async_trace_enabled(settings)
 
-        skip_row_groups: frozenset[int] = frozenset()
+        precomputed_row_groups: list[tuple[int, int]] | None = None
         initial_actual_num_records = 0
         initial_total_num_batches = 0
 
         if resume == ResumeMode.ALWAYS:
             state = self._load_resume_state(num_records, buffer_size)
             completed_ids = self._find_completed_row_group_ids()
-            skip_row_groups = frozenset(completed_ids)
             # Use filesystem as source of truth for both counters — metadata may lag by one
             # row group if a crash occurred between move_partial_result_to_final_file_path
             # and write_metadata.
             # Use the original target (not the new num_records) so the last row group of a
             # non-aligned run gets its true size, not buffer_size.
             initial_total_num_batches = len(completed_ids)
-            initial_actual_num_records = sum(
-                min(
-                    buffer_size,
-                    state.target_num_records - rg_id * buffer_size
-                    if rg_id * buffer_size < state.target_num_records
-                    else num_records - rg_id * buffer_size,
-                )
-                for rg_id in completed_ids
-            )
+            original_target = state.target_num_records
+
+            num_original_groups = -(-original_target // buffer_size)  # ceil(original_target/buffer_size)
+
+            def _rg_size(rg_id: int) -> int:
+                if rg_id < num_original_groups:
+                    return min(buffer_size, original_target - rg_id * buffer_size)
+                ext_group_idx = rg_id - num_original_groups
+                return min(buffer_size, (num_records - original_target) - ext_group_idx * buffer_size)
+
+            initial_actual_num_records = sum(_rg_size(rg_id) for rg_id in completed_ids)
             self.artifact_storage.clear_partial_results()
 
             total_row_groups = -(-num_records // buffer_size)  # ceiling division
@@ -623,6 +624,13 @@ class DatasetBuilder:
                 f"▶️ Resuming async run: {len(completed_ids)} of {total_row_groups} row group(s) already "
                 f"complete ({initial_actual_num_records} records), skipping them."
             )
+
+            # Pre-compute the full row-group list with correct per-group sizes so that
+            # non-aligned skipped groups deduct their actual on-disk record count rather
+            # than buffer_size, keeping extension group sizes accurate.
+            precomputed_row_groups = [
+                (rg_id, _rg_size(rg_id)) for rg_id in range(total_row_groups) if rg_id not in completed_ids
+            ]
 
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
@@ -642,7 +650,7 @@ class DatasetBuilder:
             shutdown_error_window=settings.shutdown_error_window,
             disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
-            skip_row_groups=skip_row_groups,
+            precomputed_row_groups=precomputed_row_groups,
             initial_actual_num_records=initial_actual_num_records,
             initial_total_num_batches=initial_total_num_batches,
         )
@@ -707,7 +715,7 @@ class DatasetBuilder:
         shutdown_error_window: int = 10,
         disable_early_shutdown: bool = False,
         trace: bool = False,
-        skip_row_groups: frozenset[int] = frozenset(),
+        precomputed_row_groups: list[tuple[int, int]] | None = None,
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
@@ -732,16 +740,17 @@ class DatasetBuilder:
         for gen in generators:
             gen.log_pre_generation()
 
-        # Partition into row groups, skipping any already completed on resume.
-        row_groups: list[tuple[int, int]] = []
-        remaining = num_records
-        rg_id = 0
-        while remaining > 0:
-            size = min(buffer_size, remaining)
-            if rg_id not in skip_row_groups:
+        if precomputed_row_groups is not None:
+            row_groups = precomputed_row_groups
+        else:
+            row_groups = []
+            remaining = num_records
+            rg_id = 0
+            while remaining > 0:
+                size = min(buffer_size, remaining)
                 row_groups.append((rg_id, size))
-            remaining -= size
-            rg_id += 1
+                remaining -= size
+                rg_id += 1
 
         tracker = CompletionTracker.with_graph(graph, row_groups)
         buffer_manager = RowGroupBufferManager(

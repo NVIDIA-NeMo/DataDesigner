@@ -1841,10 +1841,11 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
 def test_build_async_resume_skip_row_groups_contains_completed_ids(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
-    """skip_row_groups passed to _prepare_async_run contains exactly the completed row group IDs.
+    """precomputed_row_groups passed to _prepare_async_run excludes already-completed row groups.
 
-    Verifies the set-based skip mechanism so the scheduler never re-generates a row group
-    that already has a parquet file on disk.
+    Verifies the skip mechanism so the scheduler never re-generates a row group that
+    already has a parquet file on disk.  6 records, buffer_size=2 → 3 row groups total;
+    row groups 0 and 2 already on disk → only row group 1 should be scheduled.
     """
     import asyncio as stdlib_asyncio
 
@@ -1858,7 +1859,7 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
     captured: dict = {}
 
     def capturing_prepare(*args, **kwargs):
-        captured["skip_row_groups"] = kwargs.get("skip_row_groups", frozenset())
+        captured["precomputed_row_groups"] = kwargs.get("precomputed_row_groups")
         mock_scheduler = Mock()
         mock_scheduler.traces = []
         mock_buffer_manager = Mock()
@@ -1876,7 +1877,53 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
                             builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
-    assert captured["skip_row_groups"] == frozenset({0, 2})
+    # Only rg_id=1 remains; rg_id=0 and rg_id=2 are already on disk
+    assert captured["precomputed_row_groups"] == [(1, 2)]
+
+
+def test_build_async_resume_extension_non_aligned_row_group_sizes(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Extension row groups get the correct size when the original run was non-aligned.
+
+    Original run: num_records=5, buffer_size=2 → row groups [2, 2, 1], all completed.
+    Extending to num_records=7: the loop previously deducted 2 for rg_id=2 (instead of 1),
+    leaving remaining=1 so rg_id=3 received size 1 instead of 2.  7 records were never
+    generated; only 6 reached the dataset and a false partial-completion warning fired.
+
+    After the fix, precomputed_row_groups must be [(3, 2)], not [(3, 1)].
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["precomputed_row_groups"] = kwargs.get("precomputed_row_groups")
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 7
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+
+    # rg_id=3 should have 2 records (7-5=2 extension records, buffer_size=2), not 1
+    assert captured["precomputed_row_groups"] == [(3, 2)]
 
 
 def test_if_possible_incompatible_config_does_not_overwrite_existing_dataset(
