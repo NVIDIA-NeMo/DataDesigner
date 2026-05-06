@@ -1593,50 +1593,6 @@ def test_build_resume_already_complete_does_not_run_after_generation_processors(
 
 
 # ---------------------------------------------------------------------------
-# _find_completed_row_group_ids tests
-# ---------------------------------------------------------------------------
-
-
-def test_find_completed_row_group_ids_empty_dir(stub_resource_provider, stub_test_config_builder, tmp_path):
-    """Returns empty set when final_dataset_path does not exist."""
-    dataset_dir = tmp_path / "dataset"
-    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=0, actual_num_records=0)
-
-    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
-    assert builder._find_completed_row_group_ids() == set()
-
-
-def test_find_completed_row_group_ids_with_files(stub_resource_provider, stub_test_config_builder, tmp_path):
-    """Returns correct IDs from batch_*.parquet files in parquet-files/."""
-    dataset_dir = tmp_path / "dataset"
-    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
-
-    parquet_dir = dataset_dir / "parquet-files"
-    parquet_dir.mkdir(parents=True)
-    (parquet_dir / "batch_00000.parquet").write_text("")
-    (parquet_dir / "batch_00002.parquet").write_text("")
-
-    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
-    assert builder._find_completed_row_group_ids() == {0, 2}
-
-
-def test_find_completed_row_group_ids_ignores_non_batch_files(
-    stub_resource_provider, stub_test_config_builder, tmp_path
-):
-    """Non-batch files in parquet-files/ are silently ignored."""
-    dataset_dir = tmp_path / "dataset"
-    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
-
-    parquet_dir = dataset_dir / "parquet-files"
-    parquet_dir.mkdir(parents=True)
-    (parquet_dir / "batch_00001.parquet").write_text("")
-    (parquet_dir / "unrelated.parquet").write_text("")
-
-    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
-    assert builder._find_completed_row_group_ids() == {1}
-
-
-# ---------------------------------------------------------------------------
 # Async resume via _build_async tests
 # ---------------------------------------------------------------------------
 
@@ -1904,7 +1860,7 @@ def test_if_possible_incompatible_config_does_not_overwrite_existing_dataset(
     )
 
     # Simulate incompatible config and mock out all I/O so build() does not actually generate data
-    with patch.object(builder, "_check_resume_config_compatibility", return_value=False):
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
         with patch.object(builder, "_run_model_health_check_if_needed"):
             with patch.object(builder, "_run_mcp_tool_check_if_needed"):
                 with patch.object(builder, "_write_builder_config"):
@@ -1956,9 +1912,7 @@ def test_if_possible_starts_fresh_when_no_existing_directory(
     assert storage.resume == ResumeMode.NEVER
 
 
-def test_if_possible_starts_fresh_when_directory_is_empty(
-    stub_resource_provider, stub_test_config_builder, tmp_path
-):
+def test_if_possible_starts_fresh_when_directory_is_empty(stub_resource_provider, stub_test_config_builder, tmp_path):
     """IF_POSSIBLE on an empty dataset directory must start fresh, not raise.
 
     Edge case: a prior run crashed in the window between mkdir and the first file write

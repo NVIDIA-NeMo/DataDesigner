@@ -7,7 +7,7 @@ import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
-from data_designer.interface.results import SUPPORTED_EXPORT_FORMATS
+from data_designer.engine.storage.artifact_storage import ResumeMode
 
 
 def create_command(
@@ -36,15 +36,17 @@ def create_command(
         "-o",
         help="Path where generated artifacts will be stored. Defaults to ./artifacts.",
     ),
-    output_format: str | None = typer.Option(
-        None,
-        "--output-format",
-        "-f",
+    resume: ResumeMode = typer.Option(
+        ResumeMode.NEVER,
+        "--resume",
+        "-r",
         help=(
-            f"Export the dataset to a single file after generation. "
-            f"Supported formats: {', '.join(SUPPORTED_EXPORT_FORMATS)}. "
-            "The file is written to <artifact-path>/<dataset-name>/dataset.<format>."
+            "Resume an interrupted generation run. "
+            "'never' (default): always start fresh. "
+            "'always': resume from the last checkpoint; raise if config changed. "
+            "'if_possible': resume if config matches, otherwise start fresh silently."
         ),
+        case_sensitive=False,
     ),
 ) -> None:
     """Create a full dataset and save results to disk.
@@ -59,8 +61,11 @@ def create_command(
         # Create with custom settings
         data-designer create my_config.yaml --num-records 1000 --dataset-name my_dataset
 
-        # Create from a remote config URL
-        data-designer create https://example.com/my_config.json --dataset-name my_dataset
+        # Resume an interrupted run
+        data-designer create my_config.yaml --resume always
+
+        # Resume if config unchanged, otherwise start fresh
+        data-designer create my_config.yaml --resume if_possible
 
         # Create from a Python module with custom output path
         data-designer create my_config.py --artifact-path /path/to/output
@@ -71,5 +76,5 @@ def create_command(
         num_records=num_records,
         dataset_name=dataset_name,
         artifact_path=artifact_path,
-        output_format=output_format,
+        resume=resume,
     )

@@ -224,10 +224,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
                 - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
                 - ``ResumeMode.ALWAYS``: resume from the last completed batch (sync) or row group
-                  (async) found in the existing dataset directory. ``num_records`` may be equal to
-                  or greater than the number already generated (you can extend the dataset). The
-                  ``buffer_size`` must match the original run. If no prior progress exists or the
-                  run is incompatible, an error is raised.
+                  (async). ``buffer_size`` must match the original run. ``num_records`` may be
+                  equal to or greater than what was already generated (you can extend the dataset);
+                  ``num_records`` less than actual records so far raises ``DatasetGenerationError``.
+                  If no checkpoint exists yet (interrupted before the first batch finished), silently
+                  restarts from the beginning. Raises if the stored config is incompatible.
                 - ``ResumeMode.IF_POSSIBLE``: like ``ALWAYS`` when the current config fingerprint
                   matches the stored config; otherwise starts a fresh run without raising an error.
 

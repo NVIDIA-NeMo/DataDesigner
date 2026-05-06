@@ -16,6 +16,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from pydantic import ValidationError
+
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
@@ -228,9 +230,11 @@ class DatasetBuilder:
 
                 - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
                 - ``ResumeMode.ALWAYS``: resume from the last completed batch (sync) or row group
-                  (async) found in the existing artifact directory. Raises if no prior progress
-                  exists or if the run parameters (buffer_size) are incompatible. ``num_records``
-                  may be equal to or greater than the number already generated.
+                  (async). ``buffer_size`` must match the original run. ``num_records`` may be
+                  equal to or greater than what was already generated (you can extend the dataset);
+                  ``num_records`` less than actual records so far raises ``DatasetGenerationError``.
+                  If no checkpoint exists yet (interrupted before the first batch finished), silently
+                  restarts from the beginning. Raises if the stored config is incompatible.
                 - ``ResumeMode.IF_POSSIBLE``: like ``ALWAYS`` when the current config fingerprint
                   matches the stored config; otherwise starts a fresh run without raising an error.
 
@@ -297,6 +301,7 @@ class DatasetBuilder:
             )
             self.artifact_storage.clear_partial_results()
             resume = ResumeMode.NEVER
+            self.artifact_storage.resume = ResumeMode.NEVER
 
         generated = True
         self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
@@ -390,7 +395,7 @@ class DatasetBuilder:
         if state.num_completed_batches >= self.batch_manager.num_batches:
             logger.warning(
                 "⚠️ Dataset is already complete — all batches were found in the existing artifact directory. "
-                "Nothing to resume. Remove resume=True if you want to generate a new dataset."
+                "Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
             )
             return False
 
@@ -533,6 +538,10 @@ class DatasetBuilder:
             return _ConfigCompatibility.NO_PRIOR_DATASET
         config_path = dataset_dir / SDG_CONFIG_FILENAME
         if not config_path.exists():
+            logger.warning(
+                "⚠️ No builder_config.json found in %s — skipping config compatibility check on resume.",
+                dataset_dir,
+            )
             return _ConfigCompatibility.COMPATIBLE
         try:
             stored_data = json.loads(config_path.read_text())
@@ -540,7 +549,7 @@ class DatasetBuilder:
             current_fp = self._data_designer_config.fingerprint()["config_hash"]
             stored_fp = stored_config.data_designer.fingerprint()["config_hash"]
             return _ConfigCompatibility.COMPATIBLE if current_fp == stored_fp else _ConfigCompatibility.INCOMPATIBLE
-        except Exception:
+        except (OSError, json.JSONDecodeError, ValidationError):
             logger.warning(
                 "⚠️ Could not read stored config at %s for compatibility check — assuming compatible.",
                 config_path,
@@ -590,7 +599,7 @@ class DatasetBuilder:
             if len(completed_ids) >= total_row_groups:
                 logger.warning(
                     "⚠️ Dataset is already complete — all row groups were found in the existing artifact "
-                    "directory. Nothing to resume. Remove resume=True if you want to generate a new dataset."
+                    "directory. Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
                 )
                 return False
 

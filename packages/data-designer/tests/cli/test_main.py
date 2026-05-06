@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from data_designer.cli.main import app, main
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+from data_designer.engine.storage.artifact_storage import ResumeMode
 
 runner = CliRunner()
 
@@ -84,5 +85,5 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
-        output_format=None,
+        resume=ResumeMode.NEVER,
     )
