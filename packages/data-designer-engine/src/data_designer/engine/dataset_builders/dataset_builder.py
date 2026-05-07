@@ -385,11 +385,22 @@ class DatasetBuilder:
         """
         state = self._load_resume_state(num_records, buffer_size)
 
+        # Compute the correct per-batch sizes. ceil(num_records/bs) is wrong for a
+        # non-aligned extension: original groups are immutable, so any extension always
+        # adds new groups beyond num_original_batches.
+        original_target = state.target_num_records
+        num_original_batches = -(-original_target // buffer_size)
+        extension_records = num_records - original_target
+        num_extension_batches = -(-extension_records // buffer_size)
+        original_sizes = [min(buffer_size, original_target - i * buffer_size) for i in range(num_original_batches)]
+        extension_sizes = [min(buffer_size, extension_records - i * buffer_size) for i in range(num_extension_batches)]
+
         self.batch_manager.start(
             num_records=num_records,
             buffer_size=buffer_size,
             start_batch=state.num_completed_batches,
             initial_actual_num_records=state.actual_num_records,
+            num_records_list=original_sizes + extension_sizes,
         )
 
         if state.num_completed_batches >= self.batch_manager.num_batches:
@@ -612,7 +623,11 @@ class DatasetBuilder:
             initial_actual_num_records = sum(_rg_size(rg_id) for rg_id in completed_ids)
             self.artifact_storage.clear_partial_results()
 
-            total_row_groups = -(-num_records // buffer_size)  # ceiling division
+            # Original groups are immutable; any extension always needs new groups beyond
+            # num_original_groups — ceil(num_records/bs) gives the wrong count when the
+            # original run was non-aligned and the extension fits in the last group's slack.
+            extension_records = num_records - original_target
+            total_row_groups = num_original_groups + -(-extension_records // buffer_size)
             if len(completed_ids) >= total_row_groups:
                 logger.warning(
                     "⚠️ Dataset is already complete — all row groups were found in the existing artifact "

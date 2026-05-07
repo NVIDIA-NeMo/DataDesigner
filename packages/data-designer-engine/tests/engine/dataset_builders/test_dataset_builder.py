@@ -1592,6 +1592,29 @@ def test_build_resume_already_complete_does_not_run_after_generation_processors(
     mock_after.assert_not_called()
 
 
+def test_build_resume_not_already_complete_when_extension_fits_in_slack(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Non-aligned extension fitting in the last group's slack must not falsely trigger 'already complete'.
+
+    original_target=5, buffer_size=2 → 3 batches [2,2,1]; extending to num_records=6:
+    ceil(6/2)=3 == num_completed_batches=3 used to trigger the false 'already complete' branch.
+    Correct total_batches = 3 + ceil(1/2) = 4, so batch 3 (1 record) must be scheduled.
+    """
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    with patch.object(builder, "_run_batch") as mock_run_batch:
+        with patch.object(builder.batch_manager, "finish"):
+            with patch.object(builder, "_run_model_health_check_if_needed"):
+                builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    mock_run_batch.assert_called_once()
+    assert mock_run_batch.call_args.kwargs["current_batch_number"] == 3
+
+
 # ---------------------------------------------------------------------------
 # Async resume via _build_async tests
 # ---------------------------------------------------------------------------
@@ -1924,6 +1947,45 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
 
     # rg_id=3 should have 2 records (7-5=2 extension records, buffer_size=2), not 1
     assert captured["precomputed_row_groups"] == [(3, 2)]
+
+
+def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Non-aligned extension fitting in the last group's slack must not falsely trigger 'already complete'.
+
+    original_target=5, buffer_size=2 → 3 row groups; extending to num_records=6:
+    ceil(6/2)=3 == len(completed_ids)=3 used to trigger the false 'already complete' branch.
+    Correct total_row_groups = 3 + ceil(1/2) = 4, so _prepare_async_run must be called.
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    def capturing_prepare(*args, **kwargs):
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 6
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare:
+                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    # _prepare_async_run must be called — the dataset is NOT already complete
+    mock_prepare.assert_called_once()
 
 
 def test_if_possible_incompatible_config_does_not_overwrite_existing_dataset(

@@ -165,6 +165,7 @@ class DatasetBatchManager:
         buffer_size: int,
         start_batch: int = 0,
         initial_actual_num_records: int = 0,
+        num_records_list: list[int] | None = None,
     ) -> None:
         if num_records <= 0:
             raise DatasetBatchManagementError("🛑 num_records must be positive.")
@@ -172,9 +173,12 @@ class DatasetBatchManager:
             raise DatasetBatchManagementError("🛑 buffer_size must be positive.")
 
         self._buffer_size = buffer_size
-        self._num_records_list = [buffer_size] * (num_records // buffer_size)
-        if remaining_records := num_records % buffer_size:
-            self._num_records_list.append(remaining_records)
+        if num_records_list is not None:
+            self._num_records_list = list(num_records_list)
+        else:
+            self._num_records_list = [buffer_size] * (num_records // buffer_size)
+            if remaining_records := num_records % buffer_size:
+                self._num_records_list.append(remaining_records)
         self.reset()
         self._current_batch_number = start_batch
         self._actual_num_records = initial_actual_num_records
