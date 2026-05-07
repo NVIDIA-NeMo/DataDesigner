@@ -69,8 +69,12 @@ jobs:
         suite: ${{ fromJSON(needs.determine-suite.outputs.suites) }}
 
     concurrency:
+      # cancel-in-progress is intentionally false: a cancellation between
+      # the agent's git push and gh pr create would leave an orphaned
+      # branch with no attempted_fixes record. Queueing a duplicate run is
+      # the lesser evil. See _fix-policy.md "Atomicity".
       group: agentic-ci-daily-${{ matrix.suite }}
-      cancel-in-progress: true
+      cancel-in-progress: false
 
     steps:
       - name: Check required config
@@ -240,6 +244,166 @@ jobs:
             --verbose \
             2>&1 | tee /tmp/claude-fix-log.txt
 
+      - name: Validate fix scope (allowlist + LOC + file cap)
+        # Workflow-level enforcement of the localized-fix bar from
+        # _fix-policy.md. Recipe instructions alone cannot bind the agent;
+        # this gate re-derives the diff and closes the PR if the agent
+        # escaped the allowlist or the LOC/file caps.
+        # Note: the docstring-only constraint on docs-and-references .py
+        # paths remains policy-level; AST-based enforcement is a follow-up.
+        id: scope_gate
+        if: steps.fix.outcome == 'success'
+        env:
+          SUITE: ${{ matrix.suite }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+
+          OPEN=$(jq -c '
+            .attempted_fixes // []
+            | map(select((.attempts | last | .outcome) == "open"))
+            | last // empty
+          ' .agentic-ci-state/runner-state.json)
+          if [ -z "$OPEN" ] || [ "$OPEN" = "null" ]; then
+            echo "No open attempted_fix recorded; nothing to validate."
+            exit 0
+          fi
+
+          BRANCH=$(echo "$OPEN" | jq -r '.attempts | last | .branch // empty')
+          PR_NUMBER=$(echo "$OPEN" | jq -r '.attempts | last | .pr_number // empty')
+          FINDING_ID=$(echo "$OPEN" | jq -r '.id')
+          if [ -z "$BRANCH" ]; then
+            echo "::warning::Open attempt has no branch; skipping gate."
+            exit 0
+          fi
+
+          case "$SUITE" in
+            docs-and-references)
+              ALLOW='^(architecture/|docs/|README\.md$|CONTRIBUTING\.md$|DEVELOPMENT\.md$|STYLEGUIDE\.md$|packages/[^/]+/src/.*\.py$)'
+              ;;
+            dependencies)
+              ALLOW='^packages/[^/]+/pyproject\.toml$'
+              ;;
+            structure|code-quality)
+              ALLOW='^packages/[^/]+/src/.*\.py$'
+              ;;
+            *)
+              echo "::error::No allowlist defined for suite: $SUITE"
+              exit 1
+              ;;
+          esac
+
+          FILES=$(git diff --name-only origin/main...HEAD)
+          BAD=$(printf '%s\n' "$FILES" | grep -vE "$ALLOW" | grep -v '^$' || true)
+          FILE_COUNT=$(printf '%s\n' "$FILES" | grep -c '.' || echo 0)
+          LOC_DELTA=$(git diff --shortstat origin/main...HEAD \
+            | awk '{ a=0; d=0; for (i=1;i<=NF;i++) { if ($i ~ /insertion/) a=$(i-1); if ($i ~ /deletion/) d=$(i-1) } print a+d }')
+          : "${LOC_DELTA:=0}"
+
+          REASONS=""
+          if [ -n "$BAD" ]; then
+            REASONS="${REASONS}- files outside allowlist:\n$(echo "$BAD" | sed 's/^/  - /')\n"
+          fi
+          if [ "$FILE_COUNT" -gt 3 ]; then
+            REASONS="${REASONS}- file count ($FILE_COUNT) exceeds 3-file cap\n"
+          fi
+          if [ "$LOC_DELTA" -gt 50 ]; then
+            REASONS="${REASONS}- LOC delta ($LOC_DELTA) exceeds 50-line cap\n"
+          fi
+
+          if [ -z "$REASONS" ]; then
+            echo "Scope gate passed: ${FILE_COUNT} file(s), ${LOC_DELTA} LOC, all within allowlist."
+            exit 0
+          fi
+
+          echo "::error::Scope gate violation"
+          printf '%b' "$REASONS"
+
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            MSG=$(printf 'Closed by workflow scope gate. The pushed diff violated the localized-fix bar (see `.agents/recipes/_fix-policy.md`):\n\n%b\nThe `attempted_fixes` entry has been flipped to `abandoned`.' "$REASONS")
+            gh pr close "$PR_NUMBER" --comment "$MSG" --delete-branch || \
+              echo "::warning::gh pr close failed; branch may need manual cleanup"
+          else
+            git push origin --delete "$BRANCH" || \
+              echo "::warning::Could not delete remote branch $BRANCH"
+          fi
+
+          FINDING_ID="$FINDING_ID" python3 -c "
+          import json, os
+          finding_id = os.environ['FINDING_ID']
+          with open('.agentic-ci-state/runner-state.json') as f:
+              state = json.load(f)
+          for entry in state.get('attempted_fixes', []):
+              if entry.get('id') != finding_id:
+                  continue
+              attempts = entry.get('attempts') or []
+              if attempts and attempts[-1].get('outcome') == 'open':
+                  attempts[-1]['outcome'] = 'abandoned'
+                  attempts[-1]['gate_violation'] = True
+          with open('.agentic-ci-state/runner-state.json', 'w') as f:
+              json.dump(state, f, indent=2)
+          "
+
+          exit 1
+
+      - name: Verify dependencies lockfile
+        # Dependencies suite only: re-run make install-dev against the
+        # agent's pyproject.toml changes. This catches the failure mode
+        # where the per-package test target passed against the *old*
+        # lockfile but the proposed dep does not actually resolve.
+        if: matrix.suite == 'dependencies' && steps.fix.outcome == 'success' && steps.scope_gate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+
+          OPEN=$(jq -c '
+            .attempted_fixes // []
+            | map(select((.attempts | last | .outcome) == "open"))
+            | last // empty
+          ' .agentic-ci-state/runner-state.json)
+          if [ -z "$OPEN" ] || [ "$OPEN" = "null" ]; then
+            echo "No open attempted_fix; skipping lockfile verification."
+            exit 0
+          fi
+
+          PR_NUMBER=$(echo "$OPEN" | jq -r '.attempts | last | .pr_number // empty')
+          BRANCH=$(echo "$OPEN" | jq -r '.attempts | last | .branch // empty')
+          FINDING_ID=$(echo "$OPEN" | jq -r '.id')
+
+          if make install-dev 2>&1 | tee /tmp/install-dev-verify.log; then
+            echo "Lockfile resolves cleanly against the agent's pyproject changes."
+            exit 0
+          fi
+
+          echo "::error::make install-dev failed against the agent's pyproject changes"
+
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            MSG="Closed by workflow lockfile verification. \`make install-dev\` failed against the agent's \`pyproject.toml\` changes — the dependency edit does not resolve cleanly. See \`/tmp/install-dev-verify.log\` in the workflow artifact."
+            gh pr close "$PR_NUMBER" --comment "$MSG" --delete-branch || \
+              echo "::warning::gh pr close failed"
+          else
+            git push origin --delete "$BRANCH" || true
+          fi
+
+          FINDING_ID="$FINDING_ID" python3 -c "
+          import json, os
+          finding_id = os.environ['FINDING_ID']
+          with open('.agentic-ci-state/runner-state.json') as f:
+              state = json.load(f)
+          for entry in state.get('attempted_fixes', []):
+              if entry.get('id') != finding_id:
+                  continue
+              attempts = entry.get('attempts') or []
+              if attempts and attempts[-1].get('outcome') == 'open':
+                  attempts[-1]['outcome'] = 'abandoned'
+                  attempts[-1]['lockfile_verification_failed'] = True
+          with open('.agentic-ci-state/runner-state.json', 'w') as f:
+              json.dump(state, f, indent=2)
+          "
+
+          exit 1
+
       - name: Update runner memory
         if: always()
         env:
@@ -266,7 +430,10 @@ jobs:
           "
 
       - name: Upload agent log
-        if: failure()
+        # Always upload: for autonomous PR generation, the most interesting
+        # failure mode is "the workflow succeeded but the PR was wrong".
+        # The full event stream is the only way to look back days later.
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: claude-audit-log-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -275,6 +442,8 @@ jobs:
             /tmp/claude-fix-log.txt
             /tmp/audit-${{ matrix.suite }}.md
             /tmp/pr-body-${{ matrix.suite }}.md
+            /tmp/install-dev-verify.log
+            .agentic-ci-state/runner-state.json
           retention-days: 14
           if-no-files-found: ignore
 

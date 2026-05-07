@@ -222,7 +222,9 @@ to the next candidate.
 - **Labels**: `agentic-ci`, `agentic-ci/<suite>`.
 - **Draft PRs**: `code-quality` opens draft until a maintainer flips
   `draft_until_proven` to `false` in runner-state, after at least two
-  non-draft PRs from that suite have landed clean.
+  non-draft PRs from that suite have landed clean. This flip is
+  intentionally manual — it is the sole human-gated promotion step in
+  the fix policy and must not be automated.
 
 ## Atomicity
 
@@ -234,3 +236,22 @@ Each fix-phase invocation produces exactly one of:
 
 No half-states. The runner state is the source of truth for what the
 recipe has tried; never silently drop a failed attempt.
+
+The matrix-level concurrency for the daily workflow uses
+`cancel-in-progress: false` so a fix in flight cannot be cancelled
+between push and PR open. The trade-off is a queued duplicate run if a
+manual dispatch arrives while cron is still going; that's preferable to
+orphaned branches with no `attempted_fixes` record.
+
+## Workflow-level scope gate
+
+The agent's compliance with the path allowlists and the localized-fix
+bar is load-bearing for autonomous PR generation, but the recipe alone
+cannot enforce them. The daily workflow runs a post-fix scope gate that
+re-derives the per-suite allowlist (mirrored from the table above) and
+the diff stats from the pushed branch, then closes the PR and deletes
+the remote branch on violation. The gate also flips the
+`attempted_fixes` entry from `open` to `abandoned` so two-strike logic
+sees the failure. Keep the workflow's allowlist regexes in sync with the
+table above; the workflow is the enforcement, the table is the
+specification.
