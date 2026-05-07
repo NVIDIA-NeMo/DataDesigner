@@ -122,7 +122,7 @@ class _AsyncBridgedModelFacade:
 class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
     """Column generator that uses a user-provided callable function.
 
-    Supports two strategies based on config.strategy:
+    Supports two strategies based on config.generation_strategy:
         - cell_by_cell: Processes rows one at a time (dict -> dict), parallelized by framework.
         - full_column: Processes entire batch (DataFrame -> DataFrame) for vectorized ops.
 

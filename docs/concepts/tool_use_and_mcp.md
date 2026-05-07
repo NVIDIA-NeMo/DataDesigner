@@ -66,4 +66,4 @@ See the [PDF Q&A Recipe](../recipes/mcp_and_tooluse/pdf_qa.md) for a complete wo
 
 ## Code Reference
 
-For internal architecture and API documentation, see [MCP Code Reference](../code_reference/mcp.md).
+For config objects, see [MCP Configuration Reference](../code_reference/config/mcp.md). For runtime internals, see [Engine MCP Reference](../code_reference/engine/mcp.md).

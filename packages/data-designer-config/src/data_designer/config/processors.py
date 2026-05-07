@@ -45,7 +45,7 @@ class DropColumnsProcessorConfig(ProcessorConfig):
     """Drop columns from the output dataset (prefer ``drop=True`` in the column config).
 
     This processor removes specified columns from the generated dataset. The dropped
-    columns are saved separately in a `dropped-columns` directory for reference.
+    columns are saved separately in the `dropped-columns-parquet-files` directory for reference.
     When this processor is added via the config builder, the corresponding column
     configs are automatically marked with `drop = True`.
 
@@ -66,7 +66,7 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
     This processor creates a new dataset with a transformed schema. Each key in the
     template becomes a column in the output, and values are Jinja2 templates that
     can reference any column in the batch. The transformed dataset is written to
-    a `processors-outputs/{processor_name}/` directory alongside the main dataset.
+    a `processors-files/{processor_name}/` directory alongside the main dataset.
 
     Attributes:
         template (required): Dictionary defining the output schema. Keys are new column names,

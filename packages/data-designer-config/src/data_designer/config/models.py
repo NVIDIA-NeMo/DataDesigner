@@ -285,7 +285,7 @@ class BaseInferenceParams(ConfigBase, ABC):
     """Base configuration for inference parameters.
 
     Attributes:
-        generation_type: Type of generation (chat-completion or embedding). Acts as discriminator.
+        generation_type: Type of generation (chat-completion, embedding, or image). Acts as discriminator.
         max_parallel_requests: Maximum number of parallel requests to the model API.
         timeout: Timeout in seconds for each request.
         extra_body: Additional parameters to pass to the model API.

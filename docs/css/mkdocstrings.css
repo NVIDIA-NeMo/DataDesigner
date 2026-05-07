@@ -78,3 +78,55 @@ div.doc-contents:not(.first) {
   .doc-symbol-toc.doc-symbol-method::after {
     content: "method";
   }
+
+  /* Keep API section tables readable when Python type annotations are long. */
+  div.doc-contents:has(table:has(thead th:nth-child(3))) {
+    overflow-x: auto;
+  }
+
+  div.doc-contents table:has(thead th:nth-child(3)) {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 42rem;
+  }
+
+  div.doc-contents table:has(thead th:nth-child(3)) td {
+    vertical-align: top;
+  }
+
+  div.doc-contents table:has(thead th:nth-child(3)) code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  /* Attributes: Name, Type, Description. */
+  div.doc-contents table:has(thead th:nth-child(3)):not(:has(thead th:nth-child(4))) th:nth-child(1),
+  div.doc-contents table:has(thead th:nth-child(3)):not(:has(thead th:nth-child(4))) td:nth-child(1) {
+    width: clamp(9rem, 18%, 12rem);
+  }
+
+  div.doc-contents table:has(thead th:nth-child(3)):not(:has(thead th:nth-child(4))) th:nth-child(2),
+  div.doc-contents table:has(thead th:nth-child(3)):not(:has(thead th:nth-child(4))) td:nth-child(2) {
+    width: clamp(16rem, 38%, 34rem);
+  }
+
+  /* Parameters: Name, Type, Description, Default. */
+  div.doc-contents table:has(thead th:nth-child(4)) {
+    min-width: 54rem;
+  }
+
+  div.doc-contents table:has(thead th:nth-child(4)) th:nth-child(1),
+  div.doc-contents table:has(thead th:nth-child(4)) td:nth-child(1) {
+    width: clamp(9rem, 16%, 11rem);
+  }
+
+  div.doc-contents table:has(thead th:nth-child(4)) th:nth-child(2),
+  div.doc-contents table:has(thead th:nth-child(4)) td:nth-child(2) {
+    width: clamp(16rem, 32%, 28rem);
+  }
+
+  div.doc-contents table:has(thead th:nth-child(4)) th:nth-child(4),
+  div.doc-contents table:has(thead th:nth-child(4)) td:nth-child(4) {
+    width: clamp(5rem, 9%, 7rem);
+  }
