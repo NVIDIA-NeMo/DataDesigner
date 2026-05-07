@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from data_designer.cli.repositories.plugin_tap_repository import PluginTapRepository
 from data_designer.cli.services.plugin_catalog_service import PluginCatalogService
 from data_designer.plugins.plugin import PluginType
@@ -23,30 +25,25 @@ def test_list_entries_filters_incompatible_plugins_by_default(tmp_path: Path) ->
         "compatible-plugin",
         "shared-column",
         "shared-processor",
-        "versioned-plugin",
-        "versioned-plugin",
     ]
     assert [entry.name for entry in all_entries] == [
         "compatible-plugin",
         "future-plugin",
         "shared-column",
         "shared-processor",
-        "versioned-plugin",
-        "versioned-plugin",
-        "versioned-plugin",
     ]
 
 
-def test_search_entries_matches_name_type_package_and_tags(tmp_path: Path) -> None:
+def test_search_entries_matches_name_type_package_and_docs(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
 
     name_matches = service.search_entries("compatible", "local")
-    tag_matches = service.search_entries("github", "local")
+    package_matches = service.search_entries("shared-package", "local")
     type_matches = service.search_entries("seed-reader", "local")
 
     assert [entry.name for entry in name_matches] == ["compatible-plugin"]
-    assert [entry.name for entry in tag_matches] == ["compatible-plugin"]
+    assert [entry.name for entry in package_matches] == ["shared-column", "shared-processor"]
     assert [entry.name for entry in type_matches] == ["compatible-plugin"]
 
 
@@ -76,15 +73,12 @@ def test_evaluate_compatibility_accepts_local_dev_version_above_lower_bound(tmp_
     assert result.reasons == []
 
 
-def test_get_entry_returns_newest_compatible_version(tmp_path: Path) -> None:
+def test_get_entry_rejects_incompatible_plugin_when_requested(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
 
-    entry = service.get_entry("versioned-plugin", "local", include_incompatible=False)
-    newest_entry = service.get_entry("versioned-plugin", "local", include_incompatible=True)
-
-    assert entry.package.version == "0.2.0"
-    assert newest_entry.package.version == "99.0.0"
+    with pytest.raises(ValueError, match="no compatible version"):
+        service.get_entry("future-plugin", "local", include_incompatible=False)
 
 
 def test_group_entries_by_package_groups_multi_plugin_packages(tmp_path: Path) -> None:
@@ -136,52 +130,24 @@ def _catalog_payload() -> dict:
                 plugin_type="seed-reader",
                 package_name="data-designer-compatible-plugin",
                 data_designer_specifier=">=0.5.7",
-                tags=["github", "repository"],
             ),
             _entry(
                 name="future-plugin",
                 plugin_type="processor",
                 package_name="data-designer-future-plugin",
                 data_designer_specifier=">=99.0",
-                tags=["future"],
-            ),
-            _entry(
-                name="versioned-plugin",
-                plugin_type="processor",
-                package_name="data-designer-versioned-plugin",
-                data_designer_specifier=">=0.5.7",
-                package_version="0.1.0",
-                tags=["versioned"],
-            ),
-            _entry(
-                name="versioned-plugin",
-                plugin_type="processor",
-                package_name="data-designer-versioned-plugin",
-                data_designer_specifier=">=0.5.7",
-                package_version="0.2.0",
-                tags=["versioned"],
-            ),
-            _entry(
-                name="versioned-plugin",
-                plugin_type="processor",
-                package_name="data-designer-versioned-plugin",
-                data_designer_specifier=">=99.0",
-                package_version="99.0.0",
-                tags=["versioned"],
             ),
             _entry(
                 name="shared-column",
                 plugin_type="column-generator",
                 package_name="data-designer-shared-package",
                 data_designer_specifier=">=0.5.7",
-                tags=["shared"],
             ),
             _entry(
                 name="shared-processor",
                 plugin_type="processor",
                 package_name="data-designer-shared-package",
                 data_designer_specifier=">=0.5.7",
-                tags=["shared"],
             ),
         ],
     }
@@ -193,7 +159,6 @@ def _entry(
     plugin_type: str,
     package_name: str,
     data_designer_specifier: str,
-    tags: list[str],
     package_version: str = "0.1.0",
 ) -> dict:
     return {
@@ -203,6 +168,7 @@ def _entry(
         "package": {
             "name": package_name,
             "version": package_version,
+            "path": f"plugins/{package_name}",
         },
         "entry_point": {
             "group": "data_designer.plugins",
@@ -211,11 +177,17 @@ def _entry(
         },
         "compatibility": {
             "python": {"specifier": ">=3.10"},
-            "data_designer": {"specifier": data_designer_specifier},
+            "data_designer": {
+                "requirement": f"data-designer{data_designer_specifier}",
+                "specifier": data_designer_specifier,
+                "marker": None,
+            },
         },
         "source": {
             "type": "pypi",
             "package": package_name,
         },
-        "tags": tags,
+        "docs": {
+            "url": f"https://docs.example.test/plugins/{package_name}/",
+        },
     }

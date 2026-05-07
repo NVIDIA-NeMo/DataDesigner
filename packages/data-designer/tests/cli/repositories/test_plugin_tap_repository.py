@@ -67,47 +67,156 @@ def test_load_catalog_rejects_unsupported_schema_version(tmp_path: Path) -> None
     repository = PluginTapRepository(tmp_path)
     repository.add_tap("local", str(catalog_path))
 
-    with pytest.raises(PluginCatalogError, match="Unsupported plugin catalog schema_version"):
+    with pytest.raises(PluginCatalogError, match="unsupported catalog schema_version"):
         repository.load_catalog("local", refresh=True)
 
 
-def _write_catalog(tmp_path: Path, *, schema_version: int = 2, plugin_name: str = "text-transform") -> Path:
+def test_load_catalog_accepts_schema_v2_source_union(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        plugins=[
+            _plugin_entry(
+                "pypi-plugin",
+                package_name="data-designer-pypi-plugin",
+                source={"type": "pypi", "package": "data-designer-pypi-plugin"},
+            ),
+            _plugin_entry(
+                "git-plugin",
+                package_name="data-designer-git-plugin",
+                source={
+                    "type": "git",
+                    "url": "https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git",
+                    "ref": "data-designer-git-plugin/v0.1.0",
+                    "subdirectory": "plugins/data-designer-git-plugin",
+                },
+            ),
+            _plugin_entry(
+                "path-plugin",
+                package_name="data-designer-path-plugin",
+                source={
+                    "type": "path",
+                    "path": "plugins/data-designer-path-plugin",
+                    "editable": True,
+                },
+            ),
+        ],
+    )
+    repository = PluginTapRepository(tmp_path)
+    repository.add_tap("local", str(catalog_path))
+
+    catalog = repository.load_catalog("local", refresh=True)
+
+    assert [entry.name for entry in catalog.plugins] == ["pypi-plugin", "git-plugin", "path-plugin"]
+
+
+def test_load_catalog_rejects_invalid_schema_v2_source(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        plugins=[
+            _plugin_entry(
+                "invalid-git-source",
+                package_name="data-designer-invalid-git-source",
+                source={
+                    "type": "git",
+                    "url": "https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git",
+                },
+            )
+        ],
+    )
+    repository = PluginTapRepository(tmp_path)
+    repository.add_tap("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="invalid 'git' source fields"):
+        repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_unexpected_schema_v2_fields(tmp_path: Path) -> None:
+    plugin = _plugin_entry("text-transform")
+    plugin["tags"] = ["extra"]
+    catalog_path = _write_catalog(tmp_path, plugins=[plugin])
+    repository = PluginTapRepository(tmp_path)
+    repository.add_tap("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="catalog plugins\\[0\\] has invalid fields"):
+        repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_duplicate_runtime_plugin_names(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        plugins=[
+            _plugin_entry("duplicate", package_name="data-designer-one"),
+            _plugin_entry("duplicate", package_name="data-designer-two"),
+        ],
+    )
+    repository = PluginTapRepository(tmp_path)
+    repository.add_tap("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="duplicate runtime plugin name"):
+        repository.load_catalog("local", refresh=True)
+
+
+def _write_catalog(
+    tmp_path: Path,
+    *,
+    schema_version: int = 2,
+    plugin_name: str = "text-transform",
+    plugins: list[dict] | None = None,
+) -> Path:
     catalog_dir = tmp_path / "catalog"
     catalog_dir.mkdir()
     catalog_path = catalog_dir / "plugins.json"
-    catalog_path.write_text(json.dumps(_catalog_payload(schema_version=schema_version, plugin_name=plugin_name)))
+    catalog_path.write_text(
+        json.dumps(_catalog_payload(schema_version=schema_version, plugin_name=plugin_name, plugins=plugins))
+    )
     return catalog_path
 
 
-def _catalog_payload(*, schema_version: int = 2, plugin_name: str = "text-transform") -> dict:
+def _catalog_payload(
+    *,
+    schema_version: int = 2,
+    plugin_name: str = "text-transform",
+    plugins: list[dict] | None = None,
+) -> dict:
     return {
         "schema_version": schema_version,
-        "plugins": [
-            {
-                "name": plugin_name,
-                "plugin_type": "processor",
-                "description": "Transform text records",
-                "package": {
-                    "name": "data-designer-text-transform",
-                    "version": "0.1.0",
-                    "path": "plugins/data-designer-text-transform",
-                },
-                "entry_point": {
-                    "group": "data_designer.plugins",
-                    "name": plugin_name,
-                    "value": "data_designer_text_transform.plugin:plugin",
-                },
-                "compatibility": {
-                    "python": {"specifier": ">=3.10"},
-                    "data_designer": {"specifier": ">=0.5.7"},
-                },
-                "source": {
-                    "type": "pypi",
-                    "package": "data-designer-text-transform",
-                },
-                "docs": {
-                    "url": "https://example.com/text-transform",
-                },
+        "plugins": plugins if plugins is not None else [_plugin_entry(plugin_name)],
+    }
+
+
+def _plugin_entry(
+    plugin_name: str,
+    *,
+    package_name: str = "data-designer-text-transform",
+    source: dict | None = None,
+) -> dict:
+    return {
+        "name": plugin_name,
+        "plugin_type": "processor",
+        "description": "Transform text records",
+        "package": {
+            "name": package_name,
+            "version": "0.1.0",
+            "path": f"plugins/{package_name}",
+        },
+        "entry_point": {
+            "group": "data_designer.plugins",
+            "name": plugin_name,
+            "value": f"{package_name.replace('-', '_')}.plugin:plugin",
+        },
+        "compatibility": {
+            "python": {"specifier": ">=3.10"},
+            "data_designer": {
+                "requirement": "data-designer>=0.5.7",
+                "specifier": ">=0.5.7",
+                "marker": None,
             },
-        ],
+        },
+        "source": source or {
+            "type": "pypi",
+            "package": package_name,
+        },
+        "docs": {
+            "url": f"https://docs.example.test/plugins/{package_name}/",
+        },
     }

@@ -19,11 +19,11 @@ from data_designer.cli.plugin_catalog import (
     PLUGIN_TAP_CACHE_DIR_NAME,
     PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS,
     PLUGIN_TAPS_FILE_NAME,
-    SUPPORTED_PLUGIN_CATALOG_SCHEMA_VERSIONS,
     PluginCatalog,
     PluginCatalogError,
     PluginTapConfig,
     PluginTapRegistry,
+    validate_plugin_catalog_payload,
 )
 from data_designer.cli.repositories.base import ConfigRepository
 from data_designer.config.utils.io_helpers import load_config_file, save_config_file
@@ -167,7 +167,7 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
         except Exception:
             return None
 
-    def _save_catalog_cache(self, tap: PluginTapConfig, catalog_payload: dict) -> None:
+    def _save_catalog_cache(self, tap: PluginTapConfig, catalog_payload: dict[str, object]) -> None:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_payload = {
             "tap_alias": tap.alias,
@@ -189,17 +189,11 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
 
     @staticmethod
     def _validate_catalog(payload: dict, *, source: str) -> PluginCatalog:
+        validate_plugin_catalog_payload(payload, source=source)
         try:
             catalog = PluginCatalog.model_validate(payload)
         except ValidationError as e:
             raise PluginCatalogError(f"Invalid plugin catalog at {source!r}: {e}") from e
-
-        if catalog.schema_version not in SUPPORTED_PLUGIN_CATALOG_SCHEMA_VERSIONS:
-            supported = ", ".join(str(version) for version in sorted(SUPPORTED_PLUGIN_CATALOG_SCHEMA_VERSIONS))
-            raise PluginCatalogError(
-                f"Unsupported plugin catalog schema_version {catalog.schema_version!r} at {source!r}. "
-                f"Supported versions: {supported}."
-            )
         return catalog
 
     @staticmethod
