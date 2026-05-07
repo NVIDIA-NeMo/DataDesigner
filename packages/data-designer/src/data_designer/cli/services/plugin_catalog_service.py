@@ -244,9 +244,6 @@ def _entry_search_text(entry: PluginCatalogEntry) -> str:
         entry.source.package if entry.source is not None and entry.source.package else "",
         entry.source.url if entry.source is not None and entry.source.url else "",
         entry.docs.url if entry.docs is not None and entry.docs.url else "",
-        entry.release_notes_url or "",
-        *_stringify_extra_values(entry.tags),
-        *_stringify_extra_values(entry.maintainers),
     ]
     return " ".join(values).lower()
 
@@ -256,10 +253,6 @@ def _entry_version_sort_key(entry: PluginCatalogEntry) -> Version:
         return Version(entry.package.version or "0")
     except InvalidVersion:
         return Version("0")
-
-
-def _stringify_extra_values(values: Iterable[str]) -> list[str]:
-    return [str(value) for value in values]
 
 
 def _major_minor(version: str) -> str:

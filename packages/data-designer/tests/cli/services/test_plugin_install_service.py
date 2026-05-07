@@ -45,7 +45,7 @@ def test_build_git_install_plan_includes_ref_and_subdirectory() -> None:
     plan = service.build_install_plan(entry, tap, manager="pip")
 
     assert plan.command[-1] == (
-        "git+https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git"
+        "data-designer-text-transform @ git+https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git"
         "@data-designer-text-transform/v0.1.0"
         "#subdirectory=plugins/data-designer-text-transform"
     )
@@ -62,8 +62,28 @@ def test_build_uv_install_plan_targets_current_python(mock_which: Mock) -> None:
     assert plan.command[:5] == ["uv", "pip", "install", "--python", sys.executable]
 
 
+def test_build_git_install_plan_requires_ref_and_subdirectory() -> None:
+    entry = _entry(
+        source={
+            "type": "git",
+            "url": "https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git",
+        }
+    )
+    tap = PluginTapConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    with pytest.raises(ValueError, match="requires 'ref'"):
+        service.build_install_plan(entry, tap, manager="pip")
+
+
 def test_build_path_install_plan_resolves_relative_path_from_local_tap_root(tmp_path: Path) -> None:
-    entry = _entry(source={"type": "path", "editable": True})
+    entry = _entry(
+        source={
+            "type": "path",
+            "path": "plugins/data-designer-text-transform",
+            "editable": True,
+        }
+    )
     tap = PluginTapConfig(alias="local", url=str(tmp_path / "catalog" / "plugins.json"))
     service = PluginInstallService()
 
@@ -128,8 +148,15 @@ def _entry(source: dict | None) -> PluginCatalogEntry:
         },
         "compatibility": {
             "python": {"specifier": ">=3.10"},
-            "data_designer": {"specifier": ">=0.5.7"},
+            "data_designer": {
+                "requirement": "data-designer>=0.5.7",
+                "specifier": ">=0.5.7",
+                "marker": None,
+            },
         },
         "source": source,
+        "docs": {
+            "url": "https://docs.example.test/plugins/data-designer-text-transform/",
+        },
     }
     return PluginCatalogEntry.model_validate(payload)

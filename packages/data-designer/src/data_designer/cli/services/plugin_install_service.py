@@ -93,14 +93,11 @@ def _install_args_for_entry(entry: PluginCatalogEntry, tap: PluginTapConfig) -> 
         target = _pypi_target(entry, source)
         return [target], target
     if source_type == "git":
-        target = _git_target(source)
+        target = _git_target(entry, source)
         return [target], target
     if source_type == "path":
         args = _path_args(entry, source, tap)
         return args, " ".join(args)
-    if source_type == "url":
-        target = _required(source.url, "url", source_type)
-        return [target], target
 
     raise ValueError(f"Plugin {entry.name!r} declares unsupported install source type {source.type!r}")
 
@@ -112,25 +109,15 @@ def _pypi_target(entry: PluginCatalogEntry, source: PluginSourceInfo) -> str:
     return package_name
 
 
-def _git_target(source: PluginSourceInfo) -> str:
+def _git_target(entry: PluginCatalogEntry, source: PluginSourceInfo) -> str:
     url = _required(source.url, "url", "git")
-    target = url if url.startswith("git+") else f"git+{url}"
-    if source.ref:
-        target = f"{target}@{source.ref}"
-
-    fragments = []
-    if source.subdirectory:
-        fragments.append(f"subdirectory={source.subdirectory}")
-    if fragments:
-        target = f"{target}#{'&'.join(fragments)}"
-    return target
+    ref = _required(source.ref, "ref", "git")
+    subdirectory = _required(source.subdirectory, "subdirectory", "git")
+    return f"{entry.package.name} @ git+{url}@{ref}#subdirectory={subdirectory}"
 
 
 def _path_args(entry: PluginCatalogEntry, source: PluginSourceInfo, tap: PluginTapConfig) -> list[str]:
-    path = source.path or entry.package.path
-    if path is None:
-        raise ValueError(f"Plugin {entry.name!r} declares a path source without a path")
-
+    path = _required(source.path, "path", "path")
     normalized_path = str(_resolve_path_source(path, tap))
     if source.editable:
         return ["-e", normalized_path]
