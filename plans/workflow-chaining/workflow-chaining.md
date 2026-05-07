@@ -25,11 +25,11 @@ As a secondary benefit, chaining also enables the removal of `allow_resize` and 
 
 ### Secondary benefit: `allow_resize` removal and sync/async convergence
 
-The `allow_resize` flag on column configs lets a generator change the row count mid-generation. This works in the sync engine but is fundamentally incompatible with the async engine's fixed-size `CompletionTracker` grid (currently rejected with a validation error). Pre-batch processors that resize have a similar problem.
+The `allow_resize` flag on column configs lets a generator change the row count mid-generation. This works in the sync engine but is fundamentally incompatible with the async engine's fixed-size `CompletionTracker` grid. As of #553, an `allow_resize=True` config in async mode logs a `DeprecationWarning` and silently falls back to the sync engine for that run; it is no longer hard-rejected.
 
-`allow_resize` is one of the remaining divergences between sync and async. Since the long-term direction is to remove the sync engine entirely, maintaining a sync-only feature is counterproductive. With chaining in place, resize becomes a between-stage concern rather than a mid-generation concern. This lets us remove `allow_resize` and the associated engine complexity, and disallow row-count changes in pre-batch processors. Users who need resize use a pipeline with a stage boundary at the resize point.
+`allow_resize` is one of the remaining divergences between sync and async. The async engine is the default execution path as of #592; sync remains only as a fallback for `allow_resize` runs. Maintaining a sync-only feature to keep one fallback path alive is counterproductive. With chaining in place, resize becomes a between-stage concern rather than a mid-generation concern. This lets us remove `allow_resize` and the associated engine complexity, and disallow row-count changes in pre-batch processors. Users who need resize use a pipeline with a stage boundary at the resize point.
 
-Note: `allow_resize` is currently documented in custom columns, plugin examples, and agent rollout ingestion docs. Removal requires a deprecation cycle and doc updates.
+Note: `allow_resize` is documented in custom columns, plugin examples, and agent rollout ingestion docs (verified post-Fern migration in #581). The deprecation warning has shipped in #553; full removal still requires doc updates and the migration of any in-tree usage.
 
 ### Why chaining instead of fixing async resize
 
@@ -147,7 +147,14 @@ Each stage produces durable parquet output before the next stage starts. This pr
 - A `resume=True` flag on `pipeline.run()` skips completed stages.
 - Within a stage, batch-level resume (#525) can further reduce re-work.
 
-**Resume safety**: Naive "skip if directory exists" is not sufficient. Configs, model settings, callbacks, or DD version may have changed between runs. Resume must compare a fingerprint of each stage's inputs (config hash, num_records, DD version, upstream stage fingerprint) against what's recorded in `pipeline-metadata.json`. If any input changed, that stage and all downstream stages must re-run. This is a phase 3 concern but the metadata format in phase 1 should record enough information to support it.
+**Resume safety**: Naive "skip if directory exists" is not sufficient. Configs, model settings, callbacks, or DD version may have changed between runs. Resume must compare a fingerprint of each stage's inputs against what's recorded in `pipeline-metadata.json`. The per-stage fingerprint composes:
+
+- `DataDesignerConfig.fingerprint()` (introduced in #587) — content-addressable sha256 over the data-relevant portion of the config
+- `num_records` (requested)
+- DD version
+- Upstream stage fingerprint (the directly preceding stage's recorded fingerprint, so a change anywhere in the chain invalidates downstream stages)
+
+If any component changed, that stage and all downstream stages must re-run. This is a phase 3 concern but the metadata format in phase 1 should record enough information to support it.
 
 The connection to #525: chaining gives coarse (stage-level) checkpointing for free. #525 gives fine (batch-level) checkpointing within a stage. They are complementary.
 
@@ -155,7 +162,7 @@ The connection to #525: chaining gives coarse (stage-level) checkpointing for fr
 
 `pipeline-metadata.json` records:
 - Stage order, names, and configs used
-- Config fingerprint (hash) per stage for resume invalidation
+- Per-stage fingerprint for resume invalidation: `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, DD version, and the upstream stage fingerprint
 - `num_records` requested vs actual per stage
 - Which stage's output seeded the next
 - Timestamp, duration, and DD version per stage
@@ -167,13 +174,13 @@ With the pipeline in place, `allow_resize` is no longer needed as an engine-inte
 **Config changes** (`data-designer-config`):
 
 - Remove `allow_resize: bool = False` from `SingleColumnConfig` (or its base class `ColumnConfigBase`).
-- Deprecation: keep the field for one release cycle with a deprecation warning, then remove.
+- The deprecation warning has already shipped in #553. After one release cycle from that point, remove the field.
 
 **Engine changes** (`data-designer-engine`):
 
 - Remove `_cell_resize_mode`, `_cell_resize_results`, and the resize branch in `_finalize_fan_out()` from `DatasetBuilder`.
 - Remove `allow_resize` parameter from `DatasetBatchManager.replace_buffer()`.
-- Remove `_validate_async_compatibility()` (no longer needed - nothing to reject).
+- Remove `_resolve_async_compatibility()` and the sync-fallback branch in `_build_async()` (no longer needed - nothing to fall back for).
 - Simplify `_run_full_column_generator()` to always enforce row-count invariance.
 
 **Migration path**: Users with `allow_resize=True` columns split their config into a pipeline with a stage boundary at the resize column. The resize column becomes the last column of its stage, and downstream columns move to the next stage.
@@ -297,9 +304,11 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 
 ### Phase 2: Remove `allow_resize`
 
-- Deprecate `allow_resize` with a warning pointing to pipelines.
+- (Done in #553) `allow_resize=True` in async mode emits a `DeprecationWarning` and falls back to sync.
+- Update docs that still reference `allow_resize` (`docs/concepts/custom_columns.md`, `docs/plugins/example.md`, `docs/concepts/agent-rollout-ingestion.md`) to point at pipelines.
 - Remove resize code from sync engine (`_cell_resize_mode`, `_finalize_fan_out` resize branch, `replace_buffer` `allow_resize` param).
-- Remove `_validate_async_compatibility()` from async engine.
+- Remove `_resolve_async_compatibility()` and its sync-fallback branch from `_build_async()`.
+- Remove the `allow_resize` field from the config schema.
 - Add fail-fast guard in `ProcessorRunner` for pre-batch row-count changes.
 - Tests: verify rejection, migration path examples.
 
@@ -307,7 +316,8 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 
 - Add `resume=True` to `pipeline.run()`.
 - Read `pipeline-metadata.json` to detect completed stages.
-- Skip completed stages, seed next stage from last completed output.
+- Compute each stage's fingerprint via `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, DD version, and upstream stage fingerprint; invalidate the stage and everything downstream on any mismatch.
+- Skip stages whose fingerprints match, seed next stage from last completed output.
 - Depends on artifact layout from phase 1.
 
 ### Phase 4 (future): Auto-chaining from single config
