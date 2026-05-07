@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import Field
+from pydantic import Field, model_validator
+from typing_extensions import Self
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.column_types import ColumnConfigT
@@ -14,6 +15,7 @@ from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig
 from data_designer.config.processor_types import ProcessorConfigT
 from data_designer.config.sampler_constraints import ColumnConstraintInputT
+from data_designer.config.sampler_params import SamplerType
 from data_designer.config.seed import SeedConfig
 
 
@@ -42,3 +44,17 @@ class DataDesignerConfig(ExportableConfigBase):
     constraints: list[ColumnConstraintInputT] | None = None
     profilers: list[ColumnProfilerConfigT] | None = None
     processors: list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]] | None = None
+
+    @model_validator(mode="after")
+    def _check_subcategory_parents_are_samplers(self) -> Self:
+        by_name = {c.name: c for c in self.columns}
+        for col in self.columns:
+            if col.column_type != "sampler" or col.sampler_type != SamplerType.SUBCATEGORY:
+                continue
+            parent = by_name.get(col.params.category)
+            if parent is not None and parent.column_type != "sampler":
+                raise ValueError(
+                    f"Subcategory column '{col.name}' has parent '{parent.name}', which is a "
+                    f"'{parent.column_type}' column. Subcategory parents must be category-sampler columns."
+                )
+        return self
