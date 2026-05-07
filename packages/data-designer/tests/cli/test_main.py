@@ -105,6 +105,39 @@ def test_app_version_skips_update_notice_when_lookup_fails() -> None:
     assert result.output == "0.6.0\n"
 
 
+def test_app_version_skips_update_notice_when_lazy_import_fails() -> None:
+    real_import = __import__
+
+    def fail_ui_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "data_designer.cli.ui":
+            raise ImportError("ui unavailable")
+        return real_import(name, *args, **kwargs)
+
+    with (
+        patch("data_designer.cli.main.importlib.metadata.version", return_value="0.6.0"),
+        patch("data_designer.cli.main.should_show_update_notice", return_value=True),
+        patch("builtins.__import__", side_effect=fail_ui_import),
+    ):
+        result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output == "0.6.0\n"
+
+
+def test_app_version_skips_update_notice_when_render_fails() -> None:
+    notice = UpdateNotice(latest_version="0.6.1", upgrade_command="uv tool upgrade data-designer")
+    with (
+        patch("data_designer.cli.main.importlib.metadata.version", return_value="0.6.0"),
+        patch("data_designer.cli.main.should_show_update_notice", return_value=True),
+        patch("data_designer.cli.version_notice.get_update_notice", return_value=notice),
+        patch("data_designer.cli.ui.print_update_notice", side_effect=RuntimeError("render failure")),
+    ):
+        result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output == "0.6.0\n"
+
+
 def test_app_version_errors_when_package_version_is_missing() -> None:
     with patch(
         "data_designer.cli.main.importlib.metadata.version",
