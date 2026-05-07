@@ -9,68 +9,76 @@ position: 3
 
 Use `AgentRolloutSeedSource` when you want to work from existing agent traces instead of traces captured during a Data Designer generation run.
 
-=== "Claude Code"
+<Tabs>
+<Tab title="Claude Code">
 
-    Uses `~/.claude/projects` and `*.jsonl` by default.
+Uses `~/.claude/projects` and `*.jsonl` by default.
 
-    ```python
-    import data_designer.config as dd
+```python
+import data_designer.config as dd
 
-    seed_source = dd.AgentRolloutSeedSource(
-        format=dd.AgentRolloutFormat.CLAUDE_CODE,
-    )
-    ```
+seed_source = dd.AgentRolloutSeedSource(
+    format=dd.AgentRolloutFormat.CLAUDE_CODE,
+)
+```
 
-=== "Codex"
+</Tab>
+<Tab title="Codex">
 
-    Uses `~/.codex/sessions` and `*.jsonl` by default.
+Uses `~/.codex/sessions` and `*.jsonl` by default.
 
-    ```python
-    import data_designer.config as dd
+```python
+import data_designer.config as dd
 
-    seed_source = dd.AgentRolloutSeedSource(
-        format=dd.AgentRolloutFormat.CODEX,
-    )
-    ```
+seed_source = dd.AgentRolloutSeedSource(
+    format=dd.AgentRolloutFormat.CODEX,
+)
+```
 
-=== "Hermes Agent"
+</Tab>
+<Tab title="Hermes Agent">
 
-    Uses `~/.hermes/sessions` and `*.json*` by default so CLI session logs and gateway transcripts can coexist.
+Uses `~/.hermes/sessions` and `*.json*` by default so CLI session logs and gateway transcripts can coexist.
 
-    ```python
-    import data_designer.config as dd
+```python
+import data_designer.config as dd
 
-    seed_source = dd.AgentRolloutSeedSource(
-        format=dd.AgentRolloutFormat.HERMES_AGENT,
-    )
-    ```
+seed_source = dd.AgentRolloutSeedSource(
+    format=dd.AgentRolloutFormat.HERMES_AGENT,
+)
+```
 
-=== "Pi Coding Agent"
+</Tab>
+<Tab title="Pi Coding Agent">
 
-    Uses `~/.pi/agent/sessions` and `*.jsonl` by default. Sessions are tree-structured JSONL files; the active conversation path is resolved automatically.
+Uses `~/.pi/agent/sessions` and `*.jsonl` by default. Sessions are tree-structured JSONL files; the active conversation path is resolved automatically.
 
-    ```python
-    import data_designer.config as dd
+```python
+import data_designer.config as dd
 
-    seed_source = dd.AgentRolloutSeedSource(
-        format=dd.AgentRolloutFormat.PI_CODING_AGENT,
-    )
-    ```
+seed_source = dd.AgentRolloutSeedSource(
+    format=dd.AgentRolloutFormat.PI_CODING_AGENT,
+)
+```
 
-=== "ATIF"
+</Tab>
+<Tab title="ATIF">
 
-    ATIF requires an explicit `path`. See Harbor's [ATIF documentation](https://harborframework.com/docs/trajectory-format) for the format specification.
+ATIF requires an explicit `path`. See Harbor's [ATIF documentation](https://harborframework.com/docs/trajectory-format) for the format specification.
 
-    ```python
-    import data_designer.config as dd
+```python
+import data_designer.config as dd
 
-    seed_source = dd.AgentRolloutSeedSource(
-        format=dd.AgentRolloutFormat.ATIF,
-        path="/data/harbor/runs/swe-bench/job-042",
-        recursive=True,
-        file_pattern="trajectory*.json",
-    )
-    ```
+seed_source = dd.AgentRolloutSeedSource(
+    format=dd.AgentRolloutFormat.ATIF,
+    path="/data/harbor/runs/swe-bench/job-042",
+    recursive=True,
+    file_pattern="trajectory*.json",
+)
+```
+
+</Tab>
+</Tabs>
 
 You can override `path` and `file_pattern` for any format when your rollout artifacts live outside the built-in defaults.
 
