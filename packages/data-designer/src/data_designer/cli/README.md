@@ -1,12 +1,14 @@
 # 🎨 NeMo Data Designer CLI
 
-This directory contains the Command-Line Interface (CLI) for configuring model providers and model configurations used in Data Designer.
+This directory contains the Command-Line Interface (CLI) for configuring model providers, model configurations, managed assets, and plugin tap catalogs used in Data Designer.
 
 ## Overview
 
 The CLI provides an interactive interface for managing:
 - **Model Providers**: LLM API endpoints (NVIDIA, OpenAI, Anthropic, custom providers)
 - **Model Configs**: Specific model configurations with inference parameters
+- **Plugin Taps**: Catalog aliases for discovering Data Designer plugin packages
+- **Plugin Installs**: Safe install-plan rendering, package-manager execution, and entry point verification
 
 Configuration files are stored in `~/.data-designer/` by default and can be referenced by Data Designer workflows.
 
@@ -17,7 +19,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         Commands                            │
-│  Entry points for CLI commands (list, providers, models)    │
+│  Entry points for CLI commands (list, providers, plugins)   │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -52,6 +54,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `list.py`: List current configurations
   - `models.py`: Configure models
   - `providers.py`: Configure providers
+  - `plugins.py`: Discover and install plugins from tap catalogs
   - `reset.py`: Reset/delete configurations
 
 #### 2. **Controllers** (`controllers/`)
@@ -64,6 +67,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 - **Files**:
   - `model_controller.py`: Orchestrates model configuration workflows
   - `provider_controller.py`: Orchestrates provider configuration workflows
+  - `plugin_catalog_controller.py`: Orchestrates plugin catalog, tap, and install workflows
 
 **Key Features**:
 - **Associated Resource Management**: When deleting a provider, the controller checks for associated models and prompts the user to delete them together
@@ -79,6 +83,8 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 - **Files**:
   - `model_service.py`: Model configuration business logic
   - `provider_service.py`: Provider business logic
+  - `plugin_catalog_service.py`: Plugin catalog discovery, search, compatibility checks, and installed entry point listing
+  - `plugin_install_service.py`: Plugin install-plan resolution, package-manager execution, and runtime verification
 
 **Key Methods**:
 - `list_all()`: Get all configured items
@@ -101,6 +107,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `base.py`: Abstract base repository with common operations
   - `model_repository.py`: Model configuration persistence
   - `provider_repository.py`: Provider persistence
+  - `plugin_tap_repository.py`: Plugin tap aliases, catalog fetching, and URL-keyed catalog cache
 
 **Base Repository Pattern**:
 ```python
@@ -152,7 +159,7 @@ class ConfigRepository(ABC, Generic[T]):
 
 ## Configuration Files
 
-The CLI manages two YAML configuration files:
+The CLI manages YAML configuration files and plugin catalog caches under `~/.data-designer/`:
 
 ### `~/.data-designer/model_providers.yaml`
 
@@ -206,6 +213,22 @@ model_configs:
       max_parallel_requests: 4
 ```
 
+### `~/.data-designer/plugin_taps.yaml`
+
+Stores user-added plugin tap aliases. The built-in NVIDIA tap is always available and is not written to this file. Set `DATA_DESIGNER_DEFAULT_PLUGIN_TAP_URL` to repoint the built-in tap for QA or staging.
+
+```yaml
+taps:
+  - alias: research
+    url: https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json
+    trusted: false
+    cache_ttl_seconds: 86400
+```
+
+### `~/.data-designer/plugin-tap-cache/`
+
+Stores fetched plugin catalog payloads as JSON cache files keyed by tap alias and URL hash. This prevents a re-pointed alias from serving stale catalog data from a previous URL.
+
 ## Usage Examples
 
 ### Configure Providers
@@ -247,4 +270,31 @@ data-designer config list
 ```bash
 # Delete configuration files (with confirmation)
 data-designer config reset
+```
+
+### Discover and Install Plugins
+
+```bash
+# List compatible plugins from the default NVIDIA tap
+data-designer plugins list
+
+# Search a specific tap catalog
+data-designer plugins --tap research search transform
+
+# Show metadata, compatibility, docs, and exact install command
+data-designer plugins info text-transform
+
+# Install from a trusted or user-added tap and verify entry point discovery
+data-designer plugins install text-transform --yes
+
+# Preview the install command without mutating the environment
+data-designer plugins install text-transform --dry-run
+
+# Add and manage tap aliases
+data-designer plugins taps add research https://github.com/acme/dd-plugins
+data-designer plugins taps list
+data-designer plugins taps remove research
+
+# List installed plugin entry points without importing plugin modules
+data-designer plugins installed
 ```

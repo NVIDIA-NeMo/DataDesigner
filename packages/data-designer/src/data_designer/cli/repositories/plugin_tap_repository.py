@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +15,6 @@ from pydantic import ValidationError
 
 from data_designer.cli.plugin_catalog import (
     DEFAULT_PLUGIN_TAP_ALIAS,
-    DEFAULT_PLUGIN_TAP_URL,
     MAX_PLUGIN_CATALOG_SIZE_BYTES,
     PLUGIN_TAP_CACHE_DIR_NAME,
     PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS,
@@ -23,6 +23,7 @@ from data_designer.cli.plugin_catalog import (
     PluginCatalogError,
     PluginTapConfig,
     PluginTapRegistry,
+    get_default_plugin_tap_url,
     validate_plugin_catalog_payload,
 )
 from data_designer.cli.repositories.base import ConfigRepository
@@ -63,13 +64,13 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
         taps = [self.default_tap()]
         registry = self.load()
         if registry is not None:
-            taps.extend(sorted(registry.taps, key=lambda tap: tap.alias))
+            taps.extend(sorted(registry.taps, key=lambda tap: tap.alias.casefold()))
         return taps
 
     def get_tap(self, alias: str | None = None) -> PluginTapConfig | None:
         """Return a tap by alias, defaulting to the built-in NVIDIA tap."""
         resolved_alias = alias or DEFAULT_PLUGIN_TAP_ALIAS
-        return next((tap for tap in self.list_taps() if tap.alias == resolved_alias), None)
+        return next((tap for tap in self.list_taps() if _same_alias(tap.alias, resolved_alias)), None)
 
     def add_tap(
         self,
@@ -95,7 +96,7 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
         )
         registry = self.load() or PluginTapRegistry()
         registry.taps.append(tap)
-        registry.taps = sorted(registry.taps, key=lambda item: item.alias)
+        registry.taps = sorted(registry.taps, key=lambda item: item.alias.casefold())
         self.save(registry)
         return tap
 
@@ -105,21 +106,21 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
         Raises:
             ValueError: If the alias is reserved or does not exist.
         """
-        if alias == DEFAULT_PLUGIN_TAP_ALIAS:
+        if _same_alias(alias, DEFAULT_PLUGIN_TAP_ALIAS):
             raise ValueError(f"Cannot remove the built-in {DEFAULT_PLUGIN_TAP_ALIAS!r} plugin tap")
 
         registry = self.load()
-        if registry is None or not any(tap.alias == alias for tap in registry.taps):
+        matching_tap = next((tap for tap in registry.taps if _same_alias(tap.alias, alias)), None) if registry else None
+        if registry is None or matching_tap is None:
             raise ValueError(f"Plugin tap alias {alias!r} not found")
 
-        registry.taps = [tap for tap in registry.taps if tap.alias != alias]
+        registry.taps = [tap for tap in registry.taps if not _same_alias(tap.alias, alias)]
         if registry.taps:
             self.save(registry)
         else:
             self.delete()
 
-        cache_file = self._cache_file(alias)
-        cache_file.unlink(missing_ok=True)
+        self._remove_cache_files(matching_tap)
 
     def load_catalog(self, alias: str | None = None, *, refresh: bool = False) -> PluginCatalog:
         """Load a tap catalog from cache or source."""
@@ -146,7 +147,7 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
         return catalog
 
     def _load_cached_catalog(self, tap: PluginTapConfig, *, require_fresh: bool) -> PluginCatalog | None:
-        cache_file = self._cache_file(tap.alias)
+        cache_file = self._cache_file(tap)
         if not cache_file.exists():
             return None
 
@@ -175,11 +176,30 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "catalog": catalog_payload,
         }
-        with open(self._cache_file(tap.alias), "w") as f:
+        with open(self._cache_file(tap), "w") as f:
             json.dump(cache_payload, f, indent=2, sort_keys=True)
 
-    def _cache_file(self, alias: str) -> Path:
-        return self.cache_dir / f"{alias}.json"
+    def _cache_file(self, tap: PluginTapConfig) -> Path:
+        url_hash = hashlib.sha256(tap.url.encode("utf-8")).hexdigest()[:12]
+        return self.cache_dir / f"{tap.alias}-{url_hash}.json"
+
+    def _remove_cache_files(self, tap: PluginTapConfig) -> None:
+        if not self.cache_dir.exists():
+            return
+
+        self._cache_file(tap).unlink(missing_ok=True)
+        legacy_cache_file = self.cache_dir / f"{tap.alias}.json"
+        legacy_cache_file.unlink(missing_ok=True)
+
+        for cache_file in self.cache_dir.glob("*.json"):
+            try:
+                with open(cache_file) as f:
+                    cache_payload = json.load(f)
+            except Exception:
+                continue
+            cached_alias = cache_payload.get("tap_alias")
+            if isinstance(cached_alias, str) and _same_alias(cached_alias, tap.alias):
+                cache_file.unlink(missing_ok=True)
 
     @staticmethod
     def _fetch_catalog_payload(location: str) -> dict:
@@ -201,7 +221,7 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
         """Return the built-in NVIDIA plugin tap configuration."""
         return PluginTapConfig(
             alias=DEFAULT_PLUGIN_TAP_ALIAS,
-            url=DEFAULT_PLUGIN_TAP_URL,
+            url=get_default_plugin_tap_url(),
             trusted=True,
             cache_ttl_seconds=PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS,
         )
@@ -216,6 +236,10 @@ def normalize_tap_location(location: str) -> str:
     if path.suffix.lower() == ".json":
         return str(path.resolve(strict=False))
     return str((path / "catalog" / "plugins.json").resolve(strict=False))
+
+
+def _same_alias(left: str, right: str) -> bool:
+    return left.casefold() == right.casefold()
 
 
 def _normalize_tap_url(url: str) -> str:

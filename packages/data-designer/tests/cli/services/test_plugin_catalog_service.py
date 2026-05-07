@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 import json
+from importlib.metadata import EntryPoint
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
+from data_designer.cli.plugin_catalog import PluginCatalog, PluginCatalogEntry
 from data_designer.cli.repositories.plugin_tap_repository import PluginTapRepository
 from data_designer.cli.services.plugin_catalog_service import PluginCatalogService
-from data_designer.plugins.plugin import PluginType
 
 
 def test_list_entries_filters_incompatible_plugins_by_default(tmp_path: Path) -> None:
@@ -81,6 +82,36 @@ def test_get_entry_rejects_incompatible_plugin_when_requested(tmp_path: Path) ->
         service.get_entry("future-plugin", "local", include_incompatible=False)
 
 
+def test_get_entry_prefers_newest_compatible_match_when_include_incompatible() -> None:
+    repository = Mock(spec=PluginTapRepository)
+    repository.load_catalog.return_value = PluginCatalog.model_validate(
+        {
+            "schema_version": 2,
+            "plugins": [
+                _entry(
+                    name="versioned-plugin",
+                    plugin_type="processor",
+                    package_name="data-designer-versioned-plugin",
+                    data_designer_specifier=">=0.5.7",
+                    package_version="0.2.0",
+                ),
+                _entry(
+                    name="versioned-plugin",
+                    plugin_type="processor",
+                    package_name="data-designer-versioned-plugin",
+                    data_designer_specifier=">=99.0",
+                    package_version="99.0.0",
+                ),
+            ],
+        }
+    )
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+
+    entry = service.get_entry("versioned-plugin", "local", include_incompatible=True)
+
+    assert entry.package.version == "0.2.0"
+
+
 def test_group_entries_by_package_groups_multi_plugin_packages(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
@@ -94,23 +125,57 @@ def test_group_entries_by_package_groups_multi_plugin_packages(tmp_path: Path) -
     ]
 
 
-@patch("data_designer.cli.services.plugin_catalog_service.PluginRegistry")
-def test_list_installed_plugins_uses_runtime_registry(mock_registry_cls: Mock, tmp_path: Path) -> None:
-    plugin = Mock()
-    plugin.name = "installed-plugin"
-    plugin.plugin_type = PluginType.PROCESSOR
-    plugin.config_qualified_name = "pkg.config.Config"
-    plugin.impl_qualified_name = "pkg.impl.Impl"
-    mock_registry = Mock()
-    mock_registry.get_plugins.side_effect = lambda plugin_type: [plugin] if plugin_type == PluginType.PROCESSOR else []
-    mock_registry_cls.return_value = mock_registry
+def test_group_entries_by_package_canonicalizes_package_names(tmp_path: Path) -> None:
+    repository = _repository_with_catalog(tmp_path)
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+    entries = [
+        PluginCatalogEntry.model_validate(
+            _entry(
+                name="hyphen-package",
+                plugin_type="processor",
+                package_name="data-designer-shared-package",
+                data_designer_specifier=">=0.5.7",
+            )
+        ),
+        PluginCatalogEntry.model_validate(
+            _entry(
+                name="underscore-package",
+                plugin_type="processor",
+                package_name="data_designer_shared_package",
+                data_designer_specifier=">=0.5.7",
+            )
+        ),
+    ]
+
+    grouped_entries = service.group_entries_by_package(entries)
+
+    assert list(grouped_entries) == ["data-designer-shared-package"]
+    assert [entry.name for entry in grouped_entries["data-designer-shared-package"]] == [
+        "hyphen-package",
+        "underscore-package",
+    ]
+
+
+@patch("data_designer.cli.services.plugin_catalog_service.importlib.metadata.entry_points")
+def test_list_installed_plugins_uses_entry_point_metadata_without_loading_plugins(
+    mock_entry_points: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_entry_points.return_value = [
+        EntryPoint(
+            name="installed-plugin",
+            value="pkg.plugin:plugin",
+            group="data_designer.plugins",
+        )
+    ]
     service = PluginCatalogService(PluginTapRepository(tmp_path))
 
     installed = service.list_installed_plugins()
 
     assert len(installed) == 1
     assert installed[0].name == "installed-plugin"
-    assert installed[0].plugin_type == PluginType.PROCESSOR
+    assert installed[0].entry_point_value == "pkg.plugin:plugin"
+    mock_entry_points.assert_called_once_with(group="data_designer.plugins")
 
 
 def _repository_with_catalog(tmp_path: Path) -> PluginTapRepository:

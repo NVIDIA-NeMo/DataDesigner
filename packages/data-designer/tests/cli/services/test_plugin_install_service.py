@@ -119,7 +119,11 @@ def test_install_raises_when_runner_fails() -> None:
 
 
 @patch("data_designer.cli.services.plugin_install_service.PluginRegistry")
-def test_verify_entry_point_resets_and_checks_runtime_registry(mock_registry_cls: Mock) -> None:
+@patch("data_designer.cli.services.plugin_install_service.importlib.invalidate_caches")
+def test_verify_entry_point_invalidates_caches_and_checks_runtime_registry(
+    mock_invalidate_caches: Mock,
+    mock_registry_cls: Mock,
+) -> None:
     entry = _entry(source={"type": "pypi", "package": "data-designer-text-transform"})
     mock_registry = Mock()
     mock_registry.plugin_exists.return_value = True
@@ -127,6 +131,7 @@ def test_verify_entry_point_resets_and_checks_runtime_registry(mock_registry_cls
     service = PluginInstallService()
 
     assert service.verify_entry_point(entry) is True
+    mock_invalidate_caches.assert_called_once_with()
     mock_registry_cls.reset.assert_called_once_with()
     mock_registry.plugin_exists.assert_called_once_with("text-transform")
 

@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from data_designer.cli.plugin_catalog import DEFAULT_PLUGIN_TAP_ALIAS, PluginCatalogError
+from data_designer.cli.plugin_catalog import (
+    DEFAULT_PLUGIN_TAP_ALIAS,
+    DEFAULT_PLUGIN_TAP_URL_ENV_VAR,
+    PluginCatalogError,
+)
 from data_designer.cli.repositories.plugin_tap_repository import PluginTapRepository, normalize_tap_location
 
 
@@ -21,6 +25,15 @@ def test_repository_includes_default_nvidia_tap(tmp_path: Path) -> None:
     assert taps[0].trusted is True
 
 
+def test_default_tap_honors_url_environment_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(DEFAULT_PLUGIN_TAP_URL_ENV_VAR, "https://example.test/catalog/plugins.json")
+    repository = PluginTapRepository(tmp_path)
+
+    tap = repository.default_tap()
+
+    assert tap.url == "https://example.test/catalog/plugins.json"
+
+
 def test_add_tap_normalizes_github_repository_url(tmp_path: Path) -> None:
     repository = PluginTapRepository(tmp_path)
 
@@ -28,6 +41,22 @@ def test_add_tap_normalizes_github_repository_url(tmp_path: Path) -> None:
 
     assert tap.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json"
     assert repository.get_tap("research") == tap
+
+
+def test_tap_aliases_are_case_insensitive(tmp_path: Path) -> None:
+    repository = PluginTapRepository(tmp_path)
+
+    tap = repository.add_tap("Research", "https://github.com/acme/dd-plugins")
+
+    assert repository.get_tap("research") == tap
+    with pytest.raises(ValueError, match="already exists"):
+        repository.add_tap("research", "https://github.com/acme/other-plugins")
+    with pytest.raises(ValueError, match="already exists"):
+        repository.add_tap("NVIDIA", "https://github.com/acme/nvidia-plugins")
+
+    repository.remove_tap("research")
+
+    assert repository.get_tap("Research") is None
 
 
 def test_normalize_local_tap_directory() -> None:
@@ -60,6 +89,19 @@ def test_load_catalog_with_zero_cache_ttl_refreshes_source(tmp_path: Path) -> No
 
     assert first_catalog.plugins[0].name == "text-transform"
     assert refreshed_catalog.plugins[0].name == "fresh-transform"
+
+
+def test_load_catalog_cache_file_is_keyed_by_alias_and_url(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(tmp_path)
+    repository = PluginTapRepository(tmp_path)
+    repository.add_tap("local", str(catalog_path))
+
+    repository.load_catalog("local")
+
+    cache_files = list(repository.cache_dir.glob("*.json"))
+    assert len(cache_files) == 1
+    assert cache_files[0].name.startswith("local-")
+    assert cache_files[0].name != "local.json"
 
 
 def test_load_catalog_rejects_unsupported_schema_version(tmp_path: Path) -> None:

@@ -7,10 +7,12 @@ import shlex
 from pathlib import Path
 
 import typer
+from pydantic import ValidationError
 from rich.table import Table
 
 from data_designer.cli.plugin_catalog import (
     DEFAULT_PLUGIN_TAP_ALIAS,
+    PLUGIN_TAP_ALIAS_PATTERN,
     CompatibilityResult,
     InstalledPluginInfo,
     PluginCatalogEntry,
@@ -33,7 +35,11 @@ from data_designer.config.utils.constants import NordColor
 
 
 class PluginCatalogController:
-    """Controller for plugin catalog, tap, and install workflows."""
+    """Controller for plugin catalog, tap, and install workflows.
+
+    Catalog browsing and environment mutation intentionally use separate services so
+    read-only tap operations stay decoupled from package-manager execution.
+    """
 
     def __init__(self, config_dir: Path) -> None:
         self.config_dir = config_dir
@@ -182,7 +188,7 @@ class PluginCatalogController:
             )
 
     def run_installed(self) -> None:
-        """List plugins currently discoverable through runtime entry points."""
+        """List installed plugin entry points without importing plugin modules."""
         print_header("Installed Data Designer Plugins")
         installed_plugins = self.catalog_service.list_installed_plugins()
         if not installed_plugins:
@@ -225,6 +231,12 @@ class PluginCatalogController:
                 trusted=trusted,
                 cache_ttl_seconds=cache_ttl_seconds,
             )
+        except ValidationError as e:
+            if any(tuple(error["loc"]) == ("alias",) for error in e.errors()):
+                print_error(f"Invalid tap alias {alias!r}: must match `{PLUGIN_TAP_ALIAS_PATTERN}`")
+            else:
+                print_error(f"Invalid plugin tap configuration: {e}")
+            raise typer.Exit(code=1)
         except Exception as e:
             print_error(f"Failed to add plugin tap: {e}")
             raise typer.Exit(code=1)
@@ -288,7 +300,7 @@ class PluginCatalogController:
         table = Table(title="Catalog Plugins", border_style=NordColor.NORD8.value)
         table.add_column("Name", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("Type", style=NordColor.NORD9.value, no_wrap=True)
-        table.add_column("Package", style=NordColor.NORD4.value)
+        table.add_column("Package", style=NordColor.NORD4.value, no_wrap=True)
         table.add_column("Version", style=NordColor.NORD15.value, no_wrap=True)
         table.add_column("Compatible", style=NordColor.NORD13.value, no_wrap=True)
         table.add_column("Docs", style=NordColor.NORD7.value)
@@ -310,16 +322,12 @@ class PluginCatalogController:
     def _display_installed_plugins(installed_plugins: list[InstalledPluginInfo]) -> None:
         table = Table(title="Installed Plugins", border_style=NordColor.NORD8.value)
         table.add_column("Name", style=NordColor.NORD14.value, no_wrap=True)
-        table.add_column("Type", style=NordColor.NORD9.value, no_wrap=True)
-        table.add_column("Config", style=NordColor.NORD4.value)
-        table.add_column("Implementation", style=NordColor.NORD7.value)
+        table.add_column("Entry Point", style=NordColor.NORD4.value)
 
         for plugin in installed_plugins:
             table.add_row(
                 plugin.name,
-                plugin.plugin_type.value,
-                plugin.config_qualified_name,
-                plugin.impl_qualified_name,
+                plugin.entry_point_value,
             )
         console.print(table)
 

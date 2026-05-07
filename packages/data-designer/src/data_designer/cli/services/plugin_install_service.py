@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib
 import shutil
 import subprocess
 import sys
@@ -55,6 +56,7 @@ class PluginInstallService:
 
     def verify_entry_point(self, entry: PluginCatalogEntry) -> bool:
         """Verify the plugin is discoverable by the runtime PluginRegistry."""
+        importlib.invalidate_caches()
         PluginRegistry.reset()
         registry = PluginRegistry()
         return registry.plugin_exists(entry.name)

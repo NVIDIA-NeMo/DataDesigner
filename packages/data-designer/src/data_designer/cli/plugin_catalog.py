@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -17,6 +18,7 @@ from data_designer.plugins.plugin import PluginType
 
 DEFAULT_PLUGIN_TAP_ALIAS = "nvidia"
 DEFAULT_PLUGIN_TAP_URL = "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesignerPlugins/main/catalog/plugins.json"
+DEFAULT_PLUGIN_TAP_URL_ENV_VAR = "DATA_DESIGNER_DEFAULT_PLUGIN_TAP_URL"
 PLUGIN_TAPS_FILE_NAME = "plugin_taps.yaml"
 PLUGIN_TAP_CACHE_DIR_NAME = "plugin-tap-cache"
 PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS = 24 * 60 * 60
@@ -175,12 +177,15 @@ class InstallPlan:
 
 @dataclass(frozen=True)
 class InstalledPluginInfo:
-    """Runtime plugin discovered from installed entry points."""
+    """Installed plugin entry point discovered without importing plugin code."""
 
     name: str
-    plugin_type: PluginType
-    config_qualified_name: str
-    impl_qualified_name: str
+    entry_point_value: str
+
+
+def get_default_plugin_tap_url() -> str:
+    """Return the built-in plugin tap URL, honoring a local override for QA/staging."""
+    return os.getenv(DEFAULT_PLUGIN_TAP_URL_ENV_VAR, DEFAULT_PLUGIN_TAP_URL)
 
 
 def validate_plugin_catalog_payload(payload: object, *, source: str) -> None:
