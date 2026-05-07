@@ -5,25 +5,46 @@ from __future__ import annotations
 
 import importlib.metadata
 import sys
+from typing import TextIO
 
 import typer
 
 from data_designer.cli.agent_command_defs import AGENT_COMMANDS
 from data_designer.cli.lazy_group import create_lazy_typer_group
 from data_designer.cli.runtime import ensure_cli_default_model_settings
+from data_designer.config.utils.constants import DATA_DESIGNER_PACKAGE_NAME
 
 _CMD = "data_designer.cli.commands"
-_PACKAGE_NAME = "data-designer"
+
+
+def should_show_update_notice(stream: TextIO | None = None) -> bool:
+    stream = sys.stdout if stream is None else stream
+    return stream.isatty()
 
 
 def _version_callback(value: bool) -> None:
     if not value:
         return
     try:
-        typer.echo(importlib.metadata.version(_PACKAGE_NAME))
+        installed_version = importlib.metadata.version(DATA_DESIGNER_PACKAGE_NAME)
     except importlib.metadata.PackageNotFoundError:
-        typer.echo(f"Unable to resolve installed {_PACKAGE_NAME} package version.", err=True)
+        typer.echo(f"Unable to resolve installed {DATA_DESIGNER_PACKAGE_NAME} package version.", err=True)
         raise typer.Exit(1) from None
+
+    typer.echo(installed_version)
+    if not should_show_update_notice():
+        raise typer.Exit()
+
+    try:
+        # The update CTA is opportunistic; version output should stay usable if lookup fails.
+        from data_designer.cli.ui import print_update_notice
+        from data_designer.cli.version_notice import get_update_notice
+
+        notice = get_update_notice(installed_version)
+        if notice is not None:
+            print_update_notice(notice.latest_version, notice.upgrade_command)
+    except (ImportError, OSError, RuntimeError, ValueError):
+        pass
     raise typer.Exit()
 
 
