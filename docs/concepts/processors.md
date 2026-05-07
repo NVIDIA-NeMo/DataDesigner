@@ -24,6 +24,9 @@ Processors can run at three stages, determined by which callback methods they im
 !!! info "Full Schema Available During Generation"
     Each batch carries the full dataset schema during generation. Post-batch schema changes such as column dropping only alter past batches, so all columns remain accessible to generators while building follow-up batches.
 
+!!! warning "Row-count changes under the async engine"
+    The async engine (default) enforces row-count invariance in `process_before_batch()` and `process_after_batch()` — a processor returning a different row count raises `DatasetGenerationError`. Run row-filtering or expansion logic in `process_after_generation()`, which operates on the final dataset and supports row-count changes. The legacy sync engine (opt-out via `DATA_DESIGNER_ASYNC_ENGINE=0`) is permissive about row-count changes at all stages.
+
 A processor can implement any combination of these callbacks. The built-in processors use `process_after_batch()` by default.
 
 ## Processor Types
@@ -85,7 +88,7 @@ processor = dd.SchemaTransformProcessorConfig(
 - Each key in `template` becomes a column in the transformed dataset
 - Values are Jinja2 templates with access to all columns in the batch
 - Complex structures (lists, nested dicts) are supported
-- Output is saved to the `processors-outputs/{name}/` directory
+- Output is saved to the `processors-files/{name}/` directory
 - The original dataset passes through unchanged
 
 **Template Capabilities:**
@@ -140,13 +143,7 @@ Processors execute in the order they're added. Plan accordingly when one process
 
 ## Processor Plugins
 
-You can extend Data Designer with custom processors via the [plugin system](../plugins/overview.md). A processor plugin is a Python package that provides:
-
-- A **config class** inheriting from `ProcessorConfig` with a `processor_type: Literal["your-type"]` discriminator
-- An **implementation class** inheriting from `Processor` that overrides the desired callback methods
-- A **`Plugin` instance** connecting the two
-
-Once installed, plugin processors are automatically discovered and can be used with `add_processor()` like built-in processors.
+You can extend Data Designer with custom processors via the [plugin system](../plugins/overview.md). Once installed, plugin processors are automatically discovered and can be used with `add_processor()` like built-in processors.
 
 ```python
 from my_processor_plugin.config import MyProcessorConfig
@@ -159,14 +156,7 @@ builder.add_processor(
 )
 ```
 
-**Entry point configuration** in `pyproject.toml`:
-
-```toml
-[project.entry-points."data_designer.plugins"]
-my-processor = "my_plugin.plugin:my_processor_plugin"
-```
-
-See the [plugins overview](../plugins/overview.md) for the full guide on creating plugins.
+For implementation instructions across all plugin types, see [Build Your Own](../plugins/build_your_own.md).
 
 ## Configuration Parameters
 

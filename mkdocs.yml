@@ -31,6 +31,7 @@ nav:
           - Safety & Limits: concepts/mcp/safety-and-limits.md
       - Architecture & Performance: concepts/architecture-and-performance.md
       - Deployment Options: concepts/deployment-options.md
+      - Security: concepts/security.md
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
@@ -56,25 +57,53 @@ nav:
           - "Basic MCP Tool Use": recipes/mcp_and_tooluse/basic_mcp.md
           - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
           - "Nemotron Super Search Agent": recipes/mcp_and_tooluse/search_agent.md
+      - VLM Long-Document Understanding:
+          - "Seed Dataset Preparation": recipes/vlm_long_doc/seed_dataset_preparation.md
+          - "Nemotron Parse OCR": recipes/vlm_long_doc/nemotron_parse_ocr.md
+          - "Text QA from OCR Transcripts": recipes/vlm_long_doc/text_qa.md
+          - "Page Classification": recipes/vlm_long_doc/page_classification.md
+          - "Visual QA": recipes/vlm_long_doc/visual_qa.md
+          - "Single-Page QA": recipes/vlm_long_doc/single_page_qa.md
+          - "Multi-Page Windowed QA": recipes/vlm_long_doc/multi_page_windowed_qa.md
+          - "Whole-Document QA": recipes/vlm_long_doc/whole_document_qa.md
+          - "Frontier Judge QA Filter": recipes/vlm_long_doc/frontier_judge.md
   - Plugins:
       - Overview: plugins/overview.md
-      - Example Plugin: plugins/example.md
-      - FileSystemSeedReader Plugins: plugins/filesystem_seed_reader.md
-      - Available Plugin List: plugins/available.md
+      - Build Your Own: plugins/build_your_own.md
+      - Using Models: plugins/models.md
+      - Available Plugins: plugins/available.md
   - Code Reference:
-      - models: code_reference/models.md
-      - mcp: code_reference/mcp.md
-      - column_configs: code_reference/column_configs.md
-      - config_builder: code_reference/config_builder.md
-      - data_designer_config: code_reference/data_designer_config.md
-      - run_config: code_reference/run_config.md
-      - sampler_params: code_reference/sampler_params.md
-      - validator_params: code_reference/validator_params.md
-      - processors: code_reference/processors.md
-      - analysis: code_reference/analysis.md
+      - Overview: code_reference/index.md
+      # Keep module reference pages ordered alphabetically by nav label within each package group.
+      - Config:
+          - Overview: code_reference/config/index.md
+          - analysis: code_reference/config/analysis.md
+          - column_configs: code_reference/config/column_configs.md
+          - config_builder: code_reference/config/config_builder.md
+          - data_designer_config: code_reference/config/data_designer_config.md
+          - mcp: code_reference/config/mcp.md
+          - models: code_reference/config/models.md
+          - plugins: code_reference/config/plugins.md
+          - processors: code_reference/config/processors.md
+          - run_config: code_reference/config/run_config.md
+          - sampler_params: code_reference/config/sampler_params.md
+          - seeds: code_reference/config/seeds.md
+          - validator_params: code_reference/config/validator_params.md
+      - Engine:
+          - Overview: code_reference/engine/index.md
+          - column_generators: code_reference/engine/column_generators.md
+          - mcp: code_reference/engine/mcp.md
+          - processors: code_reference/engine/processors.md
+          - seed_readers: code_reference/engine/seed_readers.md
+      - Interface:
+          - Overview: code_reference/interface/index.md
+          - data_designer: code_reference/interface/data_designer.md
+          - errors: code_reference/interface/errors.md
+          - results: code_reference/interface/results.md
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - VLM Long Document Understanding: devnotes/posts/vlm-long-document-understanding.md
       - Push Datasets to Hugging Face Hub: devnotes/posts/push-datasets-to-hugging-face-hub.md
       - "Text-to-SQL for Nemotron Super": devnotes/posts/text-to-sql.md
       - "Async All the Way Down": devnotes/posts/async-all-the-way-down.md
@@ -185,6 +214,7 @@ markdown_extensions:
       base_path:
         - docs/
         - .
+      url_download: true
   - pymdownx.highlight:
         pygments_lang_class: true
         use_pygments: true

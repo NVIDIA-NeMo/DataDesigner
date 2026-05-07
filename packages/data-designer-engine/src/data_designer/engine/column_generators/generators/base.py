@@ -16,7 +16,15 @@ from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 _T = TypeVar("_T")
 
-_SYNC_BRIDGE_TIMEOUT = 300
+# Preserved deliberately. Two other 300s deadlines were retired in the
+# async-default flip (PR #592): the throttle queue-wait and the
+# ``_AsyncBridgedModelFacade`` bridge in ``custom.py`` — both have
+# ``ModelFacade`` context and could derive a per-call deadline from
+# ``inference_parameters.timeout``. This generic ``ColumnGenerator.generate()``
+# fallback has no facade reachable, so a defensive backstop stays here for
+# now. Wiring a per-call timeout through to ``_run_coroutine_sync`` is
+# tracked as a structural follow-up.
+SYNC_BRIDGE_TIMEOUT = 300
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -42,11 +50,11 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
     future = pool.submit(asyncio.run, coro)
     timed_out = False
     try:
-        result = future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+        result = future.result(timeout=SYNC_BRIDGE_TIMEOUT)
     except concurrent.futures.TimeoutError as exc:
         timed_out = True
-        logger.warning(f"⚠️ Sync bridge timed out after {_SYNC_BRIDGE_TIMEOUT}s; background thread still running")
-        raise TimeoutError(f"_run_coroutine_sync timed out after {_SYNC_BRIDGE_TIMEOUT}s") from exc
+        logger.warning(f"⚠️ Sync bridge timed out after {SYNC_BRIDGE_TIMEOUT}s; background thread still running")
+        raise TimeoutError(f"_run_coroutine_sync timed out after {SYNC_BRIDGE_TIMEOUT}s") from exc
     finally:
         pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
     return result
@@ -59,7 +67,7 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
 
     @property
     def is_llm_bound(self) -> bool:
-        """Whether this generator makes LLM/HTTP calls during generation."""
+        """Whether this generator makes model/API calls during generation."""
         return False
 
     @property
@@ -209,18 +217,52 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
 
 
 class ColumnGeneratorCellByCell(ColumnGenerator[TaskConfigT], ABC):
+    """Base class for column generators invoked once per row.
+
+    Override ``generate`` to return the complete row mapping after adding the
+    generated value. The engine calls the generator once per row and may run
+    calls concurrently. Use this base when generation is independent per row
+    (e.g. an LLM call per row, a per-row transform).
+    """
+
     @staticmethod
     def get_generation_strategy() -> GenerationStrategy:
         return GenerationStrategy.CELL_BY_CELL
 
     @abstractmethod
-    def generate(self, data: dict) -> dict: ...
+    def generate(self, data: dict) -> dict:
+        """Generate one row's output from a single row's upstream values.
+
+        Args:
+            data: Current row mapping containing the upstream values available to this column.
+
+        Returns:
+            Complete row mapping with existing keys preserved and the new column value added.
+            Include declared side-effect columns when the config creates them.
+        """
 
 
 class ColumnGeneratorFullColumn(ColumnGenerator[TaskConfigT], ABC):
+    """Base class for column generators that transform a full batch at once.
+
+    Override ``generate`` to return the complete batch DataFrame after adding
+    generated values. Use this base when generation is vectorizable or when an
+    external API accepts batched input more efficiently than per-row calls.
+    """
+
     @staticmethod
     def get_generation_strategy() -> GenerationStrategy:
         return GenerationStrategy.FULL_COLUMN
 
     @abstractmethod
-    def generate(self, data: pd.DataFrame) -> pd.DataFrame: ...
+    def generate(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate an entire batch of row outputs.
+
+        Args:
+            data: DataFrame containing the upstream columns this generator depends on.
+
+        Returns:
+            DataFrame containing the input columns plus the new column and any side-effect
+            columns. When ``config.allow_resize`` is ``False``, the row count must match
+            the input; when it is ``True``, the row count may change.
+        """

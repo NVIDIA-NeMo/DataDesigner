@@ -136,7 +136,7 @@ Understanding these concepts will help you make the most of the tutorials:
 
 Quick reference guides for the main configuration objects:
 
-- **[column_configs](../code_reference/column_configs.md)** - All column configuration types
-- **[config_builder](../code_reference/config_builder.md)** - The `DataDesignerConfigBuilder` API
-- **[data_designer_config](../code_reference/data_designer_config.md)** - Main configuration schema
-- **[validator_params](../code_reference/validator_params.md)** - Validator configuration options
+- **[column_configs](../code_reference/config/column_configs.md)** - All column configuration types
+- **[config_builder](../code_reference/config/config_builder.md)** - The `DataDesignerConfigBuilder` API
+- **[data_designer_config](../code_reference/config/data_designer_config.md)** - Main configuration schema
+- **[validator_params](../code_reference/config/validator_params.md)** - Validator configuration options

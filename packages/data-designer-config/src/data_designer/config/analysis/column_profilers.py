@@ -58,7 +58,8 @@ class JudgeScoreProfilerConfig(ConfigBase):
             Must match a model alias defined in the Data Designer configuration.
         summary_score_sample_size: Number of score samples to include when prompting the LLM
             to generate summaries. Larger sample sizes provide more context but increase
-            token usage. Must be at least 1. Defaults to 20.
+            token usage. Must be at least 1 when provided. Set to None to skip LLM-generated
+            summaries. Defaults to 20.
     """
 
     model_alias: str

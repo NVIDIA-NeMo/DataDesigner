@@ -30,9 +30,7 @@ def _make_mock_preview_results(num_records: int) -> MagicMock:
 def _make_mock_create_results(num_records: int, base_path: str = "/output/artifacts/dataset") -> MagicMock:
     """Create a mock CreateResults with the given number of records."""
     mock_results = MagicMock()
-    mock_dataset = MagicMock()
-    mock_dataset.__len__ = MagicMock(return_value=num_records)
-    mock_results.load_dataset.return_value = mock_dataset
+    mock_results.count_records.return_value = num_records
     mock_results.artifact_storage.base_dataset_path = base_path
     return mock_results
 
@@ -772,3 +770,55 @@ def test_run_create_skips_report_when_analysis_is_none(mock_load_config: MagicMo
     # load_analysis() returns None, so to_report() must not be called.
     # If the code ignores the None check, an AttributeError propagates and the test fails.
     mock_results.load_analysis.assert_called_once()
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_with_output_format_happy_path(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """export() is called with the dataset-name-derived path when --output-format is given."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_create_results(5, "/output/artifacts/my_data")
+    mock_dd.create.return_value = mock_results
+
+    controller = GenerationController()
+    controller.run_create(
+        config_source="config.yaml",
+        num_records=5,
+        dataset_name="my_data",
+        artifact_path=None,
+        output_format="jsonl",
+    )
+
+    mock_results.export.assert_called_once_with(
+        Path("/output/artifacts/my_data") / "my_data.jsonl",
+    )
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_export_failure_exits(mock_load_config: MagicMock, mock_dd_cls: MagicMock, tmp_path: Path) -> None:
+    """If export() raises, run_create cleans up the partial file and exits with code 1."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_create_results(5, str(tmp_path))
+    mock_results.export.side_effect = RuntimeError("disk full")
+    mock_dd.create.return_value = mock_results
+
+    # Create a partial file to verify it gets cleaned up.
+    partial_file = tmp_path / "dataset.csv"
+    partial_file.write_text("partial")
+
+    controller = GenerationController()
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_create(
+            config_source="config.yaml",
+            num_records=5,
+            dataset_name="dataset",
+            artifact_path=None,
+            output_format="csv",
+        )
+    assert exc_info.value.exit_code == 1
+    assert not partial_file.exists()

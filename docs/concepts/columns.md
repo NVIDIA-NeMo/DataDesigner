@@ -213,4 +213,4 @@ Computed property listing columns created implicitly alongside the primary colum
 - `{name}__trace`: Created when `with_trace` is not `TraceType.NONE` on the column.
 - `{name}__reasoning_content`: Created when `extract_reasoning_content=True` on the column.
 
-For detailed information on each column type, refer to the [column configuration code reference](../code_reference/column_configs.md).
+For detailed information on each column type, refer to the [column configuration code reference](../code_reference/config/column_configs.md).

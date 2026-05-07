@@ -9,12 +9,15 @@ from collections import deque
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
+from data_designer.config.column_types import ColumnConfigT
+from data_designer.engine.column_generators.utils.generator_classification import column_type_used_in_execution_dag
 from data_designer.engine.dataset_builders.multi_column_configs import (
     DatasetBuilderColumnConfigT,
     MultiColumnConfig,
 )
 from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.engine.dataset_builders.utils.task_model import SliceRef
+from data_designer.logging import LOG_INDENT
 
 logger = logging.getLogger(__name__)
 
@@ -230,27 +233,12 @@ class ExecutionGraph:
         if self._topological_order_cache is not None:
             return list(self._topological_order_cache)
 
-        in_degree: dict[str, int] = {col: 0 for col in self._columns}
-        for col, deps in self._upstream.items():
-            if col in in_degree:
-                in_degree[col] = len(deps)
-
-        queue = deque(col for col, deg in in_degree.items() if deg == 0)
-        order: list[str] = []
-        while queue:
-            col = queue.popleft()
-            order.append(col)
-            for child in self._downstream.get(col, set()):
-                if child in in_degree:
-                    in_degree[child] -= 1
-                    if in_degree[child] == 0:
-                        queue.append(child)
-
-        if len(order) != len(self._columns):
-            raise DAGCircularDependencyError(
-                f"The execution graph contains cyclic dependencies. Resolved {len(order)}/{len(self._columns)} columns."
-            )
-
+        order = _kahns_topological_sort(
+            self._columns,
+            self._upstream,
+            self._downstream,
+            "The execution graph contains cyclic dependencies.",
+        )
         self._topological_order_cache = order
         return list(order)
 
@@ -330,3 +318,106 @@ class ExecutionGraph:
             for dep in sorted(self._upstream.get(col, set())):
                 lines.append(f"    {dep} --> {col}")
         return "\n".join(lines)
+
+
+def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> list[ColumnConfigT]:
+    """Return column configs in dependency order using Kahn's algorithm.
+
+    Non-DAG columns (samplers, seeds) are placed first, followed by DAG columns
+    sorted by ``required_columns`` and ``skip.when`` edges. Side-effect columns
+    are resolved to their producing column.
+
+    Raises:
+        ConfigCompilationError: If two columns declare the same side-effect name.
+        DAGCircularDependencyError: If the dependency graph contains a cycle.
+    """
+    non_dag_cols = [col for col in column_configs if not column_type_used_in_execution_dag(col.column_type)]
+    dag_col_dict = {col.name: col for col in column_configs if column_type_used_in_execution_dag(col.column_type)}
+
+    if not dag_col_dict:
+        return non_dag_cols
+
+    # side_effect_col_name -> producing column name
+    side_effect_map: dict[str, str] = {}
+    for name, col in dag_col_dict.items():
+        for se_col in col.side_effect_columns:
+            existing = side_effect_map.get(se_col)
+            if existing is not None and existing != name:
+                raise ConfigCompilationError(
+                    f"Side-effect column {se_col!r} is already produced by {existing!r}; "
+                    f"cannot register a second producer {name!r}. "
+                    f"Use distinct side-effect column names for each pipeline stage."
+                )
+            side_effect_map[se_col] = name
+
+    upstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
+    downstream: dict[str, set[str]] = {name: set() for name in dag_col_dict}
+
+    logger.info("⛓️ Sorting column configs into a Directed Acyclic Graph")
+    for name, col in dag_col_dict.items():
+        for req in col.required_columns:
+            _add_dag_edge(name, req, "required", dag_col_dict, side_effect_map, upstream, downstream)
+        if col.skip is not None:
+            for skip_col in col.skip.columns:
+                _add_dag_edge(name, skip_col, "skip.when", dag_col_dict, side_effect_map, upstream, downstream)
+
+    order = _kahns_topological_sort(
+        list(dag_col_dict),
+        upstream,
+        downstream,
+        "🛑 The Data Designer column configurations contain cyclic dependencies. Please "
+        "inspect the column configurations and ensure they can be sorted without "
+        "circular references.",
+    )
+
+    return non_dag_cols + [dag_col_dict[n] for n in order]
+
+
+def _add_dag_edge(
+    name: str,
+    dep: str,
+    label: str,
+    dag_col_dict: dict[str, ColumnConfigT],
+    side_effect_map: dict[str, str],
+    upstream: dict[str, set[str]],
+    downstream: dict[str, set[str]],
+) -> None:
+    """Add a dependency edge from *dep*'s producer to *name* if the dep is a known DAG column.
+
+    Self-edges are skipped, consistent with ``ExecutionGraph.create``.
+    The *label* parameter (``"required"`` or ``"skip.when"``) is included in
+    the debug log so the source of each edge is visible during tracing.
+    """
+    resolved = dep if dep in dag_col_dict else side_effect_map.get(dep)
+    if resolved is None or resolved == name:
+        return
+    logger.debug(f"{LOG_INDENT}🔗 `{name}` depends on `{resolved}` [{label}]")
+    upstream[name].add(resolved)
+    downstream[resolved].add(name)
+
+
+def _kahns_topological_sort(
+    nodes: list[str],
+    upstream: dict[str, set[str]],
+    downstream: dict[str, set[str]],
+    error_message: str,
+) -> list[str]:
+    """Return a topological ordering of *nodes* using Kahn's algorithm.
+
+    Raises:
+        DAGCircularDependencyError: If the graph contains a cycle.
+    """
+    in_degree: dict[str, int] = {col: len(upstream.get(col, set())) for col in nodes}
+    queue: deque[str] = deque(col for col, deg in in_degree.items() if deg == 0)
+    order: list[str] = []
+    while queue:
+        col = queue.popleft()
+        order.append(col)
+        for child in downstream.get(col, set()):
+            if child in in_degree:
+                in_degree[child] -= 1
+                if in_degree[child] == 0:
+                    queue.append(child)
+    if len(order) != len(nodes):
+        raise DAGCircularDependencyError(error_message)
+    return order

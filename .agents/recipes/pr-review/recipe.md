@@ -17,10 +17,17 @@ Review pull request #{{pr_number}} using the `review-code` skill.
 
 ## Instructions
 
-1. Run `/review-code {{pr_number}}`
-2. The skill writes the review to `/tmp/review-{{pr_number}}.md`. If it does
+1. If `/tmp/structural-impact-{{pr_number}}.md` exists, read it. This contains
+   a pre-computed structural impact analysis (risk level, god nodes affected,
+   import direction violations, cross-package dependencies). Use it to inform
+   your review - high-risk PRs warrant extra scrutiny on blast radius and
+   backward compatibility.
+2. Run `/review-code {{pr_number}}`
+3. The skill writes the review to `/tmp/review-{{pr_number}}.md`. If it does
    not, save the review output there yourself.
-3. Before finishing, read `/tmp/review-{{pr_number}}.md` and verify it contains
+4. If the structural impact analysis exists, append its content to the review
+   file (before the Verdict section) under a `### Structural Impact` heading.
+5. Before finishing, read `/tmp/review-{{pr_number}}.md` and verify it contains
    a valid review (Summary, Findings, Verdict sections). If the file is empty
    or malformed, write a brief "Review could not be completed" note to the file
    instead.

@@ -34,9 +34,13 @@ required-version = ">=0.7.10"
 # Minimum versions for transitive dependencies with known security vulnerabilities.
 # aiohttp 3.13.3: CVE-2026-22815, CVE-2026-34513 through CVE-2026-34525 (multiple DoS, CRLF injection, credential theft)
 # cryptography 46.0.6: CVE-2026-39892 (buffer overflow on Python >3.11)
+# nbconvert 7.17.0: security advisory (transitive via jupyter)
+# python-multipart 0.0.22: security advisory (transitive via mcp)
 constraint-dependencies = [
     "aiohttp>=3.13.5",
     "cryptography>=46.0.7",
+    "nbconvert>=7.17.1",
+    "python-multipart>=0.0.26",
 ]
 
 [dependency-groups]
