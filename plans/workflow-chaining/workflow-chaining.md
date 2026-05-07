@@ -74,7 +74,9 @@ config_convos = (
 result_2 = dd.create(config_convos, num_records=1000)
 ```
 
-This is a thin wrapper: loads the dataset into memory, optionally filters columns, wraps in `DataFrameSeedSource`, returns a new config builder. No tracking, no provenance, no callbacks - just a quick bridge for iteration. Not suitable for large datasets (loads full DataFrame into memory) or serializable configs (`DataFrameSeedSource` can't be written to YAML). For production pipelines, use the `Pipeline` class.
+This is a thin wrapper: loads the dataset into memory, optionally filters columns, wraps in `DataFrameSeedSource`, returns a new config builder. No tracking, no provenance, no callbacks - just a quick bridge for iteration. Not suitable for large datasets (loads full DataFrame into memory) or serializable configs (`DataFrameSeedSource` can't be written to YAML).
+
+This is the *only* place in the chaining surface that uses an in-memory handoff. `Pipeline` itself always hands off between stages on disk - see "Composability and the throttle invariant" below. For production pipelines, use the `Pipeline` class.
 
 **Auto-chaining from a single config (future):**
 
@@ -167,6 +169,31 @@ The connection to #525: chaining gives coarse (stage-level) checkpointing for fr
 - Which stage's output seeded the next
 - Timestamp, duration, and DD version per stage
 
+#### Composability and the throttle invariant
+
+The `Pipeline` is constructed via `dd.pipeline()` and holds a reference to the parent `DataDesigner`. Every stage runs `dd.create()` (or `dd.acreate()` once available - see Engine API surface below) on that same instance. This is a load-bearing API contract for two reasons.
+
+**Throttle coordination across stages.** A `DataDesigner` owns one `ModelRegistry`, which owns one `ThrottleManager`. AIMD rate-limit state is per-instance. If the pipeline constructed a fresh `DataDesigner` per stage, each stage would adapt independently and the aggregate request rate against a provider could exceed the configured cap by a multiple of the stage count. The same hazard applies to parallel branches in Phase 4: branches sharing one `DataDesigner` automatically share throttling; branches each holding their own `DataDesigner` silently fragment it. Reusing one instance is the simple, correct default.
+
+**Door open for external orchestration.** If cross-process or distributed execution is ever introduced, the natural seam is the throttle backend (today an in-memory `ThrottleManager`; potentially a coordinator-backed implementation later). By keeping ownership of throttling *explicit* on the parent `DataDesigner` rather than *implicit* per stage, the pipeline's shape does not preclude swapping in such a backend. v1 does not need this and will not implement it; v1 only needs to avoid encoding assumptions that would prevent it.
+
+**On-disk handoffs for the same reason.** Stage handoffs go through parquet on disk via `LocalFileSeedSource`, never through an in-memory `DataFrameSeedSource`. This composes with any future orchestration model (in-process, cross-process, distributed) without per-environment branching. The cost is one parquet round-trip per stage boundary, which is negligible compared to LLM call time at any realistic scale. The notebook ergonomic `to_config_builder()` is the in-memory escape hatch and is explicitly not a Pipeline.
+
+**Internal stage model is a graph, not a list.** v1 exposes a linear `add_stage()` API and runs stages sequentially. Internally the pipeline represents stages as a DAG with the linear case being the default chain. This lets Phase 4 add parallel branches as an additive API change without restructuring orchestration.
+
+#### Engine API surface: `acreate()`
+
+`Pipeline` v1 calls `DataDesigner.create()` synchronously per stage and runs them in order. Sequential execution doesn't need an async API. Parallel execution does, and the engine doesn't expose one today.
+
+Adding `async def acreate(...)` on `DataDesigner` is a small, additive change. The underlying `_build_async` already runs on a singleton background event loop and submits work via a `concurrent.futures.Future`; `acreate()` bridges it into the caller's loop via `asyncio.wrap_future`. The sync `create()` becomes a one-line wrapper. No breaking changes.
+
+`acreate()` enables two things without touching `Pipeline`:
+
+- **Parallel-independent workflows.** Users can `asyncio.gather(dd.acreate(c1), dd.acreate(c2))` for unrelated configs and get coordinated throttling automatically through the shared `ThrottleManager`.
+- **Pipeline DAG branches (Phase 4).** When the pipeline graduates to a DAG, parallel branches are a pure orchestration change - `asyncio.gather` over `acreate()` calls inside `pipeline.run()` - with no further engine work required.
+
+`acreate()` is *not* part of chaining v1. It ships as its own small piece of work that can land before, alongside, or after Phase 1; the dependency only becomes hard for Phase 4. Listed as a sidecar under Implementation phases.
+
 ### Part 2: Remove `allow_resize`
 
 With the pipeline in place, `allow_resize` is no longer needed as an engine-internal mechanism. Resize becomes a between-stage concern.
@@ -197,7 +224,7 @@ This applies to both sync and async paths. Users who need to filter or expand be
 |-------|---------|
 | `data-designer-config` | Remove `allow_resize` field. No new config models needed for v1 (pipeline is imperative, not declarative). |
 | `data-designer-engine` | Remove resize code paths. Add fail-fast guard in `ProcessorRunner`. No new engine features. |
-| `data-designer` (interface) | New `Pipeline` class. Thin orchestration: calls `DataDesigner.create()` per stage, wires `DataFrameSeedSource` between stages for in-memory handoff or `LocalFileSeedSource` for on-disk handoff. |
+| `data-designer` (interface) | New `Pipeline` class. Thin orchestration: holds a reference to the parent `DataDesigner`, calls `DataDesigner.create()` per stage, hands off between stages on disk via `LocalFileSeedSource`. All stages share the same `ModelRegistry` and `ThrottleManager`. Optionally consumes `DataDesigner.acreate()` (sidecar) once available, for Phase 4 parallel branches. |
 
 The engine does not know about pipelines. Each stage is a regular `DatasetBuilder.build()` call.
 
@@ -297,10 +324,19 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 ### Phase 1: Pipeline class and `to_config_builder()` (can ship independently)
 
 - Add `to_config_builder()` on `DatasetCreationResults` and `PreviewResults`.
-- Add `Pipeline` class with `add_stage()`, `run()`, between-stage callbacks.
+- Add `Pipeline` class with `add_stage()`, `run()`, between-stage callbacks. Pipeline holds a reference to the parent `DataDesigner` and reuses it across stages.
+- Stage handoff is always on disk via `LocalFileSeedSource`; no in-memory handoff path inside `Pipeline`.
+- Internal stage representation is a DAG (linear-only inputs in v1).
 - Add `pipeline-metadata.json` writing.
 - Add `dd.pipeline()` factory method on `DataDesigner`.
-- Tests: multi-stage runs, explode/filter via callbacks, num_records defaulting, artifact layout.
+- Tests: multi-stage runs, explode/filter via callbacks, num_records defaulting, artifact layout, throttle reuse across stages.
+
+### Sidecar: `acreate()` on `DataDesigner` (independent of chaining v1)
+
+- Add `async def acreate(...)` mirroring `create()` but returning the awaitable instead of blocking.
+- `create()` becomes a one-line wrapper around `acreate()` (or both share a common builder helper).
+- Tests: parallel-independent workflows via `asyncio.gather`; verify shared `ThrottleManager` keeps aggregate request rate within configured caps.
+- Can ship before, alongside, or after Phase 1. Hard dependency for Phase 4.
 
 ### Phase 2: Remove `allow_resize`
 
@@ -320,27 +356,42 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 - Skip stages whose fingerprints match, seed next stage from last completed output.
 - Depends on artifact layout from phase 1.
 
-### Phase 4 (future): Auto-chaining from single config
+### Phase 4: DAG-shaped stages with parallel branches
+
+- Extend `add_stage()` with an optional `depends_on=[stage_name, ...]` argument; default keeps the linear behavior.
+- `pipeline.run()` walks the resulting DAG, gathering independent branches via `asyncio.gather` over `dd.acreate()` calls.
+- Per-stage fingerprint composition (Phase 3) generalizes naturally: a stage's upstream fingerprint becomes the hash of all its parents' fingerprints.
+- Throttle coordination relies on the existing invariant: all branches run on the same parent `DataDesigner`, so `ThrottleManager` is shared.
+- Hard dependency on the `acreate()` sidecar.
+- Tests: fan-out (one upstream, multiple parallel children); join (multiple upstreams, one child); resume invalidation when one branch's fingerprint changes; throttle behavior under N parallel branches.
+
+### Phase 5 (future): Auto-chaining from single config
 
 - Detect stage boundaries in the DAG (via a new config marker or heuristic).
 - Auto-split into pipeline stages internally.
 - User sees a single `dd.create(config)` call but gets multi-stage execution.
 
+## Resolved decisions
+
+These were open in earlier drafts; recording the resolutions here so the design is unambiguous.
+
+1. **In-memory vs on-disk handoff between stages** -> Always on-disk inside `Pipeline`. The in-memory `DataFrameSeedSource` mode is reserved for the lightweight `to_config_builder()` notebook ergonomic, which is explicitly *not* a `Pipeline`. Reasons: single execution model, simpler resume story, and composability with any future external orchestration that can't share an in-memory DataFrame across process boundaries. Cost is one parquet round-trip per stage, negligible relative to LLM call time.
+
+2. **Branch/fan-out semantics (DAG)** -> Designed-in but not v1. The internal stage representation is a DAG; v1 only accepts linear inputs through `add_stage()`. Phase 4 ships parallel branches via `asyncio.gather` over `acreate()`. v1 stays sequential.
+
+3. **Pipeline construction** -> `Pipeline` is created via `dd.pipeline()` and reuses the parent `DataDesigner`'s `ModelRegistry` and `ThrottleManager` across all stages. The pipeline does not construct its own `DataDesigner` instances. This is the throttle-coordination invariant (see Composability section).
+
 ## Open questions
 
-1. **In-memory vs on-disk handoff between stages**: For small datasets, `DataFrameSeedSource` avoids disk I/O. For large datasets, writing parquet between stages is safer. Should the pipeline auto-detect based on row count, or always go through disk for consistency? (Leaning toward always-on-disk for simplicity and resume support.)
+1. **Preview support**: Should `pipeline.preview()` run all stages with small `num_records`? Or just preview the last stage seeded from a prior full run?
 
-2. **Preview support**: Should `pipeline.preview()` run all stages with small `num_records`? Or just preview the last stage seeded from a prior full run?
+2. **Config serialization**: For persistence, pipeline configs would need symbolic stage references ("seed from stage X's output"). With the on-disk handoff decision above, the `DataFrameSeedSource` blocker is no longer relevant; the remaining question is how to encode stage dependencies in YAML. Needed for auto-chaining (Phase 5) but not for the explicit API (phases 1-4).
 
-3. **Config serialization**: A pipeline config can't be serialized to YAML if stages use `DataFrameSeedSource`. For persistence, stages would need symbolic references ("seed from stage X's output"). This is needed for auto-chaining (phase 4) but not for the explicit API (phases 1-3).
+3. **Naming**: `Pipeline` vs `Chain` vs `WorkflowChain`. `Pipeline` is the most intuitive and aligns with ML pipeline terminology.
 
-4. **Naming**: `Pipeline` vs `Chain` vs `WorkflowChain`. `Pipeline` is the most intuitive and aligns with ML pipeline terminology.
+4. **Image/media column forwarding**: Images in create mode are stored as relative file paths. If a downstream stage seeds from an upstream stage that produced images, the relative paths break. Options: (a) resolve to absolute paths at stage boundary, (b) copy media assets into downstream stage's directory, (c) document as unsupported in v1.
 
-5. **Image/media column forwarding**: Images in create mode are stored as relative file paths. If a downstream stage seeds from an upstream stage that produced images, the relative paths break. Options: (a) resolve to absolute paths at stage boundary, (b) copy media assets into downstream stage's directory, (c) document as unsupported in v1.
-
-6. **Branch/fan-out semantics**: Linear chaining covers the common cases. But "generate once, judge several ways" (fan-out) currently requires building multiple pipelines that repeat stage 1. Should the pipeline support DAG-shaped stage graphs, or is that future work?
-
-7. **Downstream seeding scope**: Should downstream stages only seed from the final dataset, or should they also be able to access dropped columns or named processor outputs from upstream stages?
+5. **Downstream seeding scope**: Should downstream stages only seed from the final dataset, or should they also be able to access dropped columns or named processor outputs from upstream stages?
 
 ## Related issues
 
