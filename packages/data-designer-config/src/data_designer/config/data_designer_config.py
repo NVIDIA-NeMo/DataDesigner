@@ -46,7 +46,7 @@ class DataDesignerConfig(ExportableConfigBase):
     processors: list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]] | None = None
 
     @model_validator(mode="after")
-    def _check_subcategory_parents_are_samplers(self) -> Self:
+    def _validate_subcategory_parents(self) -> Self:
         by_name = {c.name: c for c in self.columns}
         for col in self.columns:
             if col.column_type != "sampler" or col.sampler_type != SamplerType.SUBCATEGORY:
@@ -55,6 +55,7 @@ class DataDesignerConfig(ExportableConfigBase):
             if parent is not None and parent.column_type != "sampler":
                 raise ValueError(
                     f"Subcategory column '{col.name}' has parent '{parent.name}', which is a "
-                    f"'{parent.column_type}' column. Subcategory parents must be category-sampler columns."
+                    f"'{parent.column_type}' column. Subcategory parents must be sampler columns "
+                    f"with sampler_type='category'."
                 )
         return self

@@ -181,3 +181,22 @@ def test_subcategory_parent_as_category_sampler_is_valid() -> None:
         }
     )
     assert len(config.columns) == 2
+
+
+def test_subcategory_parent_missing_defers_to_schema_validator() -> None:
+    config = DataDesignerConfig.model_validate(
+        {
+            "columns": [
+                {
+                    "name": "ski_category",
+                    "column_type": "sampler",
+                    "sampler_type": "subcategory",
+                    "params": {
+                        "category": "does_not_exist",
+                        "values": {"basic": ["a"]},
+                    },
+                },
+            ]
+        }
+    )
+    assert len(config.columns) == 1
