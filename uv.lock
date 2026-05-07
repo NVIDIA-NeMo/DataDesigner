@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -801,6 +801,7 @@ source = { editable = "packages/data-designer" }
 dependencies = [
     { name = "data-designer-config" },
     { name = "data-designer-engine" },
+    { name = "packaging" },
     { name = "prompt-toolkit" },
     { name = "typer" },
 ]
@@ -809,6 +810,7 @@ dependencies = [
 requires-dist = [
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "data-designer-engine", editable = "packages/data-designer-engine" },
+    { name = "packaging", specifier = ">=25,<27" },
     { name = "prompt-toolkit", specifier = ">=3.0.0,<4" },
     { name = "typer", specifier = ">=0.12.0,<1" },
 ]

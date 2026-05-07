@@ -1,0 +1,697 @@
+{
+  "cells": [
+    {
+      "type": "markdown",
+      "source": "# 🎨 Data Designer Tutorial: Seeding Synthetic Data Generation with an External Dataset\n\n#### 📚 What you'll learn\n\nIn this notebook, we will demonstrate how to seed synthetic data generation in Data Designer with an external dataset.\n\nIf this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.",
+      "source_html": "<h1>🎨 Data Designer Tutorial: Seeding Synthetic Data Generation with an External Dataset</h1>\n<h4>📚 What you'll learn</h4>\n<p>In this notebook, we will demonstrate how to seed synthetic data generation in Data Designer with an external dataset.</p>\n<p>If this is your first time using Data Designer, we recommend starting with the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/\">first notebook</a> in this tutorial series.</p>\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### 📦 Import Data Designer\n\n- `data_designer.config` provides access to the configuration API.\n\n- `DataDesigner` is the main interface for data generation.",
+      "source_html": "<h3>📦 Import Data Designer</h3>\n<ul>\n<li>\n<p><code>data_designer.config</code> provides access to the configuration API.</p>\n</li>\n<li>\n<p><code>DataDesigner</code> is the main interface for data generation.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "import data_designer.config as dd\nfrom data_designer.interface import DataDesigner",
+      "language": "python",
+      "source_html": "<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.config</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">as</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">dd</span>\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.interface</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> DataDesigner\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### ⚙️ Initialize the Data Designer interface\n\n- `DataDesigner` is the main object responsible for managing the data generation process.\n\n- When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.",
+      "source_html": "<h3>⚙️ Initialize the Data Designer interface</h3>\n<ul>\n<li>\n<p><code>DataDesigner</code> is the main object responsible for managing the data generation process.</p>\n</li>\n<li>\n<p>When initialized without arguments, the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/\">default model providers</a> are used.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "data_designer = DataDesigner()",
+      "language": "python",
+      "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "/var/folders/r2/h5ycn0g13n1bc1rctfs2q65m0000gp/T/ipykernel_4903/184243683.py:1: DeprecationWarning: ModelProviderRegistry.default is deprecated and will be removed in a future release. Specify provider= explicitly on each ModelConfig instead of relying on a registry-level default. See issue #589.\n  data_designer = DataDesigner()",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🎛️ Define model configurations\n\n- Each `ModelConfig` defines a model that can be used during the generation process.\n\n- The \"model alias\" is used to reference the model in the Data Designer config (as we will see below).\n\n- The \"model provider\" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).\n\n- By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.",
+      "source_html": "<h3>🎛️ Define model configurations</h3>\n<ul>\n<li>\n<p>Each <code>ModelConfig</code> defines a model that can be used during the generation process.</p>\n</li>\n<li>\n<p>The &quot;model alias&quot; is used to reference the model in the Data Designer config (as we will see below).</p>\n</li>\n<li>\n<p>The &quot;model provider&quot; is the external service that hosts the model (see the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/\">model config</a> docs for more details).</p>\n</li>\n<li>\n<p>By default, we use <a href=\"https://build.nvidia.com/models\">build.nvidia.com</a> as the model provider.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "# This name is set in the model provider configuration.\nMODEL_PROVIDER = \"nvidia\"\n\n# The model ID is from build.nvidia.com.\nMODEL_ID = \"nvidia/nemotron-3-nano-30b-a3b\"\n\n# We choose this alias to be descriptive for our use case.\nMODEL_ALIAS = \"nemotron-nano-v3\"\n\nmodel_configs = [\n    dd.ModelConfig(\n        alias=MODEL_ALIAS,\n        model=MODEL_ID,\n        provider=MODEL_PROVIDER,\n        inference_parameters=dd.ChatCompletionInferenceParams(\n            temperature=1.0,\n            top_p=1.0,\n            max_tokens=2048,\n            extra_body={\"chat_template_kwargs\": {\"enable_thinking\": False}},\n        ),\n    )\n]",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># This name is set in the model provider configuration.</span>\nMODEL_PROVIDER <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nvidia&quot;</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># The model ID is from build.nvidia.com.</span>\nMODEL_ID <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nvidia/nemotron-3-nano-30b-a3b&quot;</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># We choose this alias to be descriptive for our use case.</span>\nMODEL_ALIAS <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nemotron-nano-v3&quot;</span>\n\nmodel_configs <span style=\"color: #666\">=</span> [\n    dd<span style=\"color: #666\">.</span>ModelConfig(\n        alias<span style=\"color: #666\">=</span>MODEL_ALIAS,\n        model<span style=\"color: #666\">=</span>MODEL_ID,\n        provider<span style=\"color: #666\">=</span>MODEL_PROVIDER,\n        inference_parameters<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>ChatCompletionInferenceParams(\n            temperature<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1.0</span>,\n            top_p<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1.0</span>,\n            max_tokens<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2048</span>,\n            extra_body<span style=\"color: #666\">=</span>{<span style=\"color: #4070A0\">&quot;chat_template_kwargs&quot;</span>: {<span style=\"color: #4070A0\">&quot;enable_thinking&quot;</span>: <span style=\"color: #007020; font-weight: bold\">False</span>}},\n        ),\n    )\n]\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### 🏗️ Initialize the Data Designer Config Builder\n\n- The Data Designer config defines the dataset schema and generation process.\n\n- The config builder provides an intuitive interface for building this configuration.\n\n- The list of model configs is provided to the builder at initialization.",
+      "source_html": "<h3>🏗️ Initialize the Data Designer Config Builder</h3>\n<ul>\n<li>\n<p>The Data Designer config defines the dataset schema and generation process.</p>\n</li>\n<li>\n<p>The config builder provides an intuitive interface for building this configuration.</p>\n</li>\n<li>\n<p>The list of model configs is provided to the builder at initialization.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)",
+      "language": "python",
+      "source_html": "config_builder <span style=\"color: #666\">=</span> dd<span style=\"color: #666\">.</span>DataDesignerConfigBuilder(model_configs<span style=\"color: #666\">=</span>model_configs)\n"
+    },
+    {
+      "type": "markdown",
+      "source": "## 🏥 Prepare a seed dataset\n\n- For this notebook, we'll create a synthetic dataset of patient notes.\n\n- We will _seed_ the generation process with a [symptom-to-diagnosis dataset](https://huggingface.co/datasets/gretelai/symptom_to_diagnosis).\n\n- We already have the dataset downloaded in the [data](../data) directory of this repository.\n\n<br>\n\n> 🌱 **Why use a seed dataset?**\n>\n> - Seed datasets let you steer the generation process by providing context that is specific to your use case.\n>\n> - Seed datasets are also an excellent way to inject real-world diversity into your synthetic data.\n>\n> - During generation, prompt templates can reference any of the seed dataset fields.",
+      "source_html": "<h2>🏥 Prepare a seed dataset</h2>\n<ul>\n<li>\n<p>For this notebook, we'll create a synthetic dataset of patient notes.</p>\n</li>\n<li>\n<p>We will <em>seed</em> the generation process with a <a href=\"https://huggingface.co/datasets/gretelai/symptom_to_diagnosis\">symptom-to-diagnosis dataset</a>.</p>\n</li>\n<li>\n<p>We already have the dataset downloaded in the <a href=\"../data\">data</a> directory of this repository.</p>\n</li>\n</ul>\n<br>\n<blockquote>\n<p>🌱 <strong>Why use a seed dataset?</strong></p>\n<ul>\n<li>\n<p>Seed datasets let you steer the generation process by providing context that is specific to your use case.</p>\n</li>\n<li>\n<p>Seed datasets are also an excellent way to inject real-world diversity into your synthetic data.</p>\n</li>\n<li>\n<p>During generation, prompt templates can reference any of the seed dataset fields.</p>\n</li>\n</ul>\n</blockquote>\n"
+    },
+    {
+      "type": "code",
+      "source": "# Download sample dataset from Github\nimport urllib.request\n\nurl = \"https://raw.githubusercontent.com/NVIDIA/GenerativeAIExamples/refs/heads/main/nemo/NeMo-Data-Designer/data/gretelai_symptom_to_diagnosis.csv\"\nlocal_filename, _ = urllib.request.urlretrieve(url, \"gretelai_symptom_to_diagnosis.csv\")\n\n# Seed datasets are passed as reference objects to the config builder.\nseed_source = dd.LocalFileSeedSource(path=local_filename)\n\nconfig_builder.with_seed_dataset(seed_source)",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Download sample dataset from Github</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">urllib.request</span>\n\nurl <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;https://raw.githubusercontent.com/NVIDIA/GenerativeAIExamples/refs/heads/main/nemo/NeMo-Data-Designer/data/gretelai_symptom_to_diagnosis.csv&quot;</span>\nlocal_filename, _ <span style=\"color: #666\">=</span> urllib<span style=\"color: #666\">.</span>request<span style=\"color: #666\">.</span>urlretrieve(url, <span style=\"color: #4070A0\">&quot;gretelai_symptom_to_diagnosis.csv&quot;</span>)\n\n<span style=\"color: #60A0B0; font-style: italic\"># Seed datasets are passed as reference objects to the config builder.</span>\nseed_source <span style=\"color: #666\">=</span> dd<span style=\"color: #666\">.</span>LocalFileSeedSource(path<span style=\"color: #666\">=</span>local_filename)\n\nconfig_builder<span style=\"color: #666\">.</span>with_seed_dataset(seed_source)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "\n<meta charset=\"UTF-8\">\n<style>\npre { line-height: 125%; }\ntd.linenos .normal { color: #D8DEE9; background-color: #242933; padding-left: 5px; padding-right: 5px; }\nspan.linenos { color: #D8DEE9; background-color: #242933; padding-left: 5px; padding-right: 5px; }\ntd.linenos .special { color: #242933; background-color: #D8DEE9; padding-left: 5px; padding-right: 5px; }\nspan.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 5px; padding-right: 5px; }\n.code .hll { background-color: #3B4252 }\n.code { background: #2E3440; color: #D8DEE9 }\n.code .c { color: #616E87; font-style: italic } /* Comment */\n.code .err { color: #BF616A } /* Error */\n.code .esc { color: #D8DEE9 } /* Escape */\n.code .g { color: #D8DEE9 } /* Generic */\n.code .k { color: #81A1C1; font-weight: bold } /* Keyword */\n.code .l { color: #D8DEE9 } /* Literal */\n.code .n { color: #D8DEE9 } /* Name */\n.code .o { color: #81A1C1; font-weight: bold } /* Operator */\n.code .x { color: #D8DEE9 } /* Other */\n.code .p { color: #ECEFF4 } /* Punctuation */\n.code .ch { color: #616E87; font-style: italic } /* Comment.Hashbang */\n.code .cm { color: #616E87; font-style: italic } /* Comment.Multiline */\n.code .cp { color: #5E81AC; font-style: italic } /* Comment.Preproc */\n.code .cpf { color: #616E87; font-style: italic } /* Comment.PreprocFile */\n.code .c1 { color: #616E87; font-style: italic } /* Comment.Single */\n.code .cs { color: #616E87; font-style: italic } /* Comment.Special */\n.code .gd { color: #BF616A } /* Generic.Deleted */\n.code .ge { color: #D8DEE9; font-style: italic } /* Generic.Emph */\n.code .ges { color: #D8DEE9; font-weight: bold; font-style: italic } /* Generic.EmphStrong */\n.code .gr { color: #BF616A } /* Generic.Error */\n.code .gh { color: #88C0D0; font-weight: bold } /* Generic.Heading */\n.code .gi { color: #A3BE8C } /* Generic.Inserted */\n.code .go { color: #D8DEE9 } /* Generic.Output */\n.code .gp { color: #616E88; font-weight: bold } /* Generic.Prompt */\n.code .gs { color: #D8DEE9; font-weight: bold } /* Generic.Strong */\n.code .gu { color: #88C0D0; font-weight: bold } /* Generic.Subheading */\n.code .gt { color: #BF616A } /* Generic.Traceback */\n.code .kc { color: #81A1C1; font-weight: bold } /* Keyword.Constant */\n.code .kd { color: #81A1C1; font-weight: bold } /* Keyword.Declaration */\n.code .kn { color: #81A1C1; font-weight: bold } /* Keyword.Namespace */\n.code .kp { color: #81A1C1 } /* Keyword.Pseudo */\n.code .kr { color: #81A1C1; font-weight: bold } /* Keyword.Reserved */\n.code .kt { color: #81A1C1 } /* Keyword.Type */\n.code .ld { color: #D8DEE9 } /* Literal.Date */\n.code .m { color: #B48EAD } /* Literal.Number */\n.code .s { color: #A3BE8C } /* Literal.String */\n.code .na { color: #8FBCBB } /* Name.Attribute */\n.code .nb { color: #81A1C1 } /* Name.Builtin */\n.code .nc { color: #8FBCBB } /* Name.Class */\n.code .no { color: #8FBCBB } /* Name.Constant */\n.code .nd { color: #D08770 } /* Name.Decorator */\n.code .ni { color: #D08770 } /* Name.Entity */\n.code .ne { color: #BF616A } /* Name.Exception */\n.code .nf { color: #88C0D0 } /* Name.Function */\n.code .nl { color: #D8DEE9 } /* Name.Label */\n.code .nn { color: #8FBCBB } /* Name.Namespace */\n.code .nx { color: #D8DEE9 } /* Name.Other */\n.code .py { color: #D8DEE9 } /* Name.Property */\n.code .nt { color: #81A1C1 } /* Name.Tag */\n.code .nv { color: #D8DEE9 } /* Name.Variable */\n.code .ow { color: #81A1C1; font-weight: bold } /* Operator.Word */\n.code .pm { color: #ECEFF4 } /* Punctuation.Marker */\n.code .w { color: #D8DEE9 } /* Text.Whitespace */\n.code .mb { color: #B48EAD } /* Literal.Number.Bin */\n.code .mf { color: #B48EAD } /* Literal.Number.Float */\n.code .mh { color: #B48EAD } /* Literal.Number.Hex */\n.code .mi { color: #B48EAD } /* Literal.Number.Integer */\n.code .mo { color: #B48EAD } /* Literal.Number.Oct */\n.code .sa { color: #A3BE8C } /* Literal.String.Affix */\n.code .sb { color: #A3BE8C } /* Literal.String.Backtick */\n.code .sc { color: #A3BE8C } /* Literal.String.Char */\n.code .dl { color: #A3BE8C } /* Literal.String.Delimiter */\n.code .sd { color: #616E87 } /* Literal.String.Doc */\n.code .s2 { color: #A3BE8C } /* Literal.String.Double */\n.code .se { color: #EBCB8B } /* Literal.String.Escape */\n.code .sh { color: #A3BE8C } /* Literal.String.Heredoc */\n.code .si { color: #A3BE8C } /* Literal.String.Interpol */\n.code .sx { color: #A3BE8C } /* Literal.String.Other */\n.code .sr { color: #EBCB8B } /* Literal.String.Regex */\n.code .s1 { color: #A3BE8C } /* Literal.String.Single */\n.code .ss { color: #A3BE8C } /* Literal.String.Symbol */\n.code .bp { color: #81A1C1 } /* Name.Builtin.Pseudo */\n.code .fm { color: #88C0D0 } /* Name.Function.Magic */\n.code .vc { color: #D8DEE9 } /* Name.Variable.Class */\n.code .vg { color: #D8DEE9 } /* Name.Variable.Global */\n.code .vi { color: #D8DEE9 } /* Name.Variable.Instance */\n.code .vm { color: #D8DEE9 } /* Name.Variable.Magic */\n.code .il { color: #B48EAD } /* Literal.Number.Integer.Long */\n\n.code {\n  padding: 4px;\n  border: 1px solid grey;\n  border-radius: 4px;\n  max-width: 1000px;\n  width: 100%;\n  display: inline-block;\n  box-sizing: border-box;\n  text-align: left;\n  vertical-align: top;\n  line-height: normal;\n  overflow-x: auto;\n}\n\n.code pre {\n  white-space: pre-wrap;       /* CSS 3 */\n  white-space: -moz-pre-wrap;  /* Mozilla, since 1999 */\n  white-space: -pre-wrap;      /* Opera 4-6 */\n  white-space: -o-pre-wrap;    /* Opera 7 */\n  word-wrap: break-word;\n  overflow-wrap: break-word;\n  margin: 0;\n}\n</style>\n<div class=\"code\"><pre><span></span><span class=\"n\">DataDesignerConfigBuilder</span><span class=\"p\">(</span>\n    <span class=\"n\">seed_dataset</span><span class=\"p\">:</span> <span class=\"n\">local</span> <span class=\"n\">seed</span>\n<span class=\"p\">)</span>\n</pre></div>\n\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "## 🎨 Designing our synthetic patient notes dataset\n\n- The prompt template can reference fields from our seed dataset:\n  - `{{ diagnosis }}` - the medical diagnosis from the seed data\n  - `{{ patient_summary }}` - the symptom description from the seed data",
+      "source_html": "<h2>🎨 Designing our synthetic patient notes dataset</h2>\n<ul>\n<li>The prompt template can reference fields from our seed dataset:\n<ul>\n<li><code>{{ diagnosis }}</code> - the medical diagnosis from the seed data</li>\n<li><code>{{ patient_summary }}</code> - the symptom description from the seed data</li>\n</ul>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "config_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"patient_sampler\",\n        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,\n        params=dd.PersonFromFakerSamplerParams(),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"doctor_sampler\",\n        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,\n        params=dd.PersonFromFakerSamplerParams(),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"patient_id\",\n        sampler_type=dd.SamplerType.UUID,\n        params=dd.UUIDSamplerParams(\n            prefix=\"PT-\",\n            short_form=True,\n            uppercase=True,\n        ),\n    )\n)\n\nconfig_builder.add_column(dd.ExpressionColumnConfig(name=\"first_name\", expr=\"{{ patient_sampler.first_name }}\"))\n\nconfig_builder.add_column(dd.ExpressionColumnConfig(name=\"last_name\", expr=\"{{ patient_sampler.last_name }}\"))\n\nconfig_builder.add_column(dd.ExpressionColumnConfig(name=\"dob\", expr=\"{{ patient_sampler.birth_date }}\"))\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"symptom_onset_date\",\n        sampler_type=dd.SamplerType.DATETIME,\n        params=dd.DatetimeSamplerParams(start=\"2024-01-01\", end=\"2024-12-31\"),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"date_of_visit\",\n        sampler_type=dd.SamplerType.TIMEDELTA,\n        params=dd.TimeDeltaSamplerParams(dt_min=1, dt_max=30, reference_column_name=\"symptom_onset_date\"),\n    )\n)\n\nconfig_builder.add_column(dd.ExpressionColumnConfig(name=\"physician\", expr=\"Dr. {{ doctor_sampler.last_name }}\"))\n\nconfig_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"physician_notes\",\n        prompt=\"\"\"\\\nYou are a primary-care physician who just had an appointment with {{ first_name }} {{ last_name }},\nwho has been struggling with symptoms from {{ diagnosis }} since {{ symptom_onset_date }}.\nThe date of today's visit is {{ date_of_visit }}.\n\n{{ patient_summary }}\n\nWrite careful notes about your visit with {{ first_name }},\nas Dr. {{ doctor_sampler.first_name }} {{ doctor_sampler.last_name }}.\n\nFormat the notes as a busy doctor might.\nRespond with only the notes, no other text.\n\"\"\",\n        model_alias=MODEL_ALIAS,\n    )\n)\n\ndata_designer.validate(config_builder)",
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;patient_sampler&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>PERSON_FROM_FAKER,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>PersonFromFakerSamplerParams(),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;doctor_sampler&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>PERSON_FROM_FAKER,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>PersonFromFakerSamplerParams(),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;patient_id&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>UUID,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>UUIDSamplerParams(\n            prefix<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;PT-&quot;</span>,\n            short_form<span style=\"color: #666\">=</span><span style=\"color: #007020; font-weight: bold\">True</span>,\n            uppercase<span style=\"color: #666\">=</span><span style=\"color: #007020; font-weight: bold\">True</span>,\n        ),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(dd<span style=\"color: #666\">.</span>ExpressionColumnConfig(name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;first_name&quot;</span>, expr<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;{{ patient_sampler.first_name }}&quot;</span>))\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(dd<span style=\"color: #666\">.</span>ExpressionColumnConfig(name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;last_name&quot;</span>, expr<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;{{ patient_sampler.last_name }}&quot;</span>))\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(dd<span style=\"color: #666\">.</span>ExpressionColumnConfig(name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;dob&quot;</span>, expr<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;{{ patient_sampler.birth_date }}&quot;</span>))\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;symptom_onset_date&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>DATETIME,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>DatetimeSamplerParams(start<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;2024-01-01&quot;</span>, end<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;2024-12-31&quot;</span>),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;date_of_visit&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>TIMEDELTA,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>TimeDeltaSamplerParams(dt_min<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1</span>, dt_max<span style=\"color: #666\">=</span><span style=\"color: #40A070\">30</span>, reference_column_name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;symptom_onset_date&quot;</span>),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(dd<span style=\"color: #666\">.</span>ExpressionColumnConfig(name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;physician&quot;</span>, expr<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;Dr. {{ doctor_sampler.last_name }}&quot;</span>))\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>LLMTextColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;physician_notes&quot;</span>,\n        prompt<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;&quot;&quot;</span><span style=\"color: #4070A0; font-weight: bold\">\\</span>\n<span style=\"color: #4070A0\">You are a primary-care physician who just had an appointment with {{ first_name }} {{ last_name }},</span>\n<span style=\"color: #4070A0\">who has been struggling with symptoms from {{ diagnosis }} since {{ symptom_onset_date }}.</span>\n<span style=\"color: #4070A0\">The date of today&#39;s visit is {{ date_of_visit }}.</span>\n\n<span style=\"color: #4070A0\">{{ patient_summary }}</span>\n\n<span style=\"color: #4070A0\">Write careful notes about your visit with {{ first_name }},</span>\n<span style=\"color: #4070A0\">as Dr. {{ doctor_sampler.first_name }} {{ doctor_sampler.last_name }}.</span>\n\n<span style=\"color: #4070A0\">Format the notes as a busy doctor might.</span>\n<span style=\"color: #4070A0\">Respond with only the notes, no other text.</span>\n<span style=\"color: #4070A0\">&quot;&quot;&quot;</span>,\n        model_alias<span style=\"color: #666\">=</span>MODEL_ALIAS,\n    )\n)\n\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] ✅ Validation passed",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🔁 Iteration is key – preview the dataset!\n\n1. Use the `preview` method to generate a sample of records quickly.\n\n2. Inspect the results for quality and format issues.\n\n3. Adjust column configurations, prompts, or parameters as needed.\n\n4. Re-run the preview until satisfied.",
+      "source_html": "<h3>🔁 Iteration is key – preview the dataset!</h3>\n<ol>\n<li>\n<p>Use the <code>preview</code> method to generate a sample of records quickly.</p>\n</li>\n<li>\n<p>Inspect the results for quality and format issues.</p>\n</li>\n<li>\n<p>Adjust column configurations, prompts, or parameters as needed.</p>\n</li>\n<li>\n<p>Re-run the preview until satisfied.</p>\n</li>\n</ol>\n"
+    },
+    {
+      "type": "code",
+      "source": "preview = data_designer.preview(config_builder, num_records=2)",
+      "language": "python",
+      "source_html": "preview <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>preview(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2</span>)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 📸 Preview generation in progress",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] ✅ Validation passed",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 🩺 Running health checks for models...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- ✅ Passed!",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 📝 llm-text model config for column 'physician_notes'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- model provider: 'nvidia'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- inference parameters:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |  |-- generation_type=chat-completion",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |  |-- max_parallel_requests=4",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |  |-- temperature=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |  |-- top_p=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |  |-- max_tokens=2048",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] ⚡️ Async generation: 1 column(s) (physician_notes), 2 tasks across 1 row group(s)",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 🚀 (1/1) Dispatching with 2 records",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 🎲 (1/1) Preparing samplers to generate 2 records across 5 columns",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 🌱 (1/1) Sampling 2 records from seed dataset",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- seed dataset size: 820 records",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO]   |-- sampling strategy: ordered",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 🧩 (1/1) Generating column `first_name` from expression",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 🧩 (1/1) Generating column `physician` from expression",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 🧩 (1/1) Generating column `last_name` from expression",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:29:57] [INFO] 🧩 (1/1) Generating column `dob` from expression",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO] 📊 Progress [5.4s]:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🌕 physician_notes: 2/2 (100%) 0.4 rec/s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO] ✅ Async generation complete [5.4s]: 2 ok, 0 failed across 1 column(s)",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO] 📊 Model usage summary:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- tokens: input=327, output=1579, total=1906, tps=355",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- requests: success=2, failed=0, total=2, rpm=22",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO] 📐 Measuring dataset column statistics:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🎲 column: 'patient_sampler'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🎲 column: 'doctor_sampler'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🎲 column: 'patient_id'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🧩 column: 'first_name'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🧩 column: 'last_name'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🧩 column: 'dob'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🎲 column: 'symptom_onset_date'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🎲 column: 'date_of_visit'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 🧩 column: 'physician'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO]   |-- 📝 column: 'physician_notes'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:02] [INFO] ☀️ Preview complete!",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Run this cell multiple times to cycle through the 2 preview records.\npreview.display_sample_record()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Run this cell multiple times to cycle through the 2 preview records.</span>\npreview<span style=\"color: #666\">.</span>display_sample_record()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div style='text-align:center;font-family:Menlo,Monaco,Consolas,monospace;font-size:12px;color:#666;margin:8px 0;'>[index: 0]</div>",
+          "format": "html"
+        },
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                                 Seed Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name            </span>┃<span style=\"font-weight: bold\"> Value                                                                                    </span>┃\n┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ diagnosis       │ cervical spondylosis                                                                     │\n├─────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤\n│ patient_summary │ I've been having a lot of pain in my neck and back. I've also been having trouble with   │\n│                 │ my balance and coordination. I've been coughing a lot and my limbs feel weak.            │\n└─────────────────┴──────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name               </span>┃<span style=\"font-weight: bold\"> Value                                                                                 </span>┃\n┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler    │ <span style=\"font-weight: bold\">{</span>                                                                                     │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'uuid'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'aa3c86e3-49d5-444c-b6cf-b204121b6985'</span>,                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'locale'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'en_US'</span>,                                                                │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'first_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Lisa'</span>,                                                             │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'last_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Baker'</span>,                                                             │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'middle_name'</span>: <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'sex'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Female'</span>,                                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'96817'</span>,                                                         │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Michael Spring'</span>,                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'city'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'South Angela'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'state'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'West Virginia'</span>,                                                         │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'postcode'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'37312'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'age'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">99</span>,                                                                        │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'birth_date'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'1927-03-23'</span>,                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'country'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Pitcairn Islands'</span>,                                                    │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'marital_status'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'married_present'</span>,                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'education_level'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'doctorate'</span>,                                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'unit'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">''</span>,                                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'occupation'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Engineer, site'</span>,                                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'phone_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'(575)211-3649'</span>,                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'bachelors_field'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'education'</span>                                                    │\n│                    │ <span style=\"font-weight: bold\">}</span>                                                                                     │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ doctor_sampler     │ <span style=\"font-weight: bold\">{</span>                                                                                     │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'uuid'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'80d87fea-07c2-4f5a-98de-82f5c33ec39b'</span>,                                   │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'locale'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'en_US'</span>,                                                                │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'first_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Nancy'</span>,                                                            │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'last_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Aguilar'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'middle_name'</span>: <span style=\"color: #800080; text-decoration-color: #800080; font-style: italic\">None</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'sex'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Female'</span>,                                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'6822'</span>,                                                          │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'street_name'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Barton Ville'</span>,                                                    │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'city'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Birdfort'</span>,                                                               │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'state'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Ohio'</span>,                                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'postcode'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'66475'</span>,                                                              │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'age'</span>: <span style=\"color: #008080; text-decoration-color: #008080; font-weight: bold\">54</span>,                                                                        │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'birth_date'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'1972-03-23'</span>,                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'country'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Gibraltar'</span>,                                                           │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'marital_status'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'widowed'</span>,                                                      │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'education_level'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'associates'</span>,                                                  │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'unit'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">''</span>,                                                                       │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'occupation'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'Scientist, biomedical'</span>,                                            │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'phone_number'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'7519721790'</span>,                                                     │\n│                    │     <span style=\"color: #008000; text-decoration-color: #008000\">'bachelors_field'</span>: <span style=\"color: #008000; text-decoration-color: #008000\">'no_degree'</span>                                                    │\n│                    │ <span style=\"font-weight: bold\">}</span>                                                                                     │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ patient_id         │ PT-76CE4438                                                                           │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ symptom_onset_date │ 2024-08-19T00:00:00                                                                   │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ date_of_visit      │ 2024-09-15T00:00:00                                                                   │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ physician_notes    │ **COMMENTS:**                                                                         │\n│                    │ 66 y/o WM. Chronic neck + back pain, hx cervical spondylosis (onset 3/2024). Current  │\n│                    │ exacerbation limiting ADLs. New sx: frequent cough, lower-extremity weakness/falling, │\n│                    │ impaired balance, frequent tripping. Denies neuropathic pain, numbness, muscle        │\n│                    │ spasms; no radiculopathy reported. PMH significant for cardiovascular disease.        │\n│                    │                                                                                       │\n│                    │ **O/S:**                                                                              │\n│                    │ Vitals: Afebrile; BP elevated (160/90). Neuro: Positive Romberg; gait unsteady; lower │\n│                    │ extremity strength 4/5 (vs 5/5 prior). No sensory deficits. CV: Slight hand           │\n│                    │ claudication noted; requires further cardiac workup.                                  │\n│                    │                                                                                       │\n│                    │ **ASSESSMENT:**                                                                       │\n│                    │ NECK/SPINE: Cervical spondylosis symptoms worsened; correlates with imaging           │\n│                    │ (degenerative changes at C5-C6; canal narrowing). New CNS manifestations              │\n│                    │ (balance/weakness) suggest possible myelopathic involvement. Cardiac workup pending.  │\n│                    │                                                                                       │\n│                    │ **PLAN:**                                                                             │\n│                    │ 1. **Imaging:** Request follow-up CT scan (cervical spine, sagittal T2-weighted       │\n│                    │ images) to reassess canal dimensions and myelopathy.                                  │\n│                    │ 2. **Cardiac:** Initiate stress test to evaluate claudication pattern; refer to       │\n│                    │ cardiology.                                                                           │\n│                    │ 3. **Referral:** Neurology referral (Suspect MSA-CNM or vascular parkinsonism; no     │\n│                    │ Shh/AtxN50 involvement; exclude HSP).                                                 │\n│                    │ 4. **Monitoring:** Schedule 3-month follow-up with ENT/audiology (cough focus);       │\n│                    │ physical therapy referral (gait training, balance exercises).                         │\n│                    │ 5. **Symptom Tracking:** Patient to log *exact timing* of falls and cough episodes;   │\n│                    │ assess response to neck brace (if used).                                              │\n│                    │ 6. **Next FU:** 2 weeks (9/29/2024) for imaging results review + cardiac consult      │\n│                    │ summary.                                                                              │\n│                    │                                                                                       │\n│                    │ **NOTE:** Avoid excessive symptom inquiry; focus on *objective triggers* (e.g.,       │\n│                    │ \"cough preceded fall\"). Patient appears anxious; maintain concise, action-oriented    │\n│                    │ communication.                                                                        │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ first_name         │ Lisa                                                                                  │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ last_name          │ Baker                                                                                 │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ dob                │ 1927-03-23                                                                            │\n├────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤\n│ physician          │ Dr. Aguilar                                                                           │\n└────────────────────┴───────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# The preview dataset is available as a pandas DataFrame.\npreview.dataset",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># The preview dataset is available as a pandas DataFrame.</span>\npreview<span style=\"color: #666\">.</span>dataset\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>diagnosis</th>\n      <th>patient_summary</th>\n      <th>patient_sampler</th>\n      <th>doctor_sampler</th>\n      <th>patient_id</th>\n      <th>symptom_onset_date</th>\n      <th>date_of_visit</th>\n      <th>first_name</th>\n      <th>physician</th>\n      <th>last_name</th>\n      <th>dob</th>\n      <th>physician_notes</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>cervical spondylosis</td>\n      <td>I've been having a lot of pain in my neck and ...</td>\n      <td>{'uuid': 'aa3c86e3-49d5-444c-b6cf-b204121b6985...</td>\n      <td>{'uuid': '80d87fea-07c2-4f5a-98de-82f5c33ec39b...</td>\n      <td>PT-76CE4438</td>\n      <td>2024-08-19T00:00:00</td>\n      <td>2024-09-15T00:00:00</td>\n      <td>Lisa</td>\n      <td>Dr. Aguilar</td>\n      <td>Baker</td>\n      <td>1927-03-23</td>\n      <td>**COMMENTS:**  \\n66 y/o WM. Chronic neck + bac...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>impetigo</td>\n      <td>I have a rash on my face that is getting worse...</td>\n      <td>{'uuid': 'ac9cc57b-c890-40ed-af2f-47fc48c640d9...</td>\n      <td>{'uuid': 'daffb218-d6bf-4c74-acbd-3c2146c77e48...</td>\n      <td>PT-70743A50</td>\n      <td>2024-05-16T00:00:00</td>\n      <td>2024-05-22T00:00:00</td>\n      <td>Wendy</td>\n      <td>Dr. Walker</td>\n      <td>Prince</td>\n      <td>1998-06-22</td>\n      <td>- **Patient:** Wendy Prince  \\n- **DOB:** 2024...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 📊 Analyze the generated data\n\n- Data Designer automatically generates a basic statistical analysis of the generated data.\n\n- This analysis is available via the `analysis` property of generation result objects.",
+      "source_html": "<h3>📊 Analyze the generated data</h3>\n<ul>\n<li>\n<p>Data Designer automatically generates a basic statistical analysis of the generated data.</p>\n</li>\n<li>\n<p>This analysis is available via the <code>analysis</code> property of generation result objects.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "# Print the analysis as a table.\npreview.analysis.to_report()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Print the analysis as a table.</span>\npreview<span style=\"color: #666\">.</span>analysis<span style=\"color: #666\">.</span>to_report()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 10                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                   </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler               │            dict │                       2 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ doctor_sampler                │            dict │                       2 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ patient_id                    │          string │                       2 (100.0%) │                       uuid │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ symptom_onset_date            │          string │                       2 (100.0%) │                   datetime │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ date_of_visit                 │          string │                       2 (100.0%) │                  timedelta │\n└───────────────────────────────┴─────────────────┴──────────────────────────────────┴────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ physician_notes       │        string │                 2 (100.0%) │     134.5 +/- 4.5 │        754.0 +/- 432.8 │\n└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                    </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                 data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                               number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ first_name                     │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ last_name                      │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ dob                            │                    string │                                         2 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ physician                      │                    string │                                         2 (100.0%) │\n└────────────────────────────────┴───────────────────────────┴────────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🆙 Scale up!\n\n- Happy with your preview data?\n\n- Use the `create` method to submit larger Data Designer generation jobs.",
+      "source_html": "<h3>🆙 Scale up!</h3>\n<ul>\n<li>\n<p>Happy with your preview data?</p>\n</li>\n<li>\n<p>Use the <code>create</code> method to submit larger Data Designer generation jobs.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "results = data_designer.create(config_builder, num_records=10, dataset_name=\"tutorial-3\")",
+      "language": "python",
+      "source_html": "results <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>create(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">10</span>, dataset_name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;tutorial-3&quot;</span>)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🎨 Creating Data Designer dataset",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] ✅ Validation passed",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🩺 Running health checks for models...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- ✅ Passed!",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 📝 llm-text model config for column 'physician_notes'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- model: 'nvidia/nemotron-3-nano-30b-a3b'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- model alias: 'nemotron-nano-v3'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- model provider: 'nvidia'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- inference parameters:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |  |-- generation_type=chat-completion",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |  |-- max_parallel_requests=4",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |  |-- extra_body={'chat_template_kwargs': {'enable_thinking': False}}",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |  |-- temperature=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |  |-- top_p=1.00",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |  |-- max_tokens=2048",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] ⚡️ Async generation: 1 column(s) (physician_notes), 10 tasks across 1 row group(s)",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🚀 (1/1) Dispatching with 10 records",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🎲 (1/1) Preparing samplers to generate 10 records across 5 columns",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🌱 (1/1) Sampling 10 records from seed dataset",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- seed dataset size: 820 records",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO]   |-- sampling strategy: ordered",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🧩 (1/1) Generating column `first_name` from expression",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🧩 (1/1) Generating column `physician` from expression",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🧩 (1/1) Generating column `last_name` from expression",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:03] [INFO] 🧩 (1/1) Generating column `dob` from expression",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:09] [INFO] 📊 Progress [5.5s]:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:09] [INFO]   |-- 🌦️ physician_notes: 3/10 (30%) 0.5 rec/s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:15] [INFO] 📊 Progress [11.7s]:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:15] [INFO]   |-- ⛅ physician_notes: 7/10 (70%) 0.6 rec/s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:21] [INFO] 📊 Progress [18.0s]:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:21] [INFO]   |-- ☀️ physician_notes: 10/10 (100%) 0.6 rec/s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:21] [INFO] ✅ Async generation complete [18.0s]: 10 ok, 0 failed across 1 column(s)",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO] 📊 Model usage summary:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- model: nvidia/nemotron-3-nano-30b-a3b",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- tokens: input=1616, output=8590, total=10206, tps=555",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- requests: success=10, failed=0, total=10, rpm=32",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO] 📐 Measuring dataset column statistics:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🎲 column: 'patient_sampler'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🎲 column: 'doctor_sampler'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🎲 column: 'patient_id'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🧩 column: 'first_name'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🧩 column: 'last_name'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🧩 column: 'dob'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🎲 column: 'symptom_onset_date'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🎲 column: 'date_of_visit'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 🧩 column: 'physician'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:22] [INFO]   |-- 📝 column: 'physician_notes'",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Load the generated dataset as a pandas DataFrame.\ndataset = results.load_dataset()\n\ndataset.head()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the generated dataset as a pandas DataFrame.</span>\ndataset <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_dataset()\n\ndataset<span style=\"color: #666\">.</span>head()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>diagnosis</th>\n      <th>patient_summary</th>\n      <th>patient_sampler</th>\n      <th>doctor_sampler</th>\n      <th>patient_id</th>\n      <th>symptom_onset_date</th>\n      <th>date_of_visit</th>\n      <th>first_name</th>\n      <th>physician</th>\n      <th>last_name</th>\n      <th>dob</th>\n      <th>physician_notes</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>cervical spondylosis</td>\n      <td>I've been having a lot of pain in my neck and ...</td>\n      <td>{'age': 76, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>{'age': 79, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-0C1A7533</td>\n      <td>2024-10-03T00:00:00</td>\n      <td>2024-10-26T00:00:00</td>\n      <td>Jason</td>\n      <td>Dr. Mora</td>\n      <td>Crawford</td>\n      <td>1950-01-09</td>\n      <td>**Visit Notes - Dr. Pamela Mora**  \n**Date:** ...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>impetigo</td>\n      <td>I have a rash on my face that is getting worse...</td>\n      <td>{'age': 65, 'bachelors_field': 'arts_humanitie...</td>\n      <td>{'age': 87, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-754796B4</td>\n      <td>2024-10-30T00:00:00</td>\n      <td>2024-11-06T00:00:00</td>\n      <td>Franklin</td>\n      <td>Dr. Nguyen</td>\n      <td>Frederick</td>\n      <td>1960-11-14</td>\n      <td>- 2024-11-06 — Pt F.F. (45M) present with acut...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>urinary tract infection</td>\n      <td>I have been urinating blood. I sometimes feel ...</td>\n      <td>{'age': 103, 'bachelors_field': 'arts_humaniti...</td>\n      <td>{'age': 95, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-5D48914C</td>\n      <td>2024-02-22T00:00:00</td>\n      <td>2024-03-21T00:00:00</td>\n      <td>Brian</td>\n      <td>Dr. Garza</td>\n      <td>Gray</td>\n      <td>1922-06-27</td>\n      <td>**HPI:** 35F presents w/ hematuria (+) and dys...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>arthritis</td>\n      <td>I have been having trouble with my muscles and...</td>\n      <td>{'age': 90, 'bachelors_field': 'stem', 'birth_...</td>\n      <td>{'age': 97, 'bachelors_field': 'education', 'b...</td>\n      <td>PT-8EC95EB2</td>\n      <td>2024-01-18T00:00:00</td>\n      <td>2024-02-06T00:00:00</td>\n      <td>Mark</td>\n      <td>Dr. Ramos</td>\n      <td>Turner</td>\n      <td>1936-02-17</td>\n      <td>**CODE: 124-7891**  \n**DATE/TIME:** 2024-02-06...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>dengue</td>\n      <td>I have been feeling really sick. My body hurts...</td>\n      <td>{'age': 35, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>{'age': 28, 'bachelors_field': 'no_degree', 'b...</td>\n      <td>PT-6B3821DC</td>\n      <td>2024-10-22T00:00:00</td>\n      <td>2024-11-20T00:00:00</td>\n      <td>Michael</td>\n      <td>Dr. Martin</td>\n      <td>Bradshaw</td>\n      <td>1991-03-23</td>\n      <td>**SOAP NOTE**  \n**Patient:** Michael Bradshaw ...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Load the analysis results into memory.\nanalysis = results.load_analysis()\n\nanalysis.to_report()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the analysis results into memory.</span>\nanalysis <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_analysis()\n\nanalysis<span style=\"color: #666\">.</span>to_report()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 10                              │ 10                              │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                🎲 Sampler Columns                                                 </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                   </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               sampler type </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ patient_sampler               │            dict │                      10 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ doctor_sampler                │            dict │                      10 (100.0%) │          person_from_faker │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ patient_id                    │          string │                      10 (100.0%) │                       uuid │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ symptom_onset_date            │          string │                        9 (90.0%) │                   datetime │\n├───────────────────────────────┼─────────────────┼──────────────────────────────────┼────────────────────────────┤\n│ date_of_visit                 │          string │                      10 (100.0%) │                  timedelta │\n└───────────────────────────────┴─────────────────┴──────────────────────────────────┴────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                       </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                            </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">      completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name           </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">        per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">             per record </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ physician_notes       │        string │                10 (100.0%) │     129.5 +/- 5.4 │        731.0 +/- 407.6 │\n└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                               🧩 Expression Columns                                               </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name                    </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                 data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                               number unique values </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ first_name                     │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ last_name                      │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ dob                            │                    string │                                        10 (100.0%) │\n├────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────────┤\n│ physician                      │                    string │                                        10 (100.0%) │\n└────────────────────────────────┴───────────────────────────┴────────────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "## ⏭️ Next Steps\n\nCheck out the following notebook to learn more about:\n\n- [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)\n\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/)",
+      "source_html": "<h2>⏭️ Next Steps</h2>\n<p>Check out the following notebook to learn more about:</p>\n<ul>\n<li>\n<p><a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/\">Providing images as context</a></p>\n</li>\n<li>\n<p><a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/\">Generating images</a></p>\n</li>\n</ul>\n"
+    }
+  ]
+}

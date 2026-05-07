@@ -19,6 +19,7 @@ from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.padding import Padding
 from rich.panel import Panel
+from rich.text import Text
 
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME, NordColor
 
@@ -572,6 +573,28 @@ def print_info(message: str) -> None:
         message: Info message to display
     """
     _print_with_padding(f"💡  {message}")
+
+
+def print_update_notice(latest_version: str, upgrade_command: str) -> None:
+    """Print a compact version update notice.
+
+    Args:
+        latest_version: Latest available Data Designer version.
+        upgrade_command: Command users can run to upgrade.
+    """
+    content = Text.assemble(
+        "New Data Designer version available: ",
+        (latest_version, f"bold {NordColor.NORD14.value}"),
+        "\nUpgrade with: ",
+        (upgrade_command, f"bold {NordColor.NORD8.value}"),
+    )
+    panel = Panel.fit(
+        content,
+        title="🚀 Update available",
+        title_align="left",
+        border_style=NordColor.NORD8.value,
+    )
+    _console.print(panel)
 
 
 def print_text(message: str) -> None:

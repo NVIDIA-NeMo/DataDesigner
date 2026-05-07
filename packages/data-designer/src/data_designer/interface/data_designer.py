@@ -113,13 +113,14 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     orchestrates the dataset creation and profiling processes.
 
     Args:
-        artifact_path: Path where generated artifacts will be stored.
-        dataset_name: Name for the generated dataset. Defaults to "dataset".
-            This will be used as the dataset folder name in the artifact path.
+        artifact_path: Path where generated artifacts will be stored. If not
+            provided, artifacts are stored in an `artifacts` directory under the
+            current working directory.
         model_providers: Optional list of model providers for LLM generation. If None,
             uses default providers.
-        secret_resolver: Resolver for handling secrets and credentials. Defaults to
-            EnvironmentResolver which reads secrets from environment variables.
+        secret_resolver: Resolver for handling secrets and credentials. If None,
+            uses the default composite resolver, which checks environment variables
+            and plaintext values.
         seed_readers: Optional list of seed readers. If None, uses default readers.
         managed_assets_path: Path to the managed assets directory. This is used to point
             to the location of managed datasets and other assets used during dataset generation.
@@ -131,7 +132,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             This allows clients to customize how managed datasets are accessed (e.g.,
             using custom fsspec clients for S3 or other remote storage).
         mcp_providers: Optional list of MCP provider configurations to enable tool-calling for
-            LLM generation columns. Supports both MCPProvider (remote/SSE) and
+            LLM generation columns. Supports both MCPProvider (remote SSE or Streamable HTTP) and
             LocalStdioMCPProvider (local subprocess).
     """
 

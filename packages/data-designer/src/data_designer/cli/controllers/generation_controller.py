@@ -118,6 +118,7 @@ class GenerationController:
         dataset_name: str,
         artifact_path: str | None,
         resume: ResumeMode = ResumeMode.NEVER,
+        output_format: str | None = None,
     ) -> None:
         """Load config, create a full dataset, and save results to disk.
 
@@ -127,6 +128,8 @@ class GenerationController:
             dataset_name: Name for the generated dataset folder.
             artifact_path: Path where generated artifacts will be stored, or None for default.
             resume: Controls how interrupted runs are handled.
+            output_format: If set, export the dataset to a single file in this format after
+                generation. One of 'jsonl', 'csv', 'parquet'.
         """
         config_builder = self._load_config(config_source)
 
@@ -151,14 +154,28 @@ class GenerationController:
             print_error(f"Dataset creation failed: {e}")
             raise typer.Exit(code=1)
 
+        actual_record_count = results.count_records()
+
         analysis = results.load_analysis()
         if analysis is not None:
             console.print()
             analysis.to_report()
 
         console.print()
-        print_success("Dataset created successfully")
         console.print(f"  Artifacts saved to: [bold]{results.artifact_storage.base_dataset_path}[/bold]")
+
+        if output_format is not None:
+            export_path = Path(results.artifact_storage.base_dataset_path) / f"{dataset_name}.{output_format}"
+            try:
+                results.export(export_path)
+            except Exception as e:
+                export_path.unlink(missing_ok=True)
+                print_error(f"Export failed: {e}")
+                raise typer.Exit(code=1)
+            console.print(f"  Exported to:       [bold]{export_path}[/bold]")
+
+        console.print()
+        print_success(f"Dataset created — {actual_record_count} record(s) generated")
         console.print()
 
     def _load_config(self, config_source: str) -> DataDesignerConfigBuilder:

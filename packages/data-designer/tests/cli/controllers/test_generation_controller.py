@@ -28,9 +28,10 @@ def _make_mock_preview_results(num_records: int) -> MagicMock:
     return mock_results
 
 
-def _make_mock_create_results(base_path: str = "/output/artifacts/dataset") -> MagicMock:
+def _make_mock_create_results(num_records: int = 0, base_path: str = "/output/artifacts/dataset") -> MagicMock:
     """Create a mock DatasetCreationResults."""
     mock_results = MagicMock()
+    mock_results.count_records.return_value = num_records
     mock_results.artifact_storage.base_dataset_path = base_path
     return mock_results
 
@@ -694,7 +695,7 @@ def test_run_create_custom_options(mock_load_config: MagicMock, mock_dd_cls: Mag
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
-    mock_dd.create.return_value = _make_mock_create_results("/custom/output/my_data")
+    mock_dd.create.return_value = _make_mock_create_results(base_path="/custom/output/my_data")
 
     controller = GenerationController()
     controller.run_create(
@@ -801,6 +802,30 @@ def test_run_create_passes_resume_always(mock_load_config: MagicMock, mock_dd_cl
 
 @patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
+def test_run_create_with_output_format_happy_path(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """export() is called with the dataset-name-derived path when --output-format is given."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_create_results(5, "/output/artifacts/my_data")
+    mock_dd.create.return_value = mock_results
+
+    controller = GenerationController()
+    controller.run_create(
+        config_source="config.yaml",
+        num_records=5,
+        dataset_name="my_data",
+        artifact_path=None,
+        output_format="jsonl",
+    )
+
+    mock_results.export.assert_called_once_with(
+        Path("/output/artifacts/my_data") / "my_data.jsonl",
+    )
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
 def test_run_create_passes_resume_if_possible(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """run_create forwards resume=IF_POSSIBLE to DataDesigner.create()."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
@@ -820,3 +845,31 @@ def test_run_create_passes_resume_if_possible(mock_load_config: MagicMock, mock_
     mock_dd.create.assert_called_once_with(
         mock_load_config.return_value, num_records=10, dataset_name="dataset", resume=ResumeMode.IF_POSSIBLE
     )
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_export_failure_exits(mock_load_config: MagicMock, mock_dd_cls: MagicMock, tmp_path: Path) -> None:
+    """If export() raises, run_create cleans up the partial file and exits with code 1."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_create_results(5, str(tmp_path))
+    mock_results.export.side_effect = RuntimeError("disk full")
+    mock_dd.create.return_value = mock_results
+
+    # Create a partial file to verify it gets cleaned up.
+    partial_file = tmp_path / "dataset.csv"
+    partial_file.write_text("partial")
+
+    controller = GenerationController()
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_create(
+            config_source="config.yaml",
+            num_records=5,
+            dataset_name="dataset",
+            artifact_path=None,
+            output_format="csv",
+        )
+    assert exc_info.value.exit_code == 1
+    assert not partial_file.exists()

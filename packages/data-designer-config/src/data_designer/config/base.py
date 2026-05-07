@@ -90,6 +90,9 @@ class SingleColumnConfig(ConfigBase, ABC):
         name: Unique name of the column to be generated.
         drop: If True, the column will be generated but removed from the final dataset.
             Useful for intermediate columns that are dependencies for other columns.
+        allow_resize: If True, the generator may emit a different number of rows than
+            it received (1:N or N:1). Explicit ``skip`` gates are invalid on resize
+            columns, and upstream skip propagation is not applied to them.
         column_type: Discriminator field that identifies the specific column type.
             Subclasses must override this field to specify the column type with a `Literal` value.
         skip: Optional expression gate for conditional generation.
@@ -171,6 +174,8 @@ class ProcessorConfig(ConfigBase, ABC):
     Attributes:
         name: Unique name of the processor, used to identify the processor in results
             and to name output artifacts on disk.
+        processor_type: Discriminator field that identifies the specific processor type.
+            Subclasses must override this field with a ``Literal`` value.
     """
 
     name: str = Field(

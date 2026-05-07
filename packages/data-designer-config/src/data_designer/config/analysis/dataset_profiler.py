@@ -24,14 +24,14 @@ if TYPE_CHECKING:
 class DatasetProfilerResults(BaseModel):
     """Container for complete dataset profiling and analysis results.
 
-    Stores profiling results for a generated dataset, including statistics for all columns,
-    dataset-level metadata, and optional advanced profiler results. Provides methods for
-    computing derived metrics and generating formatted reports.
+    Stores profiling results for a generated dataset, including statistics for configured columns,
+    dataset-level metadata, side-effect column names, and optional advanced profiler results.
+    Provides methods for computing derived metrics and generating formatted reports.
 
     Attributes:
         num_records: Actual number of records successfully generated in the dataset.
         target_num_records: Target number of records that were requested to be generated.
-        column_statistics: List of statistics objects for all columns in the dataset. Each
+        column_statistics: List of statistics objects for configured columns. Each
             column has statistics appropriate to its type. Must contain at least one column.
         side_effect_column_names: Column names that were generated as side effects of other columns.
         column_profiles: Column profiler results for specific columns when configured.

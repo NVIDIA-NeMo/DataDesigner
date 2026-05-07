@@ -1,0 +1,179 @@
+/* TrajectoryViewer component styles */
+
+.trajectory-viewer {
+  font-family: -apple-system, system-ui, sans-serif;
+  max-width: 960px;
+  margin: 16px 0;
+  padding: 0;
+}
+
+.trajectory-viewer__details {
+  margin: 1rem 0;
+}
+
+.trajectory-viewer__summary {
+  cursor: pointer;
+  padding: 0.5rem 0;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.trajectory-viewer__stats {
+  font-size: 0.8em;
+  opacity: 0.6;
+  font-weight: normal;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+}
+
+.trajectory-viewer__icon {
+  margin-right: 0.35em;
+  font-size: 0.9em;
+}
+
+.trajectory-viewer__question {
+  background: rgba(66, 165, 245, 0.08);
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.trajectory-viewer__question strong {
+  color: #42a5f5;
+}
+
+.trajectory-viewer__ref {
+  background: rgba(76, 175, 80, 0.08);
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border-left: 4px solid #4caf50;
+}
+
+.trajectory-viewer__ref strong {
+  color: #66bb6a;
+}
+
+.trajectory-viewer__hint {
+  opacity: 0.5;
+  font-size: 0.8em;
+  margin-bottom: 12px;
+}
+
+.trajectory-viewer__turn {
+  margin: 6px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.trajectory-viewer__label {
+  min-width: 48px;
+  padding: 6px 0;
+  opacity: 0.5;
+  font-size: 0.75em;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.trajectory-viewer__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trajectory-viewer__group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  position: relative;
+}
+
+.trajectory-viewer__group--multi {
+  padding-left: 13px;
+}
+
+.trajectory-viewer__group--multi::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 2px;
+}
+
+.trajectory-viewer__call {
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  font-size: 0.82em;
+  display: flex;
+  gap: 8px;
+}
+
+.trajectory-viewer__call .trajectory-viewer__fn {
+  font-weight: bold;
+  min-width: 55px;
+  flex-shrink: 0;
+}
+
+.trajectory-viewer__call .trajectory-viewer__arg {
+  opacity: 0.85;
+}
+
+.trajectory-viewer__call--search {
+  background: rgba(66, 165, 245, 0.1);
+  border-left: 3px solid #42a5f5;
+}
+
+.trajectory-viewer__call--search .trajectory-viewer__fn {
+  color: #42a5f5;
+}
+
+.trajectory-viewer__call--open {
+  background: rgba(102, 187, 106, 0.1);
+  border-left: 3px solid #66bb6a;
+}
+
+.trajectory-viewer__call--open .trajectory-viewer__fn {
+  color: #66bb6a;
+}
+
+.trajectory-viewer__call--find {
+  background: rgba(255, 167, 38, 0.1);
+  border-left: 3px solid #ffa726;
+}
+
+.trajectory-viewer__call--find .trajectory-viewer__fn {
+  color: #ffa726;
+}
+
+.trajectory-viewer__call--answer {
+  background: rgba(76, 175, 80, 0.08);
+  border-left: 3px solid #4caf50;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 0.88em;
+  line-height: 1.5;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.trajectory-viewer__call--answer .trajectory-viewer__fn {
+  color: #4caf50;
+  font-weight: bold;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+}
+
+.trajectory-viewer__call--answer .trajectory-viewer__body {
+  width: 100%;
+  font-family: -apple-system, system-ui, sans-serif;
+  font-size: 1em;
+}
