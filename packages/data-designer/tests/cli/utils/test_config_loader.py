@@ -10,9 +10,11 @@ import pytest
 
 from data_designer.cli.utils.config_loader import (
     ConfigLoadError,
+    WorkflowHelpRequested,
     load_config_builder,
 )
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.script_params import DataDesignerScriptParams
 
 
 @patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
@@ -97,7 +99,7 @@ def test_load_config_builder_from_python_module(tmp_path: Path) -> None:
 
         result = load_config_builder(str(py_file))
 
-        mock_load_py.assert_called_once_with(py_file)
+        mock_load_py.assert_called_once_with(py_file, None)
         assert result is mock_builder
 
 
@@ -204,6 +206,78 @@ def test_load_config_builder_python_module_sibling_import(tmp_path: Path) -> Non
 
     assert isinstance(result, DataDesignerConfigBuilder)
     assert result._test_marker == "my_dataset"
+
+
+def test_load_config_builder_python_module_receives_script_params(tmp_path: Path) -> None:
+    """Test that a params-aware Python config receives workflow arguments."""
+    py_file = tmp_path / "params_config.py"
+    py_file.write_text(
+        "from data_designer.config.config_builder import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder(params):\n"
+        "    builder = DataDesignerConfigBuilder()\n"
+        "    builder._test_argv = params.argv\n"
+        "    return builder\n"
+    )
+
+    result = load_config_builder(
+        str(py_file),
+        script_params=DataDesignerScriptParams(argv=("--seed-path", "seed.jsonl")),
+    )
+
+    assert isinstance(result, DataDesignerConfigBuilder)
+    assert result._test_argv == ("--seed-path", "seed.jsonl")
+
+
+def test_load_config_builder_python_module_preserves_argparse_help_exit(tmp_path: Path) -> None:
+    """Test that argparse --help exits cleanly instead of being treated as a load error."""
+    py_file = tmp_path / "help_config.py"
+    py_file.write_text(
+        "import argparse\n"
+        "from data_designer.config.config_builder import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder(params):\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    parser.add_argument('--seed-path')\n"
+        "    parser.parse_args(list(params.argv))\n"
+        "    return DataDesignerConfigBuilder()\n"
+    )
+
+    with pytest.raises(WorkflowHelpRequested):
+        load_config_builder(str(py_file), script_params=DataDesignerScriptParams(argv=("--help",)))
+
+
+def test_load_config_builder_python_module_rejects_args_for_legacy_function(tmp_path: Path) -> None:
+    """Test that a no-arg Python config fails clearly when workflow args are supplied."""
+    py_file = tmp_path / "legacy_config.py"
+    py_file.write_text(
+        "from data_designer.config.config_builder import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder():\n"
+        "    return DataDesignerConfigBuilder()\n"
+    )
+
+    with pytest.raises(ConfigLoadError, match="does not accept workflow arguments"):
+        load_config_builder(str(py_file), script_params=DataDesignerScriptParams(argv=("--seed-path", "seed.jsonl")))
+
+
+def test_load_config_builder_rejects_script_params_for_yaml(tmp_path: Path) -> None:
+    """Test that static YAML configs cannot receive workflow args."""
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text("data_designer:\n  columns: []\n")
+
+    with pytest.raises(ConfigLoadError, match="Workflow arguments are only supported"):
+        load_config_builder(str(yaml_file), script_params=DataDesignerScriptParams(argv=("--seed-path", "seed.jsonl")))
+
+
+def test_load_config_builder_python_module_rejects_unsupported_signature(tmp_path: Path) -> None:
+    """Test that Python config modules must use the supported workflow signature."""
+    py_file = tmp_path / "bad_signature.py"
+    py_file.write_text(
+        "from data_designer.config.config_builder import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder(first, second):\n"
+        "    return DataDesignerConfigBuilder()\n"
+    )
+
+    with pytest.raises(ConfigLoadError, match="Unsupported 'load_config_builder\\(\\)' signature"):
+        load_config_builder(str(py_file))
 
 
 def test_load_config_builder_python_module_cleans_sys_path(tmp_path: Path) -> None:

@@ -20,7 +20,7 @@ from data_designer.cli.ui import wait_for_navigation_key
     [
         pytest.param(
             {
-                "config_source": "config.yaml",
+                "workflow_args": ["config.yaml"],
                 "num_records": 5,
                 "non_interactive": True,
                 "save_results": False,
@@ -32,7 +32,7 @@ from data_designer.cli.ui import wait_for_navigation_key
         ),
         pytest.param(
             {
-                "config_source": "config.yaml",
+                "workflow_args": ["config.yaml"],
                 "num_records": 10,
                 "non_interactive": False,
                 "save_results": False,
@@ -44,7 +44,7 @@ from data_designer.cli.ui import wait_for_navigation_key
         ),
         pytest.param(
             {
-                "config_source": "my_config.py",
+                "workflow_args": ["my_config.py", "--variant", "compact"],
                 "num_records": 20,
                 "non_interactive": True,
                 "save_results": False,
@@ -56,7 +56,7 @@ from data_designer.cli.ui import wait_for_navigation_key
         ),
         pytest.param(
             {
-                "config_source": "config.yaml",
+                "workflow_args": ["config.yaml"],
                 "num_records": 5,
                 "non_interactive": True,
                 "save_results": True,
@@ -68,7 +68,7 @@ from data_designer.cli.ui import wait_for_navigation_key
         ),
         pytest.param(
             {
-                "config_source": "config.yaml",
+                "workflow_args": ["config.yaml"],
                 "num_records": 5,
                 "non_interactive": True,
                 "save_results": True,
@@ -88,8 +88,14 @@ def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock, kwarg
 
     preview_command(**kwargs)
 
+    expected = {
+        **kwargs,
+        "config_source": kwargs["workflow_args"][0],
+        "workflow_args": tuple(kwargs["workflow_args"][1:]),
+    }
+
     mock_ctrl_cls.assert_called_once()
-    mock_ctrl.run_preview.assert_called_once_with(**kwargs)
+    mock_ctrl.run_preview.assert_called_once_with(**expected)
 
 
 # ---------------------------------------------------------------------------

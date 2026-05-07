@@ -81,8 +81,30 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
     assert result.exit_code == 0
     mock_controller.run_create.assert_called_once_with(
         config_source="config.yaml",
+        workflow_args=(),
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
         output_format=None,
+    )
+
+
+@patch("data_designer.cli.commands.preview.GenerationController")
+def test_app_dispatches_lazy_preview_command_with_workflow_args(mock_controller_cls: Mock) -> None:
+    """The Typer app forwards workflow args after -- for Python config workflows."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    result = runner.invoke(app, ["preview", "config.py", "--", "--seed-path", "seed.jsonl"])
+
+    assert result.exit_code == 0
+    mock_controller.run_preview.assert_called_once_with(
+        config_source="config.py",
+        workflow_args=("--seed-path", "seed.jsonl"),
+        num_records=DEFAULT_NUM_RECORDS,
+        non_interactive=False,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=110,
     )
