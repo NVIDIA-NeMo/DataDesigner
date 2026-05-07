@@ -215,15 +215,15 @@ def _validate_plugin_catalog_payload(payload: object) -> None:
     runtime_names: dict[str, tuple[str, str]] = {}
     for index, raw_plugin in enumerate(plugins):
         package_name, plugin_name, entry_point_name = _validate_catalog_plugin(raw_plugin, index)
-        previous = runtime_names.get(plugin_name)
+        previous = runtime_names.get(entry_point_name)
         if previous is not None:
-            previous_package, previous_entry_point = previous
+            previous_package, previous_plugin_name = previous
             raise PluginCatalogError(
-                f"duplicate runtime plugin name {plugin_name!r} from "
-                f"{previous_package!r} entry point {previous_entry_point!r} and "
-                f"{package_name!r} entry point {entry_point_name!r}"
+                f"duplicate runtime plugin name {entry_point_name!r} from "
+                f"catalog plugin {previous_plugin_name!r} in package {previous_package!r} and "
+                f"catalog plugin {plugin_name!r} in package {package_name!r}"
             )
-        runtime_names[plugin_name] = (package_name, entry_point_name)
+        runtime_names[entry_point_name] = (package_name, plugin_name)
 
 
 def _validate_catalog_plugin(raw_plugin: object, index: int) -> tuple[str, str, str]:

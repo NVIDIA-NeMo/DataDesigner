@@ -187,8 +187,8 @@ def test_load_catalog_rejects_duplicate_runtime_plugin_names(tmp_path: Path) -> 
     catalog_path = _write_catalog(
         tmp_path,
         plugins=[
-            _plugin_entry("duplicate", package_name="data-designer-one"),
-            _plugin_entry("duplicate", package_name="data-designer-two"),
+            _plugin_entry("catalog-one", package_name="data-designer-one", entry_point_name="duplicate"),
+            _plugin_entry("catalog-two", package_name="data-designer-two", entry_point_name="duplicate"),
         ],
     )
     repository = PluginTapRepository(tmp_path)
@@ -230,8 +230,10 @@ def _plugin_entry(
     plugin_name: str,
     *,
     package_name: str = "data-designer-text-transform",
+    entry_point_name: str | None = None,
     source: dict | None = None,
 ) -> dict:
+    runtime_plugin_name = plugin_name if entry_point_name is None else entry_point_name
     return {
         "name": plugin_name,
         "plugin_type": "processor",
@@ -243,7 +245,7 @@ def _plugin_entry(
         },
         "entry_point": {
             "group": "data_designer.plugins",
-            "name": plugin_name,
+            "name": runtime_plugin_name,
             "value": f"{package_name.replace('-', '_')}.plugin:plugin",
         },
         "compatibility": {
