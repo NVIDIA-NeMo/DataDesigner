@@ -9,6 +9,7 @@ from unittest.mock import Mock, call, patch
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app, main
+from data_designer.cli.utils.recipe_loader import RecipeSummary
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 
 runner = CliRunner()
@@ -81,8 +82,73 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
     assert result.exit_code == 0
     mock_controller.run_create.assert_called_once_with(
         config_source="config.yaml",
+        recipe=None,
+        workflow_args=(),
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
         output_format=None,
     )
+
+
+@patch("data_designer.cli.commands.preview.GenerationController")
+def test_app_dispatches_lazy_preview_command_with_recipe_args(mock_controller_cls: Mock) -> None:
+    """The Typer app forwards workflow args after -- when using --recipe."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    result = runner.invoke(app, ["preview", "--recipe", "retrieval-sdg", "--", "--input-dir", "docs"])
+
+    assert result.exit_code == 0
+    mock_controller.run_preview.assert_called_once_with(
+        config_source=None,
+        recipe="retrieval-sdg",
+        workflow_args=("--input-dir", "docs"),
+        num_records=DEFAULT_NUM_RECORDS,
+        non_interactive=False,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=110,
+    )
+
+
+@patch("data_designer.cli.commands.preview.GenerationController")
+def test_app_dispatches_lazy_preview_command_with_workflow_args(mock_controller_cls: Mock) -> None:
+    """The Typer app forwards workflow args after -- for Python config workflows."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    result = runner.invoke(app, ["preview", "config.py", "--", "--seed-path", "seed.jsonl"])
+
+    assert result.exit_code == 0
+    mock_controller.run_preview.assert_called_once_with(
+        config_source="config.py",
+        recipe=None,
+        workflow_args=("--seed-path", "seed.jsonl"),
+        num_records=DEFAULT_NUM_RECORDS,
+        non_interactive=False,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=110,
+    )
+
+
+@patch("data_designer.cli.commands.recipes.list_recipes")
+def test_app_dispatches_lazy_recipes_list_command(mock_list_recipes: Mock) -> None:
+    """The Typer app dispatches recipe inspection commands through the lazy loader."""
+    mock_list_recipes.return_value = [
+        RecipeSummary(
+            name="demo",
+            entry_point="demo_package.recipe:load_config_builder",
+            package="demo-package",
+            version="1.0.0",
+        )
+    ]
+
+    result = runner.invoke(app, ["recipes", "list"])
+
+    assert result.exit_code == 0
+    assert "demo" in result.output
+    mock_list_recipes.assert_called_once_with()

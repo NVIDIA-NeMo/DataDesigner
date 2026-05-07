@@ -20,7 +20,7 @@ from data_designer.cli.ui import wait_for_navigation_key
     [
         pytest.param(
             {
-                "config_source": "config.yaml",
+                "workflow_args": ["config.yaml"],
                 "num_records": 5,
                 "non_interactive": True,
                 "save_results": False,
@@ -32,7 +32,7 @@ from data_designer.cli.ui import wait_for_navigation_key
         ),
         pytest.param(
             {
-                "config_source": "config.yaml",
+                "workflow_args": ["config.yaml"],
                 "num_records": 10,
                 "non_interactive": False,
                 "save_results": False,
@@ -44,7 +44,7 @@ from data_designer.cli.ui import wait_for_navigation_key
         ),
         pytest.param(
             {
-                "config_source": "my_config.py",
+                "workflow_args": ["my_config.py", "--variant", "compact"],
                 "num_records": 20,
                 "non_interactive": True,
                 "save_results": False,
@@ -56,7 +56,7 @@ from data_designer.cli.ui import wait_for_navigation_key
         ),
         pytest.param(
             {
-                "config_source": "config.yaml",
+                "workflow_args": ["config.yaml"],
                 "num_records": 5,
                 "non_interactive": True,
                 "save_results": True,
@@ -68,7 +68,7 @@ from data_designer.cli.ui import wait_for_navigation_key
         ),
         pytest.param(
             {
-                "config_source": "config.yaml",
+                "workflow_args": ["config.yaml"],
                 "num_records": 5,
                 "non_interactive": True,
                 "save_results": True,
@@ -88,8 +88,45 @@ def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock, kwarg
 
     preview_command(**kwargs)
 
+    expected = {
+        **kwargs,
+        "config_source": kwargs["workflow_args"][0],
+        "recipe": None,
+        "workflow_args": tuple(kwargs["workflow_args"][1:]),
+    }
+
     mock_ctrl_cls.assert_called_once()
-    mock_ctrl.run_preview.assert_called_once_with(**kwargs)
+    mock_ctrl.run_preview.assert_called_once_with(**expected)
+
+
+@patch("data_designer.cli.commands.preview.GenerationController")
+def test_preview_command_passes_recipe_target(mock_ctrl_cls: MagicMock) -> None:
+    """Test preview_command forwards --recipe and workflow args to the controller."""
+    mock_ctrl = MagicMock()
+    mock_ctrl_cls.return_value = mock_ctrl
+
+    preview_command(
+        workflow_args=["--input-dir", "docs"],
+        recipe="retrieval-sdg",
+        num_records=3,
+        non_interactive=True,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=110,
+    )
+
+    mock_ctrl.run_preview.assert_called_once_with(
+        config_source=None,
+        recipe="retrieval-sdg",
+        workflow_args=("--input-dir", "docs"),
+        num_records=3,
+        non_interactive=True,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=110,
+    )
 
 
 # ---------------------------------------------------------------------------

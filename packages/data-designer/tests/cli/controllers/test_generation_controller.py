@@ -10,9 +10,10 @@ import pytest
 import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
-from data_designer.cli.utils.config_loader import ConfigLoadError
+from data_designer.cli.utils.config_loader import ConfigLoadError, WorkflowHelpRequested
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.script_params import DataDesignerScriptParams
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 
 _CTRL = "data_designer.cli.controllers.generation_controller"
@@ -54,7 +55,7 @@ def test_run_preview_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock
     controller = GenerationController()
     controller.run_preview(config_source="config.yaml", num_records=5, non_interactive=True)
 
-    mock_load_config.assert_called_once_with("config.yaml")
+    mock_load_config.assert_called_once_with("config.yaml", script_params=DataDesignerScriptParams())
     mock_dd_cls.assert_called_once()
     mock_dd.preview.assert_called_once_with(mock_builder, num_records=5)
 
@@ -76,6 +77,32 @@ def test_run_preview_custom_num_records(mock_load_config: MagicMock, mock_dd_cls
     mock_dd.preview.assert_called_once_with(mock_builder, num_records=20)
 
 
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_recipe_config_builder")
+def test_run_preview_loads_recipe_target(mock_load_recipe: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """Test preview loads a recipe target with workflow args."""
+    mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_load_recipe.return_value = mock_builder
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_dd.preview.return_value = _make_mock_preview_results(2)
+
+    controller = GenerationController()
+    controller.run_preview(
+        config_source=None,
+        recipe="retrieval-sdg",
+        workflow_args=("--input-dir", "docs"),
+        num_records=2,
+        non_interactive=True,
+    )
+
+    mock_load_recipe.assert_called_once_with(
+        "retrieval-sdg",
+        script_params=DataDesignerScriptParams(argv=("--input-dir", "docs")),
+    )
+    mock_dd.preview.assert_called_once_with(mock_builder, num_records=2)
+
+
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_config_load_error(mock_load_config: MagicMock) -> None:
     """Test preview exits with code 1 when config fails to load."""
@@ -86,6 +113,23 @@ def test_run_preview_config_load_error(mock_load_config: MagicMock) -> None:
         controller.run_preview(config_source="missing.yaml", num_records=10, non_interactive=True)
 
     assert exc_info.value.exit_code == 1
+
+
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_preview_workflow_help_exits_successfully(mock_load_config: MagicMock) -> None:
+    """Test preview exits with code 0 when workflow help is requested."""
+    mock_load_config.side_effect = WorkflowHelpRequested()
+
+    controller = GenerationController()
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_preview(
+            config_source="config.py",
+            workflow_args=("--help",),
+            num_records=10,
+            non_interactive=True,
+        )
+
+    assert exc_info.value.exit_code == 0
 
 
 @patch(f"{_CTRL}.DataDesigner")
@@ -612,7 +656,7 @@ def test_run_validate_success(mock_load_config: MagicMock, mock_dd_cls: MagicMoc
     controller = GenerationController()
     controller.run_validate(config_source="config.yaml")
 
-    mock_load_config.assert_called_once_with("config.yaml")
+    mock_load_config.assert_called_once_with("config.yaml", script_params=DataDesignerScriptParams())
     mock_dd_cls.assert_called_once()
     mock_dd.validate.assert_called_once_with(mock_builder)
 
@@ -680,7 +724,7 @@ def test_run_create_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock)
     controller = GenerationController()
     controller.run_create(config_source="config.yaml", num_records=10, dataset_name="dataset", artifact_path=None)
 
-    mock_load_config.assert_called_once_with("config.yaml")
+    mock_load_config.assert_called_once_with("config.yaml", script_params=DataDesignerScriptParams())
     mock_dd_cls.assert_called_once_with(artifact_path=Path.cwd() / "artifacts")
     mock_dd.create.assert_called_once_with(mock_builder, num_records=10, dataset_name="dataset")
 

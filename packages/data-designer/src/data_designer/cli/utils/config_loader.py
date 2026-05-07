@@ -4,16 +4,24 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.script_params import DataDesignerScriptParams
 from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url
 
 
 class ConfigLoadError(Exception):
     """Raised when a configuration source cannot be loaded."""
+
+
+class WorkflowHelpRequested(Exception):
+    """Raised when a Python workflow prints help and exits successfully."""
 
 
 PYTHON_EXTENSIONS = {".py"}
@@ -22,7 +30,10 @@ ALL_SUPPORTED_EXTENSIONS = VALID_CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
 USER_MODULE_FUNC_NAME = "load_config_builder"
 
 
-def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
+def load_config_builder(
+    config_source: str,
+    script_params: DataDesignerScriptParams | None = None,
+) -> DataDesignerConfigBuilder:
     """Load a DataDesignerConfigBuilder from a file path or URL.
 
     Auto-detects the file type by extension:
@@ -32,6 +43,7 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
 
     Args:
         config_source: Path or URL to the configuration file, or path to a Python module.
+        script_params: Optional runtime arguments for Python config workflows.
 
     Returns:
         A DataDesignerConfigBuilder instance.
@@ -40,6 +52,7 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
         ConfigLoadError: If the file cannot be loaded or is invalid.
     """
     if is_http_url(config_source):
+        _reject_script_params_for_static_source(config_source, script_params)
         return _load_from_config_url(config_source)
 
     path = Path(config_source)
@@ -57,9 +70,10 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
         raise ConfigLoadError(f"Unsupported file extension '{suffix}'. Supported extensions: {supported}")
 
     if suffix in VALID_CONFIG_FILE_EXTENSIONS:
+        _reject_script_params_for_static_source(str(path), script_params)
         return _load_from_config_file(path)
 
-    return _load_from_python_module(path)
+    return _load_from_python_module(path, script_params)
 
 
 def _load_from_config_url(config_source: str) -> DataDesignerConfigBuilder:
@@ -101,7 +115,10 @@ def _load_from_config_file(path: Path | str) -> DataDesignerConfigBuilder:
         raise ConfigLoadError(f"Failed to load config from '{path}': {e}") from e
 
 
-def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
+def _load_from_python_module(
+    path: Path,
+    script_params: DataDesignerScriptParams | None = None,
+) -> DataDesignerConfigBuilder:
     """Load a DataDesignerConfigBuilder from a Python module.
 
     The module must define a load_config_builder() function that returns
@@ -109,6 +126,7 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
 
     Args:
         path: Path to the Python module.
+        script_params: Optional runtime arguments for Python config workflows.
 
     Returns:
         A DataDesignerConfigBuilder instance.
@@ -149,10 +167,7 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
         if not callable(func):
             raise ConfigLoadError(f"'{USER_MODULE_FUNC_NAME}' in '{path}' is not callable")
 
-        try:
-            config_builder = func()
-        except Exception as e:
-            raise ConfigLoadError(f"Error calling '{USER_MODULE_FUNC_NAME}()' in '{path}': {e}") from e
+        config_builder = call_config_builder_function(func, str(path), script_params)
 
         if not isinstance(config_builder, DataDesignerConfigBuilder):
             raise ConfigLoadError(
@@ -162,7 +177,7 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
 
         return config_builder
 
-    except ConfigLoadError:
+    except (ConfigLoadError, WorkflowHelpRequested):
         raise
     except Exception as e:
         raise ConfigLoadError(f"Failed to execute Python module '{path}': {e}") from e
@@ -178,3 +193,106 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
                 sys.path.remove(parent_dir)
             except ValueError:
                 pass
+
+
+def call_config_builder_function(
+    func: Callable[..., Any],
+    source_name: str,
+    script_params: DataDesignerScriptParams | None = None,
+) -> DataDesignerConfigBuilder:
+    """Call a user-provided config builder function with a supported signature."""
+    params = script_params or DataDesignerScriptParams()
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError) as e:
+        raise ConfigLoadError(f"Could not inspect '{USER_MODULE_FUNC_NAME}()' in '{source_name}': {e}") from e
+
+    config_builder: Any
+    if len(signature.parameters) == 0:
+        if params.argv:
+            raise ConfigLoadError(
+                f"'{USER_MODULE_FUNC_NAME}()' in '{source_name}' does not accept workflow arguments. "
+                "Update it to accept a DataDesignerScriptParams parameter."
+            )
+        try:
+            config_builder = func()
+        except SystemExit as e:
+            if _is_successful_system_exit(e):
+                raise WorkflowHelpRequested from e
+            raise ConfigLoadError(f"'{USER_MODULE_FUNC_NAME}()' in '{source_name}' exited with code {e.code}") from e
+        except Exception as e:
+            raise ConfigLoadError(f"Error calling '{USER_MODULE_FUNC_NAME}()' in '{source_name}': {e}") from e
+    else:
+        _validate_params_signature(signature, source_name)
+        try:
+            config_builder = _call_params_aware_function(func, signature, params)
+        except SystemExit as e:
+            if _is_successful_system_exit(e):
+                raise WorkflowHelpRequested from e
+            raise ConfigLoadError(
+                f"'{USER_MODULE_FUNC_NAME}(params)' in '{source_name}' exited with code {e.code}"
+            ) from e
+        except Exception as e:
+            raise ConfigLoadError(f"Error calling '{USER_MODULE_FUNC_NAME}(params)' in '{source_name}': {e}") from e
+
+    if not isinstance(config_builder, DataDesignerConfigBuilder):
+        raise ConfigLoadError(
+            f"'{USER_MODULE_FUNC_NAME}()' in '{source_name}' returned "
+            f"{type(config_builder).__name__}, expected DataDesignerConfigBuilder"
+        )
+
+    return config_builder
+
+
+def _validate_params_signature(signature: inspect.Signature, source_name: str) -> None:
+    parameters = list(signature.parameters.values())
+    if len(parameters) != 1:
+        raise ConfigLoadError(
+            f"Unsupported '{USER_MODULE_FUNC_NAME}()' signature in '{source_name}'. "
+            "Expected zero arguments or one DataDesignerScriptParams parameter."
+        )
+
+    parameter = parameters[0]
+    supported_kinds = {
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    }
+    if parameter.kind not in supported_kinds:
+        raise ConfigLoadError(
+            f"Unsupported '{USER_MODULE_FUNC_NAME}()' signature in '{source_name}'. "
+            "Expected zero arguments or one DataDesignerScriptParams parameter."
+        )
+
+    if parameter.kind == inspect.Parameter.KEYWORD_ONLY and parameter.name != "params":
+        raise ConfigLoadError(
+            f"Unsupported '{USER_MODULE_FUNC_NAME}()' signature in '{source_name}'. "
+            "Keyword-only workflow parameters must be named 'params'."
+        )
+
+
+def _call_params_aware_function(
+    func: Callable[..., Any],
+    signature: inspect.Signature,
+    params: DataDesignerScriptParams,
+) -> Any:
+    parameter = next(iter(signature.parameters.values()))
+    if parameter.kind == inspect.Parameter.KEYWORD_ONLY:
+        return func(params=params)
+    return func(params)
+
+
+def _reject_script_params_for_static_source(
+    source_name: str,
+    script_params: DataDesignerScriptParams | None,
+) -> None:
+    params = script_params or DataDesignerScriptParams()
+    if params.argv:
+        raise ConfigLoadError(
+            f"Workflow arguments are only supported for Python config modules, but '{source_name}' is not a "
+            "local Python module."
+        )
+
+
+def _is_successful_system_exit(exc: SystemExit) -> bool:
+    return exc.code is None or exc.code == 0
