@@ -61,7 +61,7 @@ class DataDesignerConfig(ExportableConfigBase):
                     f"with sampler_type='category'."
                 )
         return self
-      
+
     def fingerprint(self) -> dict[str, str | int]:
         """Compute a deterministic content-addressable fingerprint of this config.
 
