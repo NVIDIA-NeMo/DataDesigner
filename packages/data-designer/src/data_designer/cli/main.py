@@ -141,6 +141,79 @@ download_app = typer.Typer(
     no_args_is_help=True,
 )
 
+# Create plugins command group
+plugins_app = typer.Typer(
+    name="plugins",
+    help="Discover and install Data Designer plugins from tap catalogs",
+    cls=create_lazy_typer_group(
+        {
+            "list": {
+                "module": f"{_CMD}.plugins",
+                "attr": "list_command",
+                "help": "List plugins from a tap catalog",
+            },
+            "search": {
+                "module": f"{_CMD}.plugins",
+                "attr": "search_command",
+                "help": "Search plugins from a tap catalog",
+            },
+            "info": {
+                "module": f"{_CMD}.plugins",
+                "attr": "info_command",
+                "help": "Show plugin metadata and install plan",
+            },
+            "install": {
+                "module": f"{_CMD}.plugins",
+                "attr": "install_command",
+                "help": "Install a plugin package and verify discovery",
+            },
+            "installed": {
+                "module": f"{_CMD}.plugins",
+                "attr": "installed_command",
+                "help": "List installed runtime plugins",
+            },
+        }
+    ),
+    no_args_is_help=True,
+)
+
+
+@plugins_app.callback()
+def plugins_callback(
+    tap: str | None = typer.Option(
+        None,
+        "--tap",
+        help="Plugin tap alias to use for catalog commands.",
+    ),
+) -> None:
+    _ = tap
+
+
+plugin_taps_app = typer.Typer(
+    name="taps",
+    help="Manage plugin tap aliases",
+    cls=create_lazy_typer_group(
+        {
+            "list": {
+                "module": f"{_CMD}.plugins",
+                "attr": "taps_list_command",
+                "help": "List configured plugin taps",
+            },
+            "add": {
+                "module": f"{_CMD}.plugins",
+                "attr": "taps_add_command",
+                "help": "Add a plugin tap alias",
+            },
+            "remove": {
+                "module": f"{_CMD}.plugins",
+                "attr": "taps_remove_command",
+                "help": "Remove a plugin tap alias",
+            },
+        }
+    ),
+    no_args_is_help=True,
+)
+
 _AGENT_CMD = f"{_CMD}.agent"
 
 
@@ -167,10 +240,12 @@ agent_state_app = typer.Typer(
 )
 
 agent_app.add_typer(agent_state_app, name="state")
+plugins_app.add_typer(plugin_taps_app, name="taps")
 
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup")
 app.add_typer(download_app, name="download", rich_help_panel="Setup")
+app.add_typer(plugins_app, name="plugins", rich_help_panel="Setup")
 app.add_typer(agent_app, name="agent", rich_help_panel="Agent")
 
 
