@@ -138,7 +138,7 @@ class PluginCatalogController:
     ) -> None:
         """Install one plugin from a catalog entry."""
         tap = self._get_tap_or_exit(tap_alias)
-        entry = self._get_entry_or_exit(plugin_name, tap.alias, refresh=refresh, include_incompatible=force)
+        entry = self._get_entry_or_exit(plugin_name, tap.alias, refresh=refresh, include_incompatible=True)
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
         if not compatibility.is_compatible and not force:

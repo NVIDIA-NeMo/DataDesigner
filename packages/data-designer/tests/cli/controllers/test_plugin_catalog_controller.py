@@ -47,7 +47,7 @@ def test_run_install_dry_run_renders_plan_without_installing(
         "text-transform",
         "local",
         refresh=False,
-        include_incompatible=False,
+        include_incompatible=True,
     )
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_point.assert_not_called()
@@ -79,7 +79,7 @@ def test_run_install_blocks_incompatible_plugin_without_force(
         "text-transform",
         "local",
         refresh=False,
-        include_incompatible=False,
+        include_incompatible=True,
     )
     controller.install_service.build_install_plan.assert_not_called()
     mock_print_error.assert_called_once_with("Plugin 'text-transform' is not compatible with this environment")
