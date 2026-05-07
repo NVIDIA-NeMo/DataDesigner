@@ -77,6 +77,32 @@ def test_run_preview_custom_num_records(mock_load_config: MagicMock, mock_dd_cls
     mock_dd.preview.assert_called_once_with(mock_builder, num_records=20)
 
 
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_recipe_config_builder")
+def test_run_preview_loads_recipe_target(mock_load_recipe: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """Test preview loads a recipe target with workflow args."""
+    mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_load_recipe.return_value = mock_builder
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_dd.preview.return_value = _make_mock_preview_results(2)
+
+    controller = GenerationController()
+    controller.run_preview(
+        config_source=None,
+        recipe="retrieval-sdg",
+        workflow_args=("--input-dir", "docs"),
+        num_records=2,
+        non_interactive=True,
+    )
+
+    mock_load_recipe.assert_called_once_with(
+        "retrieval-sdg",
+        script_params=DataDesignerScriptParams(argv=("--input-dir", "docs")),
+    )
+    mock_dd.preview.assert_called_once_with(mock_builder, num_records=2)
+
+
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_config_load_error(mock_load_config: MagicMock) -> None:
     """Test preview exits with code 1 when config fails to load."""

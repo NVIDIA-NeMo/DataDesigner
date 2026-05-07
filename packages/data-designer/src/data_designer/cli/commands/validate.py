@@ -23,6 +23,13 @@ def validate_command(
             ),
         ),
     ] = None,
+    recipe: Annotated[
+        str | None,
+        typer.Option(
+            "--recipe",
+            help="Name of an installed Data Designer recipe to validate instead of a config source.",
+        ),
+    ] = None,
 ) -> None:
     """Validate a Data Designer configuration.
 
@@ -39,6 +46,8 @@ def validate_command(
         # Validate a Python module
         data-designer validate my_config.py
     """
-    target = resolve_generation_config_target(workflow_args)
+    target = resolve_generation_config_target(workflow_args, recipe)
     controller = GenerationController()
-    controller.run_validate(config_source=target.config_source, workflow_args=target.workflow_args)
+    controller.run_validate(
+        config_source=target.config_source, recipe=target.recipe, workflow_args=target.workflow_args
+    )

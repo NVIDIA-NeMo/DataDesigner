@@ -13,6 +13,7 @@ import typer
 
 from data_designer.cli.ui import console, print_error, print_header, print_success, wait_for_navigation_key
 from data_designer.cli.utils.config_loader import ConfigLoadError, WorkflowHelpRequested, load_config_builder
+from data_designer.cli.utils.recipe_loader import load_recipe_config_builder
 from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_sample_records_pager
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.script_params import DataDesignerScriptParams
@@ -39,24 +40,26 @@ class GenerationController:
         artifact_path: str | None = None,
         theme: Literal["dark", "light"] = "dark",
         display_width: int = DEFAULT_DISPLAY_WIDTH,
+        recipe: str | None = None,
         workflow_args: tuple[str, ...] = (),
     ) -> None:
         """Load config, generate a preview dataset, and display the results.
 
         Args:
-            config_source: Path to a config file or Python module.
+            config_source: Path to a config file or Python module, or None when using a recipe.
             num_records: Number of records to generate.
             non_interactive: If True, display all records at once instead of browsing.
             save_results: If True, save all preview artifacts to the artifact path.
             artifact_path: Directory to save results in, or None for ./artifacts.
             theme: Color theme for HTML output (dark or light).
             display_width: Maximum width of the rendered record output in characters.
+            recipe: Installed recipe name, or None when using a config source.
             workflow_args: Arguments forwarded to Python config workflows.
         """
-        config_builder = self._load_config(config_source, workflow_args=workflow_args)
+        config_builder = self._load_config(config_source, recipe=recipe, workflow_args=workflow_args)
 
         print_header("Data Designer Preview")
-        console.print(f"  Config: [bold]{config_source}[/bold]")
+        self._print_config_target(config_source, recipe)
         console.print(f"  Records: [bold]{num_records}[/bold]")
         console.print()
 
@@ -91,19 +94,21 @@ class GenerationController:
 
     def run_validate(
         self,
-        config_source: str,
+        config_source: str | None,
+        recipe: str | None = None,
         workflow_args: tuple[str, ...] = (),
     ) -> None:
         """Load config and validate it against the engine.
 
         Args:
-            config_source: Path to a config file or Python module.
+            config_source: Path to a config file or Python module, or None when using a recipe.
+            recipe: Installed recipe name, or None when using a config source.
             workflow_args: Arguments forwarded to Python config workflows.
         """
-        config_builder = self._load_config(config_source, workflow_args=workflow_args)
+        config_builder = self._load_config(config_source, recipe=recipe, workflow_args=workflow_args)
 
         print_header("Data Designer Validate")
-        console.print(f"  Config: [bold]{config_source}[/bold]")
+        self._print_config_target(config_source, recipe)
         console.print()
 
         try:
@@ -125,25 +130,27 @@ class GenerationController:
         dataset_name: str,
         artifact_path: str | None,
         output_format: str | None = None,
+        recipe: str | None = None,
         workflow_args: tuple[str, ...] = (),
     ) -> None:
         """Load config, create a full dataset, and save results to disk.
 
         Args:
-            config_source: Path to a config file or Python module.
+            config_source: Path to a config file or Python module, or None when using a recipe.
             num_records: Number of records to generate.
             dataset_name: Name for the generated dataset folder.
             artifact_path: Path where generated artifacts will be stored, or None for default.
             output_format: If set, export the dataset to a single file in this format after
                 generation. One of 'jsonl', 'csv', 'parquet'.
+            recipe: Installed recipe name, or None when using a config source.
             workflow_args: Arguments forwarded to Python config workflows.
         """
-        config_builder = self._load_config(config_source, workflow_args=workflow_args)
+        config_builder = self._load_config(config_source, recipe=recipe, workflow_args=workflow_args)
 
         resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
 
         print_header("Data Designer Create")
-        console.print(f"  Config: [bold]{config_source}[/bold]")
+        self._print_config_target(config_source, recipe)
         console.print(f"  Records: [bold]{num_records}[/bold]")
         console.print(f"  Dataset name: [bold]{dataset_name}[/bold]")
         console.print(f"  Artifact path: [bold]{resolved_artifact_path}[/bold]")
@@ -186,13 +193,15 @@ class GenerationController:
 
     def _load_config(
         self,
-        config_source: str,
+        config_source: str | None,
+        recipe: str | None = None,
         workflow_args: tuple[str, ...] = (),
     ) -> DataDesignerConfigBuilder:
         """Load a config builder from the given source, exiting on failure.
 
         Args:
-            config_source: Path to a config file or Python module.
+            config_source: Path to a config file or Python module, or None when using a recipe.
+            recipe: Installed recipe name, or None when using a config source.
             workflow_args: Arguments forwarded to Python config workflows.
 
         Returns:
@@ -203,12 +212,23 @@ class GenerationController:
         """
         script_params = DataDesignerScriptParams(argv=workflow_args)
         try:
+            if recipe is not None:
+                return load_recipe_config_builder(recipe, script_params=script_params)
+            if config_source is None:
+                raise ConfigLoadError("Missing config source. Provide a config source or use --recipe.")
             return load_config_builder(config_source, script_params=script_params)
         except WorkflowHelpRequested as e:
             raise typer.Exit(code=0) from e
         except ConfigLoadError as e:
             print_error(str(e))
             raise typer.Exit(code=1)
+
+    def _print_config_target(self, config_source: str | None, recipe: str | None) -> None:
+        """Print the config target without echoing forwarded workflow args."""
+        if recipe is not None:
+            console.print(f"  Recipe: [bold]{recipe}[/bold]")
+            return
+        console.print(f"  Config: [bold]{config_source}[/bold]")
 
     def _save_preview_results(
         self,
