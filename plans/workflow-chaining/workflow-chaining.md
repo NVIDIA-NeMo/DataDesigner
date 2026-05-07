@@ -175,7 +175,7 @@ The `Pipeline` is constructed via `dd.pipeline()` and holds a reference to the p
 
 **Throttle coordination across stages.** A `DataDesigner` owns one `ModelRegistry`, which owns one `ThrottleManager`. AIMD rate-limit state is per-instance. If the pipeline constructed a fresh `DataDesigner` per stage, each stage would adapt independently and the aggregate request rate against a provider could exceed the configured cap by a multiple of the stage count. The same hazard applies to parallel branches in Phase 4: branches sharing one `DataDesigner` automatically share throttling; branches each holding their own `DataDesigner` silently fragment it. Reusing one instance is the simple, correct default.
 
-**Door open for external orchestration.** If cross-process or distributed execution is ever introduced, the natural seam is the throttle backend (today an in-memory `ThrottleManager`; potentially a coordinator-backed implementation later). By keeping ownership of throttling *explicit* on the parent `DataDesigner` rather than *implicit* per stage, the pipeline's shape does not preclude swapping in such a backend. v1 does not need this and will not implement it; v1 only needs to avoid encoding assumptions that would prevent it.
+**Door open for external orchestration.** The pipeline's choice to reuse one `DataDesigner` is the in-process strategy: shared throttling across stages, branches gathered in the orchestrator process. A cross-process strategy is a separate but compatible model - see Future considerations. v1 only needs to avoid encoding assumptions that would prevent it.
 
 **On-disk handoffs for the same reason.** Stage handoffs go through parquet on disk via `LocalFileSeedSource`, never through an in-memory `DataFrameSeedSource`. This composes with any future orchestration model (in-process, cross-process, distributed) without per-environment branching. The cost is one parquet round-trip per stage boundary, which is negligible compared to LLM call time at any realistic scale. The notebook ergonomic `to_config_builder()` is the in-memory escape hatch and is explicitly not a Pipeline.
 
@@ -183,7 +183,7 @@ The `Pipeline` is constructed via `dd.pipeline()` and holds a reference to the p
 
 #### Engine API surface: `acreate()`
 
-`Pipeline` v1 calls `DataDesigner.create()` synchronously per stage and runs them in order. Sequential execution doesn't need an async API. Parallel execution does, and the engine doesn't expose one today.
+`Pipeline` v1 calls `DataDesigner.create()` synchronously per stage and runs them in order. Sequential execution doesn't need an async API. *In-process* parallel execution does, and the engine doesn't expose one today. Cross-process orchestration is not the same problem: each worker runs sync `create()` in its own process and doesn't need an async surface.
 
 Adding `async def acreate(...)` on `DataDesigner` is a small, additive change. The underlying `_build_async` already runs on a singleton background event loop and submits work via a `concurrent.futures.Future`; `acreate()` bridges it into the caller's loop via `asyncio.wrap_future`. The sync `create()` becomes a one-line wrapper. No breaking changes.
 
@@ -363,6 +363,7 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 - Per-stage fingerprint composition (Phase 3) generalizes naturally: a stage's upstream fingerprint becomes the hash of all its parents' fingerprints.
 - Throttle coordination relies on the existing invariant: all branches run on the same parent `DataDesigner`, so `ThrottleManager` is shared.
 - Hard dependency on the `acreate()` sidecar.
+- **Scope: branch parallelism, not stage pipelining.** Stages still wait for their dependencies to fully complete before starting; pipelined execution of dependent stages is a separate direction sketched in Future considerations.
 - Tests: fan-out (one upstream, multiple parallel children); join (multiple upstreams, one child); resume invalidation when one branch's fingerprint changes; throttle behavior under N parallel branches.
 
 ### Phase 5 (future): Auto-chaining from single config
@@ -370,6 +371,14 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 - Detect stage boundaries in the DAG (via a new config marker or heuristic).
 - Auto-split into pipeline stages internally.
 - User sees a single `dd.create(config)` call but gets multi-stage execution.
+
+## Future considerations
+
+Items not on the current roadmap but worth flagging so they don't get accidentally precluded by v1-v5 design choices.
+
+**External orchestration for cross-process / distributed execution.** There is interest in eventually running DataDesigner workloads across processes or nodes - self-hosted serving, multi-host fan-out, scheduling against external clusters. The specific shape of that orchestration is still under discussion and is not committed to here. The chaining plan's design choices (parent `DataDesigner` reuse, on-disk handoffs, no new engine surface) compose naturally with such a system: an external orchestrator could dispatch independent `DataDesigner.create()` calls against partitioned slices and per-replica endpoints without the pipeline class needing to change. v1-v5 do not depend on this materializing.
+
+**Pipelined execution of dependent stages.** Today the stage data contract is "final dataset" - a downstream stage waits for its upstream to fully complete. A future direction is to let downstream stages consume upstream batches as they're produced, overlapping execution across the dependency edge. Required changes: streaming seed sources, an explicit "stage done" sentinel rather than file-completion checks, and resume semantics for partially-consumed upstreams. Most useful when stage bottlenecks are heterogeneous (LLM-bound stage feeding a CPU-bound validator); little gain when both stages are LLM-bound since they share provider capacity. Not designed here; flagged so the stage contract isn't quietly closed off.
 
 ## Resolved decisions
 
