@@ -40,7 +40,7 @@ config_builder.add_column(
 )
 ```
 
-For mor details, see the documentation for [`SamplerColumnConfig`](../code_reference/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonFromFakerSamplerParams`](../code_reference/sampler_params.md#data_designer.config.sampler_params.PersonFromFakerSamplerParams).
+For mor details, see the documentation for [`SamplerColumnConfig`](../code_reference/config/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonFromFakerSamplerParams`](../code_reference/config/sampler_params.md#data_designer.config.sampler_params.PersonFromFakerSamplerParams).
 
 ---
 
@@ -161,7 +161,7 @@ config_builder.add_column(
 )
 ```
 
-For more details, see the documentation for [`SamplerColumnConfig`](../code_reference/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonSamplerParams`](../code_reference/sampler_params.md#data_designer.config.sampler_params.PersonSamplerParams).
+For more details, see the documentation for [`SamplerColumnConfig`](../code_reference/config/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonSamplerParams`](../code_reference/config/sampler_params.md#data_designer.config.sampler_params.PersonSamplerParams).
 
 ### Available Data Fields
 

@@ -78,7 +78,7 @@ dd = DataDesigner()
 
 ### You Need Maximum Flexibility
 
-- **Custom plugins**: Extend Data Designer with custom column generators, validators, or processors
+- **Custom plugins**: Extend Data Designer with custom column generators, seed readers, or processors
 - **Local development**: Rapid iteration with immediate feedback
 - **Integration**: Embed Data Designer into existing Python pipelines or notebooks
 - **Experimentation**: Research workflows with custom models or configurations

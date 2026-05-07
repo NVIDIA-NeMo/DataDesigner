@@ -28,17 +28,18 @@ class GenerationStrategy(str, Enum):
 
 
 class SamplerColumnConfig(SingleColumnConfig):
-    """Configuration for columns generated using numerical samplers.
+    """Configuration for columns generated using built-in samplers.
 
-    Sampler columns provide efficient data generation using numerical samplers for
-    common data types and distributions. Supported samplers include UUID generation,
+    Sampler columns provide efficient data generation for common data types and
+    distributions. Supported samplers include UUID generation,
     datetime/timedelta sampling, person generation, category / subcategory sampling,
     and various statistical distributions (uniform, gaussian, binomial, poisson, scipy).
 
     Attributes:
         sampler_type (required): Type of sampler to use. Available types include:
             "uuid", "category", "subcategory", "uniform", "gaussian", "bernoulli",
-            "bernoulli_mixture", "binomial", "poisson", "scipy", "person", "datetime", "timedelta".
+            "bernoulli_mixture", "binomial", "poisson", "scipy", "person",
+            "person_from_faker", "datetime", "timedelta".
         params (required): Parameters specific to the chosen sampler type. Type varies based on the `sampler_type`
             (e.g., `CategorySamplerParams`, `UniformSamplerParams`, `PersonSamplerParams`).
         conditional_params: Optional dictionary for conditional parameters. The dict keys
@@ -475,7 +476,7 @@ class ValidationColumnConfig(SingleColumnConfig):
               DataFrame with target columns and must return a DataFrame with validation results.
             - "local_callable": Call a local Python function with the data. Only supported
               when running DataDesigner locally.
-            - "remote": Send data to a remote HTTP endpoint for validation. Useful for
+            - "remote": Send data to a remote HTTP endpoint for validation.
         validator_params (required): Parameters specific to the validator type. Type varies by validator:
             - CodeValidatorParams: Specifies code language (python or SQL dialect like
               "sql:postgres", "sql:mysql").
