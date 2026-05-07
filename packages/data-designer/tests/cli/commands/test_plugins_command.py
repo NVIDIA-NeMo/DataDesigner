@@ -88,3 +88,39 @@ def test_plugins_taps_add_command_delegates_to_controller(mock_ctrl_cls: MagicMo
         trusted=True,
         cache_ttl_seconds=60,
     )
+
+
+@patch("data_designer.cli.commands.plugins.print_info")
+@patch("data_designer.cli.commands.plugins.PluginCatalogController")
+def test_plugins_installed_warns_when_parent_tap_is_unused(
+    mock_ctrl_cls: MagicMock,
+    mock_print_info: MagicMock,
+) -> None:
+    mock_ctrl = MagicMock()
+    mock_ctrl_cls.return_value = mock_ctrl
+
+    result = runner.invoke(app, ["plugins", "--tap", "research", "installed"])
+
+    assert result.exit_code == 0
+    mock_print_info.assert_called_once_with(
+        "Ignoring --tap 'research'; installed plugins are discovered from the current Python environment."
+    )
+    mock_ctrl.run_installed.assert_called_once_with()
+
+
+@patch("data_designer.cli.commands.plugins.print_info")
+@patch("data_designer.cli.commands.plugins.PluginCatalogController")
+def test_plugins_taps_list_warns_when_parent_tap_is_unused(
+    mock_ctrl_cls: MagicMock,
+    mock_print_info: MagicMock,
+) -> None:
+    mock_ctrl = MagicMock()
+    mock_ctrl_cls.return_value = mock_ctrl
+
+    result = runner.invoke(app, ["plugins", "--tap", "research", "taps", "list"])
+
+    assert result.exit_code == 0
+    mock_print_info.assert_called_once_with(
+        "Ignoring --tap 'research'; tap management commands operate on aliases directly."
+    )
+    mock_ctrl.run_taps_list.assert_called_once_with()

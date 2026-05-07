@@ -10,6 +10,7 @@ from collections.abc import Iterable
 
 from packaging.markers import InvalidMarker, Marker
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from data_designer.cli.plugin_catalog import (
@@ -21,8 +22,6 @@ from data_designer.cli.plugin_catalog import (
     PluginTapConfig,
 )
 from data_designer.cli.repositories.plugin_tap_repository import PluginTapRepository
-from data_designer.plugins.plugin import PluginType
-from data_designer.plugins.registry import PluginRegistry
 
 
 class PluginCatalogService:
@@ -48,7 +47,7 @@ class PluginCatalogService:
     ) -> list[PluginCatalogEntry]:
         """List catalog entries for a tap, filtering incompatible entries by default."""
         catalog = self.repository.load_catalog(tap_alias, refresh=refresh)
-        entries = sorted(catalog.plugins, key=lambda entry: (entry.name, entry.package.version or ""))
+        entries = sorted(catalog.plugins, key=lambda entry: (entry.name, _entry_version_sort_key(entry)))
         if include_incompatible:
             return entries
         return [entry for entry in entries if self.evaluate_compatibility(entry).is_compatible]
@@ -87,16 +86,14 @@ class PluginCatalogService:
         """Return the newest catalog entry by plugin name."""
         entries = self.list_entries(tap_alias, refresh=refresh, include_incompatible=True)
         matches = [entry for entry in entries if entry.name == name]
-        matched_incompatible = False
-        if matches and not include_incompatible:
-            compatible_matches = [entry for entry in matches if self.evaluate_compatibility(entry).is_compatible]
-            matched_incompatible = bool(matches) and not compatible_matches
-            matches = compatible_matches
-        if matches:
+        compatible_matches = [entry for entry in matches if self.evaluate_compatibility(entry).is_compatible]
+        if compatible_matches:
+            return max(compatible_matches, key=_entry_version_sort_key)
+        if matches and include_incompatible:
             return max(matches, key=_entry_version_sort_key)
 
         resolved_alias = tap_alias or DEFAULT_PLUGIN_TAP_ALIAS
-        if matched_incompatible:
+        if matches:
             raise ValueError(
                 f"Plugin {name!r} was found in tap {resolved_alias!r}, but no compatible version is available"
             )
@@ -107,7 +104,7 @@ class PluginCatalogService:
         """Group catalog entries by installable package name."""
         grouped_entries: dict[str, list[PluginCatalogEntry]] = defaultdict(list)
         for entry in entries:
-            grouped_entries[entry.package.name].append(entry)
+            grouped_entries[canonicalize_name(entry.package.name)].append(entry)
         return {
             package_name: sorted(items, key=lambda item: item.name) for package_name, items in grouped_entries.items()
         }
@@ -169,20 +166,13 @@ class PluginCatalogService:
         self.repository.remove_tap(alias)
 
     def list_installed_plugins(self) -> list[InstalledPluginInfo]:
-        """List runtime plugins currently discoverable through entry points."""
-        registry = PluginRegistry()
-        installed_plugins = []
-        for plugin_type in PluginType:
-            for plugin in registry.get_plugins(plugin_type):
-                installed_plugins.append(
-                    InstalledPluginInfo(
-                        name=plugin.name,
-                        plugin_type=plugin.plugin_type,
-                        config_qualified_name=plugin.config_qualified_name,
-                        impl_qualified_name=plugin.impl_qualified_name,
-                    )
-                )
-        return sorted(installed_plugins, key=lambda plugin: (plugin.plugin_type.value, plugin.name))
+        """List installed Data Designer plugin entry points without importing plugin modules."""
+        entry_points = importlib.metadata.entry_points(group="data_designer.plugins")
+        installed_plugins = [
+            InstalledPluginInfo(name=entry_point.name, entry_point_value=entry_point.value)
+            for entry_point in entry_points
+        ]
+        return sorted(installed_plugins, key=lambda plugin: plugin.name)
 
     def _evaluate_target(
         self,
