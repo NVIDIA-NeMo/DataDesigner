@@ -1,7 +1,7 @@
 ---
 name: review-code
 description: Perform a thorough code review of the current branch or a GitHub PR by number.
-argument-hint: [pr-number] [special instructions]
+argument-hint: "[pr-number] [special instructions]"
 disable-model-invocation: true
 metadata:
     internal: true
