@@ -6,7 +6,7 @@
 Async counterpart to ``concurrency.py``. Same operational contract (callbacks
 with optional context, error aggregation, shutdown thresholds), different
 runtime model. The sync module runs callables in a ``ThreadPoolExecutor``;
-this module runs coroutines in ``asyncio.TaskGroup`` on a dedicated loop
+this module runs coroutines via ``asyncio.gather`` on a dedicated loop
 thread. Callers stay synchronous.
 
 Architecture:
@@ -17,7 +17,7 @@ Architecture:
     ``ExecutorResults`` model as the sync executor.
 
     Caller Thread ──► run() ──► run_coroutine_threadsafe ──► Background Loop
-                                                              (TaskGroup)
+                                                              (gather)
 
 Singleton Event Loop:
     The background loop is a process-wide singleton. Async-stateful
@@ -181,9 +181,19 @@ class AsyncConcurrentExecutor:
         self._semaphore = asyncio.Semaphore(self._max_workers)
         self._shutdown_event = asyncio.Event()
 
-        async with asyncio.TaskGroup() as tg:
-            for i, (coro, context) in enumerate(work_items):
-                tg.create_task(self._run_task(i, coro, context))
+        # gather-with-explicit-cancel: equivalent to asyncio.TaskGroup but available on 3.10.
+        # _run_task swallows its own exceptions into error_trap, so children don't raise into
+        # gather under normal operation. The except-block preserves TaskGroup's "cancel siblings
+        # on parent cancellation or unexpected child raise" semantics for safety.
+        tasks = [asyncio.create_task(self._run_task(i, coro, ctx)) for i, (coro, ctx) in enumerate(work_items)]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
         if not self._disable_early_shutdown and self._results.early_shutdown:
             self._raise_task_error()

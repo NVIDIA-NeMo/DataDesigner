@@ -140,6 +140,12 @@ class DataDesignerConfigBuilder:
                 selection_strategy=seed_config.selection_strategy,
             )
 
+        for processor in data_designer_config.processors or []:
+            builder.add_processor(processor)
+
+        for profiler in data_designer_config.profilers or []:
+            builder.add_profiler(profiler)
+
         return builder
 
     def __init__(
@@ -287,7 +293,10 @@ class DataDesignerConfigBuilder:
             The current Data Designer config builder instance.
 
         Raises:
-            BuilderConfigurationError: If the column name collides with an existing seed dataset column.
+            BuilderConfigurationError: If neither a column config nor the required constructor
+                arguments are provided.
+            InvalidColumnTypeError: If the provided column config is not one of the supported
+                column config types.
         """
         if column_config is None:
             if name is None or column_type is None:
@@ -609,7 +618,7 @@ class DataDesignerConfigBuilder:
         """Get processor configuration objects.
 
         Returns:
-            A dictionary of processor configuration objects by dataset builder stage.
+            A list of processor configuration objects.
         """
         return self._processor_configs
 

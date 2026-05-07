@@ -131,6 +131,17 @@ class ModelGenerationValidationFailureError(DataDesignerError):
 class ImageGenerationError(DataDesignerError): ...
 
 
+# Errors that the async scheduler defers to salvage instead of failing the run.
+# Callers that wrap arbitrary exceptions (e.g. CustomColumnGenerator) should
+# re-raise these unchanged so retryability is preserved through the wrap.
+RETRYABLE_MODEL_ERRORS: tuple[type[Exception], ...] = (
+    ModelRateLimitError,
+    ModelTimeoutError,
+    ModelInternalServerError,
+    ModelAPIConnectionError,
+)
+
+
 class FormattedLLMErrorMessage(BaseModel):
     cause: str
     solution: str

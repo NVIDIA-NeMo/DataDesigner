@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 
@@ -180,6 +181,63 @@ def test_failure_releases_slot_without_limit_change(manager: ThrottleManager) ->
     limit_before = state.current_limit
     manager.release_failure(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
     assert state.current_limit == limit_before
+    assert state.in_flight == 0
+
+
+def test_failure_does_not_reset_cascade_while_burst_in_flight(manager: ThrottleManager) -> None:
+    """Mixed-response burst (429 → 500 → 429 with multiple slots in-flight) must reduce only once.
+
+    With a real burst of in-flight requests, an interleaved non-rate-limit
+    failure should NOT break the cascade - otherwise the next 429 from the
+    same wave would be treated as a new cascade and double-reduce the limit
+    even though the provider hasn't recovered between the two 429s.
+    """
+    # Saturate to limit (4 concurrent slots).
+    for _ in range(4):
+        manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    state = manager.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.in_flight == 4
+    limit_before = state.current_limit
+
+    # First 429 from the burst: limit reduced once.
+    manager.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    limit_after_first_429 = state.current_limit
+    assert limit_after_first_429 < limit_before
+    assert state.consecutive_429s == 1
+    assert state.in_flight == 3
+
+    # Second response from the same burst: 500. With the regression, this
+    # would reset the cascade to 0; with the fix, in_flight > 0 keeps it at 1.
+    manager.release_failure(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    assert state.consecutive_429s == 1, "cascade must not reset while the prior burst is still in-flight"
+    assert state.in_flight == 2
+
+    # Third response from the same burst: another 429. With the regression
+    # this would be treated as a new cascade and reduce the limit again.
+    manager.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    assert state.current_limit == limit_after_first_429, "limit must not double-reduce within the same burst"
+    assert state.in_flight == 1
+
+
+def test_failure_resets_cascade_after_burst_drains(manager: ThrottleManager) -> None:
+    """Once the burst fully drains (in_flight == 0), the next non-RL failure breaks the cascade.
+
+    This preserves the original PR intent for the sequential 429 → 500 → 429
+    case: provider rate-limited, settled, then rate-limited again.
+    """
+    # Saturate, then drain: one 429 then one 500 with no concurrency.
+    manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    manager.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    state = manager.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.consecutive_429s == 1
+    assert state.in_flight == 0
+
+    # New request after the burst drained. release_failure sees in_flight 1 → 0.
+    manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    manager.release_failure(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    assert state.consecutive_429s == 0
     assert state.in_flight == 0
 
 
@@ -444,6 +502,53 @@ async def test_acquire_async_raises_timeout_when_at_capacity() -> None:
 
     with pytest.raises(TimeoutError, match="timed out"):
         await tm.acquire_async(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=0.0)
+
+
+@pytest.mark.asyncio
+async def test_acquire_async_default_no_deadline_waits_for_release() -> None:
+    """``timeout=None`` (the default) waits for the permit instead of raising.
+
+    Issue #551: the previous 300s default produced spurious ``ModelTimeoutError``
+    cascades on slow endpoints with deep queues; now queue waits scale with
+    provider speed and only the HTTP timeout deadlines actual work. The
+    ``timeout=0.0`` case is covered by ``test_acquire_async_raises_timeout_when_at_capacity``.
+    """
+    tm = ThrottleManager()
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+
+    async def release_after(delay: float) -> None:
+        await asyncio.sleep(delay)
+        tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+
+    # Hold a strong reference to the task so the loop's weak-ref bookkeeping
+    # can't GC it before the inner await observes the release.
+    release_task = asyncio.create_task(release_after(0.05))
+    try:
+        # asyncio.wait_for caps the test runtime; the inner acquire_async passes None.
+        await asyncio.wait_for(
+            tm.acquire_async(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN),
+            timeout=2.0,
+        )
+    finally:
+        await release_task
+
+
+def test_acquire_sync_default_no_deadline_waits_for_release() -> None:
+    """Sync counterpart: ``timeout=None`` default blocks until release."""
+    tm = ThrottleManager()
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+
+    def release_after(delay: float) -> None:
+        time.sleep(delay)
+        tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+
+    threading.Thread(target=release_after, args=(0.05,), daemon=True).start()
+    start = time.monotonic()
+    tm.acquire_sync(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+    elapsed = time.monotonic() - start
+    assert 0.04 < elapsed < 2.0, f"expected ~0.05s wait, got {elapsed:.3f}s"
 
 
 # --- Thread safety ---

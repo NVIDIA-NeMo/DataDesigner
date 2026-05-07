@@ -1,0 +1,592 @@
+{
+  "cells": [
+    {
+      "type": "markdown",
+      "source": "# 🎨 Data Designer Tutorial: Providing Images as Context for Vision-Based Data Generation",
+      "source_html": "<h1>🎨 Data Designer Tutorial: Providing Images as Context for Vision-Based Data Generation</h1>\n"
+    },
+    {
+      "type": "markdown",
+      "source": "#### 📚 What you'll learn\n\nThis notebook demonstrates how to provide images as context to generate text descriptions using vision-language models.\n\n- ✨ **Visual Document Processing**: Converting images to chat-ready format for model consumption\n- 🔍 **Vision-Language Generation**: Using vision models to generate detailed summaries from images\n\nIf this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.",
+      "source_html": "<h4>📚 What you'll learn</h4>\n<p>This notebook demonstrates how to provide images as context to generate text descriptions using vision-language models.</p>\n<ul>\n<li>✨ <strong>Visual Document Processing</strong>: Converting images to chat-ready format for model consumption</li>\n<li>🔍 <strong>Vision-Language Generation</strong>: Using vision models to generate detailed summaries from images</li>\n</ul>\n<p>If this is your first time using Data Designer, we recommend starting with the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/\">first notebook</a> in this tutorial series.</p>\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### 📦 Import Data Designer\n\n- `data_designer.config` provides access to the configuration API.\n\n- `DataDesigner` is the main interface for data generation.",
+      "source_html": "<h3>📦 Import Data Designer</h3>\n<ul>\n<li>\n<p><code>data_designer.config</code> provides access to the configuration API.</p>\n</li>\n<li>\n<p><code>DataDesigner</code> is the main interface for data generation.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "# Standard library imports\nimport base64\nimport io\nimport uuid\n\n# Third-party imports\nimport pandas as pd\nimport rich\nfrom datasets import load_dataset\nfrom IPython.display import display\nfrom rich.panel import Panel\n\n# Data Designer imports\nimport data_designer.config as dd\nfrom data_designer.interface import DataDesigner",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Standard library imports</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">base64</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">io</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">uuid</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># Third-party imports</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">pandas</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">as</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">pd</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">rich</span>\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">datasets</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> load_dataset\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">IPython.display</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> display\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">rich.panel</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> Panel\n\n<span style=\"color: #60A0B0; font-style: italic\"># Data Designer imports</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.config</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">as</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">dd</span>\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.interface</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> DataDesigner\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### ⚙️ Initialize the Data Designer interface\n\n- `DataDesigner` is the main object responsible for managing the data generation process.\n\n- When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.",
+      "source_html": "<h3>⚙️ Initialize the Data Designer interface</h3>\n<ul>\n<li>\n<p><code>DataDesigner</code> is the main object responsible for managing the data generation process.</p>\n</li>\n<li>\n<p>When initialized without arguments, the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/\">default model providers</a> are used.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "data_designer = DataDesigner()",
+      "language": "python",
+      "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "/var/folders/r2/h5ycn0g13n1bc1rctfs2q65m0000gp/T/ipykernel_6277/184243683.py:1: DeprecationWarning: ModelProviderRegistry.default is deprecated and will be removed in a future release. Specify provider= explicitly on each ModelConfig instead of relying on a registry-level default. See issue #589.\n  data_designer = DataDesigner()",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🏗️ Initialize the Data Designer Config Builder\n\n- The Data Designer config defines the dataset schema and generation process.\n\n- The config builder provides an intuitive interface for building this configuration.\n\n- When initialized without arguments, the [default model configurations](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.",
+      "source_html": "<h3>🏗️ Initialize the Data Designer Config Builder</h3>\n<ul>\n<li>\n<p>The Data Designer config defines the dataset schema and generation process.</p>\n</li>\n<li>\n<p>The config builder provides an intuitive interface for building this configuration.</p>\n</li>\n<li>\n<p>When initialized without arguments, the <a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/\">default model configurations</a> are used.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "config_builder = dd.DataDesignerConfigBuilder()",
+      "language": "python",
+      "source_html": "config_builder <span style=\"color: #666\">=</span> dd<span style=\"color: #666\">.</span>DataDesignerConfigBuilder()\n"
+    },
+    {
+      "type": "markdown",
+      "source": "### 🌱 Seed Dataset Creation\n\nIn this section, we'll prepare our visual documents as a seed dataset for summarization:\n\n- **Loading Visual Documents**: We use a small pets image dataset containing labeled images\n- **Image Processing**: Convert images to base64 format for vision model consumption\n- **Metadata Extraction**: Preserve relevant image information (label, etc.)\n\nThe seed dataset will be used to generate detailed text descriptions of each image.",
+      "source_html": "<h3>🌱 Seed Dataset Creation</h3>\n<p>In this section, we'll prepare our visual documents as a seed dataset for summarization:</p>\n<ul>\n<li><strong>Loading Visual Documents</strong>: We use a small pets image dataset containing labeled images</li>\n<li><strong>Image Processing</strong>: Convert images to base64 format for vision model consumption</li>\n<li><strong>Metadata Extraction</strong>: Preserve relevant image information (label, etc.)</li>\n</ul>\n<p>The seed dataset will be used to generate detailed text descriptions of each image.</p>\n"
+    },
+    {
+      "type": "code",
+      "source": "# Dataset processing configuration\nIMG_COUNT = 512  # Number of images to process\nBASE64_IMAGE_HEIGHT = 512  # Standardized height for model input\n\n# Load the pets dataset (train split, ~23 MB total)\nimg_dataset_cfg = {\"path\": \"rokmr/pets\", \"split\": \"train\"}",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Dataset processing configuration</span>\nIMG_COUNT <span style=\"color: #666\">=</span> <span style=\"color: #40A070\">512</span>  <span style=\"color: #60A0B0; font-style: italic\"># Number of images to process</span>\nBASE64_IMAGE_HEIGHT <span style=\"color: #666\">=</span> <span style=\"color: #40A070\">512</span>  <span style=\"color: #60A0B0; font-style: italic\"># Standardized height for model input</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># Load the pets dataset (train split, ~23 MB total)</span>\nimg_dataset_cfg <span style=\"color: #666\">=</span> {<span style=\"color: #4070A0\">&quot;path&quot;</span>: <span style=\"color: #4070A0\">&quot;rokmr/pets&quot;</span>, <span style=\"color: #4070A0\">&quot;split&quot;</span>: <span style=\"color: #4070A0\">&quot;train&quot;</span>}\n"
+    },
+    {
+      "type": "code",
+      "source": "def resize_image(image, height: int):\n    \"\"\"\n    Resize image while maintaining aspect ratio.\n\n    Args:\n        image: PIL Image object\n        height: Target height in pixels\n\n    Returns:\n        Resized PIL Image object\n    \"\"\"\n    original_width, original_height = image.size\n    width = int(original_width * (height / original_height))\n    return image.resize((width, height))\n\n\ndef convert_image_to_chat_format(record, height: int) -> dict:\n    \"\"\"\n    Convert PIL image to base64 format for chat template usage.\n\n    Args:\n        record: Dataset record containing image and metadata\n        height: Target height for image resizing\n\n    Returns:\n        Updated record with base64_image and uuid fields\n    \"\"\"\n    image = resize_image(record[\"image\"], height)\n\n    img_buffer = io.BytesIO()\n    image.save(img_buffer, format=\"PNG\")\n    byte_data = img_buffer.getvalue()\n    base64_encoded_data = base64.b64encode(byte_data)\n    base64_string = base64_encoded_data.decode(\"utf-8\")\n\n    return record | {\"base64_image\": base64_string, \"uuid\": str(uuid.uuid4())}",
+      "language": "python",
+      "source_html": "<span style=\"color: #007020; font-weight: bold\">def</span><span style=\"color: #BBB\"> </span><span style=\"color: #06287E\">resize_image</span>(image, height: <span style=\"color: #007020\">int</span>):\n<span style=\"color: #BBB\">    </span><span style=\"color: #4070A0; font-style: italic\">&quot;&quot;&quot;</span>\n<span style=\"color: #4070A0; font-style: italic\">    Resize image while maintaining aspect ratio.</span>\n\n<span style=\"color: #4070A0; font-style: italic\">    Args:</span>\n<span style=\"color: #4070A0; font-style: italic\">        image: PIL Image object</span>\n<span style=\"color: #4070A0; font-style: italic\">        height: Target height in pixels</span>\n\n<span style=\"color: #4070A0; font-style: italic\">    Returns:</span>\n<span style=\"color: #4070A0; font-style: italic\">        Resized PIL Image object</span>\n<span style=\"color: #4070A0; font-style: italic\">    &quot;&quot;&quot;</span>\n    original_width, original_height <span style=\"color: #666\">=</span> image<span style=\"color: #666\">.</span>size\n    width <span style=\"color: #666\">=</span> <span style=\"color: #007020\">int</span>(original_width <span style=\"color: #666\">*</span> (height <span style=\"color: #666\">/</span> original_height))\n    <span style=\"color: #007020; font-weight: bold\">return</span> image<span style=\"color: #666\">.</span>resize((width, height))\n\n\n<span style=\"color: #007020; font-weight: bold\">def</span><span style=\"color: #BBB\"> </span><span style=\"color: #06287E\">convert_image_to_chat_format</span>(record, height: <span style=\"color: #007020\">int</span>) <span style=\"color: #666\">-&gt;</span> <span style=\"color: #007020\">dict</span>:\n<span style=\"color: #BBB\">    </span><span style=\"color: #4070A0; font-style: italic\">&quot;&quot;&quot;</span>\n<span style=\"color: #4070A0; font-style: italic\">    Convert PIL image to base64 format for chat template usage.</span>\n\n<span style=\"color: #4070A0; font-style: italic\">    Args:</span>\n<span style=\"color: #4070A0; font-style: italic\">        record: Dataset record containing image and metadata</span>\n<span style=\"color: #4070A0; font-style: italic\">        height: Target height for image resizing</span>\n\n<span style=\"color: #4070A0; font-style: italic\">    Returns:</span>\n<span style=\"color: #4070A0; font-style: italic\">        Updated record with base64_image and uuid fields</span>\n<span style=\"color: #4070A0; font-style: italic\">    &quot;&quot;&quot;</span>\n    image <span style=\"color: #666\">=</span> resize_image(record[<span style=\"color: #4070A0\">&quot;image&quot;</span>], height)\n\n    img_buffer <span style=\"color: #666\">=</span> io<span style=\"color: #666\">.</span>BytesIO()\n    image<span style=\"color: #666\">.</span>save(img_buffer, <span style=\"color: #007020\">format</span><span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;PNG&quot;</span>)\n    byte_data <span style=\"color: #666\">=</span> img_buffer<span style=\"color: #666\">.</span>getvalue()\n    base64_encoded_data <span style=\"color: #666\">=</span> base64<span style=\"color: #666\">.</span>b64encode(byte_data)\n    base64_string <span style=\"color: #666\">=</span> base64_encoded_data<span style=\"color: #666\">.</span>decode(<span style=\"color: #4070A0\">&quot;utf-8&quot;</span>)\n\n    <span style=\"color: #007020; font-weight: bold\">return</span> record <span style=\"color: #666\">|</span> {<span style=\"color: #4070A0\">&quot;base64_image&quot;</span>: base64_string, <span style=\"color: #4070A0\">&quot;uuid&quot;</span>: <span style=\"color: #007020\">str</span>(uuid<span style=\"color: #666\">.</span>uuid4())}\n"
+    },
+    {
+      "type": "code",
+      "source": "# Load and process the image dataset\nprint(\"📥 Loading and processing images...\")\n\nimg_dataset = load_dataset(**img_dataset_cfg).map(\n    convert_image_to_chat_format, fn_kwargs={\"height\": BASE64_IMAGE_HEIGHT}\n)\nimg_dataset = pd.DataFrame(img_dataset[:IMG_COUNT])\n\nprint(f\"✅ Loaded {len(img_dataset)} images with columns: {list(img_dataset.columns)}\")",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load and process the image dataset</span>\n<span style=\"color: #007020\">print</span>(<span style=\"color: #4070A0\">&quot;📥 Loading and processing images...&quot;</span>)\n\nimg_dataset <span style=\"color: #666\">=</span> load_dataset(<span style=\"color: #666\">**</span>img_dataset_cfg)<span style=\"color: #666\">.</span>map(\n    convert_image_to_chat_format, fn_kwargs<span style=\"color: #666\">=</span>{<span style=\"color: #4070A0\">&quot;height&quot;</span>: BASE64_IMAGE_HEIGHT}\n)\nimg_dataset <span style=\"color: #666\">=</span> pd<span style=\"color: #666\">.</span>DataFrame(img_dataset[:IMG_COUNT])\n\n<span style=\"color: #007020\">print</span>(<span style=\"color: #4070A0\">f&quot;✅ Loaded </span><span style=\"color: #70A0D0; font-style: italic\">{</span><span style=\"color: #007020\">len</span>(img_dataset)<span style=\"color: #70A0D0; font-style: italic\">}</span><span style=\"color: #4070A0\"> images with columns: </span><span style=\"color: #70A0D0; font-style: italic\">{</span><span style=\"color: #007020\">list</span>(img_dataset<span style=\"color: #666\">.</span>columns)<span style=\"color: #70A0D0; font-style: italic\">}</span><span style=\"color: #4070A0\">&quot;</span>)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "📥 Loading and processing images...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "✅ Loaded 512 images with columns: ['image', 'label', 'base64_image', 'uuid']",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "img_dataset.head()",
+      "language": "python",
+      "source_html": "img_dataset<span style=\"color: #666\">.</span>head()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>image</th>\n      <th>label</th>\n      <th>base64_image</th>\n      <th>uuid</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>&lt;PIL.JpegImagePlugin.JpegImageFile image mode=...</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAA...</td>\n      <td>6f6dbe67-d004-4d01-8c51-83569ad7800f</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>&lt;PIL.JpegImagePlugin.JpegImageFile image mode=...</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAiQAAAIACAIAAAA9rOAHAA...</td>\n      <td>fc2a46e1-0225-4705-b0ed-6d83addc3ab8</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>&lt;PIL.JpegImagePlugin.JpegImageFile image mode=...</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAqoAAAIACAIAAADFYNm1AA...</td>\n      <td>7c9ce878-1e3b-45b9-8e95-9c7aa431d034</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>&lt;PIL.JpegImagePlugin.JpegImageFile image mode=...</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAwAAAAIACAIAAAC6lJxtAA...</td>\n      <td>1a5ff096-5e00-4b7e-887b-b452cea4d03a</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>&lt;PIL.PngImagePlugin.PngImageFile image mode=RG...</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAqoAAAIACAIAAADFYNm1AA...</td>\n      <td>dce563dc-9963-4c0b-8676-c34b9d87265c</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Add the seed dataset containing our processed images\ndf_seed = pd.DataFrame(img_dataset)[[\"uuid\", \"label\", \"base64_image\"]]\nconfig_builder.with_seed_dataset(dd.DataFrameSeedSource(df=df_seed))",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Add the seed dataset containing our processed images</span>\ndf_seed <span style=\"color: #666\">=</span> pd<span style=\"color: #666\">.</span>DataFrame(img_dataset)[[<span style=\"color: #4070A0\">&quot;uuid&quot;</span>, <span style=\"color: #4070A0\">&quot;label&quot;</span>, <span style=\"color: #4070A0\">&quot;base64_image&quot;</span>]]\nconfig_builder<span style=\"color: #666\">.</span>with_seed_dataset(dd<span style=\"color: #666\">.</span>DataFrameSeedSource(df<span style=\"color: #666\">=</span>df_seed))\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "\n<meta charset=\"UTF-8\">\n<style>\npre { line-height: 125%; }\ntd.linenos .normal { color: #D8DEE9; background-color: #242933; padding-left: 5px; padding-right: 5px; }\nspan.linenos { color: #D8DEE9; background-color: #242933; padding-left: 5px; padding-right: 5px; }\ntd.linenos .special { color: #242933; background-color: #D8DEE9; padding-left: 5px; padding-right: 5px; }\nspan.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 5px; padding-right: 5px; }\n.code .hll { background-color: #3B4252 }\n.code { background: #2E3440; color: #D8DEE9 }\n.code .c { color: #616E87; font-style: italic } /* Comment */\n.code .err { color: #BF616A } /* Error */\n.code .esc { color: #D8DEE9 } /* Escape */\n.code .g { color: #D8DEE9 } /* Generic */\n.code .k { color: #81A1C1; font-weight: bold } /* Keyword */\n.code .l { color: #D8DEE9 } /* Literal */\n.code .n { color: #D8DEE9 } /* Name */\n.code .o { color: #81A1C1; font-weight: bold } /* Operator */\n.code .x { color: #D8DEE9 } /* Other */\n.code .p { color: #ECEFF4 } /* Punctuation */\n.code .ch { color: #616E87; font-style: italic } /* Comment.Hashbang */\n.code .cm { color: #616E87; font-style: italic } /* Comment.Multiline */\n.code .cp { color: #5E81AC; font-style: italic } /* Comment.Preproc */\n.code .cpf { color: #616E87; font-style: italic } /* Comment.PreprocFile */\n.code .c1 { color: #616E87; font-style: italic } /* Comment.Single */\n.code .cs { color: #616E87; font-style: italic } /* Comment.Special */\n.code .gd { color: #BF616A } /* Generic.Deleted */\n.code .ge { color: #D8DEE9; font-style: italic } /* Generic.Emph */\n.code .ges { color: #D8DEE9; font-weight: bold; font-style: italic } /* Generic.EmphStrong */\n.code .gr { color: #BF616A } /* Generic.Error */\n.code .gh { color: #88C0D0; font-weight: bold } /* Generic.Heading */\n.code .gi { color: #A3BE8C } /* Generic.Inserted */\n.code .go { color: #D8DEE9 } /* Generic.Output */\n.code .gp { color: #616E88; font-weight: bold } /* Generic.Prompt */\n.code .gs { color: #D8DEE9; font-weight: bold } /* Generic.Strong */\n.code .gu { color: #88C0D0; font-weight: bold } /* Generic.Subheading */\n.code .gt { color: #BF616A } /* Generic.Traceback */\n.code .kc { color: #81A1C1; font-weight: bold } /* Keyword.Constant */\n.code .kd { color: #81A1C1; font-weight: bold } /* Keyword.Declaration */\n.code .kn { color: #81A1C1; font-weight: bold } /* Keyword.Namespace */\n.code .kp { color: #81A1C1 } /* Keyword.Pseudo */\n.code .kr { color: #81A1C1; font-weight: bold } /* Keyword.Reserved */\n.code .kt { color: #81A1C1 } /* Keyword.Type */\n.code .ld { color: #D8DEE9 } /* Literal.Date */\n.code .m { color: #B48EAD } /* Literal.Number */\n.code .s { color: #A3BE8C } /* Literal.String */\n.code .na { color: #8FBCBB } /* Name.Attribute */\n.code .nb { color: #81A1C1 } /* Name.Builtin */\n.code .nc { color: #8FBCBB } /* Name.Class */\n.code .no { color: #8FBCBB } /* Name.Constant */\n.code .nd { color: #D08770 } /* Name.Decorator */\n.code .ni { color: #D08770 } /* Name.Entity */\n.code .ne { color: #BF616A } /* Name.Exception */\n.code .nf { color: #88C0D0 } /* Name.Function */\n.code .nl { color: #D8DEE9 } /* Name.Label */\n.code .nn { color: #8FBCBB } /* Name.Namespace */\n.code .nx { color: #D8DEE9 } /* Name.Other */\n.code .py { color: #D8DEE9 } /* Name.Property */\n.code .nt { color: #81A1C1 } /* Name.Tag */\n.code .nv { color: #D8DEE9 } /* Name.Variable */\n.code .ow { color: #81A1C1; font-weight: bold } /* Operator.Word */\n.code .pm { color: #ECEFF4 } /* Punctuation.Marker */\n.code .w { color: #D8DEE9 } /* Text.Whitespace */\n.code .mb { color: #B48EAD } /* Literal.Number.Bin */\n.code .mf { color: #B48EAD } /* Literal.Number.Float */\n.code .mh { color: #B48EAD } /* Literal.Number.Hex */\n.code .mi { color: #B48EAD } /* Literal.Number.Integer */\n.code .mo { color: #B48EAD } /* Literal.Number.Oct */\n.code .sa { color: #A3BE8C } /* Literal.String.Affix */\n.code .sb { color: #A3BE8C } /* Literal.String.Backtick */\n.code .sc { color: #A3BE8C } /* Literal.String.Char */\n.code .dl { color: #A3BE8C } /* Literal.String.Delimiter */\n.code .sd { color: #616E87 } /* Literal.String.Doc */\n.code .s2 { color: #A3BE8C } /* Literal.String.Double */\n.code .se { color: #EBCB8B } /* Literal.String.Escape */\n.code .sh { color: #A3BE8C } /* Literal.String.Heredoc */\n.code .si { color: #A3BE8C } /* Literal.String.Interpol */\n.code .sx { color: #A3BE8C } /* Literal.String.Other */\n.code .sr { color: #EBCB8B } /* Literal.String.Regex */\n.code .s1 { color: #A3BE8C } /* Literal.String.Single */\n.code .ss { color: #A3BE8C } /* Literal.String.Symbol */\n.code .bp { color: #81A1C1 } /* Name.Builtin.Pseudo */\n.code .fm { color: #88C0D0 } /* Name.Function.Magic */\n.code .vc { color: #D8DEE9 } /* Name.Variable.Class */\n.code .vg { color: #D8DEE9 } /* Name.Variable.Global */\n.code .vi { color: #D8DEE9 } /* Name.Variable.Instance */\n.code .vm { color: #D8DEE9 } /* Name.Variable.Magic */\n.code .il { color: #B48EAD } /* Literal.Number.Integer.Long */\n\n.code {\n  padding: 4px;\n  border: 1px solid grey;\n  border-radius: 4px;\n  max-width: 1000px;\n  width: 100%;\n  display: inline-block;\n  box-sizing: border-box;\n  text-align: left;\n  vertical-align: top;\n  line-height: normal;\n  overflow-x: auto;\n}\n\n.code pre {\n  white-space: pre-wrap;       /* CSS 3 */\n  white-space: -moz-pre-wrap;  /* Mozilla, since 1999 */\n  white-space: -pre-wrap;      /* Opera 4-6 */\n  white-space: -o-pre-wrap;    /* Opera 7 */\n  word-wrap: break-word;\n  overflow-wrap: break-word;\n  margin: 0;\n}\n</style>\n<div class=\"code\"><pre><span></span><span class=\"n\">DataDesignerConfigBuilder</span><span class=\"p\">(</span>\n    <span class=\"n\">seed_dataset</span><span class=\"p\">:</span> <span class=\"n\">df</span> <span class=\"n\">seed</span>\n<span class=\"p\">)</span>\n</pre></div>\n\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Add a column to generate detailed image descriptions\nconfig_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"description\",\n        model_alias=\"nvidia-vision\",\n        prompt=(\n            \"Provide a detailed description of the content in this image in Markdown format. \"\n            \"Describe the main subject, background, colors, and any notable details.\"\n        ),\n        multi_modal_context=[dd.ImageContext(column_name=\"base64_image\")],\n    )\n)\n\ndata_designer.validate(config_builder)",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Add a column to generate detailed image descriptions</span>\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>LLMTextColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;description&quot;</span>,\n        model_alias<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;nvidia-vision&quot;</span>,\n        prompt<span style=\"color: #666\">=</span>(\n            <span style=\"color: #4070A0\">&quot;Provide a detailed description of the content in this image in Markdown format. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;Describe the main subject, background, colors, and any notable details.&quot;</span>\n        ),\n        multi_modal_context<span style=\"color: #666\">=</span>[dd<span style=\"color: #666\">.</span>ImageContext(column_name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;base64_image&quot;</span>)],\n    )\n)\n\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[13:30:32] [INFO] ✅ Validation passed",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🔁 Iteration is key – preview the dataset!\n\n1. Use the `preview` method to generate a sample of records quickly.\n\n2. Inspect the results for quality and format issues.\n\n3. Adjust column configurations, prompts, or parameters as needed.\n\n4. Re-run the preview until satisfied.",
+      "source_html": "<h3>🔁 Iteration is key – preview the dataset!</h3>\n<ol>\n<li>\n<p>Use the <code>preview</code> method to generate a sample of records quickly.</p>\n</li>\n<li>\n<p>Inspect the results for quality and format issues.</p>\n</li>\n<li>\n<p>Adjust column configurations, prompts, or parameters as needed.</p>\n</li>\n<li>\n<p>Re-run the preview until satisfied.</p>\n</li>\n</ol>\n"
+    },
+    {
+      "type": "code",
+      "source": "preview = data_designer.preview(config_builder, num_records=2)",
+      "language": "python",
+      "source_html": "preview <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>preview(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2</span>)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[13:30:32] [INFO] 🔭 Preview generation in progress",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:32] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:32] [INFO] ✅ Validation passed",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:32] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:32] [INFO] 🩺 Running health checks for models...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:32] [INFO]   |-- 👀 Checking 'nvidia/nemotron-nano-12b-v2-vl' in provider named 'nvidia' for model alias 'nvidia-vision'...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |-- ✅ Passed!",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO] 📝 llm-text model config for column 'description'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |-- model: 'nvidia/nemotron-nano-12b-v2-vl'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |-- model alias: 'nvidia-vision'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |-- model provider: 'nvidia'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |-- inference parameters:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |  |-- generation_type=chat-completion",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |  |-- max_parallel_requests=4",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |  |-- temperature=0.85",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |  |-- top_p=0.95",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO] ⚡️ Async generation: 1 column(s) (description), 2 tasks across 1 row group(s)",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO] 🚀 (1/1) Dispatching with 2 records",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO] 🌱 (1/1) Sampling 2 records from seed dataset",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |-- seed dataset size: 512 records",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:33] [INFO]   |-- sampling strategy: ordered",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] 📊 Progress [3.6s]:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO]   |-- ☀️ description: 2/2 (100%) 0.6 rec/s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] ✅ Async generation complete [3.6s]: 2 ok, 0 failed across 1 column(s)",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] 📊 Model usage summary:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO]   |-- model: nvidia/nemotron-nano-12b-v2-vl",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO]   |-- tokens: input=606, output=523, total=1129, tps=311",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO]   |-- requests: success=2, failed=0, total=2, rpm=33",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] 📐 Measuring dataset column statistics:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO]   |-- 📝 column: 'description'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] 🥳 Preview complete!",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Run this cell multiple times to cycle through the 2 preview records.\npreview.display_sample_record()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Run this cell multiple times to cycle through the 2 preview records.</span>\npreview<span style=\"color: #666\">.</span>display_sample_record()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div style='text-align:center;font-family:Menlo,Monaco,Consolas,monospace;font-size:12px;color:#666;margin:8px 0;'>[index: 0]</div>",
+          "format": "html"
+        },
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">                                                                                                              \n<span style=\"font-style: italic\">                                                 Seed Columns                                                 </span>\n┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name         </span>┃<span style=\"font-weight: bold\"> Value                                                                                       </span>┃\n┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ uuid         │ 6f6dbe67-d004-4d01-8c51-83569ad7800f                                                        │\n├──────────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤\n│ label        │ 0                                                                                           │\n├──────────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤\n│ base64_image │ iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAAEAAElEQVR4nOz96XIkR5IlCvvusWJP5J5JJskkWdVV07… │\n└──────────────┴─────────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n                                                                                                              \n<span style=\"font-style: italic\">                                              Generated Columns                                               </span>\n┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"font-weight: bold\"> Name        </span>┃<span style=\"font-weight: bold\"> Value                                                                                        </span>┃\n┡━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description │ # Black and White Cat Portrait                                                               │\n│             │                                                                                              │\n│             │ ## Description                                                                               │\n│             │                                                                                              │\n│             │ The image features a close-up portrait of a black and white cat.                             │\n│             │                                                                                              │\n│             │ ### Main Subject                                                                             │\n│             │                                                                                              │\n│             │ The main subject of the image is a cat with distinctive black and white fur. The cat's fur   │\n│             │ is predominantly black, with white patches on its face, chest, and paws. Its eyes are a      │\n│             │ striking green color, and its nose is black.                                                 │\n│             │                                                                                              │\n│             │ ### Background                                                                               │\n│             │                                                                                              │\n│             │ The background of the image is a plain white wall. There is a small brown object in the      │\n│             │ background, but it is not the focus of the image.                                            │\n│             │                                                                                              │\n│             │ ### Colors                                                                                   │\n│             │                                                                                              │\n│             │ The colors in the image are primarily black and white, with the cat's fur being the main     │\n│             │ source of contrast. The cat's eyes are a bright green color, which adds a pop of color to    │\n│             │ the image.                                                                                   │\n│             │                                                                                              │\n│             │ ### Notable Details                                                                          │\n│             │                                                                                              │\n│             │ *   The cat's fur is well-groomed and appears soft and silky.                                │\n│             │ *   The cat's eyes are wide open, giving it an alert and curious expression.                 │\n│             │ *   The cat's nose is small and black, with a slight pink tint around the edges.             │\n│             │ *   The cat's whiskers are long and white, extending out from its face.                      │\n│             │                                                                                              │\n│             │ Overall, the image captures the unique beauty of a black and white cat, with its striking    │\n│             │ colors and expressive eyes.                                                                  │\n└─────────────┴──────────────────────────────────────────────────────────────────────────────────────────────┘\n                                                                                                              \n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# The preview dataset is available as a pandas DataFrame.\npreview.dataset",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># The preview dataset is available as a pandas DataFrame.</span>\npreview<span style=\"color: #666\">.</span>dataset\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>uuid</th>\n      <th>label</th>\n      <th>base64_image</th>\n      <th>description</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>6f6dbe67-d004-4d01-8c51-83569ad7800f</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAA...</td>\n      <td># Black and White Cat Portrait\\n\\n## Descripti...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>fc2a46e1-0225-4705-b0ed-6d83addc3ab8</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAiQAAAIACAIAAAA9rOAHAA...</td>\n      <td>```markdown\\n# Detailed Description of Cat in ...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 📊 Analyze the generated data\n\n- Data Designer automatically generates a basic statistical analysis of the generated data.\n\n- This analysis is available via the `analysis` property of generation result objects.",
+      "source_html": "<h3>📊 Analyze the generated data</h3>\n<ul>\n<li>\n<p>Data Designer automatically generates a basic statistical analysis of the generated data.</p>\n</li>\n<li>\n<p>This analysis is available via the <code>analysis</code> property of generation result objects.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "# Print the analysis as a table.\npreview.analysis.to_report()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Print the analysis as a table.</span>\npreview<span style=\"color: #666\">.</span>analysis<span style=\"color: #666\">.</span>to_report()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 2                               │ 1                               │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                  </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              per record </span>┃\n┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description      │        string │                   2 (100.0%) │        29.0 +/- 0.0 │           260.0 +/- 0.0 │\n└──────────────────┴───────────────┴──────────────────────────────┴─────────────────────┴─────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🔎 Visual Inspection\n\nLet's compare the original image with the generated description to validate quality:",
+      "source_html": "<h3>🔎 Visual Inspection</h3>\n<p>Let's compare the original image with the generated description to validate quality:</p>\n"
+    },
+    {
+      "type": "code",
+      "source": "# Compare original image with generated description\nindex = 0  # Change this to view different examples\n\n# Merge preview data with original images for comparison\ncomparison_dataset = preview.dataset.merge(pd.DataFrame(img_dataset)[[\"uuid\", \"image\"]], how=\"left\", on=\"uuid\")\n\n# Extract the record for display\nrecord = comparison_dataset.iloc[index]\n\nprint(\"📄 Original Image:\")\ndisplay(resize_image(record.image, BASE64_IMAGE_HEIGHT))\n\nprint(\"\\n📝 Generated Description:\")\nrich.print(Panel(record.description, title=\"Image Description\", title_align=\"left\"))",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Compare original image with generated description</span>\nindex <span style=\"color: #666\">=</span> <span style=\"color: #40A070\">0</span>  <span style=\"color: #60A0B0; font-style: italic\"># Change this to view different examples</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># Merge preview data with original images for comparison</span>\ncomparison_dataset <span style=\"color: #666\">=</span> preview<span style=\"color: #666\">.</span>dataset<span style=\"color: #666\">.</span>merge(pd<span style=\"color: #666\">.</span>DataFrame(img_dataset)[[<span style=\"color: #4070A0\">&quot;uuid&quot;</span>, <span style=\"color: #4070A0\">&quot;image&quot;</span>]], how<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;left&quot;</span>, on<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;uuid&quot;</span>)\n\n<span style=\"color: #60A0B0; font-style: italic\"># Extract the record for display</span>\nrecord <span style=\"color: #666\">=</span> comparison_dataset<span style=\"color: #666\">.</span>iloc[index]\n\n<span style=\"color: #007020\">print</span>(<span style=\"color: #4070A0\">&quot;📄 Original Image:&quot;</span>)\ndisplay(resize_image(record<span style=\"color: #666\">.</span>image, BASE64_IMAGE_HEIGHT))\n\n<span style=\"color: #007020\">print</span>(<span style=\"color: #4070A0\">&quot;</span><span style=\"color: #4070A0; font-weight: bold\">\\n</span><span style=\"color: #4070A0\">📝 Generated Description:&quot;</span>)\nrich<span style=\"color: #666\">.</span>print(Panel(record<span style=\"color: #666\">.</span>description, title<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;Image Description&quot;</span>, title_align<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;left&quot;</span>))\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "📄 Original Image:",
+          "format": "plain"
+        },
+        {
+          "type": "image",
+          "data": "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",
+          "mime": "image/jpeg"
+        },
+        {
+          "type": "text",
+          "data": "\n📝 Generated Description:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\">╭─ Image Description ─────────────────────────────────────────────────────────────────────────────────────────────╮\n│ # Black and White Cat Portrait                                                                                  │\n│                                                                                                                 │\n│ ## Description                                                                                                  │\n│                                                                                                                 │\n│ The image features a close-up portrait of a black and white cat.                                                │\n│                                                                                                                 │\n│ ### Main Subject                                                                                                │\n│                                                                                                                 │\n│ The main subject of the image is a cat with distinctive black and white fur. The cat's fur is predominantly     │\n│ black, with white patches on its face, chest, and paws. Its eyes are a striking green color, and its nose is    │\n│ black.                                                                                                          │\n│                                                                                                                 │\n│ ### Background                                                                                                  │\n│                                                                                                                 │\n│ The background of the image is a plain white wall. There is a small brown object in the background, but it is   │\n│ not the focus of the image.                                                                                     │\n│                                                                                                                 │\n│ ### Colors                                                                                                      │\n│                                                                                                                 │\n│ The colors in the image are primarily black and white, with the cat's fur being the main source of contrast.    │\n│ The cat's eyes are a bright green color, which adds a pop of color to the image.                                │\n│                                                                                                                 │\n│ ### Notable Details                                                                                             │\n│                                                                                                                 │\n│ *   The cat's fur is well-groomed and appears soft and silky.                                                   │\n│ *   The cat's eyes are wide open, giving it an alert and curious expression.                                    │\n│ *   The cat's nose is small and black, with a slight pink tint around the edges.                                │\n│ *   The cat's whiskers are long and white, extending out from its face.                                         │\n│                                                                                                                 │\n│ Overall, the image captures the unique beauty of a black and white cat, with its striking colors and expressive │\n│ eyes.                                                                                                           │\n╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯\n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "### 🆙 Scale up!\n\n- Happy with your preview data?\n\n- Use the `create` method to submit larger Data Designer generation jobs.",
+      "source_html": "<h3>🆙 Scale up!</h3>\n<ul>\n<li>\n<p>Happy with your preview data?</p>\n</li>\n<li>\n<p>Use the <code>create</code> method to submit larger Data Designer generation jobs.</p>\n</li>\n</ul>\n"
+    },
+    {
+      "type": "code",
+      "source": "results = data_designer.create(config_builder, num_records=10, dataset_name=\"tutorial-4\")",
+      "language": "python",
+      "source_html": "results <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>create(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">10</span>, dataset_name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;tutorial-4&quot;</span>)\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] 🎨 Creating Data Designer dataset",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO]   |-- 🔒 Jinja rendering engine: secure",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] ✅ Validation passed",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO] 🩺 Running health checks for models...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:36] [INFO]   |-- 👀 Checking 'nvidia/nemotron-nano-12b-v2-vl' in provider named 'nvidia' for model alias 'nvidia-vision'...",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |-- ✅ Passed!",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO] ⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO] 📝 llm-text model config for column 'description'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |-- model: 'nvidia/nemotron-nano-12b-v2-vl'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |-- model alias: 'nvidia-vision'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |-- model provider: 'nvidia'",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |-- inference parameters:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |  |-- generation_type=chat-completion",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |  |-- max_parallel_requests=4",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |  |-- temperature=0.85",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |  |-- top_p=0.95",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO] ⚡️ Async generation: 1 column(s) (description), 10 tasks across 1 row group(s)",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO] 🚀 (1/1) Dispatching with 10 records",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO] 🌱 (1/1) Sampling 10 records from seed dataset",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |-- seed dataset size: 512 records",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:37] [INFO]   |-- sampling strategy: ordered",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:42] [INFO] 📊 Progress [5.6s]:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:42] [INFO]   |-- 🚗 description: 5/10 (50%) 0.9 rec/s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO] 📊 Progress [11.1s]:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO]   |-- 🚀 description: 10/10 (100%) 0.9 rec/s",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO] ✅ Async generation complete [11.2s]: 10 ok, 0 failed across 1 column(s)",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO] 📊 Model usage summary:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO]   |-- model: nvidia/nemotron-nano-12b-v2-vl",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO]   |-- tokens: input=22998, output=2586, total=25584, tps=2209",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO]   |-- requests: success=10, failed=0, total=10, rpm=51",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO] 📐 Measuring dataset column statistics:",
+          "format": "plain"
+        },
+        {
+          "type": "text",
+          "data": "[13:30:48] [INFO]   |-- 📝 column: 'description'",
+          "format": "plain"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Load the generated dataset as a pandas DataFrame.\ndataset = results.load_dataset()\n\ndataset.head()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the generated dataset as a pandas DataFrame.</span>\ndataset <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_dataset()\n\ndataset<span style=\"color: #666\">.</span>head()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>uuid</th>\n      <th>label</th>\n      <th>base64_image</th>\n      <th>description</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>6f6dbe67-d004-4d01-8c51-83569ad7800f</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAeQAAAIACAIAAADc8YinAA...</td>\n      <td>```markdown\n# Detailed Description of the Imag...</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>fc2a46e1-0225-4705-b0ed-6d83addc3ab8</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAiQAAAIACAIAAAA9rOAHAA...</td>\n      <td>```markdown\n# Detailed Description of the Imag...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>7c9ce878-1e3b-45b9-8e95-9c7aa431d034</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAqoAAAIACAIAAADFYNm1AA...</td>\n      <td>```markdown\n# Image Description: Gray and Whit...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>1a5ff096-5e00-4b7e-887b-b452cea4d03a</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAwAAAAIACAIAAAC6lJxtAA...</td>\n      <td>```| Characteristic | Description |\n| --- | --...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>dce563dc-9963-4c0b-8676-c34b9d87265c</td>\n      <td>0</td>\n      <td>iVBORw0KGgoAAAANSUhEUgAAAqoAAAIACAIAAADFYNm1AA...</td>\n      <td># A Playful Moment Captured\n\n## **Description:...</td>\n    </tr>\n  </tbody>\n</table>\n</div>",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "code",
+      "source": "# Load the analysis results into memory.\nanalysis = results.load_analysis()\n\nanalysis.to_report()",
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the analysis results into memory.</span>\nanalysis <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_analysis()\n\nanalysis<span style=\"color: #666\">.</span>to_report()\n",
+      "outputs": [
+        {
+          "type": "text",
+          "data": "<pre style=\"white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace\"><span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">──────────────────────────────────────── </span>🎨 Data Designer Dataset Profile<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\"> ─────────────────────────────────────────</span>\n\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                 Dataset Overview                                                  </span>\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of records               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> number of columns               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> percent complete records                    </span>┃\n┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ 10                              │ 1                               │ 100.0%                                      │\n└─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">                                                📝 LLM-Text Columns                                                </span>\n┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                  </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">               </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">                              </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       prompt tokens </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">       completion tokens </span>┃\n┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\"> column name      </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">     data type </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">         number unique values </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">          per record </span>┃<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold\">              per record </span>┃\n┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩\n│ description      │        string │                  10 (100.0%) │        29.0 +/- 0.0 │         275.5 +/- 116.6 │\n└──────────────────┴───────────────┴──────────────────────────────┴─────────────────────┴─────────────────────────┘\n                                                                                                                   \n                                                                                                                   \n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╭────────────────────────────────────────────────── Table Notes ──────────────────────────────────────────────────╮</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  1. All token statistics are based on a sample of max(1000, len(dataset)) records.                              <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>  2. Tokens are calculated using tiktoken's cl100k_base tokenizer.                                               <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>                                                                                                                 <span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">│</span>\n<span style=\"color: #7f7f7f; text-decoration-color: #7f7f7f\">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>\n                                                                                                                   \n<span style=\"color: #76b900; text-decoration-color: #76b900; font-weight: bold\">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>\n</pre>\n",
+          "format": "html"
+        }
+      ]
+    },
+    {
+      "type": "markdown",
+      "source": "## ⏭️ Next Steps\n\nNow that you've learned how to use visual context for image summarization in Data Designer, explore more:\n\n- Experiment with different vision models for specific image types\n- Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)\n- Combine vision-based descriptions with other column types for multi-modal workflows\n- Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering\n\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) with Data Designer",
+      "source_html": "<h2>⏭️ Next Steps</h2>\n<p>Now that you've learned how to use visual context for image summarization in Data Designer, explore more:</p>\n<ul>\n<li>\n<p>Experiment with different vision models for specific image types</p>\n</li>\n<li>\n<p>Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)</p>\n</li>\n<li>\n<p>Combine vision-based descriptions with other column types for multi-modal workflows</p>\n</li>\n<li>\n<p>Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering</p>\n</li>\n<li>\n<p><a href=\"https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/\">Generating images</a> with Data Designer</p>\n</li>\n</ul>\n"
+    }
+  ]
+}

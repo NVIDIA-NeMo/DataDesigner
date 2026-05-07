@@ -21,6 +21,7 @@ config_builder = dd.DataDesignerConfigBuilder(
         dd.ModelConfig(
             alias="my-model",
             model="nvidia/nemotron-3-nano-30b-a3b",
+            provider="nvidia",
             inference_parameters=dd.ChatCompletionInferenceParams(temperature=0.7),
         ),
     ]

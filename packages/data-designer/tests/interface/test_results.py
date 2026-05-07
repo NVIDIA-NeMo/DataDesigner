@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,9 +13,11 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
+from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
+from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.interface.results import DatasetCreationResults
 
@@ -257,6 +261,167 @@ def test_load_dataset_independent_of_record_sampler_cache(stub_dataset_creation_
 
     # Should call load_dataset again (independent of cache)
     stub_artifact_storage.load_dataset.assert_called_once()
+
+
+@pytest.fixture
+def stub_batch_dir(stub_dataframe, tmp_path):
+    """Directory with two batch parquet files split from stub_dataframe.
+
+    Splitting into two batches exercises the multi-batch streaming path in export().
+    """
+    batch_dir = tmp_path / "parquet-files"
+    batch_dir.mkdir()
+    mid = len(stub_dataframe) // 2
+    stub_dataframe.iloc[:mid].to_parquet(batch_dir / "batch_00000.parquet", index=False)
+    stub_dataframe.iloc[mid:].to_parquet(batch_dir / "batch_00001.parquet", index=False)
+    return batch_dir
+
+
+@pytest.mark.parametrize("fmt", ["jsonl", "csv", "parquet"])
+def test_export_writes_file(stub_dataset_creation_results, stub_batch_dir, tmp_path, fmt) -> None:
+    """export() writes a non-empty file for each supported format."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    out = tmp_path / f"out.{fmt}"
+    result = stub_dataset_creation_results.export(out)
+    assert result == out
+    assert out.exists()
+    assert out.stat().st_size > 0
+
+
+def test_export_jsonl_content(stub_dataset_creation_results, stub_dataframe, stub_batch_dir, tmp_path) -> None:
+    """JSONL export writes one valid JSON object per line, covering all records."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    out = tmp_path / "out.jsonl"
+    stub_dataset_creation_results.export(out)
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == len(stub_dataframe)
+    for line in lines:
+        json.loads(line)
+
+
+def test_export_csv_content(stub_dataset_creation_results, stub_dataframe, stub_batch_dir, tmp_path) -> None:
+    """CSV export produces a single header row and one data row per record."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    out = tmp_path / "out.csv"
+    stub_dataset_creation_results.export(out)
+    loaded = lazy.pd.read_csv(out)
+    assert list(loaded.columns) == list(stub_dataframe.columns)
+    assert len(loaded) == len(stub_dataframe)
+
+
+def test_export_parquet_content(stub_dataset_creation_results, stub_dataframe, stub_batch_dir, tmp_path) -> None:
+    """Parquet export round-trips to the original DataFrame across two batches."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    out = tmp_path / "out.parquet"
+    stub_dataset_creation_results.export(out)
+    loaded = lazy.pd.read_parquet(out)
+    lazy.pd.testing.assert_frame_equal(
+        loaded.reset_index(drop=True),
+        stub_dataframe.reset_index(drop=True),
+    )
+
+
+def test_export_infers_format_from_extension(stub_dataset_creation_results, stub_batch_dir, tmp_path) -> None:
+    """export() infers the output format from the file extension when format is omitted."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    out = tmp_path / "out.jsonl"
+    stub_dataset_creation_results.export(out)
+    lines = out.read_text(encoding="utf-8").splitlines()
+    for line in lines:
+        json.loads(line)
+
+
+def test_export_explicit_format_overrides_extension(
+    stub_dataset_creation_results, stub_dataframe, stub_batch_dir, tmp_path
+) -> None:
+    """Passing format= explicitly overrides extension-based inference."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    out = tmp_path / "data.txt"
+    stub_dataset_creation_results.export(out, format="jsonl")
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == len(stub_dataframe)
+    for line in lines:
+        json.loads(line)
+
+
+def test_export_parquet_schema_unification(stub_dataset_creation_results, tmp_path) -> None:
+    """Parquet export unifies schemas across batches with diverging column types."""
+    batch_dir = tmp_path / "parquet-files"
+    batch_dir.mkdir()
+    # Batch 0: 'value' as int64; Batch 1: 'value' as float64 (type drift)
+    lazy.pd.DataFrame({"value": lazy.pd.array([1, 2], dtype="int64")}).to_parquet(
+        batch_dir / "batch_00000.parquet", index=False
+    )
+    lazy.pd.DataFrame({"value": lazy.pd.array([3.0, 4.0], dtype="float64")}).to_parquet(
+        batch_dir / "batch_00001.parquet", index=False
+    )
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = batch_dir
+    out = tmp_path / "out.parquet"
+    stub_dataset_creation_results.export(out)
+    loaded = lazy.pd.read_parquet(out)
+    assert list(loaded["value"]) == [1.0, 2.0, 3.0, 4.0]
+
+
+def test_export_unknown_extension_raises(stub_dataset_creation_results, tmp_path) -> None:
+    """export() raises InvalidFileFormatError when the extension is not a supported format."""
+    with pytest.raises(InvalidFileFormatError, match="Unsupported export format"):
+        stub_dataset_creation_results.export(tmp_path / "out.xyz")
+
+
+def test_export_unsupported_explicit_format_raises(stub_dataset_creation_results, tmp_path) -> None:
+    """export() raises InvalidFileFormatError for an explicit unsupported format override."""
+    with pytest.raises(InvalidFileFormatError, match="Unsupported export format"):
+        stub_dataset_creation_results.export(tmp_path / "out.jsonl", format="xlsx")  # type: ignore[arg-type]
+
+
+def test_export_no_batch_files_raises(stub_dataset_creation_results, tmp_path) -> None:
+    """export() raises ArtifactStorageError when the batch directory is empty."""
+    empty_dir = tmp_path / "parquet-files"
+    empty_dir.mkdir()
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = empty_dir
+    with pytest.raises(ArtifactStorageError, match="No batch parquet files found"):
+        stub_dataset_creation_results.export(tmp_path / "out.jsonl")
+
+
+def test_count_records(stub_dataset_creation_results, stub_dataframe, stub_batch_dir) -> None:
+    """count_records() returns the total row count without loading data pages."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    assert stub_dataset_creation_results.count_records() == len(stub_dataframe)
+
+
+def test_export_uppercase_extension_is_recognised(stub_dataset_creation_results, stub_batch_dir, tmp_path) -> None:
+    """export() treats file extensions case-insensitively (e.g. .JSONL → jsonl)."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    out = tmp_path / "out.JSONL"
+    result = stub_dataset_creation_results.export(out)
+    assert result == out
+    assert out.exists()
+    lines = out.read_text(encoding="utf-8").splitlines()
+    for line in lines:
+        json.loads(line)
+
+
+def test_export_parquet_incompatible_schemas_raises(stub_dataset_creation_results, tmp_path) -> None:
+    """_export_parquet wraps schema cast failures (incompatible column names) as InvalidFileFormatError.
+
+    With promote_options="permissive", pa.unify_schemas merges the two schemas into a superset
+    {col_a, col_b}. The cast step then raises ValueError because batch_00000 only has col_a.
+    """
+    batch_dir = tmp_path / "parquet-files"
+    batch_dir.mkdir()
+    lazy.pd.DataFrame({"col_a": [1, 2]}).to_parquet(batch_dir / "batch_00000.parquet", index=False)
+    lazy.pd.DataFrame({"col_b": [3, 4]}).to_parquet(batch_dir / "batch_00001.parquet", index=False)
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = batch_dir
+    with pytest.raises(InvalidFileFormatError, match="Cannot cast batch"):
+        stub_dataset_creation_results.export(tmp_path / "out.parquet")
+
+
+def test_export_returns_path_object(stub_dataset_creation_results, stub_batch_dir, tmp_path) -> None:
+    """export() returns a Path regardless of whether str or Path was passed."""
+    stub_dataset_creation_results.artifact_storage.final_dataset_path = stub_batch_dir
+    out = tmp_path / "out.jsonl"
+    result = stub_dataset_creation_results.export(str(out))
+    assert isinstance(result, Path)
 
 
 def test_preview_results_dataset_metadata() -> None:

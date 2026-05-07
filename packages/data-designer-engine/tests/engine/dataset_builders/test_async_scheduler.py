@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -31,7 +32,12 @@ from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
-from data_designer.engine.models.errors import ModelInternalServerError, ModelRateLimitError
+from data_designer.engine.models.errors import (
+    RETRYABLE_MODEL_ERRORS,
+    ModelInternalServerError,
+    ModelRateLimitError,
+    ModelTimeoutError,
+)
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 MODEL_ALIAS = "stub"
@@ -167,6 +173,90 @@ class MockRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
         return data
 
 
+class MockSelectiveFailGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Cell generator with deterministic per-seed behavior.
+
+    - Seeds in ``fail_on_seeds``: raise a non-retryable ``ValueError`` immediately.
+    - Seeds in ``slow_seeds``: block on ``asyncio.sleep`` so they remain
+      in-flight when the early-shutdown gate fires.
+    - All others: succeed.
+
+    Cell-by-cell only — exercised through ``agenerate`` from the async scheduler.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        fail_on_seeds: set[int] = frozenset(),
+        slow_seeds: set[int] = frozenset(),
+        slow_timeout_s: float = 5.0,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._fail = set(fail_on_seeds)
+        self._slow = set(slow_seeds)
+        self._slow_timeout_s = slow_timeout_s
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    async def agenerate(self, data: dict) -> dict:
+        seed = data.get("seed")
+        if seed in self._fail:
+            raise ValueError(f"non-retryable on seed={seed}")
+        if seed in self._slow:
+            await asyncio.sleep(self._slow_timeout_s)
+        data[self.config.name] = f"ok_{seed}"
+        return data
+
+    def generate(self, data: dict) -> dict:
+        # Sync path: kept minimal because this mock is exercised exclusively
+        # through ``agenerate`` from the async scheduler. ``slow_seeds`` is
+        # intentionally not honored here — callers needing sync slow behavior
+        # should use a different fixture.
+        seed = data.get("seed")
+        if seed in self._fail:
+            raise ValueError(f"non-retryable on seed={seed}")
+        data[self.config.name] = f"ok_{seed}"
+        return data
+
+
+class MockRetryableErrorGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Generator that raises a parametrizable retryable error then succeeds.
+
+    Declares ``is_llm_bound=True`` because it mimics model-call behavior;
+    the scheduler's degraded-provider WARN window only counts LLM-bound tasks.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        error_factory: Callable[[], Exception],
+        retryable_failures: int = 0,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._error_factory = error_factory
+        self._retryable_failures = retryable_failures
+        self._calls = 0
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    @property
+    def is_llm_bound(self) -> bool:
+        return True
+
+    def generate(self, data: dict) -> dict:
+        self._calls += 1
+        if self._calls <= self._retryable_failures:
+            raise self._error_factory()
+        data[self.config.name] = f"ok_{data.get('seed', '?')}"
+        return data
+
+
 # -- Helper to build graph + scheduler ----------------------------------------
 
 
@@ -217,6 +307,51 @@ def _build_simple_pipeline(
         trace=trace,
     )
     return scheduler, tracker
+
+
+def _make_storage() -> MagicMock:
+    """Standard mock storage for buffer-manager-backed scheduler tests."""
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    return storage
+
+
+def _seed_plus_cell_setup(
+    cell_generator: ColumnGenerator,
+    num_records: int,
+) -> tuple[
+    dict[str, ColumnGenerator],
+    ExecutionGraph,
+    list[tuple[int, int]],
+    CompletionTracker,
+    RowGroupBufferManager,
+    MagicMock,
+]:
+    """Build the shared seed → LLM cell pipeline scaffolding (no scheduler yet).
+
+    Used by early-shutdown / WARN tests that need a real ``buffer_manager``
+    *before* constructing the scheduler (e.g. to wire a checkpoint callback
+    that closes over it).
+    """
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN, "cell_out": GenerationStrategy.CELL_BY_CELL}
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": cell_generator,
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, num_records)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = _make_storage()
+    buffer_manager = RowGroupBufferManager(storage)
+    return generators, graph, row_groups, tracker, buffer_manager, storage
 
 
 # -- Tests --------------------------------------------------------------------
@@ -689,6 +824,89 @@ async def test_scheduler_error_rate_shutdown() -> None:
 
     # Early shutdown: not all rows should be checkpointed (some row groups incomplete)
     assert buffer_mgr.actual_num_records < 10
+    # No leftover unfinished row groups (finalize-after-shutdown drains them).
+    assert not scheduler._rg_states
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_partial_row_group_salvaged_after_early_shutdown() -> None:
+    """Mid-run shutdown drops incomplete rows and checkpoints survivors."""
+    # 3 succeed (0,1,2), 3 fail non-retryable (5,6,7), 4 stay in-flight (3,4,8,9)
+    # until cancellation. Window=4, rate=0.5 → gate trips after ~3-5 outcomes.
+    cell = MockSelectiveFailGenerator(
+        config=_expr_config("cell_out"),
+        resource_provider=_mock_provider(),
+        fail_on_seeds={5, 6, 7},
+        slow_seeds={3, 4, 8, 9},
+    )
+    generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(cell, num_records=10)
+    finalized: list[int] = []
+
+    def on_finalize(rg_id: int) -> None:
+        buffer_mgr.checkpoint_row_group(rg_id)
+        finalized.append(rg_id)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_finalize_row_group=on_finalize,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=4,
+    )
+    await scheduler.run()
+
+    assert scheduler.early_shutdown
+    # Survivor count depends on event-loop dispatch ordering between fast/fail/slow
+    # seeds, so the assertion is bounded rather than exact: 3 fail → at least 3
+    # dropped, so survivors ≤ 7; at least 1 success is needed for the gate to
+    # start counting. The point of the test is "salvage works", not exact counts.
+    assert 0 in finalized
+    assert scheduler.partial_row_groups == (0,)
+    assert 1 <= buffer_mgr.actual_num_records <= 7
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_zero_survivor_shutdown_does_not_raise() -> None:
+    """If every row is dropped at shutdown, the row group is freed without writing parquet.
+
+    Also covers the healthy-run baseline: ``partial_row_groups`` stays empty
+    when no rows survived (all dropped, none salvaged).
+    """
+    cell = MockSelectiveFailGenerator(
+        config=_expr_config("cell_out"),
+        resource_provider=_mock_provider(),
+        fail_on_seeds=set(range(5)),
+    )
+    generators, graph, row_groups, tracker, buffer_mgr, storage = _seed_plus_cell_setup(cell, num_records=5)
+    finalized: list[int] = []
+
+    def on_finalize(rg_id: int) -> None:
+        buffer_mgr.checkpoint_row_group(rg_id)
+        finalized.append(rg_id)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_finalize_row_group=on_finalize,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=2,
+    )
+    # Must not raise (no FileNotFoundError, no DataDesignerGenerationError).
+    await scheduler.run()
+
+    assert scheduler.early_shutdown
+    assert buffer_mgr.actual_num_records == 0
+    # All rows dropped → checkpoint path frees buffer without writing; on_finalize
+    # is *not* called because every row was dropped before survivors could exist.
+    assert finalized == []
+    assert scheduler.partial_row_groups == ()
+    storage.write_batch_to_parquet_file.assert_not_called()
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -820,6 +1038,127 @@ async def test_rate_limit_errors_do_not_trigger_early_shutdown() -> None:
 
     assert not scheduler._early_shutdown
     assert tracker.is_row_group_complete(0, 10, ["seed", "col"])
+
+
+@pytest.mark.parametrize("exc_cls", RETRYABLE_MODEL_ERRORS, ids=lambda c: c.__name__)
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_errors_do_not_trigger_early_shutdown(
+    exc_cls: type[Exception],
+) -> None:
+    """All retryable errors (rate-limit, timeout, 5xx, connection) bypass the early-shutdown gate.
+
+    Regression test for #575: clustered ``ModelTimeoutError`` during provider degradation
+    used to trip the gate even though salvage could recover the rows.
+    """
+    cell = MockRetryableErrorGenerator(
+        config=_expr_config("cell_out"),
+        resource_provider=_mock_provider(),
+        error_factory=lambda: exc_cls("boom"),
+        retryable_failures=8,
+    )
+    generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(cell, num_records=10)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=10,
+    )
+    await scheduler.run()
+
+    assert not scheduler._early_shutdown
+    assert scheduler._recent_outcomes.count(False) == 0
+    assert tracker.is_row_group_complete(0, 10, ["seed", "cell_out"])
+
+
+def _count_degraded_msgs(caplog: pytest.LogCaptureFixture) -> int:
+    return sum(1 for r in caplog.records if "degraded performance" in r.getMessage())
+
+
+@pytest.mark.parametrize(
+    "retryable_failures,num_records,window,interval_s,expected_count",
+    [
+        # Above-threshold + zero throttle: at least one WARN should fire.
+        pytest.param(6, 10, 8, 0.0, "at_least_one", id="fires_above_threshold"),
+        # Above-threshold + 1h throttle: only one WARN despite sustained degradation.
+        pytest.param(8, 12, 4, 3600.0, 1, id="throttled_to_one"),
+    ],
+)
+@pytest.mark.asyncio(loop_scope="session")
+async def test_degraded_provider_warn_emission(
+    caplog: pytest.LogCaptureFixture,
+    retryable_failures: int,
+    num_records: int,
+    window: int,
+    interval_s: float,
+    expected_count: int | str,
+) -> None:
+    cell = MockRetryableErrorGenerator(
+        config=_expr_config("cell_out"),
+        resource_provider=_mock_provider(),
+        error_factory=lambda: ModelTimeoutError("read timeout"),
+        retryable_failures=retryable_failures,
+    )
+    generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(cell, num_records=num_records)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        degraded_warn_rate=0.5,
+        degraded_warn_window=window,
+        degraded_warn_interval_s=interval_s,
+    )
+    with caplog.at_level("WARNING"):
+        await scheduler.run()
+
+    n = _count_degraded_msgs(caplog)
+    if expected_count == "at_least_one":
+        assert n >= 1
+    else:
+        assert n == expected_count
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_degraded_provider_warn_silent_under_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    """Healthy runs (no errors) never emit the degraded-provider WARN."""
+    scheduler, _tracker = _build_simple_pipeline(num_records=5)
+    with caplog.at_level("WARNING"):
+        await scheduler.run()
+    assert _count_degraded_msgs(caplog) == 0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_degraded_provider_warn_only_counts_llm_tasks() -> None:
+    """The WARN window must ignore non-LLM task outcomes (samplers, expressions, etc).
+
+    Without this, a healthy non-model column mix dilutes the retryable rate and
+    the WARN never fires under genuine provider stress.
+    """
+    # Sampler-only graph: no LLM tasks → window must stay empty regardless of
+    # how many task outcomes feed in.
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=_mock_provider())}
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 5)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_mgr = RowGroupBufferManager(_make_storage())
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        degraded_warn_rate=0.5,
+        degraded_warn_window=2,
+        degraded_warn_interval_s=0.0,
+    )
+    await scheduler.run()
+    assert len(scheduler._recent_retryable) == 0
 
 
 @pytest.mark.asyncio(loop_scope="session")
