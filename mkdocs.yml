@@ -40,6 +40,7 @@ nav:
       - Providing Images as Context: notebooks/4-providing-images-as-context.ipynb
       - Generating Images: notebooks/5-generating-images.ipynb
       - Image-to-Image Editing: notebooks/6-editing-images-with-image-context.ipynb
+      - "Reproducing & Customizing Nemotron-Personas": notebooks/7-nemotron-personas.ipynb
   - Recipes:
       - Recipe Cards: recipes/cards.md
       - Code Generation:

@@ -372,10 +372,13 @@ For locales without an NGC-hosted Nemotron-Personas dataset, the build path is o
 
 ## **Try it yourself**
 
-The full reproduction-and-customization tutorial covers every detail in this post end-to-end, from the NGC dataset bootstrap through the toy custom-persona example:
+The full reproduction-and-customization tutorial covers every detail in this post end-to-end, from the NGC dataset bootstrap through the toy custom-persona example.
 
-- **Tutorial notebook (Reproducing & Customizing Nemotron-Personas)** — placeholder link; will land in the docs once the recipe ships.
-- **NGC dataset setup** — see the [Person Sampling docs](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) for the full walkthrough (NGC API key + NGC CLI + `data-designer download personas --locale en_US`).
+<a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
+
+- **Tutorial notebook:** [Reproducing & Customizing Nemotron-Personas](../../notebooks/7-nemotron-personas.ipynb) — runs locally end-to-end; takes ~5 min on `gpt-oss-20b` for a 5-record smoke run.
+- **Colab:** click the badge above to launch the same notebook on Colab. The injected setup cells handle the `NVIDIA_API_KEY` / `NGC_API_KEY` ceremony from Colab Secrets and install the NGC CLI before the persona dataset download.
+- **NGC dataset setup (local):** see the [Person Sampling docs](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) for the full walkthrough (NGC API key + NGC CLI + `data-designer download personas --locale en_US`).
 
 Switching locales is a one-liner: change `personas_locale = "en_US"` to any of `en_IN`, `en_SG`, `fr_FR`, `hi_Deva_IN`, `hi_Latn_IN`, `ja_JP`, `ko_KR`, `pt_BR` and re-run the download cell. Everything downstream stays the same.
 
