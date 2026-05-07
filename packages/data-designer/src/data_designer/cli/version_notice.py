@@ -14,21 +14,22 @@ from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
-from data_designer.config.utils.constants import DATA_DESIGNER_HOME
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME, DATA_DESIGNER_PACKAGE_NAME
 
-_PACKAGE_NAME = "data-designer"
-_PYPI_JSON_URL = f"https://pypi.org/pypi/{_PACKAGE_NAME}/json"
+_PYPI_JSON_URL = f"https://pypi.org/pypi/{DATA_DESIGNER_PACKAGE_NAME}/json"
 _VERSION_CHECK_TIMEOUT_SECONDS = 0.75
 _CACHE_TTL_SECONDS = 6 * 60 * 60
 _CACHE_SCHEMA_VERSION = 1
 _CACHE_FILE_NAME = "version-check.json"
 _DISABLE_VERSION_CHECK_ENV_VAR = "DATA_DESIGNER_DISABLE_VERSION_CHECK"
 _INCLUDE_PRERELEASES_ENV_VAR = "DATA_DESIGNER_VERSION_CHECK_PRERELEASES"
-_UV_TOOL_UPGRADE_COMMAND = "uv tool upgrade data-designer"
-_PROJECT_UPGRADE_COMMAND = "uv add --upgrade data-designer"
-_PIPX_UPGRADE_COMMAND = "pipx upgrade data-designer"
+_UV_TOOL_UPGRADE_COMMAND = f"uv tool upgrade {DATA_DESIGNER_PACKAGE_NAME}"
+_PROJECT_UPGRADE_COMMAND = f"uv add --upgrade {DATA_DESIGNER_PACKAGE_NAME}"
+_PIPX_UPGRADE_COMMAND = f"pipx upgrade {DATA_DESIGNER_PACKAGE_NAME}"
+_PIP_UPGRADE_COMMAND = f"pip install --upgrade {DATA_DESIGNER_PACKAGE_NAME}"
 
 
 @dataclass(frozen=True)
@@ -93,15 +94,15 @@ def select_upgrade_command(
     env = os.environ if environ is None else environ
     prefix = Path(sys.prefix if python_prefix is None else python_prefix)
     prefix_parts = prefix.parts
-    if env.get("UV_PROJECT_ENVIRONMENT") or prefix.name == ".venv":
-        return _PROJECT_UPGRADE_COMMAND
     if _path_ends_with_segments(prefix_parts, "pipx", "venvs"):
         return _PIPX_UPGRADE_COMMAND
     if _path_ends_with_segments(prefix_parts, "uv", "tools"):
         return _UV_TOOL_UPGRADE_COMMAND
-    if env.get("VIRTUAL_ENV"):
+    if env.get("UV_PROJECT_ENVIRONMENT"):
         return _PROJECT_UPGRADE_COMMAND
-    return _UV_TOOL_UPGRADE_COMMAND
+    if env.get("VIRTUAL_ENV"):
+        return _PIP_UPGRADE_COMMAND
+    return _PIP_UPGRADE_COMMAND
 
 
 def _path_ends_with_segments(parts: tuple[str, ...], parent: str, child: str) -> bool:
@@ -117,9 +118,11 @@ def _get_latest_version(
     fetch_latest_version: LatestVersionFetcher,
 ) -> str | None:
     cache_path = cache_dir / _CACHE_FILE_NAME
+    python_version = _current_python_version()
     cached_version = _read_cached_version(
         cache_path=cache_path,
         include_prereleases=include_prereleases,
+        python_version=python_version,
         now=now,
     )
     if cached_version is not None:
@@ -135,6 +138,7 @@ def _get_latest_version(
             cache_path=cache_path,
             latest_version=latest_version,
             include_prereleases=include_prereleases,
+            python_version=python_version,
             checked_at=now(),
         )
     return latest_version
@@ -149,14 +153,23 @@ def _fetch_latest_version(*, include_prereleases: bool) -> str | None:
     return latest_version_from_pypi_payload(payload, include_prereleases=include_prereleases)
 
 
-def latest_version_from_pypi_payload(payload: Mapping[str, Any], *, include_prereleases: bool) -> str | None:
+def latest_version_from_pypi_payload(
+    payload: Mapping[str, Any],
+    *,
+    include_prereleases: bool,
+    python_version: str | None = None,
+) -> str | None:
     releases = payload.get("releases")
     if not isinstance(releases, dict):
         return None
 
+    python_version = _current_python_version() if python_version is None else python_version
     candidates: list[Version] = []
     for version_text, release_files in releases.items():
-        if not isinstance(version_text, str) or not _has_installable_release_file(release_files):
+        if not isinstance(version_text, str) or not _has_installable_release_file(
+            release_files,
+            python_version=python_version,
+        ):
             continue
         try:
             version = Version(version_text)
@@ -172,18 +185,37 @@ def latest_version_from_pypi_payload(payload: Mapping[str, Any], *, include_prer
     return max(candidates).public
 
 
-def _has_installable_release_file(release_files: Any) -> bool:
+def _has_installable_release_file(release_files: Any, *, python_version: str) -> bool:
     if not isinstance(release_files, list):
         return False
     return any(
-        isinstance(release_file, dict) and not release_file.get("yanked", False) for release_file in release_files
+        isinstance(release_file, dict)
+        and not release_file.get("yanked", False)
+        and _is_python_compatible(release_file.get("requires_python"), python_version=python_version)
+        for release_file in release_files
     )
+
+
+def _is_python_compatible(requires_python: Any, *, python_version: str) -> bool:
+    if requires_python in (None, ""):
+        return True
+    if not isinstance(requires_python, str):
+        return False
+    try:
+        return SpecifierSet(requires_python).contains(python_version, prereleases=True)
+    except InvalidSpecifier:
+        return False
+
+
+def _current_python_version() -> str:
+    return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
 
 def _read_cached_version(
     *,
     cache_path: Path,
     include_prereleases: bool,
+    python_version: str,
     now: Callable[[], float],
 ) -> str | None:
     try:
@@ -195,9 +227,11 @@ def _read_cached_version(
 
     if cache_data.get("schema_version") != _CACHE_SCHEMA_VERSION:
         return None
-    if cache_data.get("package_name") != _PACKAGE_NAME:
+    if cache_data.get("package_name") != DATA_DESIGNER_PACKAGE_NAME:
         return None
     if cache_data.get("include_prereleases") != include_prereleases:
+        return None
+    if cache_data.get("python_version") != python_version:
         return None
 
     checked_at = cache_data.get("checked_at")
@@ -214,13 +248,15 @@ def _write_cached_version(
     cache_path: Path,
     latest_version: str,
     include_prereleases: bool,
+    python_version: str,
     checked_at: float,
 ) -> None:
     cache_data = {
         "checked_at": checked_at,
         "include_prereleases": include_prereleases,
         "latest_version": latest_version,
-        "package_name": _PACKAGE_NAME,
+        "package_name": DATA_DESIGNER_PACKAGE_NAME,
+        "python_version": python_version,
         "schema_version": _CACHE_SCHEMA_VERSION,
     }
     temp_path = cache_path.with_name(f"{cache_path.name}.{os.getpid()}.tmp")
