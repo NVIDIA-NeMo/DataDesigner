@@ -40,7 +40,9 @@ def list_command(
 
 def search_command(
     ctx: typer.Context,
-    query: str = typer.Argument(help="Keyword, plugin type, package name, source, docs URL, or entry point to search for."),
+    query: str = typer.Argument(
+        help="Keyword, plugin type, package name, source, docs URL, or entry point to search for."
+    ),
     tap: str | None = typer.Option(
         None,
         "--tap",

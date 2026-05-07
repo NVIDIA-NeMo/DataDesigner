@@ -254,7 +254,8 @@ def _plugin_entry(
                 "marker": None,
             },
         },
-        "source": source or {
+        "source": source
+        or {
             "type": "pypi",
             "package": package_name,
         },
