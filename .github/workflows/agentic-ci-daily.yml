@@ -209,6 +209,18 @@ jobs:
           echo "size=${BACKLOG_SIZE}" >> "$GITHUB_OUTPUT"
           echo "fix_backlog has ${BACKLOG_SIZE} entries"
 
+      - name: Snapshot pre-fix attempted_fixes
+        # Captures (id, attempts-length) pairs before the fix step runs so
+        # the post-fix gates can identify which entry grew during *this*
+        # run, instead of grabbing the last globally-open entry (which
+        # might be a stale orphan from a prior crashed run).
+        id: snapshot
+        if: steps.audit.outcome == 'success' && steps.backlog.outcome == 'success' && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
+        run: |
+          jq -c '.attempted_fixes // [] | map({id, n: (.attempts | length)})' \
+            .agentic-ci-state/runner-state.json > /tmp/prior-attempted-fixes.json
+          echo "Snapshot: $(cat /tmp/prior-attempted-fixes.json)"
+
       - name: Run fix recipe
         id: fix
         if: steps.audit.outcome == 'success' && steps.backlog.outcome == 'success' && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
@@ -248,9 +260,9 @@ jobs:
         # Workflow-level enforcement of the localized-fix bar from
         # _fix-policy.md. Recipe instructions alone cannot bind the agent;
         # this gate re-derives the diff and closes the PR if the agent
-        # escaped the allowlist or the LOC/file caps.
-        # Note: the docstring-only constraint on docs-and-references .py
-        # paths remains policy-level; AST-based enforcement is a follow-up.
+        # escaped the allowlist or the LOC/file caps. The docs-and-references
+        # suite additionally gets AST-based docstring-only enforcement on
+        # .py edits (no non-docstring/non-comment lines may change).
         id: scope_gate
         if: steps.fix.outcome == 'success'
         env:
@@ -259,13 +271,19 @@ jobs:
         run: |
           set -o pipefail
 
-          OPEN=$(jq -c '
-            .attempted_fixes // []
-            | map(select((.attempts | last | .outcome) == "open"))
+          # Identify the attempted_fixes entry that grew during *this* run
+          # (vs the pre-fix snapshot), not the last globally-open entry.
+          OPEN=$(jq -c --slurpfile prior /tmp/prior-attempted-fixes.json '
+            (($prior[0] // []) | map({key: .id, value: .n}) | from_entries) as $p
+            | .attempted_fixes // []
+            | map(select(
+                ((.attempts | last | .outcome) == "open")
+                and ((.attempts | length) > ($p[.id] // 0))
+              ))
             | last // empty
           ' .agentic-ci-state/runner-state.json)
           if [ -z "$OPEN" ] || [ "$OPEN" = "null" ]; then
-            echo "No open attempted_fix recorded; nothing to validate."
+            echo "No new open attempted_fix recorded by this run; nothing to validate."
             exit 0
           fi
 
@@ -275,6 +293,17 @@ jobs:
           if [ -z "$BRANCH" ]; then
             echo "::warning::Open attempt has no branch; skipping gate."
             exit 0
+          fi
+
+          # Diff against the actual pushed branch (origin/$BRANCH), not
+          # local HEAD — HEAD may not match what was pushed if the agent
+          # left the working tree in an unexpected state.
+          git fetch --depth=50 origin "$BRANCH" 2>/dev/null || true
+          if git rev-parse --verify "refs/remotes/origin/$BRANCH" >/dev/null 2>&1; then
+            DIFF_REF="origin/$BRANCH"
+          else
+            echo "::warning::origin/$BRANCH not fetchable; falling back to HEAD"
+            DIFF_REF="HEAD"
           fi
 
           case "$SUITE" in
@@ -293,10 +322,14 @@ jobs:
               ;;
           esac
 
-          FILES=$(git diff --name-only origin/main...HEAD)
-          BAD=$(printf '%s\n' "$FILES" | grep -vE "$ALLOW" | grep -v '^$' || true)
-          FILE_COUNT=$(printf '%s\n' "$FILES" | grep -c '.' || echo 0)
-          LOC_DELTA=$(git diff --shortstat origin/main...HEAD \
+          mapfile -t FILE_ARR < <(git diff --name-only "origin/main...$DIFF_REF")
+          FILE_COUNT=${#FILE_ARR[@]}
+          if [ "$FILE_COUNT" -gt 0 ]; then
+            BAD=$(printf '%s\n' "${FILE_ARR[@]}" | grep -vE "$ALLOW" | grep -v '^$' || true)
+          else
+            BAD=""
+          fi
+          LOC_DELTA=$(git diff --shortstat "origin/main...$DIFF_REF" \
             | awk '{ a=0; d=0; for (i=1;i<=NF;i++) { if ($i ~ /insertion/) a=$(i-1); if ($i ~ /deletion/) d=$(i-1) } print a+d }')
           : "${LOC_DELTA:=0}"
 
@@ -309,6 +342,81 @@ jobs:
           fi
           if [ "$LOC_DELTA" -gt 50 ]; then
             REASONS="${REASONS}- LOC delta ($LOC_DELTA) exceeds 50-line cap\n"
+          fi
+
+          # Docs suite: AST-enforce the docstring-only caveat on .py edits.
+          if [ "$SUITE" = "docs-and-references" ] && [ "$FILE_COUNT" -gt 0 ]; then
+            PY_FILES=$(printf '%s\n' "${FILE_ARR[@]}" | grep -E '^packages/[^/]+/src/.*\.py$' || true)
+            if [ -n "$PY_FILES" ]; then
+              NON_DOCSTRING=$(PY_FILES="$PY_FILES" DIFF_REF="$DIFF_REF" python3 - <<'PY'
+          import ast, os, subprocess, sys
+
+          files = [p for p in os.environ['PY_FILES'].splitlines() if p]
+          diff_ref = os.environ['DIFF_REF']
+          violations = []
+
+          for path in files:
+              try:
+                  content = subprocess.check_output(
+                      ['git', 'show', f'{diff_ref}:{path}'], text=True, errors='replace'
+                  )
+              except subprocess.CalledProcessError:
+                  violations.append(f'{path}: file deleted (deletion not allowed in docs suite)')
+                  continue
+              try:
+                  tree = ast.parse(content)
+              except SyntaxError as e:
+                  violations.append(f'{path}: parse error ({e})')
+                  continue
+              docstring_lines = set()
+              for node in ast.walk(tree):
+                  if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                      body = getattr(node, 'body', None) or []
+                      if (body and isinstance(body[0], ast.Expr)
+                              and isinstance(body[0].value, ast.Constant)
+                              and isinstance(body[0].value.value, str)):
+                          start, end = body[0].lineno, body[0].end_lineno
+                          if start and end:
+                              docstring_lines.update(range(start, end + 1))
+              try:
+                  hunks = subprocess.check_output(
+                      ['git', 'diff', '-U0', f'origin/main...{diff_ref}', '--', path],
+                      text=True, errors='replace',
+                  )
+              except subprocess.CalledProcessError:
+                  violations.append(f'{path}: could not compute diff')
+                  continue
+              cur = None
+              for line in hunks.splitlines():
+                  if line.startswith('@@'):
+                      try:
+                          plus = line.split('+', 1)[1].split(' ', 1)[0]
+                          cur = int(plus.split(',')[0]) if ',' in plus else int(plus)
+                      except (ValueError, IndexError):
+                          cur = None
+                      continue
+                  if cur is None:
+                      continue
+                  if line.startswith('+') and not line.startswith('+++'):
+                      stripped = line[1:].strip()
+                      ln = cur
+                      cur += 1
+                      if not stripped or stripped.startswith('#'):
+                          continue
+                      if ln not in docstring_lines:
+                          violations.append(f'{path}:{ln}')
+                  elif line.startswith(' '):
+                      cur += 1
+
+          if violations:
+              print('\n'.join(violations))
+              sys.exit(1)
+          PY
+              ) || true
+              if [ -n "$NON_DOCSTRING" ]; then
+                REASONS="${REASONS}- non-docstring/non-comment .py edits in docs suite:\n$(echo "$NON_DOCSTRING" | sed 's/^/  - /')\n"
+              fi
+            fi
           fi
 
           if [ -z "$REASONS" ]; then
@@ -331,7 +439,8 @@ jobs:
           FINDING_ID="$FINDING_ID" python3 -c "
           import json, os
           finding_id = os.environ['FINDING_ID']
-          with open('.agentic-ci-state/runner-state.json') as f:
+          path = '.agentic-ci-state/runner-state.json'
+          with open(path) as f:
               state = json.load(f)
           for entry in state.get('attempted_fixes', []):
               if entry.get('id') != finding_id:
@@ -340,8 +449,10 @@ jobs:
               if attempts and attempts[-1].get('outcome') == 'open':
                   attempts[-1]['outcome'] = 'abandoned'
                   attempts[-1]['gate_violation'] = True
-          with open('.agentic-ci-state/runner-state.json', 'w') as f:
+          tmp = path + '.tmp'
+          with open(tmp, 'w') as f:
               json.dump(state, f, indent=2)
+          os.replace(tmp, path)
           "
 
           exit 1
@@ -357,19 +468,32 @@ jobs:
         run: |
           set -o pipefail
 
-          OPEN=$(jq -c '
-            .attempted_fixes // []
-            | map(select((.attempts | last | .outcome) == "open"))
+          # Same snapshot-based selector as the scope gate: target only
+          # the entry whose attempts grew during this run.
+          OPEN=$(jq -c --slurpfile prior /tmp/prior-attempted-fixes.json '
+            (($prior[0] // []) | map({key: .id, value: .n}) | from_entries) as $p
+            | .attempted_fixes // []
+            | map(select(
+                ((.attempts | last | .outcome) == "open")
+                and ((.attempts | length) > ($p[.id] // 0))
+              ))
             | last // empty
           ' .agentic-ci-state/runner-state.json)
           if [ -z "$OPEN" ] || [ "$OPEN" = "null" ]; then
-            echo "No open attempted_fix; skipping lockfile verification."
+            echo "No new open attempted_fix; skipping lockfile verification."
             exit 0
           fi
 
           PR_NUMBER=$(echo "$OPEN" | jq -r '.attempts | last | .pr_number // empty')
           BRANCH=$(echo "$OPEN" | jq -r '.attempts | last | .branch // empty')
           FINDING_ID=$(echo "$OPEN" | jq -r '.id')
+
+          # Verify against the actually-pushed branch, not local HEAD.
+          if [ -n "$BRANCH" ]; then
+            git fetch --depth=50 origin "$BRANCH" 2>/dev/null || true
+            git checkout --detach "refs/remotes/origin/$BRANCH" 2>/dev/null \
+              || echo "::warning::Could not checkout origin/$BRANCH; verifying current tree"
+          fi
 
           if make install-dev 2>&1 | tee /tmp/install-dev-verify.log; then
             echo "Lockfile resolves cleanly against the agent's pyproject changes."
@@ -389,7 +513,8 @@ jobs:
           FINDING_ID="$FINDING_ID" python3 -c "
           import json, os
           finding_id = os.environ['FINDING_ID']
-          with open('.agentic-ci-state/runner-state.json') as f:
+          path = '.agentic-ci-state/runner-state.json'
+          with open(path) as f:
               state = json.load(f)
           for entry in state.get('attempted_fixes', []):
               if entry.get('id') != finding_id:
@@ -398,8 +523,10 @@ jobs:
               if attempts and attempts[-1].get('outcome') == 'open':
                   attempts[-1]['outcome'] = 'abandoned'
                   attempts[-1]['lockfile_verification_failed'] = True
-          with open('.agentic-ci-state/runner-state.json', 'w') as f:
+          tmp = path + '.tmp'
+          with open(tmp, 'w') as f:
               json.dump(state, f, indent=2)
+          os.replace(tmp, path)
           "
 
           exit 1
