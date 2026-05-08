@@ -61,7 +61,7 @@ from data_designer.engine.secret_resolver import (
     PlaintextResolver,
     SecretResolver,
 )
-from data_designer.engine.storage.artifact_storage import ArtifactStorage
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
 from data_designer.interface.errors import (
     DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
@@ -217,6 +217,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         num_records: int = DEFAULT_NUM_RECORDS,
         dataset_name: str = "dataset",
+        resume: ResumeMode = ResumeMode.NEVER,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -234,6 +235,20 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
                 with the name "awesome_dataset_2025-01-01_12-00-00".
+            resume: Controls how interrupted runs are handled.
+
+                - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
+                - ``ResumeMode.ALWAYS``: resume from the last completed batch (sync) or row group
+                  (async). ``buffer_size`` must match the original run. ``num_records`` may be
+                  equal to or greater than what was already generated (you can extend the dataset);
+                  ``num_records`` less than actual records so far raises ``DatasetGenerationError``.
+                  If no checkpoint exists yet (interrupted before the first batch finished), silently
+                  restarts from the beginning. Raises if the stored config is incompatible.
+                - ``ResumeMode.IF_POSSIBLE``: like ``ALWAYS`` when the current config fingerprint
+                  matches the stored config; otherwise starts a fresh run without raising an error.
+
+                In all resume modes, in-flight partial results from the interrupted run are
+                discarded before generation continues.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -246,11 +261,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         logger.info("🎨 Creating Data Designer dataset")
         self._log_jinja_rendering_engine_mode()
 
-        resource_provider = self._create_resource_provider(dataset_name, config_builder)
+        resource_provider = self._create_resource_provider(dataset_name, config_builder, resume=resume)
 
         try:
             builder = self._create_dataset_builder(config_builder.build(), resource_provider)
-            builder.build(num_records=num_records)
+            builder.build(num_records=num_records, resume=resume)
         except DeprecationWarning:
             raise
         except Exception as e:
@@ -561,7 +576,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def _create_resource_provider(
-        self, dataset_name: str, config_builder: DataDesignerConfigBuilder
+        self, dataset_name: str, config_builder: DataDesignerConfigBuilder, *, resume: ResumeMode = ResumeMode.NEVER
     ) -> ResourceProvider:
         ArtifactStorage.mkdir_if_needed(self._artifact_path)
 
@@ -570,7 +585,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             seed_dataset_source = seed_config.source
 
         return create_resource_provider(
-            artifact_storage=ArtifactStorage(artifact_path=self._artifact_path, dataset_name=dataset_name),
+            artifact_storage=ArtifactStorage(
+                artifact_path=self._artifact_path, dataset_name=dataset_name, resume=resume
+            ),
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,
             model_provider_registry=self._model_provider_registry,

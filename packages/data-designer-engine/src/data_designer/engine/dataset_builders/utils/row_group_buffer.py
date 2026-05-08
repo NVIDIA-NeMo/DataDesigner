@@ -28,13 +28,18 @@ class RowGroupBufferManager:
     exclusively by the async scheduler.
     """
 
-    def __init__(self, artifact_storage: ArtifactStorage) -> None:
+    def __init__(
+        self,
+        artifact_storage: ArtifactStorage,
+        initial_actual_num_records: int = 0,
+        initial_total_num_batches: int = 0,
+    ) -> None:
         self._buffers: dict[int, list[dict]] = {}
         self._row_group_sizes: dict[int, int] = {}
         self._dropped: dict[int, set[int]] = {}
         self._artifact_storage = artifact_storage
-        self._actual_num_records: int = 0
-        self._total_num_batches: int = 0
+        self._actual_num_records: int = initial_actual_num_records
+        self._total_num_batches: int = initial_total_num_batches
 
     def init_row_group(self, row_group: int, size: int) -> None:
         """Allocate a buffer for *row_group* with *size* empty rows."""
@@ -129,11 +134,14 @@ class RowGroupBufferManager:
 
         self.free_row_group(row_group)
 
-    def write_metadata(self, target_num_records: int, buffer_size: int) -> None:
+    def write_metadata(
+        self, target_num_records: int, buffer_size: int, original_target_num_records: int | None = None
+    ) -> None:
         """Write final metadata after all row groups are checkpointed."""
         self._artifact_storage.write_metadata(
             {
                 "target_num_records": target_num_records,
+                "original_target_num_records": original_target_num_records or target_num_records,
                 "actual_num_records": self._actual_num_records,
                 "total_num_batches": self._total_num_batches,
                 "buffer_size": buffer_size,
