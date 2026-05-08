@@ -1716,8 +1716,27 @@ def test_build_resume_post_generation_processed_extension_raises(
     )
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
-    with pytest.raises(DatasetGenerationError, match="process_after_generation has already been applied"):
+    with pytest.raises(DatasetGenerationError, match="Extending would mix pre- and post-processor records"):
         builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_post_generation_processed_smaller_target_raises(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """A post-processed dataset cannot be resumed with a smaller target than already generated."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+        post_generation_processed=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="num_records=2 is less than the 4 records"):
+        builder.build(num_records=2, resume=ResumeMode.ALWAYS)
 
 
 def test_build_resume_post_generation_started_raises(stub_resource_provider, stub_test_config_builder, tmp_path):
@@ -1868,7 +1887,7 @@ def test_build_async_resume_already_complete_does_not_run_after_generation_proce
     mock_after.assert_not_called()
 
 
-def test_find_completed_row_group_ids_used_for_initial_total_batches(
+def test_find_completed_row_groups_used_for_initial_total_batches(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
     """initial_total_num_batches uses filesystem count, not metadata count.
@@ -1876,7 +1895,7 @@ def test_find_completed_row_group_ids_used_for_initial_total_batches(
     Simulates the crash window: 2 parquet files exist on disk but metadata still
     records num_completed_batches=1 (write_metadata crashed after the second
     row group was moved to parquet-files/ but before metadata was updated).
-    Verifies that _find_completed_row_group_ids() (= 2) is used, not metadata (= 1).
+    Verifies that _find_completed_row_groups() (= 2) is used, not metadata (= 1).
     """
     dataset_dir = tmp_path / "dataset"
     # Metadata lags — says only 1 batch completed

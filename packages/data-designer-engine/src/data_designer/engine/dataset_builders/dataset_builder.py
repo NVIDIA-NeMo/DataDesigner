@@ -365,11 +365,20 @@ class DatasetBuilder:
         return any(getattr(config, "allow_resize", False) for config in self.single_column_configs)
 
     def _post_generation_processed_resume_result(self, resume: ResumeMode, num_records: int) -> Path | None:
-        """Fail fast when resuming from a dataset that has already run after-generation processors."""
-        if (
-            resume not in (ResumeMode.ALWAYS, ResumeMode.IF_POSSIBLE)
-            or not self.artifact_storage.metadata_file_path.exists()
-        ):
+        """Decide whether to short-circuit resume based on after-generation processor state.
+
+        Returns:
+            * ``None`` if normal resume should proceed (no metadata, not in resume mode, or
+              after-generation processors have not run yet).
+            * ``final_dataset_path`` for the no-op case (dataset is already complete and
+              post-processed and the caller asked for the same target).
+
+        Raises:
+            DatasetGenerationError: If after-generation processing started but did not
+                complete (parquet files may already be rewritten), or if the caller asked
+                for a different target than the one this terminal dataset was built for.
+        """
+        if resume != ResumeMode.ALWAYS or not self.artifact_storage.metadata_file_path.exists():
             return None
 
         try:
@@ -393,9 +402,16 @@ class DatasetBuilder:
             logger.warning("▶️ Dataset is already complete and post-processed; nothing to resume.")
             return self.artifact_storage.final_dataset_path
 
+        if num_records < prior_target:
+            raise DatasetGenerationError(
+                f"🛑 Cannot resume: num_records={num_records} is less than the {prior_target} records "
+                "already generated and post-processed for this dataset. Use num_records >= "
+                f"{prior_target}, or resume=ResumeMode.NEVER to start a new generation run."
+            )
+
         raise DatasetGenerationError(
             "🛑 Cannot resume: process_after_generation has already been applied to this dataset "
-            f"(original target {prior_target}, requested {num_records}). Resuming would mix pre- and "
+            f"(original target {prior_target}, requested {num_records}). Extending would mix pre- and "
             "post-processor records. Use resume=ResumeMode.NEVER to start a new generation run."
         )
 
@@ -634,10 +650,6 @@ class DatasetBuilder:
                 logger.warning("⚠️ Ignoring unreadable row-group file during resume: %s", p)
                 continue
         return row_groups
-
-    def _find_completed_row_group_ids(self) -> set[int]:
-        """Return completed row-group IDs for callers that only need identity."""
-        return set(self._find_completed_row_groups())
 
     def _check_resume_config_compatibility(self) -> _ConfigCompatibility:
         """Compare the current config fingerprint against stored resume identity.
