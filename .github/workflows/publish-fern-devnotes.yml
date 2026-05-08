@@ -41,7 +41,7 @@ jobs:
       - name: Install docs dependencies
         run: uv sync --python 3.13 --all-packages --group docs --group notebooks
 
-      - name: Download notebooks from last docs build
+      - name: Reuse notebooks from last successful docs build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
