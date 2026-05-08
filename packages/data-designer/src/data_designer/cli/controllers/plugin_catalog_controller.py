@@ -463,6 +463,7 @@ class PluginCatalogController:
     def _display_catalog_entries(self, entries: list[PluginCatalogEntry]) -> None:
         table = Table(title="Catalog Plugin Packages", border_style=NordColor.NORD8.value)
         table.add_column("Package", style=NordColor.NORD14.value, no_wrap=True)
+        table.add_column("Description", style=NordColor.NORD4.value)
         table.add_column("Runtime Plugins", style=NordColor.NORD9.value)
         table.add_column("Compatible", style=NordColor.NORD13.value, no_wrap=True)
         table.add_column("Docs", style=NordColor.NORD7.value)
@@ -473,6 +474,7 @@ class PluginCatalogController:
             docs_url = entry.docs.url if entry.docs is not None and entry.docs.url is not None else ""
             table.add_row(
                 entry.package.name,
+                entry.description,
                 _format_runtime_plugins(package_entries),
                 "yes" if compatibility.is_compatible else "no",
                 docs_url,
