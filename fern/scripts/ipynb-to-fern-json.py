@@ -56,6 +56,16 @@ COLAB_BADGE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Inline base64 PNG/JPEG embedded in IPython.display.HTML blobs. The image
+# notebooks (5, 6) emit `<img src='data:image/png;base64,...'>` inside HTML
+# outputs, which bypasses the `image/png` MIME path and so skips
+# shrink_image_b64 — leaving multi-MB images in the .ts payload and breaking
+# Fern's SSR bundler. Match here so the HTML branch can shrink them too.
+INLINE_DATA_URI_RE = re.compile(
+    r"data:image/(png|jpe?g);base64,([A-Za-z0-9+/=\s]+?)(?=[\"'\s)])",
+    re.IGNORECASE,
+)
+
 
 def get_language(metadata: dict) -> str:
     info = metadata.get("kernelspec", {}) or {}
@@ -112,6 +122,20 @@ def shrink_image_b64(b64: str, max_dim: int = MAX_IMAGE_DIMENSION) -> tuple[str,
         return b64, "image/png"
 
 
+def shrink_inline_b64_in_html(html: str) -> str:
+    """Replace each inline `data:image/...;base64,...` URI inside an HTML string
+    with a shrunk JPEG variant. IPython.display.HTML outputs in the image
+    notebooks embed full-resolution PNGs this way; without resizing, a single
+    cell can carry 2MB+ of base64."""
+
+    def _sub(match: re.Match[str]) -> str:
+        b64 = "".join(match.group(2).split())
+        shrunk, mime = shrink_image_b64(b64)
+        return f"data:{mime};base64,{shrunk}"
+
+    return INLINE_DATA_URI_RE.sub(_sub, html)
+
+
 def extract_outputs(outputs: list) -> list[dict]:
     result: list[dict] = []
     for out in outputs:
@@ -133,6 +157,7 @@ def extract_outputs(outputs: list) -> list[dict]:
                 if isinstance(html, list):
                     html = "".join(html)
                 if html.strip():
+                    html = shrink_inline_b64_in_html(html)
                     result.append({"type": "text", "data": html, "format": "html"})
             elif "text/plain" in data:
                 text = data["text/plain"]
