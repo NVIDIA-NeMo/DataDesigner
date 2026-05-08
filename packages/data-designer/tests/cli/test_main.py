@@ -200,15 +200,15 @@ def test_app_dispatches_lazy_plugin_list_command(mock_controller_cls: Mock) -> N
 
 
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")
-def test_app_dispatches_lazy_plugin_catalogs_list_command(mock_controller_cls: Mock) -> None:
+def test_app_dispatches_lazy_plugin_catalog_list_command(mock_controller_cls: Mock) -> None:
     """Nested plugin catalog commands resolve through the lazy command group."""
     mock_controller = Mock()
     mock_controller_cls.return_value = mock_controller
 
-    result = runner.invoke(app, ["plugin", "catalogs", "list"])
+    result = runner.invoke(app, ["plugin", "catalog", "list"])
 
     assert result.exit_code == 0
-    mock_controller.run_catalogs_list.assert_called_once_with()
+    mock_controller.run_catalog_list.assert_called_once_with()
 
 
 def test_app_help_keeps_config_and_plugin_commands_reachable() -> None:
@@ -222,11 +222,18 @@ def test_app_help_keeps_config_and_plugin_commands_reachable() -> None:
     assert "list" in plugin_result.output
     assert "install" in plugin_result.output
     assert "uninstall" in plugin_result.output
-    assert "catalogs" in plugin_result.output
+    assert "catalog" in plugin_result.output
 
 
 def test_app_does_not_expose_legacy_plugins_command() -> None:
     result = runner.invoke(app, ["plugins", "--help"])
+
+    assert result.exit_code != 0
+    assert "No such command" in result.output
+
+
+def test_plugin_does_not_expose_legacy_catalogs_command() -> None:
+    result = runner.invoke(app, ["plugin", "catalogs", "--help"])
 
     assert result.exit_code != 0
     assert "No such command" in result.output

@@ -306,9 +306,9 @@ data-designer plugin uninstall github --yes
 data-designer plugin uninstall github --dry-run
 
 # Add and manage catalog aliases
-data-designer plugin catalogs add research https://github.com/acme/dd-plugins
-data-designer plugin catalogs list
-data-designer plugin catalogs remove research
+data-designer plugin catalog add research https://github.com/acme/dd-plugins
+data-designer plugin catalog list
+data-designer plugin catalog remove research
 
 # List installed runtime plugin entry points without importing plugin modules
 data-designer plugin installed

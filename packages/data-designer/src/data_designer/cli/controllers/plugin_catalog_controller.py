@@ -295,7 +295,7 @@ class PluginCatalogController:
             return
         self._display_installed_plugins(installed_plugins)
 
-    def run_catalogs_list(self) -> None:
+    def run_catalog_list(self) -> None:
         """List configured plugin catalogs."""
         print_header("Data Designer Plugin Catalogs")
         try:
@@ -319,7 +319,7 @@ class PluginCatalogController:
             )
         console.print(table)
 
-    def run_catalogs_add(
+    def run_catalog_add(
         self,
         *,
         alias: str,
@@ -348,7 +348,7 @@ class PluginCatalogController:
         print_success(f"Plugin catalog {catalog.alias!r} added")
         print_info(f"Catalog: {catalog.url}")
 
-    def run_catalogs_remove(self, *, alias: str) -> None:
+    def run_catalog_remove(self, *, alias: str) -> None:
         """Remove a plugin catalog alias."""
         try:
             self.catalog_service.remove_catalog(alias)

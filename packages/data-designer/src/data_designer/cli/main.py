@@ -194,24 +194,24 @@ def plugin_callback(
     _ = catalog
 
 
-plugin_catalogs_app = typer.Typer(
-    name="catalogs",
+plugin_catalog_app = typer.Typer(
+    name="catalog",
     help="Manage plugin catalog aliases",
     cls=create_lazy_typer_group(
         {
             "list": {
                 "module": f"{_CMD}.plugin",
-                "attr": "catalogs_list_command",
+                "attr": "catalog_list_command",
                 "help": "List configured plugin catalogs",
             },
             "add": {
                 "module": f"{_CMD}.plugin",
-                "attr": "catalogs_add_command",
+                "attr": "catalog_add_command",
                 "help": "Add a plugin catalog alias",
             },
             "remove": {
                 "module": f"{_CMD}.plugin",
-                "attr": "catalogs_remove_command",
+                "attr": "catalog_remove_command",
                 "help": "Remove a plugin catalog alias",
             },
         }
@@ -245,7 +245,7 @@ agent_state_app = typer.Typer(
 )
 
 agent_app.add_typer(agent_state_app, name="state")
-plugin_app.add_typer(plugin_catalogs_app, name="catalogs")
+plugin_app.add_typer(plugin_catalog_app, name="catalog")
 
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup")
