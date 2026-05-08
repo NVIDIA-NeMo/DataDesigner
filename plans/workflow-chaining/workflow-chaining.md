@@ -46,7 +46,7 @@ A new `Pipeline` class in `data_designer.interface` that orchestrates multi-stag
 **Explicit multi-stage pipeline:**
 
 ```python
-pipeline = dd.pipeline()
+pipeline = dd.pipeline(name="persona-conversations")
 pipeline.add_stage("personas", config_personas, num_records=100)
 pipeline.add_stage("conversations", config_convos, num_records=1000)  # explode: 100 -> 1000
 pipeline.add_stage("judged", config_judge)  # defaults to previous stage's output size
@@ -57,6 +57,8 @@ results["personas"].load_dataset()       # stage 1 output
 results["conversations"].load_dataset()  # stage 2 output
 results["judged"].load_dataset()         # final output
 ```
+
+`name` is required and is the durable identity for artifact lookup and resume. Reusing the same name across Python sessions lets `pipeline.run(resume=True)` find the previous `pipeline-metadata.json`.
 
 **Convenience method on results (lightweight, for notebooks):**
 
@@ -101,6 +103,7 @@ def filter_high_quality(stage_output_path: Path) -> Path:
     df.to_parquet(out / "data.parquet")
     return out
 
+pipeline = dd.pipeline(name="filter-enrich")
 pipeline.add_stage("generated", config_gen, num_records=1000)
 pipeline.add_stage(
     "enriched",
@@ -122,11 +125,11 @@ The callback receives the path to the completed stage's artifact directory (cont
 
 #### Artifact management
 
-The pipeline owns its directory layout directly, bypassing `ArtifactStorage`'s default auto-rename behavior (which appends timestamps to non-empty directories). Stage directories use stable, deterministic names based on stage index and name:
+The pipeline owns its directory layout directly, bypassing `ArtifactStorage`'s default auto-rename behavior (which appends timestamps to non-empty directories). `dd.pipeline(name=...)` maps to `artifacts/<name>/`; no timestamp, UUID, or object-derived default is used for resumable pipelines. Stage directories use stable, deterministic names based on stage index and name:
 
 ```
 artifacts/
-  pipeline-name/
+  <pipeline-name>/
     stage-0-personas/
       parquet-files/
       metadata.json
@@ -139,7 +142,7 @@ artifacts/
     pipeline-metadata.json
 ```
 
-The pipeline creates each stage's `ArtifactStorage` with the stage directory as `dataset_name`, ensuring stable paths across reruns.
+The pipeline creates each stage's `ArtifactStorage` with the stage directory as `dataset_name`, ensuring stable paths across reruns. A fresh `dd.pipeline(name="gen-judge")` finds the same `artifacts/gen-judge/pipeline-metadata.json` path as the original run.
 
 #### Checkpointing and resume
 
@@ -163,6 +166,7 @@ The connection to #525: chaining gives coarse (stage-level) checkpointing for fr
 #### Provenance
 
 `pipeline-metadata.json` records:
+- Pipeline name
 - Stage order, names, and configs used
 - Per-stage fingerprint for resume invalidation: `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, DD version, and the upstream stage fingerprint
 - `num_records` requested vs actual per stage
@@ -171,7 +175,7 @@ The connection to #525: chaining gives coarse (stage-level) checkpointing for fr
 
 #### Composability and the throttle invariant
 
-The `Pipeline` is constructed via `dd.pipeline()` and holds a reference to the parent `DataDesigner`. Every stage runs `dd.create()` (or `dd.acreate()` once available - see Engine API surface below) on that same instance. This is a load-bearing API contract for two reasons.
+The `Pipeline` is constructed via `dd.pipeline(name=...)` and holds a reference to the parent `DataDesigner`. Every stage runs `dd.create()` (or `dd.acreate()` once available - see Engine API surface below) on that same instance. This is a load-bearing API contract for two reasons.
 
 **Throttle coordination across stages.** A `DataDesigner` owns one `ModelRegistry`, which owns one `ThrottleManager`. AIMD rate-limit state is per-instance. If the pipeline constructed a fresh `DataDesigner` per stage, each stage would adapt independently and the aggregate request rate against a provider could exceed the configured cap by a multiple of the stage count. The same hazard applies to parallel branches in Phase 4: branches sharing one `DataDesigner` automatically share throttling; branches each holding their own `DataDesigner` silently fragment it. Reusing one instance is the simple, correct default.
 
@@ -252,7 +256,7 @@ config_convos = (
     .add_column(name="conversation", column_type="llm_text", prompt="Write a conversation between {{ name }} and an assistant about {{ topic }}...")
 )
 
-pipeline = dd.pipeline()
+pipeline = dd.pipeline(name="persona-conversations")
 pipeline.add_stage("personas", config_personas, num_records=100)
 pipeline.add_stage("conversations", config_convos, num_records=1000)
 results = pipeline.run()
@@ -274,7 +278,7 @@ def keep_high_quality(stage_output_path: Path) -> Path:
     df.to_parquet(out / "data.parquet")
     return out
 
-pipeline = dd.pipeline()
+pipeline = dd.pipeline(name="filter-enrich")
 pipeline.add_stage("candidates", config_gen, num_records=5000)
 pipeline.add_stage("enriched", config_enrich, after=keep_high_quality)
 results = pipeline.run()
@@ -291,13 +295,13 @@ config_gen = DataDesignerConfigBuilder(model_configs=[fast_model])...
 # Stage 2: judge with a stronger model
 config_judge = DataDesignerConfigBuilder(model_configs=[strong_model])...
 
-pipeline = dd.pipeline()
+pipeline = dd.pipeline(name="gen-judge")
 pipeline.add_stage("generated", config_gen, num_records=1000)
 pipeline.add_stage("judged", config_judge)
 results = pipeline.run()
 
 # Later: tweak judging config, resume from stage 1 output
-pipeline_v2 = dd.pipeline()
+pipeline_v2 = dd.pipeline(name="gen-judge")
 pipeline_v2.add_stage("generated", config_gen, num_records=1000)
 pipeline_v2.add_stage("judged", config_judge_v2)
 results_v2 = pipeline_v2.run(resume=True)  # skips stage 1
@@ -328,7 +332,7 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 - Stage handoff is always on disk via `LocalFileSeedSource`; no in-memory handoff path inside `Pipeline`.
 - Internal stage representation is a DAG (linear-only inputs in v1).
 - Add `pipeline-metadata.json` writing.
-- Add `dd.pipeline()` factory method on `DataDesigner`.
+- Add `dd.pipeline(name: str)` factory method on `DataDesigner`.
 - Tests: multi-stage runs, explode/filter via callbacks, num_records defaulting, artifact layout, throttle reuse across stages.
 
 ### Sidecar: `acreate()` on `DataDesigner` (independent of chaining v1)
@@ -352,6 +356,7 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 
 - Add `resume=True` to `pipeline.run()`.
 - Read `pipeline-metadata.json` to detect completed stages.
+- Resolve the metadata path from the explicit pipeline name.
 - Compute each stage's fingerprint via `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, DD version, and upstream stage fingerprint; invalidate the stage and everything downstream on any mismatch.
 - Skip stages whose fingerprints match, seed next stage from last completed output.
 - Depends on artifact layout from phase 1.
@@ -360,7 +365,7 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 
 - Extend `add_stage()` with an optional `depends_on=[stage_name, ...]` argument; default keeps the linear behavior.
 - `pipeline.run()` walks the resulting DAG, gathering independent branches via `asyncio.gather` over `dd.acreate()` calls.
-- Per-stage fingerprint composition (Phase 3) generalizes naturally: a stage's upstream fingerprint becomes the hash of all its parents' fingerprints.
+- Per-stage fingerprint composition (Phase 3) generalizes naturally: a stage's upstream fingerprint becomes the hash of all parent fingerprints sorted by stage name, making joins stable regardless of `depends_on` declaration order.
 - Throttle coordination relies on the existing invariant: all branches run on the same parent `DataDesigner`, so `ThrottleManager` is shared.
 - Hard dependency on the `acreate()` sidecar.
 - **Scope: branch parallelism, not stage pipelining.** Stages still wait for their dependencies to fully complete before starting; pipelined execution of dependent stages is a separate direction sketched in Future considerations.
@@ -388,7 +393,7 @@ These were open in earlier drafts; recording the resolutions here so the design 
 
 2. **Branch/fan-out semantics (DAG)** -> Designed-in but not v1. The internal stage representation is a DAG; v1 only accepts linear inputs through `add_stage()`. Phase 4 ships parallel branches via `asyncio.gather` over `acreate()`. v1 stays sequential.
 
-3. **Pipeline construction** -> `Pipeline` is created via `dd.pipeline()` and reuses the parent `DataDesigner`'s `ModelRegistry` and `ThrottleManager` across all stages. The pipeline does not construct its own `DataDesigner` instances. This is the throttle-coordination invariant (see Composability section).
+3. **Pipeline construction** -> `Pipeline` is created via `dd.pipeline(name=...)` and reuses the parent `DataDesigner`'s `ModelRegistry` and `ThrottleManager` across all stages. The explicit name is the durable artifact identity used for resume, and the pipeline does not construct its own `DataDesigner` instances. This is the throttle-coordination invariant (see Composability section).
 
 ## Open questions
 
