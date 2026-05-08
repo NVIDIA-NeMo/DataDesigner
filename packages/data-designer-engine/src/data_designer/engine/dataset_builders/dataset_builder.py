@@ -255,13 +255,6 @@ class DatasetBuilder:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
 
-        if resume != ResumeMode.NEVER and self._has_allow_resize_columns():
-            raise DatasetGenerationError(
-                "🛑 Cannot resume when any column has allow_resize=True. Resized batches change row boundaries, "
-                "so the original batch plan cannot be reconstructed safely. Use resume=ResumeMode.NEVER to "
-                "start a new generation run."
-            )
-
         # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
         # directory. _check_resume_config_compatibility() must NOT access base_dataset_path
         # (which would cache resolved_dataset_name prematurely). After the decision, sync
@@ -323,6 +316,13 @@ class DatasetBuilder:
                 resume = ResumeMode.NEVER
                 self.artifact_storage.resume = ResumeMode.NEVER
 
+            if resume == ResumeMode.ALWAYS and self._has_allow_resize_columns():
+                raise DatasetGenerationError(
+                    "🛑 Cannot resume when any column has allow_resize=True. Resized batches change row boundaries, "
+                    "so the original batch plan cannot be reconstructed safely. Use resume=ResumeMode.NEVER to "
+                    "start a new generation run."
+                )
+
             generated = True
             self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
             if self._use_async:
@@ -344,9 +344,18 @@ class DatasetBuilder:
                 self.batch_manager.finish()
 
             if generated:
+                has_after_generation_processors = self._processor_runner.has_processors_for(
+                    ProcessorStage.AFTER_GENERATION
+                )
+                if has_after_generation_processors:
+                    self.artifact_storage.update_metadata(
+                        {"post_generation_state": "started", "post_generation_processed": False}
+                    )
                 self._processor_runner.run_after_generation(buffer_size)
-                if self._processor_runner.has_processors_for(ProcessorStage.AFTER_GENERATION):
-                    self.artifact_storage.update_metadata({"post_generation_processed": True})
+                if has_after_generation_processors:
+                    self.artifact_storage.update_metadata(
+                        {"post_generation_state": "complete", "post_generation_processed": True}
+                    )
             self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
             return self.artifact_storage.final_dataset_path
@@ -371,7 +380,15 @@ class DatasetBuilder:
         except (FileNotFoundError, json.JSONDecodeError):
             return None
 
-        if not metadata.get("post_generation_processed", False):
+        post_generation_state = metadata.get("post_generation_state")
+        if post_generation_state == "started":
+            raise DatasetGenerationError(
+                "🛑 Cannot resume: process_after_generation started but did not complete for this dataset. "
+                "The final parquet files may already have been rewritten, so resuming would risk mixing pre- "
+                "and post-processor records. Use resume=ResumeMode.NEVER to start a new generation run."
+            )
+
+        if not metadata.get("post_generation_processed", False) and post_generation_state != "complete":
             return None
 
         prior_target = metadata.get("target_num_records")

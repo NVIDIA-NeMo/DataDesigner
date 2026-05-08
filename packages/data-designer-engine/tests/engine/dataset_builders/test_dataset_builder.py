@@ -994,13 +994,61 @@ def test_allow_resize_multiple_batches(
     assert len(df) == expected_total_rows
 
 
-def test_resume_rejects_allow_resize_columns(stub_resource_provider, stub_model_configs, seed_data_setup):
+def test_resume_rejects_allow_resize_columns(stub_resource_provider, stub_model_configs, seed_data_setup, tmp_path):
     """Resume is rejected when allow_resize=True would make batch boundaries ambiguous."""
+    artifact_path = tmp_path / "artifacts"
+    artifact_path.mkdir()
+    _write_metadata(
+        artifact_path / "dataset",
+        target_num_records=5,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+    )
+
+    stub_resource_provider.artifact_storage = _ArtifactStorage(artifact_path=artifact_path, resume=ResumeMode.ALWAYS)
     columns = _resize_columns("cell_x2")
     builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
 
     with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
         builder.build(num_records=5, resume=ResumeMode.ALWAYS)
+
+
+def test_if_possible_allows_allow_resize_when_starting_fresh(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+):
+    """IF_POSSIBLE with allow_resize=True starts fresh when there is no checkpoint to resume."""
+    columns = _resize_columns("cell_x2")
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+
+    final_path = builder.build(num_records=5, resume=ResumeMode.IF_POSSIBLE)
+
+    df = lazy.pd.read_parquet(final_path)
+    assert len(df) == 10
+
+
+def test_if_possible_allows_allow_resize_when_config_is_incompatible(
+    stub_resource_provider, stub_model_configs, seed_data_setup, tmp_path
+):
+    """IF_POSSIBLE with allow_resize=True starts fresh when an existing dataset is incompatible."""
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    sentinel = dataset_dir / "important_file.txt"
+    sentinel.write_text("precious data")
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+    columns = _resize_columns("cell_x2")
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
+        final_path = builder.build(num_records=5, resume=ResumeMode.IF_POSSIBLE)
+
+    assert storage.resume == ResumeMode.NEVER
+    assert sentinel.exists()
+    assert final_path != dataset_dir / "parquet-files"
+    df = lazy.pd.read_parquet(final_path)
+    assert len(df) == 10
 
 
 # skip metadata preservation tests
@@ -1670,6 +1718,50 @@ def test_build_resume_post_generation_processed_extension_raises(
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with pytest.raises(DatasetGenerationError, match="process_after_generation has already been applied"):
         builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_post_generation_started_raises(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """A dataset with an interrupted after-generation processor cannot be resumed."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+        post_generation_state="started",
+        post_generation_processed=False,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="started but did not complete"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_marks_post_generation_started_before_running_processors(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """The crash-recovery marker is durable before after-generation processors mutate final parquet files."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+        with patch.object(builder, "_build_with_resume", return_value=True):
+            with patch.object(builder._processor_runner, "has_processors_for", return_value=True):
+                with patch.object(builder._processor_runner, "run_after_generation", side_effect=RuntimeError("boom")):
+                    with pytest.raises(RuntimeError, match="boom"):
+                        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    metadata = _json.loads((dataset_dir / "metadata.json").read_text())
+    assert metadata["post_generation_state"] == "started"
+    assert metadata["post_generation_processed"] is False
 
 
 def test_build_resume_not_already_complete_when_extension_fits_in_slack(
