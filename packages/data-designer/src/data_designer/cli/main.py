@@ -141,39 +141,39 @@ download_app = typer.Typer(
     no_args_is_help=True,
 )
 
-# Create plugins command group
-plugins_app = typer.Typer(
-    name="plugins",
+# Create plugin command group
+plugin_app = typer.Typer(
+    name="plugin",
     help="Discover, install, and uninstall Data Designer plugin packages from catalogs",
     cls=create_lazy_typer_group(
         {
             "list": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "list_command",
                 "help": "List plugin packages from a catalog",
             },
             "search": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "search_command",
                 "help": "Search plugin packages from a catalog",
             },
             "info": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "info_command",
                 "help": "Show plugin package metadata and install plan",
             },
             "install": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "install_command",
                 "help": "Install a plugin package and verify package registration",
             },
             "uninstall": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "uninstall_command",
                 "help": "Uninstall a plugin package and verify package registration is removed",
             },
             "installed": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "installed_command",
                 "help": "List installed runtime plugin entry points",
             },
@@ -183,8 +183,8 @@ plugins_app = typer.Typer(
 )
 
 
-@plugins_app.callback()
-def plugins_callback(
+@plugin_app.callback()
+def plugin_callback(
     catalog: str | None = typer.Option(
         None,
         "--catalog",
@@ -200,17 +200,17 @@ plugin_catalogs_app = typer.Typer(
     cls=create_lazy_typer_group(
         {
             "list": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "catalogs_list_command",
                 "help": "List configured plugin catalogs",
             },
             "add": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "catalogs_add_command",
                 "help": "Add a plugin catalog alias",
             },
             "remove": {
-                "module": f"{_CMD}.plugins",
+                "module": f"{_CMD}.plugin",
                 "attr": "catalogs_remove_command",
                 "help": "Remove a plugin catalog alias",
             },
@@ -245,12 +245,12 @@ agent_state_app = typer.Typer(
 )
 
 agent_app.add_typer(agent_state_app, name="state")
-plugins_app.add_typer(plugin_catalogs_app, name="catalogs")
+plugin_app.add_typer(plugin_catalogs_app, name="catalogs")
 
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup")
 app.add_typer(download_app, name="download", rich_help_panel="Setup")
-app.add_typer(plugins_app, name="plugins", rich_help_panel="Setup")
+app.add_typer(plugin_app, name="plugin", rich_help_panel="Setup")
 app.add_typer(agent_app, name="agent", rich_help_panel="Agent")
 
 

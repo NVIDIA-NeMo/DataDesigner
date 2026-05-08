@@ -32,9 +32,9 @@ def test_main_bootstraps_before_running_app(mock_bootstrap: Mock, mock_app: Mock
 
 @patch("data_designer.cli.main.app")
 @patch("data_designer.cli.main.ensure_cli_default_model_settings")
-def test_main_bootstraps_for_plugins_commands(mock_bootstrap: Mock, mock_app: Mock) -> None:
-    """Plugin commands still run through CLI default setup before Typer dispatch."""
-    with patch("sys.argv", ["data-designer", "plugins", "list"]):
+def test_main_bootstraps_for_plugin_commands(mock_bootstrap: Mock, mock_app: Mock) -> None:
+    """The plugin command still runs through CLI default setup before Typer dispatch."""
+    with patch("sys.argv", ["data-designer", "plugin", "list"]):
         main()
 
     mock_bootstrap.assert_called_once_with()
@@ -180,15 +180,15 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
     )
 
 
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_app_dispatches_lazy_plugins_list_command(mock_controller_cls: Mock) -> None:
-    """The plugins group lazily resolves command callbacks without loading a catalog."""
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_app_dispatches_lazy_plugin_list_command(mock_controller_cls: Mock) -> None:
+    """The plugin group lazily resolves command callbacks without loading a catalog."""
     mock_controller = Mock()
     mock_controller_cls.return_value = mock_controller
 
     result = runner.invoke(
         app,
-        ["plugins", "--catalog", "local", "list", "--refresh", "--include-incompatible"],
+        ["plugin", "--catalog", "local", "list", "--refresh", "--include-incompatible"],
     )
 
     assert result.exit_code == 0
@@ -199,27 +199,34 @@ def test_app_dispatches_lazy_plugins_list_command(mock_controller_cls: Mock) -> 
     )
 
 
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
 def test_app_dispatches_lazy_plugin_catalogs_list_command(mock_controller_cls: Mock) -> None:
     """Nested plugin catalog commands resolve through the lazy command group."""
     mock_controller = Mock()
     mock_controller_cls.return_value = mock_controller
 
-    result = runner.invoke(app, ["plugins", "catalogs", "list"])
+    result = runner.invoke(app, ["plugin", "catalogs", "list"])
 
     assert result.exit_code == 0
     mock_controller.run_catalogs_list.assert_called_once_with()
 
 
-def test_app_help_keeps_config_and_plugins_commands_reachable() -> None:
+def test_app_help_keeps_config_and_plugin_commands_reachable() -> None:
     config_result = runner.invoke(app, ["config", "--help"])
-    plugins_result = runner.invoke(app, ["plugins", "--help"])
+    plugin_result = runner.invoke(app, ["plugin", "--help"])
 
     assert config_result.exit_code == 0
     assert "providers" in config_result.output
     assert "models" in config_result.output
-    assert plugins_result.exit_code == 0
-    assert "list" in plugins_result.output
-    assert "install" in plugins_result.output
-    assert "uninstall" in plugins_result.output
-    assert "catalogs" in plugins_result.output
+    assert plugin_result.exit_code == 0
+    assert "list" in plugin_result.output
+    assert "install" in plugin_result.output
+    assert "uninstall" in plugin_result.output
+    assert "catalogs" in plugin_result.output
+
+
+def test_app_does_not_expose_legacy_plugins_command() -> None:
+    result = runner.invoke(app, ["plugins", "--help"])
+
+    assert result.exit_code != 0
+    assert "No such command" in result.output

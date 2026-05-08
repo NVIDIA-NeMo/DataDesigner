@@ -254,7 +254,7 @@ def _resolve_catalog_alias(ctx: typer.Context, catalog_alias: str | None) -> str
 
 
 def _parent_catalog_alias(ctx: typer.Context) -> str | None:
-    """Return --catalog from the plugins parent command when present."""
+    """Return --catalog from the plugin parent command when present."""
 
     parent = ctx.parent
     while parent is not None:
