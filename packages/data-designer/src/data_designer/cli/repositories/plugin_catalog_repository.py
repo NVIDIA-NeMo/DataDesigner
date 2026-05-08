@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from data_designer.cli.plugin_catalog import (
     DEFAULT_PLUGIN_CATALOG_ALIAS,
+    DEFAULT_PLUGIN_CATALOG_URL,
     MAX_PLUGIN_CATALOG_SIZE_BYTES,
     PLUGIN_CATALOG_CACHE_DIR_NAME,
     PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS,
@@ -27,6 +28,7 @@ from data_designer.cli.plugin_catalog import (
     validate_plugin_catalog_payload,
 )
 from data_designer.cli.repositories.base import ConfigRepository
+from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
 from data_designer.config.utils.io_helpers import load_config_file, save_config_file
 
 
@@ -51,8 +53,8 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
         try:
             config_dict = load_config_file(self.config_file)
             return PluginCatalogRegistry.model_validate(config_dict)
-        except Exception:
-            return None
+        except (InvalidConfigError, InvalidFileFormatError, InvalidFilePathError, OSError, ValidationError) as e:
+            raise PluginCatalogError(f"Failed to load plugin catalog registry at {self.config_file}: {e}") from e
 
     def save(self, config: PluginCatalogRegistry) -> None:
         """Save user-configured plugin catalogs."""
@@ -140,7 +142,7 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
         try:
             payload = self._fetch_catalog_payload(catalog_config.url)
             catalog = self._validate_catalog(payload, source=catalog_config.url)
-        except Exception:
+        except (PluginCatalogError, OSError, ValueError):
             if not refresh:
                 cached_catalog = self._load_cached_catalog(catalog_config, require_fresh=False)
                 if cached_catalog is not None:
@@ -169,7 +171,7 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
                     return None
             catalog_payload = cache_payload["catalog"]
             return self._validate_catalog(catalog_payload, source=str(cache_file))
-        except Exception:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             return None
 
     def _save_catalog_cache(self, catalog: PluginCatalogConfig, catalog_payload: dict[str, object]) -> None:
@@ -199,14 +201,14 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
             try:
                 with open(cache_file) as f:
                     cache_payload = json.load(f)
-            except Exception:
+            except (OSError, json.JSONDecodeError):
                 continue
             cached_alias = cache_payload.get("catalog_alias")
             if isinstance(cached_alias, str) and _same_alias(cached_alias, catalog.alias):
                 cache_file.unlink(missing_ok=True)
 
     @staticmethod
-    def _fetch_catalog_payload(location: str) -> dict:
+    def _fetch_catalog_payload(location: str) -> dict[str, object]:
         if _is_http_url(location):
             return _fetch_remote_catalog(location)
         return _fetch_local_catalog(location)
@@ -223,10 +225,11 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
     @staticmethod
     def default_catalog() -> PluginCatalogConfig:
         """Return the built-in NVIDIA plugin catalog configuration."""
+        catalog_url = get_default_plugin_catalog_url()
         return PluginCatalogConfig(
             alias=DEFAULT_PLUGIN_CATALOG_ALIAS,
-            url=get_default_plugin_catalog_url(),
-            trusted=True,
+            url=catalog_url,
+            trusted=catalog_url == DEFAULT_PLUGIN_CATALOG_URL,
             cache_ttl_seconds=PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS,
         )
 
@@ -239,7 +242,7 @@ def normalize_catalog_location(location: str) -> str:
     path = Path(location).expanduser()
     if path.suffix.lower() == ".json":
         return str(path.resolve(strict=False))
-    return str((path / "catalog" / "plugins.json").resolve(strict=False))
+    return str(_catalog_plugins_path(path).resolve(strict=False))
 
 
 def _same_alias(left: str, right: str) -> bool:
@@ -262,13 +265,27 @@ def _normalize_catalog_url(url: str) -> str:
         if len(segments) >= 4 and segments[2] == "tree":
             ref = segments[3]
             catalog_root = "/".join(segments[4:])
-            catalog_path = f"{catalog_root}/catalog/plugins.json" if catalog_root else "catalog/plugins.json"
+            catalog_path = _catalog_plugins_url_path(catalog_root)
             return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{catalog_path}"
 
     return url
 
 
-def _fetch_local_catalog(location: str) -> dict:
+def _catalog_plugins_path(path: Path) -> Path:
+    if path.name == "catalog":
+        return path / "plugins.json"
+    return path / "catalog" / "plugins.json"
+
+
+def _catalog_plugins_url_path(catalog_root: str) -> str:
+    if not catalog_root:
+        return "catalog/plugins.json"
+    if catalog_root.rstrip("/").endswith("/catalog") or catalog_root == "catalog":
+        return f"{catalog_root}/plugins.json"
+    return f"{catalog_root}/catalog/plugins.json"
+
+
+def _fetch_local_catalog(location: str) -> dict[str, object]:
     path = Path(location).expanduser()
     if not path.exists():
         raise PluginCatalogError(f"Plugin catalog file not found: {path}")
@@ -288,7 +305,7 @@ def _fetch_local_catalog(location: str) -> dict:
     return payload
 
 
-def _fetch_remote_catalog(url: str) -> dict:
+def _fetch_remote_catalog(url: str) -> dict[str, object]:
     request = Request(url, headers={"User-Agent": "data-designer"})
     try:
         with urlopen(request, timeout=10) as response:

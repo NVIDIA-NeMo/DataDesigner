@@ -10,6 +10,8 @@ import subprocess
 import sys
 from collections.abc import Callable
 
+from packaging.utils import canonicalize_name
+
 from data_designer.cli.plugin_catalog import (
     PLUGIN_ENTRY_POINT_GROUP,
     PYPI_SIMPLE_INDEX_URL,
@@ -64,16 +66,53 @@ class PluginInstallService:
 
     def verify_entry_points(self, entries: list[PluginCatalogEntry]) -> bool:
         """Verify every declared entry point for an installed catalog package."""
+        if not entries:
+            return False
+
         importlib.invalidate_caches()
-        installed_entry_point_names = {
-            entry_point.name for entry_point in importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP)
-        }
-        return bool(entries) and all(entry.entry_point.name in installed_entry_point_names for entry in entries)
+        installed_entry_points = list(importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP))
+        return all(
+            any(
+                _installed_entry_point_matches(installed_entry_point, entry)
+                for installed_entry_point in installed_entry_points
+            )
+            for entry in entries
+        )
 
 
 def _run_subprocess(command: list[str]) -> int:
-    result = subprocess.run(command, check=False)
+    result = subprocess.run(command, check=False, stdin=subprocess.DEVNULL)
     return result.returncode
+
+
+def _installed_entry_point_matches(
+    installed_entry_point: importlib.metadata.EntryPoint,
+    entry: PluginCatalogEntry,
+) -> bool:
+    if installed_entry_point.name != entry.entry_point.name:
+        return False
+    if installed_entry_point.value != entry.entry_point.value:
+        return False
+
+    distribution_name = _entry_point_distribution_name(installed_entry_point)
+    if distribution_name is None:
+        return True
+    return canonicalize_name(distribution_name) == canonicalize_name(entry.package.name)
+
+
+def _entry_point_distribution_name(installed_entry_point: importlib.metadata.EntryPoint) -> str | None:
+    distribution = getattr(installed_entry_point, "dist", None)
+    if distribution is None:
+        return None
+
+    metadata = getattr(distribution, "metadata", None)
+    if metadata is None:
+        return None
+
+    name = metadata.get("Name")
+    if not isinstance(name, str) or not name:
+        return None
+    return name
 
 
 def _resolve_manager(manager: str) -> str:
