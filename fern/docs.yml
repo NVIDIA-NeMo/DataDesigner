@@ -72,6 +72,8 @@ redirects:
   # Mirrors Curator's /home -> /home/welcome convention.
   - source: "/nemo/datadesigner/getting-started"
     destination: "/nemo/datadesigner/getting-started/welcome"
+  - source: "/nemo/datadesigner/older-versions/older-versions"
+    destination: "/nemo/datadesigner/older-versions"
 
   # ---- Historical MkDocs archives ----
   # Fern only has real v0.5.8/v0.5.9 entries today. Older released docs remain on the
