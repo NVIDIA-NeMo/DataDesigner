@@ -131,16 +131,6 @@ def test_artifact_storage_write_metadata_includes_defaults(stub_artifact_storage
     }
 
 
-def test_artifact_storage_dataset_lock_rejects_second_writer(stub_artifact_storage):
-    """A dataset lock prevents concurrent writers to the same directory."""
-    competing_storage = ArtifactStorage(artifact_path=stub_artifact_storage.artifact_path)
-
-    with stub_artifact_storage.dataset_lock():
-        with pytest.raises(ArtifactStorageError, match="locked by another Data Designer run"):
-            with competing_storage.dataset_lock():
-                pass
-
-
 def test_artifact_storage_metadata_file_path_property(stub_artifact_storage):
     expected_path = stub_artifact_storage.base_dataset_path / "metadata.json"
     assert stub_artifact_storage.metadata_file_path == expected_path

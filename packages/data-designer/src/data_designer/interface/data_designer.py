@@ -270,89 +270,88 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
-        with builder.artifact_storage.dataset_lock():
-            try:
-                builder.build(num_records=num_records, resume=resume)
-            except DeprecationWarning:
-                raise
-            except Exception as e:
-                raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
+        try:
+            builder.build(num_records=num_records, resume=resume)
+        except DeprecationWarning:
+            raise
+        except Exception as e:
+            raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
-            task_traces = builder.task_traces
+        task_traces = builder.task_traces
 
-            try:
-                dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
-            except Exception as e:
-                # Distinguish "early shutdown produced zero records" from generic load failures
-                # so callers can react programmatically (e.g. retry on a different alias) instead
-                # of parsing a wrapped FileNotFoundError. The scheduler's structured signal lives
-                # on the builder for the duration of the run. We also require the run to have
-                # produced zero records: a partial-salvage run that fails to load for unrelated
-                # reasons (corrupt parquet, dropped-columns mismatch, filesystem hiccup) should
-                # surface the original cause, not a misleading "zero records" diagnosis.
-                if builder.early_shutdown and builder.actual_num_records == 0:
-                    raise DataDesignerEarlyShutdownError(
-                        "🛑 Generation produced zero records — early shutdown was triggered. "
-                        "The non-retryable error rate exceeded the configured threshold; check the "
-                        "warnings above (and any 'Provider showing degraded performance' logs) for "
-                        "the contributing failures."
-                    ) from e
-                # Surface the original task error when the run produced 0 records due to a
-                # deterministic non-retryable failure (e.g. bad seed source). Without this,
-                # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
-                # ``actual_num_records`` is set only on the async path; sync runs leave it at
-                # ``-1`` and ``first_non_retryable_error`` at ``None``, so this branch is
-                # async-only by construction.
-                root_cause = builder.first_non_retryable_error
-                if root_cause is not None and builder.actual_num_records == 0:
-                    raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
-                raise DataDesignerGenerationError(
-                    f"🛑 Failed to load generated dataset — all records may have been dropped "
-                    f"due to generation failures. Check the warnings above for details. Original error: {e}"
+        try:
+            dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
+        except Exception as e:
+            # Distinguish "early shutdown produced zero records" from generic load failures
+            # so callers can react programmatically (e.g. retry on a different alias) instead
+            # of parsing a wrapped FileNotFoundError. The scheduler's structured signal lives
+            # on the builder for the duration of the run. We also require the run to have
+            # produced zero records: a partial-salvage run that fails to load for unrelated
+            # reasons (corrupt parquet, dropped-columns mismatch, filesystem hiccup) should
+            # surface the original cause, not a misleading "zero records" diagnosis.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Generation produced zero records — early shutdown was triggered. "
+                    "The non-retryable error rate exceeded the configured threshold; check the "
+                    "warnings above (and any 'Provider showing degraded performance' logs) for "
+                    "the contributing failures."
                 ) from e
+            # Surface the original task error when the run produced 0 records due to a
+            # deterministic non-retryable failure (e.g. bad seed source). Without this,
+            # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
+            # ``actual_num_records`` is set only on the async path; sync runs leave it at
+            # ``-1`` and ``first_non_retryable_error`` at ``None``, so this branch is
+            # async-only by construction.
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
+            raise DataDesignerGenerationError(
+                f"🛑 Failed to load generated dataset — all records may have been dropped "
+                f"due to generation failures. Check the warnings above for details. Original error: {e}"
+            ) from e
 
-            # Defensive: the batch manager skips writing when the buffer is empty, so in
-            # practice load_dataset_with_dropped_columns() would raise before returning a
-            # zero-row DataFrame. This guard protects against future changes to that contract.
-            if len(dataset_for_profiler) == 0:
-                # Mirror the load-failure guard above: only raise the typed error when
-                # the run actually produced zero records. A partial-salvage run that
-                # somehow returns an empty DF for unrelated reasons should surface the
-                # generic error.
-                if builder.early_shutdown and builder.actual_num_records == 0:
-                    raise DataDesignerEarlyShutdownError(
-                        "🛑 Dataset is empty — early shutdown was triggered before any records "
-                        "could complete. Check the warnings above for the contributing failures."
-                    )
-                root_cause = builder.first_non_retryable_error
-                if root_cause is not None and builder.actual_num_records == 0:
-                    raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
-                raise DataDesignerGenerationError(
-                    "🛑 Dataset is empty — all records were dropped due to generation failures. "
-                    "Check the warnings above for details on which columns failed."
+        # Defensive: the batch manager skips writing when the buffer is empty, so in
+        # practice load_dataset_with_dropped_columns() would raise before returning a
+        # zero-row DataFrame. This guard protects against future changes to that contract.
+        if len(dataset_for_profiler) == 0:
+            # Mirror the load-failure guard above: only raise the typed error when
+            # the run actually produced zero records. A partial-salvage run that
+            # somehow returns an empty DF for unrelated reasons should surface the
+            # generic error.
+            if builder.early_shutdown and builder.actual_num_records == 0:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Dataset is empty — early shutdown was triggered before any records "
+                    "could complete. Check the warnings above for the contributing failures."
                 )
-
-            try:
-                profiler = self._create_dataset_profiler(config_builder, resource_provider)
-                analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
-            except Exception as e:
-                raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
-
-            dataset_metadata = resource_provider.get_dataset_metadata()
-
-            # Update metadata with column statistics from analysis
-            if analysis:
-                builder.artifact_storage.update_metadata(
-                    {"column_statistics": [stat.model_dump(mode="json") for stat in analysis.column_statistics]}
-                )
-
-            return DatasetCreationResults(
-                artifact_storage=builder.artifact_storage,
-                analysis=analysis,
-                config_builder=config_builder,
-                dataset_metadata=dataset_metadata,
-                task_traces=task_traces,
+            root_cause = builder.first_non_retryable_error
+            if root_cause is not None and builder.actual_num_records == 0:
+                raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation failures. "
+                "Check the warnings above for details on which columns failed."
             )
+
+        try:
+            profiler = self._create_dataset_profiler(config_builder, resource_provider)
+            analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
+        except Exception as e:
+            raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
+
+        dataset_metadata = resource_provider.get_dataset_metadata()
+
+        # Update metadata with column statistics from analysis
+        if analysis:
+            builder.artifact_storage.update_metadata(
+                {"column_statistics": [stat.model_dump(mode="json") for stat in analysis.column_statistics]}
+            )
+
+        return DatasetCreationResults(
+            artifact_storage=builder.artifact_storage,
+            analysis=analysis,
+            config_builder=config_builder,
+            dataset_metadata=dataset_metadata,
+            task_traces=task_traces,
+        )
 
     def preview(
         self, config_builder: DataDesignerConfigBuilder, *, num_records: int = DEFAULT_NUM_RECORDS

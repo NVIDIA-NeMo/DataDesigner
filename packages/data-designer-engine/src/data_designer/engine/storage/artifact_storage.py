@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
@@ -11,7 +10,7 @@ import shutil
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
@@ -31,7 +30,6 @@ SDG_CONFIG_FILENAME = "builder_config.json"
 METADATA_FILENAME = "metadata.json"
 FINAL_DATASET_FOLDER_NAME = "parquet-files"
 PROCESSORS_OUTPUTS_FOLDER_NAME = "processors-files"
-LOCK_FILENAME = ".data_designer.lock"
 
 
 class BatchStage(StrEnum):
@@ -59,7 +57,6 @@ class ArtifactStorage(BaseModel):
     resume: ResumeMode = ResumeMode.NEVER
     _media_storage: MediaStorage = PrivateAttr(default=None)
     _metadata_defaults: dict[str, object] = PrivateAttr(default_factory=dict)
-    _lock_depth: int = PrivateAttr(default=0)
 
     @property
     def media_storage(self) -> MediaStorage:
@@ -237,38 +234,6 @@ class ArtifactStorage(BaseModel):
         """Remove any in-flight partial results left over from an interrupted run."""
         if self.partial_results_path.exists():
             shutil.rmtree(self.partial_results_path)
-
-    @contextlib.contextmanager
-    def dataset_lock(self) -> Iterator[None]:
-        """Acquire an exclusive local lock for writes to this dataset directory."""
-        if self._lock_depth > 0:
-            self._lock_depth += 1
-            try:
-                yield
-            finally:
-                self._lock_depth -= 1
-            return
-
-        self.mkdir_if_needed(self.base_dataset_path)
-        lock_path = self.base_dataset_path / LOCK_FILENAME
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as exc:
-            raise ArtifactStorageError(
-                f"🛑 Dataset directory is locked by another Data Designer run: {lock_path}. "
-                "Wait for the other run to finish or remove the stale lock if no process is active."
-            ) from exc
-
-        try:
-            self._lock_depth = 1
-            with os.fdopen(fd, "w") as file:
-                file.write(f"pid={os.getpid()}\n")
-                file.flush()
-                os.fsync(file.fileno())
-            yield
-        finally:
-            self._lock_depth = 0
-            lock_path.unlink(missing_ok=True)
 
     def move_partial_result_to_final_file_path(self, batch_number: int) -> Path:
         partial_result_path = self.create_batch_file_path(batch_number, batch_stage=BatchStage.PARTIAL_RESULT)

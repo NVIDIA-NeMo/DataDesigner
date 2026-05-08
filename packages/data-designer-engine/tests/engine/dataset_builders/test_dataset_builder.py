@@ -1966,8 +1966,11 @@ def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_gro
         captured["initial_total_num_batches"] = kwargs.get("initial_total_num_batches", 0)
         mock_scheduler = Mock()
         mock_scheduler.traces = []
+        mock_scheduler.early_shutdown = False
+        mock_scheduler.partial_row_groups = ()
+        mock_scheduler.first_non_retryable_error = None
         mock_buffer_manager = Mock()
-        mock_buffer_manager.actual_num_records = 5
+        mock_buffer_manager.actual_num_records = 6
         return mock_scheduler, mock_buffer_manager
 
     mock_future = Mock()

@@ -184,7 +184,6 @@ Resume has a few important invariants:
 
 - `buffer_size` must match the original run.
 - `num_records` must be at least the original target; you may extend a run by requesting more records.
-- Only one writer should target a dataset directory at a time.
 - Runs with `allow_resize=True` columns are not resumable because row boundaries can change.
 - Once `process_after_generation()` has run, the dataset is considered terminal for resume. Re-running with the same target returns the existing dataset; extending requires a fresh run.
 

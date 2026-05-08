@@ -292,73 +292,70 @@ class DatasetBuilder:
         if self._post_generation_processed_resume_result(resume, num_records) is not None:
             return self.artifact_storage.final_dataset_path
 
-        with self.artifact_storage.dataset_lock():
-            self._write_builder_config()
+        self._write_builder_config()
 
-            # Set media storage mode based on parameters
-            if self._has_image_columns():
-                mode = StorageMode.DISK if save_multimedia_to_disk else StorageMode.DATAFRAME
-                self.artifact_storage.set_media_storage_mode(mode)
+        # Set media storage mode based on parameters
+        if self._has_image_columns():
+            mode = StorageMode.DISK if save_multimedia_to_disk else StorageMode.DATAFRAME
+            self.artifact_storage.set_media_storage_mode(mode)
 
-            generators, self._graph = self._initialize_generators_and_graph()
-            start_time = time.perf_counter()
-            buffer_size = self._resource_provider.run_config.buffer_size
+        generators, self._graph = self._initialize_generators_and_graph()
+        start_time = time.perf_counter()
+        buffer_size = self._resource_provider.run_config.buffer_size
 
-            if resume == ResumeMode.ALWAYS and not self.artifact_storage.metadata_file_path.exists():
-                # No metadata.json means the previous run was interrupted before any batch (sync) or
-                # row group (async) completed.  Nothing to resume — discard any leftover partial
-                # results and start fresh.
-                logger.info(
-                    "▶️ No metadata.json found — the previous run was interrupted before any batch "
-                    "completed. Starting generation from the beginning."
+        if resume == ResumeMode.ALWAYS and not self.artifact_storage.metadata_file_path.exists():
+            # No metadata.json means the previous run was interrupted before any batch (sync) or
+            # row group (async) completed.  Nothing to resume — discard any leftover partial
+            # results and start fresh.
+            logger.info(
+                "▶️ No metadata.json found — the previous run was interrupted before any batch "
+                "completed. Starting generation from the beginning."
+            )
+            self.artifact_storage.clear_partial_results()
+            resume = ResumeMode.NEVER
+            self.artifact_storage.resume = ResumeMode.NEVER
+
+        if resume == ResumeMode.ALWAYS and self._has_allow_resize_columns():
+            raise DatasetGenerationError(
+                "🛑 Cannot resume when any column has allow_resize=True. Resized batches change row boundaries, "
+                "so the original batch plan cannot be reconstructed safely. Use resume=ResumeMode.NEVER to "
+                "start a new generation run."
+            )
+
+        generated = True
+        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        if self._use_async:
+            generated = self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
+        elif resume == ResumeMode.ALWAYS:
+            generated = self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
+        else:
+            group_id = uuid.uuid4().hex
+            self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
+            for batch_idx in range(self.batch_manager.num_batches):
+                logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
+                self._run_batch(
+                    generators,
+                    batch_mode="batch",
+                    group_id=group_id,
+                    current_batch_number=batch_idx,
+                    on_batch_complete=on_batch_complete,
                 )
-                self.artifact_storage.clear_partial_results()
-                resume = ResumeMode.NEVER
-                self.artifact_storage.resume = ResumeMode.NEVER
+            self.batch_manager.finish()
 
-            if resume == ResumeMode.ALWAYS and self._has_allow_resize_columns():
-                raise DatasetGenerationError(
-                    "🛑 Cannot resume when any column has allow_resize=True. Resized batches change row boundaries, "
-                    "so the original batch plan cannot be reconstructed safely. Use resume=ResumeMode.NEVER to "
-                    "start a new generation run."
+        if generated:
+            has_after_generation_processors = self._processor_runner.has_processors_for(ProcessorStage.AFTER_GENERATION)
+            if has_after_generation_processors:
+                self.artifact_storage.update_metadata(
+                    {"post_generation_state": "started", "post_generation_processed": False}
                 )
-
-            generated = True
-            self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
-            if self._use_async:
-                generated = self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
-            elif resume == ResumeMode.ALWAYS:
-                generated = self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
-            else:
-                group_id = uuid.uuid4().hex
-                self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
-                for batch_idx in range(self.batch_manager.num_batches):
-                    logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
-                    self._run_batch(
-                        generators,
-                        batch_mode="batch",
-                        group_id=group_id,
-                        current_batch_number=batch_idx,
-                        on_batch_complete=on_batch_complete,
-                    )
-                self.batch_manager.finish()
-
-            if generated:
-                has_after_generation_processors = self._processor_runner.has_processors_for(
-                    ProcessorStage.AFTER_GENERATION
+            self._processor_runner.run_after_generation(buffer_size)
+            if has_after_generation_processors:
+                self.artifact_storage.update_metadata(
+                    {"post_generation_state": "complete", "post_generation_processed": True}
                 )
-                if has_after_generation_processors:
-                    self.artifact_storage.update_metadata(
-                        {"post_generation_state": "started", "post_generation_processed": False}
-                    )
-                self._processor_runner.run_after_generation(buffer_size)
-                if has_after_generation_processors:
-                    self.artifact_storage.update_metadata(
-                        {"post_generation_state": "complete", "post_generation_processed": True}
-                    )
-            self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
+        self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
-            return self.artifact_storage.final_dataset_path
+        return self.artifact_storage.final_dataset_path
 
     def _set_metadata_defaults(self) -> None:
         """Attach config identity fields to every metadata write in this build."""
