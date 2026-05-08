@@ -43,6 +43,14 @@ def test_add_tap_normalizes_github_repository_url(tmp_path: Path) -> None:
     assert repository.get_tap("research") == tap
 
 
+def test_add_tap_normalizes_github_tree_url_with_subdirectory(tmp_path: Path) -> None:
+    repository = PluginTapRepository(tmp_path)
+
+    tap = repository.add_tap("research", "https://github.com/acme/dd-plugins/tree/main/custom-catalog")
+
+    assert tap.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/custom-catalog/catalog/plugins.json"
+
+
 def test_tap_aliases_are_case_insensitive(tmp_path: Path) -> None:
     repository = PluginTapRepository(tmp_path)
 

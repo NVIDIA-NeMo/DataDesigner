@@ -257,7 +257,9 @@ def _normalize_tap_url(url: str) -> str:
             return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
         if len(segments) >= 4 and segments[2] == "tree":
             ref = segments[3]
-            return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/catalog/plugins.json"
+            tap_root = "/".join(segments[4:])
+            catalog_path = f"{tap_root}/catalog/plugins.json" if tap_root else "catalog/plugins.json"
+            return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{catalog_path}"
 
     return url
 
