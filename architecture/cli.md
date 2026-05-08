@@ -87,14 +87,20 @@ User invokes command (e.g., `data-designer plugin list`)
 User invokes command (e.g., `data-designer plugin install calculator`)
   → PluginCatalogController resolves the plugin package name or package alias
   → PluginCatalogService evaluates Python and Data Designer compatibility
-  → PluginInstallService builds a pip/uv install plan for the package requirement
+  → PluginInstallService builds a pip/uv install plan for the package requirement.
+    In active uv projects it uses `uv add` so the package lands in `pyproject.toml`;
+    otherwise it mutates the active Python environment with `uv pip install` or pip.
+    The active `data-designer` distribution is skipped, excluded, or pinned from
+    replacement depending on package-manager capabilities.
   → PluginInstallService verifies declared package entry points after installation
 ```
 
 ```
 User invokes command (e.g., `data-designer plugin uninstall calculator`)
   → PluginCatalogController resolves the plugin package name or package alias
-  → PluginInstallService builds a pip/uv uninstall plan for the package distribution
+  → PluginInstallService builds a pip/uv uninstall plan for the package distribution.
+    Active uv projects remove the dependency from project metadata without a uv sync,
+    then uninstall the package from the active environment.
   → PluginInstallService verifies declared package entry points are no longer discovered
 ```
 
