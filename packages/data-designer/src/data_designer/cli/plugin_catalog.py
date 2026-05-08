@@ -24,6 +24,7 @@ MAX_PLUGIN_CATALOG_SIZE_BYTES = 1 * 1024 * 1024
 PLUGIN_CATALOG_SCHEMA_VERSION = 2
 PLUGIN_CATALOG_ALIAS_PATTERN = r"^[A-Za-z0-9_.-]+$"
 DATA_DESIGNER_DISTRIBUTION_NAME = "data-designer"
+DATA_DESIGNER_PLUGIN_PACKAGE_PREFIX = "data-designer-"
 PLUGIN_ENTRY_POINT_GROUP = "data_designer.plugins"
 PYPI_SIMPLE_INDEX_URL = "https://pypi.org/simple/"
 CATALOG_DOCUMENT_KEYS = {"packages", "schema_version"}
@@ -205,13 +206,22 @@ class CompatibilityResult:
 class InstallPlan:
     """Resolved package-manager command for installing one plugin package."""
 
-    plugin_name: str
     package_name: str
     source_description: str
     command: list[str]
     manager: str
     catalog_alias: str
     trusted_catalog: bool
+
+
+@dataclass(frozen=True)
+class UninstallPlan:
+    """Resolved package-manager command for uninstalling one plugin package."""
+
+    package_name: str
+    command: list[str]
+    manager: str
+    catalog_alias: str
 
 
 @dataclass(frozen=True)

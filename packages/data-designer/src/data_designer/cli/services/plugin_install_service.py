@@ -18,13 +18,14 @@ from data_designer.cli.plugin_catalog import (
     InstallPlan,
     PluginCatalogConfig,
     PluginCatalogEntry,
+    UninstallPlan,
 )
 
 InstallRunner = Callable[[list[str]], int]
 
 
 class PluginInstallService:
-    """Resolve, execute, and verify plugin installation plans."""
+    """Resolve, execute, and verify plugin package install/uninstall plans."""
 
     def __init__(self, runner: InstallRunner | None = None) -> None:
         self._runner = runner or _run_subprocess
@@ -41,13 +42,28 @@ class PluginInstallService:
         install_args, source_description = _install_args_for_entry(entry, resolved_manager)
         command = _base_command(resolved_manager) + install_args
         return InstallPlan(
-            plugin_name=entry.name,
             package_name=entry.package.name,
             source_description=source_description,
             command=command,
             manager=resolved_manager,
             catalog_alias=catalog.alias,
             trusted_catalog=catalog.trusted,
+        )
+
+    def build_uninstall_plan(
+        self,
+        entry: PluginCatalogEntry,
+        catalog: PluginCatalogConfig,
+        *,
+        manager: str = "auto",
+    ) -> UninstallPlan:
+        """Build the exact package-manager command to uninstall one catalog package."""
+        resolved_manager = _resolve_manager(manager)
+        return UninstallPlan(
+            package_name=entry.package.name,
+            command=_base_uninstall_command(resolved_manager) + [entry.package.name],
+            manager=resolved_manager,
+            catalog_alias=catalog.alias,
         )
 
     def install(self, plan: InstallPlan) -> None:
@@ -58,7 +74,17 @@ class PluginInstallService:
         """
         return_code = self._runner(plan.command)
         if return_code != 0:
-            raise RuntimeError(f"Plugin installer exited with status {return_code}")
+            raise RuntimeError(f"Plugin package installer exited with status {return_code}")
+
+    def uninstall(self, plan: UninstallPlan) -> None:
+        """Run an uninstall plan.
+
+        Raises:
+            RuntimeError: If the package manager exits unsuccessfully.
+        """
+        return_code = self._runner(plan.command)
+        if return_code != 0:
+            raise RuntimeError(f"Plugin package uninstaller exited with status {return_code}")
 
     def verify_entry_point(self, entry: PluginCatalogEntry) -> bool:
         """Verify the plugin's declared entry point is installed."""
@@ -73,6 +99,21 @@ class PluginInstallService:
         installed_entry_points = list(importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP))
         return all(
             any(
+                _installed_entry_point_matches(installed_entry_point, entry)
+                for installed_entry_point in installed_entry_points
+            )
+            for entry in entries
+        )
+
+    def verify_entry_points_removed(self, entries: list[PluginCatalogEntry]) -> bool:
+        """Verify every declared entry point for a catalog package is no longer installed."""
+        if not entries:
+            return False
+
+        importlib.invalidate_caches()
+        installed_entry_points = list(importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP))
+        return all(
+            not any(
                 _installed_entry_point_matches(installed_entry_point, entry)
                 for installed_entry_point in installed_entry_points
             )
@@ -121,7 +162,7 @@ def _resolve_manager(manager: str) -> str:
     if manager == "auto":
         return "uv" if shutil.which("uv") else "pip"
     if manager == "uv" and not shutil.which("uv"):
-        raise ValueError("uv was requested for plugin installation, but it is not available on PATH")
+        raise ValueError("uv was requested for plugin package installation, but it is not available on PATH")
     return manager
 
 
@@ -129,6 +170,12 @@ def _base_command(manager: str) -> list[str]:
     if manager == "uv":
         return ["uv", "pip", "install", "--python", sys.executable]
     return [sys.executable, "-m", "pip", "install"]
+
+
+def _base_uninstall_command(manager: str) -> list[str]:
+    if manager == "uv":
+        return ["uv", "pip", "uninstall", "--python", sys.executable]
+    return [sys.executable, "-m", "pip", "uninstall", "--yes"]
 
 
 def _install_args_for_entry(entry: PluginCatalogEntry, manager: str) -> tuple[list[str], str]:

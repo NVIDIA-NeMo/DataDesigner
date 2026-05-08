@@ -36,7 +36,7 @@ from data_designer.config.utils.constants import NordColor
 
 
 class PluginCatalogController:
-    """Controller for plugin catalog browsing, alias management, and install workflows.
+    """Controller for plugin catalog browsing, alias management, and package workflows.
 
     Catalog browsing and environment mutation intentionally use separate services so
     read-only catalog operations stay decoupled from package-manager execution.
@@ -103,20 +103,20 @@ class PluginCatalogController:
 
     def run_info(
         self,
-        package_or_plugin: str,
+        package_name: str,
         *,
         catalog_alias: str | None = None,
         refresh: bool = False,
     ) -> None:
         """Show full metadata for one plugin package."""
         catalog = self._get_catalog_or_exit(catalog_alias)
-        entry = self._get_entry_or_exit(package_or_plugin, catalog.alias, refresh=refresh)
         package_entries = self._get_package_entries_or_exit(
-            entry.package.name,
+            package_name,
             catalog.alias,
             refresh=refresh,
             include_incompatible=True,
-        ) or [entry]
+        )
+        entry = package_entries[0]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
         print_header(f"Plugin Package: {entry.package.name}")
@@ -154,7 +154,7 @@ class PluginCatalogController:
 
     def run_install(
         self,
-        package_or_plugin: str,
+        package_name: str,
         *,
         catalog_alias: str | None = None,
         refresh: bool = False,
@@ -165,13 +165,13 @@ class PluginCatalogController:
     ) -> None:
         """Install one plugin package from the catalog."""
         catalog = self._get_catalog_or_exit(catalog_alias)
-        entry = self._get_entry_or_exit(package_or_plugin, catalog.alias, refresh=refresh, include_incompatible=True)
         package_entries = self._get_package_entries_or_exit(
-            entry.package.name,
+            package_name,
             catalog.alias,
             refresh=refresh,
             include_incompatible=True,
-        ) or [entry]
+        )
+        entry = package_entries[0]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
         if not compatibility.is_compatible and not force and not dry_run:
@@ -188,7 +188,6 @@ class PluginCatalogController:
 
         print_header("Install Data Designer Plugin Package")
         console.print(f"  Package: [bold]{entry.package.name}[/bold]")
-        console.print(f"  Runtime plugins: [bold]{_format_runtime_plugins(package_entries)}[/bold]")
         console.print(f"  Catalog: [bold]{catalog.alias}[/bold] ({catalog.url})")
         console.print(f"  Requirement: [bold]{entry.install.requirement}[/bold]")
         if entry.install.index_url is not None:
@@ -198,7 +197,8 @@ class PluginCatalogController:
 
         if not catalog.trusted:
             print_warning(
-                "This catalog is not marked trusted. Plugin installation executes Python package code from the requirement above."
+                "This catalog is not marked trusted. Plugin package installation executes Python package code from "
+                "the requirement above."
             )
 
         if dry_run:
@@ -221,12 +221,64 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         if self.install_service.verify_entry_points(package_entries):
-            print_success(f"Plugin package {entry.package.name!r} installed and discovered")
+            print_success(f"Plugin package {entry.package.name!r} installed and registered")
         else:
             print_warning(
                 f"Plugin package {entry.package.name!r} was installed, but Data Designer did not discover every "
-                "declared entry point. "
-                "Restart the shell or check the package entry point metadata."
+                "declared package entry point. Restart the shell or check the package entry point metadata."
+            )
+
+    def run_uninstall(
+        self,
+        package_name: str,
+        *,
+        catalog_alias: str | None = None,
+        refresh: bool = False,
+        manager: str = "auto",
+        yes: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """Uninstall one plugin package resolved from the catalog."""
+        catalog = self._get_catalog_or_exit(catalog_alias)
+        package_entries = self._get_package_entries_or_exit(
+            package_name,
+            catalog.alias,
+            refresh=refresh,
+            include_incompatible=True,
+        )
+        entry = package_entries[0]
+
+        try:
+            plan = self.install_service.build_uninstall_plan(entry, catalog, manager=manager)
+        except ValueError as e:
+            print_error(f"Failed to build plugin uninstall plan: {e}")
+            raise typer.Exit(code=1)
+
+        print_header("Uninstall Data Designer Plugin Package")
+        console.print(f"  Package: [bold]{entry.package.name}[/bold]")
+        console.print(f"  Catalog: [bold]{catalog.alias}[/bold] ({catalog.url})")
+        console.print(f"  Command: [bold]{shlex.join(plan.command)}[/bold]")
+
+        if dry_run:
+            print_info("Dry run complete; no changes made")
+            return
+
+        if not yes and not confirm_action("Uninstall this package from the current Python environment?", default=False):
+            print_info("No changes made")
+            return
+
+        try:
+            self.install_service.uninstall(plan)
+        except RuntimeError as e:
+            print_error(str(e))
+            raise typer.Exit(code=1)
+
+        if self.install_service.verify_entry_points_removed(package_entries):
+            print_success(f"Plugin package {entry.package.name!r} uninstalled and no longer registered")
+        else:
+            print_warning(
+                f"Plugin package {entry.package.name!r} was uninstalled, but Data Designer still discovers one or "
+                "more declared package entry points. Restart the shell or check the package environment."
             )
 
     def run_installed(self) -> None:
@@ -343,25 +395,6 @@ class PluginCatalogController:
             print_error(f"Failed to search plugin catalog: {e}")
             raise typer.Exit(code=1)
 
-    def _get_entry_or_exit(
-        self,
-        package_or_plugin: str,
-        catalog_alias: str,
-        *,
-        refresh: bool,
-        include_incompatible: bool = True,
-    ) -> PluginCatalogEntry:
-        try:
-            return self.catalog_service.get_entry(
-                package_or_plugin,
-                catalog_alias,
-                refresh=refresh,
-                include_incompatible=include_incompatible,
-            )
-        except (PluginCatalogError, OSError, ValueError) as e:
-            print_error(str(e))
-            raise typer.Exit(code=1)
-
     def _get_package_entries_or_exit(
         self,
         package_name: str,
@@ -371,7 +404,7 @@ class PluginCatalogController:
         include_incompatible: bool,
     ) -> list[PluginCatalogEntry]:
         try:
-            return self.catalog_service.get_package_entries(
+            package_entries = self.catalog_service.get_package_entries(
                 package_name,
                 catalog_alias,
                 refresh=refresh,
@@ -380,6 +413,10 @@ class PluginCatalogController:
         except (PluginCatalogError, OSError, ValueError) as e:
             print_error(f"Failed to load plugin package metadata: {e}")
             raise typer.Exit(code=1)
+        if not package_entries:
+            print_error(f"Plugin package or alias {package_name!r} was not found in catalog {catalog_alias!r}")
+            raise typer.Exit(code=1)
+        return package_entries
 
     def _display_empty_list_state(self, catalog_alias: str, *, include_incompatible: bool) -> None:
         if include_incompatible:
