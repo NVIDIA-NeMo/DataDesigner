@@ -98,13 +98,8 @@ jobs:
           fi
 
           cd fern
-          npx -y fern-api@$(jq -r .version fern.config.json) generate --docs --preview --id pr-${{ github.event.pull_request.number }} --force --no-prompt 2>&1 | tee /tmp/fern-preview.log
-          PREVIEW_URL=$(grep -Eo 'https://[^[:space:])]+docs\.buildwithfern\.com[^[:space:])]*' /tmp/fern-preview.log | tail -1)
-          if [ -z "$PREVIEW_URL" ]; then
-            echo "::error::Could not find Fern preview URL in CLI output."
-            exit 1
-          fi
-          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          npx -y fern-api@$(jq -r .version fern.config.json) generate --docs --preview --id pr-${{ github.event.pull_request.number }} --force --no-prompt
+          echo "url=https://nvidia-preview-pr-${{ github.event.pull_request.number }}.docs.buildwithfern.com/nemo/datadesigner" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to Cloudflare Pages
         if: github.event.pull_request.head.repo.full_name == github.repository
