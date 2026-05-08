@@ -221,4 +221,5 @@ def test_app_help_keeps_config_and_plugins_commands_reachable() -> None:
     assert plugins_result.exit_code == 0
     assert "list" in plugins_result.output
     assert "install" in plugins_result.output
+    assert "uninstall" in plugins_result.output
     assert "catalogs" in plugins_result.output

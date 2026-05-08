@@ -17,6 +17,7 @@ from data_designer.cli.plugin_catalog import (
     PluginCatalogConfig,
     PluginCatalogEntry,
     PluginCatalogError,
+    UninstallPlan,
 )
 
 
@@ -128,12 +129,11 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     ]
     catalog = _catalog(trusted=True)
     controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_entry.return_value = package_entries[0]
     controller.catalog_service.get_package_entries.return_value = package_entries
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
     controller.install_service.build_install_plan.return_value = _plan(catalog)
 
-    controller.run_info("data-designer-text-transform", catalog_alias="local")
+    controller.run_info("text-transform", catalog_alias="local")
 
     metadata = mock_display_config_preview.call_args.args[0]
     assert metadata["package"] == {
@@ -168,8 +168,38 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     assert all("install" not in plugin for plugin in metadata["plugins"])
     assert all("compatibility" not in plugin for plugin in metadata["plugins"])
     assert all("docs" not in plugin for plugin in metadata["plugins"])
+    controller.catalog_service.get_entry.assert_not_called()
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "text-transform",
+        "local",
+        refresh=False,
+        include_incompatible=True,
+    )
     mock_display_config_preview.assert_called_once()
     assert mock_console.print.call_count >= 1
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
+def test_run_info_rejects_runtime_plugin_name_that_is_not_package_alias(
+    mock_print_error: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    catalog = _catalog(trusted=True)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = []
+
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_info("text-column", catalog_alias="local")
+
+    assert exc_info.value.exit_code == 1
+    controller.catalog_service.get_entry.assert_not_called()
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "text-column",
+        "local",
+        refresh=False,
+        include_incompatible=True,
+    )
+    mock_print_error.assert_called_once_with("Plugin package or alias 'text-column' was not found in catalog 'local'")
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -183,15 +213,15 @@ def test_run_install_dry_run_renders_plan_without_installing(
     catalog = _catalog(trusted=True)
     plan = _plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_entry.return_value = entry
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
     controller.install_service.build_install_plan.return_value = plan
 
-    controller.run_install("text-transform", catalog_alias="local", dry_run=True)
+    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
-    controller.catalog_service.get_entry.assert_called_once_with(
-        "text-transform",
+    controller.catalog_service.get_entry.assert_not_called()
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "data-designer-text-transform",
         "local",
         refresh=False,
         include_incompatible=True,
@@ -199,12 +229,13 @@ def test_run_install_dry_run_renders_plan_without_installing(
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_points.assert_not_called()
     mock_print_info.assert_any_call("Dry run complete; no changes made")
+    assert all("Runtime plugins" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list)
     assert mock_console.print.call_count >= 1
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
-def test_run_install_blocks_incompatible_plugin_without_force(
+def test_run_install_blocks_incompatible_package_without_force(
     mock_print_error: MagicMock,
     mock_console: MagicMock,
     controller: PluginCatalogController,
@@ -212,7 +243,6 @@ def test_run_install_blocks_incompatible_plugin_without_force(
     entry = _entry()
     catalog = _catalog(trusted=True)
     controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_entry.return_value = entry
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
         False,
@@ -220,11 +250,12 @@ def test_run_install_blocks_incompatible_plugin_without_force(
     )
 
     with pytest.raises(typer.Exit) as exc_info:
-        controller.run_install("text-transform", catalog_alias="local")
+        controller.run_install("data-designer-text-transform", catalog_alias="local")
 
     assert exc_info.value.exit_code == 1
-    controller.catalog_service.get_entry.assert_called_once_with(
-        "text-transform",
+    controller.catalog_service.get_entry.assert_not_called()
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "data-designer-text-transform",
         "local",
         refresh=False,
         include_incompatible=True,
@@ -234,6 +265,30 @@ def test_run_install_blocks_incompatible_plugin_without_force(
         "Plugin package 'data-designer-text-transform' is not compatible with this environment"
     )
     mock_console.print.assert_any_call("  - Data Designer 0.5.7 does not satisfy >=99.0")
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
+def test_run_install_rejects_runtime_plugin_name_as_target(
+    mock_print_error: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    catalog = _catalog(trusted=True)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = []
+
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_install("text-column", catalog_alias="local")
+
+    assert exc_info.value.exit_code == 1
+    controller.catalog_service.get_entry.assert_not_called()
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "text-column",
+        "local",
+        refresh=False,
+        include_incompatible=True,
+    )
+    controller.install_service.build_install_plan.assert_not_called()
+    mock_print_error.assert_called_once_with("Plugin package or alias 'text-column' was not found in catalog 'local'")
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -246,7 +301,6 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     entry = _entry()
     catalog = _catalog(trusted=True)
     controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_entry.return_value = entry
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
         False,
@@ -254,7 +308,7 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     )
     controller.install_service.build_install_plan.return_value = _plan(catalog)
 
-    controller.run_install("text-transform", catalog_alias="local", dry_run=True)
+    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
     controller.install_service.build_install_plan.assert_called_once_with(entry, catalog, manager="auto")
     controller.install_service.install.assert_not_called()
@@ -279,7 +333,6 @@ def test_run_install_force_allows_incompatible_entry_for_dry_run(
     entry = _entry()
     catalog = _catalog(trusted=True)
     controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_entry.return_value = entry
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
         False,
@@ -287,10 +340,11 @@ def test_run_install_force_allows_incompatible_entry_for_dry_run(
     )
     controller.install_service.build_install_plan.return_value = _plan(catalog)
 
-    controller.run_install("text-transform", catalog_alias="local", dry_run=True, force=True)
+    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True, force=True)
 
-    controller.catalog_service.get_entry.assert_called_once_with(
-        "text-transform",
+    controller.catalog_service.get_entry.assert_not_called()
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "data-designer-text-transform",
         "local",
         refresh=False,
         include_incompatible=True,
@@ -312,15 +366,15 @@ def test_run_install_warns_for_untrusted_catalog(
     entry = _entry()
     catalog = _catalog(trusted=False)
     controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_entry.return_value = entry
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
     controller.install_service.build_install_plan.return_value = _plan(catalog)
 
-    controller.run_install("text-transform", catalog_alias="local", dry_run=True)
+    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
     mock_print_warning.assert_called_once_with(
-        "This catalog is not marked trusted. Plugin installation executes Python package code from the requirement above."
+        "This catalog is not marked trusted. Plugin package installation executes Python package code from "
+        "the requirement above."
     )
     assert mock_console.print.call_count >= 1
 
@@ -336,17 +390,16 @@ def test_run_install_reports_success_when_verification_finds_entry_point(
     catalog = _catalog(trusted=True)
     plan = _plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_entry.return_value = entry
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
     controller.install_service.build_install_plan.return_value = plan
     controller.install_service.verify_entry_points.return_value = True
 
-    controller.run_install("text-transform", catalog_alias="local", yes=True)
+    controller.run_install("data-designer-text-transform", catalog_alias="local", yes=True)
 
     controller.install_service.install.assert_called_once_with(plan)
     controller.install_service.verify_entry_points.assert_called_once_with([entry])
-    mock_print_success.assert_called_once_with("Plugin package 'data-designer-text-transform' installed and discovered")
+    mock_print_success.assert_called_once_with("Plugin package 'data-designer-text-transform' installed and registered")
     assert mock_console.print.call_count >= 1
 
 
@@ -361,20 +414,121 @@ def test_run_install_warns_when_verification_misses_entry_point(
     catalog = _catalog(trusted=True)
     plan = _plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_entry.return_value = entry
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
     controller.install_service.build_install_plan.return_value = plan
     controller.install_service.verify_entry_points.return_value = False
 
-    controller.run_install("text-transform", catalog_alias="local", yes=True)
+    controller.run_install("data-designer-text-transform", catalog_alias="local", yes=True)
 
     controller.install_service.install.assert_called_once_with(plan)
     controller.install_service.verify_entry_points.assert_called_once_with([entry])
     mock_print_warning.assert_called_once_with(
         "Plugin package 'data-designer-text-transform' was installed, but Data Designer did not discover every "
-        "declared entry point. "
-        "Restart the shell or check the package entry point metadata."
+        "declared package entry point. Restart the shell or check the package entry point metadata."
+    )
+    assert mock_console.print.call_count >= 1
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
+def test_run_uninstall_dry_run_renders_plan_without_uninstalling(
+    mock_print_info: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog(trusted=True)
+    plan = _uninstall_plan(catalog)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.install_service.build_uninstall_plan.return_value = plan
+
+    controller.run_uninstall("data-designer-text-transform", catalog_alias="local", dry_run=True)
+
+    controller.catalog_service.get_entry.assert_not_called()
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "data-designer-text-transform",
+        "local",
+        refresh=False,
+        include_incompatible=True,
+    )
+    controller.install_service.build_uninstall_plan.assert_called_once_with(entry, catalog, manager="auto")
+    controller.install_service.uninstall.assert_not_called()
+    controller.install_service.verify_entry_points_removed.assert_not_called()
+    mock_console.print.assert_any_call(
+        "  Command: [bold]python -m pip uninstall --yes data-designer-text-transform[/bold]"
+    )
+    assert all("Runtime plugins" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list)
+    mock_print_info.assert_any_call("Dry run complete; no changes made")
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
+def test_run_uninstall_wraps_plan_error(
+    mock_print_error: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog(trusted=True)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.install_service.build_uninstall_plan.side_effect = ValueError("uv was requested")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_uninstall("data-designer-text-transform", catalog_alias="local")
+
+    assert exc_info.value.exit_code == 1
+    controller.install_service.uninstall.assert_not_called()
+    mock_print_error.assert_called_once_with("Failed to build plugin uninstall plan: uv was requested")
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_success")
+def test_run_uninstall_reports_success_when_entry_points_are_removed(
+    mock_print_success: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog(trusted=True)
+    plan = _uninstall_plan(catalog)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.install_service.build_uninstall_plan.return_value = plan
+    controller.install_service.verify_entry_points_removed.return_value = True
+
+    controller.run_uninstall("data-designer-text-transform", catalog_alias="local", yes=True)
+
+    controller.install_service.uninstall.assert_called_once_with(plan)
+    controller.install_service.verify_entry_points_removed.assert_called_once_with([entry])
+    mock_print_success.assert_called_once_with(
+        "Plugin package 'data-designer-text-transform' uninstalled and no longer registered"
+    )
+    assert mock_console.print.call_count >= 1
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+def test_run_uninstall_warns_when_entry_points_remain(
+    mock_print_warning: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog(trusted=True)
+    plan = _uninstall_plan(catalog)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.install_service.build_uninstall_plan.return_value = plan
+    controller.install_service.verify_entry_points_removed.return_value = False
+
+    controller.run_uninstall("data-designer-text-transform", catalog_alias="local", yes=True)
+
+    controller.install_service.uninstall.assert_called_once_with(plan)
+    controller.install_service.verify_entry_points_removed.assert_called_once_with([entry])
+    mock_print_warning.assert_called_once_with(
+        "Plugin package 'data-designer-text-transform' was uninstalled, but Data Designer still discovers one or "
+        "more declared package entry points. Restart the shell or check the package environment."
     )
     assert mock_console.print.call_count >= 1
 
@@ -422,13 +576,21 @@ def _catalog(*, trusted: bool) -> PluginCatalogConfig:
 
 def _plan(catalog: PluginCatalogConfig) -> InstallPlan:
     return InstallPlan(
-        plugin_name="text-transform",
         package_name="data-designer-text-transform",
         source_description="data-designer-text-transform",
         command=["python", "-m", "pip", "install", "data-designer-text-transform"],
         manager="pip",
         catalog_alias=catalog.alias,
         trusted_catalog=catalog.trusted,
+    )
+
+
+def _uninstall_plan(catalog: PluginCatalogConfig) -> UninstallPlan:
+    return UninstallPlan(
+        package_name="data-designer-text-transform",
+        command=["python", "-m", "pip", "uninstall", "--yes", "data-designer-text-transform"],
+        manager="pip",
+        catalog_alias=catalog.alias,
     )
 
 

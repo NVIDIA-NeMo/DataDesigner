@@ -181,6 +181,77 @@ def test_get_entry_resolves_package_name() -> None:
     assert entry.package.name == "data-designer-package-target"
 
 
+def test_get_package_entries_resolves_package_alias() -> None:
+    repository = Mock(spec=PluginCatalogRepository)
+    repository.load_catalog.return_value = PluginCatalog.model_validate(
+        {
+            "schema_version": 2,
+            "packages": [
+                _package(
+                    package_name="data-designer-calculator",
+                    data_designer_specifier=">=0.5.7",
+                    plugins=[
+                        _runtime_plugin(name="arithmetic-column", plugin_type="column-generator"),
+                        _runtime_plugin(name="arithmetic-processor", plugin_type="processor"),
+                    ],
+                ),
+            ],
+        }
+    )
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+
+    entries = service.get_package_entries("calculator", "local", include_incompatible=True)
+
+    assert [entry.name for entry in entries] == ["arithmetic-column", "arithmetic-processor"]
+    assert {entry.package.name for entry in entries} == {"data-designer-calculator"}
+
+
+def test_get_package_entries_prefers_exact_package_name_over_package_alias() -> None:
+    repository = Mock(spec=PluginCatalogRepository)
+    repository.load_catalog.return_value = PluginCatalog.model_validate(
+        {
+            "schema_version": 2,
+            "packages": [
+                _package(
+                    package_name="calculator",
+                    data_designer_specifier=">=0.5.7",
+                    plugins=[_runtime_plugin(name="plain-calculator", plugin_type="processor")],
+                ),
+                _package(
+                    package_name="data-designer-calculator",
+                    data_designer_specifier=">=0.5.7",
+                    plugins=[_runtime_plugin(name="namespaced-calculator", plugin_type="processor")],
+                ),
+            ],
+        }
+    )
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+
+    entries = service.get_package_entries("calculator", "local", include_incompatible=True)
+
+    assert [entry.name for entry in entries] == ["plain-calculator"]
+    assert entries[0].package.name == "calculator"
+
+
+def test_get_package_entries_does_not_resolve_runtime_plugin_name_that_is_not_package_alias() -> None:
+    repository = Mock(spec=PluginCatalogRepository)
+    repository.load_catalog.return_value = PluginCatalog.model_validate(
+        {
+            "schema_version": 2,
+            "packages": [
+                _package(
+                    package_name="data-designer-calculator",
+                    data_designer_specifier=">=0.5.7",
+                    plugins=[_runtime_plugin(name="arithmetic", plugin_type="processor")],
+                ),
+            ],
+        }
+    )
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+
+    assert service.get_package_entries("arithmetic", "local", include_incompatible=True) == []
+
+
 def test_group_entries_by_package_groups_multi_plugin_packages(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")

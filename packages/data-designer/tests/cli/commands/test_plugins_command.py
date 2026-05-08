@@ -48,11 +48,14 @@ def test_plugins_install_command_delegates_to_controller(mock_ctrl_cls: MagicMoc
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "install", "text-transform", "--manager", "pip", "--yes", "--dry-run"])
+    result = runner.invoke(
+        app,
+        ["plugins", "install", "data-designer-text-transform", "--manager", "pip", "--yes", "--dry-run"],
+    )
 
     assert result.exit_code == 0
     mock_ctrl.run_install.assert_called_once_with(
-        "text-transform",
+        "data-designer-text-transform",
         catalog_alias=None,
         refresh=False,
         manager="pip",
@@ -62,22 +65,55 @@ def test_plugins_install_command_delegates_to_controller(mock_ctrl_cls: MagicMoc
     )
 
 
-def test_plugins_info_help_uses_package_or_runtime_plugin_argument() -> None:
+@patch("data_designer.cli.commands.plugins.PluginCatalogController")
+def test_plugins_uninstall_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
+    mock_ctrl = MagicMock()
+    mock_ctrl_cls.return_value = mock_ctrl
+
+    result = runner.invoke(
+        app,
+        ["plugins", "uninstall", "data-designer-text-transform", "--manager", "pip", "--yes", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    mock_ctrl.run_uninstall.assert_called_once_with(
+        "data-designer-text-transform",
+        catalog_alias=None,
+        refresh=False,
+        manager="pip",
+        yes=True,
+        dry_run=True,
+    )
+
+
+def test_plugins_info_help_uses_package_argument() -> None:
     result = runner.invoke(app, ["plugins", "info", "--help"])
 
     assert result.exit_code == 0
-    assert "PACKAGE_OR_PLUGIN" in result.output
-    assert "Package name or runtime plugin name" in result.output
+    assert "PACKAGE" in result.output
+    assert "Plugin package name or package alias" in result.output
+    assert "runtime plugin name" not in result.output
 
 
 def test_plugins_install_help_uses_package_first_wording() -> None:
     result = runner.invoke(app, ["plugins", "install", "--help"])
 
     assert result.exit_code == 0
-    assert "PACKAGE_OR_PLUGIN" in result.output
-    assert "Package name or runtime plugin name" in result.output
+    assert "PACKAGE" in result.output
+    assert "Plugin package name or package alias" in result.output
+    assert "runtime plugin name" not in result.output
     assert "Allow installing a catalog" in result.output
     assert "package when compatibility" in result.output
+
+
+def test_plugins_uninstall_help_uses_package_first_wording() -> None:
+    result = runner.invoke(app, ["plugins", "uninstall", "--help"])
+
+    assert result.exit_code == 0
+    assert "PACKAGE" in result.output
+    assert "Plugin package name or package alias" in result.output
+    assert "runtime plugin name" not in result.output
+    assert "Print the uninstall plan" in result.output
 
 
 @patch("data_designer.cli.commands.plugins.PluginCatalogController")
