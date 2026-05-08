@@ -130,6 +130,8 @@ class PluginCatalogController:
             if entry.install.index_url is not None:
                 console.print(f"  Index URL: [bold]{entry.install.index_url}[/bold]")
             console.print(f"  Install command: [bold]{shlex.join(plan.command)}[/bold]")
+            if plan.source_warning is not None:
+                print_warning(plan.source_warning)
         except ValueError as e:
             print_warning(str(e))
 
@@ -194,6 +196,9 @@ class PluginCatalogController:
             console.print(f"  Index URL: [bold]{entry.install.index_url}[/bold]")
         console.print(f"  Command: [bold]{shlex.join(plan.command)}[/bold]")
         self._display_compatibility(compatibility)
+
+        if plan.source_warning is not None:
+            print_warning(plan.source_warning)
 
         if not catalog.trusted:
             print_warning(

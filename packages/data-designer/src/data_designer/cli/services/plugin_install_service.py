@@ -22,6 +22,10 @@ from data_designer.cli.plugin_catalog import (
 )
 
 InstallRunner = Callable[[list[str]], int]
+PIP_EXTRA_INDEX_SOURCE_WARNING = (
+    "pip --extra-index-url is not source-pinned; pip may choose a same-named package from another configured index. "
+    "Use uv or a direct reference when strict source selection is required."
+)
 
 
 class PluginInstallService:
@@ -39,7 +43,7 @@ class PluginInstallService:
     ) -> InstallPlan:
         """Build the exact package-manager command for one catalog entry."""
         resolved_manager = _resolve_manager(manager)
-        install_args, source_description = _install_args_for_entry(entry, resolved_manager)
+        install_args, source_description, source_warning = _install_args_for_entry(entry, resolved_manager)
         command = _base_command(resolved_manager) + install_args
         return InstallPlan(
             package_name=entry.package.name,
@@ -48,6 +52,7 @@ class PluginInstallService:
             manager=resolved_manager,
             catalog_alias=catalog.alias,
             trusted_catalog=catalog.trusted,
+            source_warning=source_warning,
         )
 
     def build_uninstall_plan(
@@ -178,18 +183,20 @@ def _base_uninstall_command(manager: str) -> list[str]:
     return [sys.executable, "-m", "pip", "uninstall", "--yes"]
 
 
-def _install_args_for_entry(entry: PluginCatalogEntry, manager: str) -> tuple[list[str], str]:
+def _install_args_for_entry(entry: PluginCatalogEntry, manager: str) -> tuple[list[str], str, str | None]:
     requirement = entry.install.requirement
     index_url = entry.install.index_url
     if index_url is None:
-        return [requirement], requirement
+        return [requirement], requirement, None
 
     if manager == "uv":
         return (
             ["--default-index", PYPI_SIMPLE_INDEX_URL, "--index", index_url, requirement],
             f"{requirement} via {index_url}",
+            None,
         )
     return (
         ["--extra-index-url", index_url, requirement],
         f"{requirement} via {index_url}",
+        PIP_EXTRA_INDEX_SOURCE_WARNING,
     )

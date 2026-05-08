@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from packaging.markers import InvalidMarker, Marker
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import InvalidName, canonicalize_name
@@ -212,6 +213,7 @@ class InstallPlan:
     manager: str
     catalog_alias: str
     trusted_catalog: bool
+    source_warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -475,12 +477,22 @@ def _catalog_data_designer_compatibility(
             f"expected {str(requirement.specifier)!r} from requirement"
         )
 
-    marker = _required_catalog_nullable_string(f"{context}.marker", compatibility["marker"])
+    marker = _catalog_marker(package_name, f"{context}.marker", compatibility["marker"])
     expected_marker = str(requirement.marker) if requirement.marker is not None else None
     if marker != expected_marker:
         raise PluginCatalogError(
             f"package {package_name!r} has invalid {context}.marker {marker!r}; expected {expected_marker!r}"
         )
+
+
+def _catalog_marker(package_name: str, context: str, value: object) -> str | None:
+    raw_marker = _required_catalog_nullable_string(context, value)
+    if raw_marker is None:
+        return None
+    try:
+        return str(Marker(raw_marker))
+    except InvalidMarker as e:
+        raise PluginCatalogError(f"package {package_name!r} has invalid {context} {raw_marker!r}: {e}") from e
 
 
 def _catalog_http_url(context: str, value: object) -> str:

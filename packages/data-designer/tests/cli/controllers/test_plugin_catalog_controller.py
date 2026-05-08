@@ -179,6 +179,32 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     assert mock_console.print.call_count >= 1
 
 
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.display_config_preview")
+def test_run_info_warns_when_install_plan_has_source_warning(
+    mock_display_config_preview: MagicMock,
+    mock_console: MagicMock,
+    mock_print_warning: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog(trusted=True)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.install_service.build_install_plan.return_value = _plan(
+        catalog,
+        source_warning="pip source warning",
+    )
+
+    controller.run_info("text-transform", catalog_alias="local")
+
+    mock_print_warning.assert_called_once_with("pip source warning")
+    mock_display_config_preview.assert_called_once()
+    assert mock_console.print.call_count >= 1
+
+
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
 def test_run_info_rejects_runtime_plugin_name_that_is_not_package_alias(
     mock_print_error: MagicMock,
@@ -353,6 +379,29 @@ def test_run_install_force_allows_incompatible_entry_for_dry_run(
     controller.install_service.install.assert_not_called()
     mock_print_error.assert_not_called()
     mock_print_info.assert_any_call("Dry run complete; no changes made")
+    assert mock_console.print.call_count >= 1
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+def test_run_install_warns_when_install_plan_has_source_warning(
+    mock_print_warning: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog(trusted=True)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.install_service.build_install_plan.return_value = _plan(
+        catalog,
+        source_warning="pip source warning",
+    )
+
+    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
+
+    mock_print_warning.assert_called_once_with("pip source warning")
     assert mock_console.print.call_count >= 1
 
 
@@ -574,7 +623,7 @@ def _catalog(*, trusted: bool) -> PluginCatalogConfig:
     )
 
 
-def _plan(catalog: PluginCatalogConfig) -> InstallPlan:
+def _plan(catalog: PluginCatalogConfig, *, source_warning: str | None = None) -> InstallPlan:
     return InstallPlan(
         package_name="data-designer-text-transform",
         source_description="data-designer-text-transform",
@@ -582,6 +631,7 @@ def _plan(catalog: PluginCatalogConfig) -> InstallPlan:
         manager="pip",
         catalog_alias=catalog.alias,
         trusted_catalog=catalog.trusted,
+        source_warning=source_warning,
     )
 
 
