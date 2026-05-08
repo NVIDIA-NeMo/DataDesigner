@@ -178,7 +178,7 @@ Resume modes:
 - `ResumeMode.ALWAYS`: resume the existing dataset directory. Raises if the checkpoint is incompatible or cannot be resumed safely.
 - `ResumeMode.IF_POSSIBLE`: resume when the stored config fingerprint matches the current config; otherwise start a fresh timestamped run.
 
-Data Designer stores checkpoint state in `metadata.json` and the run configuration in `builder_config.json`. The sync engine resumes from `num_completed_batches`; the async engine scans completed `batch_*.parquet` row groups and reads parquet metadata to recover the actual row count already persisted.
+Data Designer stores the run configuration in `metadata.json` (`buffer_size`, `target_num_records`, config fingerprint) and `builder_config.json`. Both engines recover progress the same way: they scan completed `batch_*.parquet` row groups and read parquet metadata for the row count actually persisted. That keeps resume crash-safe even if a run was interrupted between writing a batch parquet and updating metadata, because the filesystem reflects the durable state even when metadata lags by a step.
 
 Resume has a few important invariants:
 

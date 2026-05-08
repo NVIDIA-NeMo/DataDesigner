@@ -1511,6 +1511,24 @@ def _write_metadata(dataset_dir: _Path, **fields) -> None:
     (dataset_dir / "metadata.json").write_text(_json.dumps(fields))
 
 
+def _write_parquet_files(
+    parquet_dir: _Path, row_group_ids: list[int], row_counts: dict[int, int] | None = None
+) -> None:
+    """Create batch_*.parquet files for the given row group IDs.
+
+    Both engines now derive ``num_completed_batches`` and ``actual_num_records`` from
+    these files at resume time, so any test that exercises the resume progress path
+    must seed the dataset directory with matching parquet files in addition to
+    ``metadata.json``.
+    """
+    parquet_dir.mkdir(parents=True, exist_ok=True)
+    for rg_id in row_group_ids:
+        count = row_counts.get(rg_id, 2) if row_counts is not None else 2
+        lazy.pd.DataFrame({"value": list(range(count))}).to_parquet(
+            parquet_dir / f"batch_{rg_id:05d}.parquet", index=False
+        )
+
+
 def _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, *, buffer_size: int = 2):
     """Return a DatasetBuilder whose ArtifactStorage has resume=ResumeMode.ALWAYS."""
     storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.ALWAYS)
@@ -1555,6 +1573,8 @@ def test_build_resume_raises_when_num_records_below_actual(stub_resource_provide
         num_completed_batches=3,
         actual_num_records=6,
     )
+    # Six records on disk drive the actual_num_records check; metadata is informational only.
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2])
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with pytest.raises(DatasetGenerationError, match="num_records=4 is less than the 6 records already generated"):
@@ -1643,7 +1663,7 @@ def test_build_resume_logs_warning_when_already_complete(
 ):
     """resume=True on a fully-complete dataset logs a warning and returns without generating."""
     dataset_dir = tmp_path / "dataset"
-    # 4 records, 2 per batch = 2 batches; num_completed_batches == 2 → already done
+    # 4 records, 2 per batch = 2 batches; both row groups on disk → already done
     _write_metadata(
         dataset_dir,
         target_num_records=4,
@@ -1651,6 +1671,7 @@ def test_build_resume_logs_warning_when_already_complete(
         num_completed_batches=2,
         actual_num_records=4,
     )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with caplog.at_level(logging.WARNING):
@@ -1671,6 +1692,7 @@ def test_build_resume_already_complete_does_not_run_after_generation_processors(
         num_completed_batches=2,
         actual_num_records=4,
     )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
@@ -1794,6 +1816,8 @@ def test_build_resume_not_already_complete_when_extension_fits_in_slack(
     """
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    # Three row groups [2, 2, 1] on disk so the unified resume path sees 3 completed batches.
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
@@ -1806,21 +1830,58 @@ def test_build_resume_not_already_complete_when_extension_fits_in_slack(
     assert mock_run_batch.call_args.kwargs["current_batch_number"] == 3
 
 
+def test_build_resume_recovers_progress_from_disk_when_metadata_lags(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """Sync resume uses parquet files on disk as the source of truth for progress.
+
+    Crash window: ``move_partial_result_to_final_file_path`` succeeded for batch 1 but
+    ``write_metadata`` had not yet committed the matching ``num_completed_batches`` /
+    ``actual_num_records`` update. Before unification, sync took the stale metadata
+    counters at face value and re-generated batch 1, double-counting records. After
+    unification, both engines derive progress from ``parquet-files/batch_*.parquet``,
+    so this scenario resolves to "already complete" and skips redundant generation.
+    """
+    dataset_dir = tmp_path / "dataset"
+    # Metadata lags — claims only 1 batch / 2 records committed.
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+    # Filesystem truth — both row groups written before the crash.
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with caplog.at_level(logging.WARNING):
+        with patch.object(builder, "_run_batch") as mock_run_batch:
+            with patch.object(builder.batch_manager, "finish"):
+                with patch.object(builder, "_run_model_health_check_if_needed"):
+                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    mock_run_batch.assert_not_called()
+    assert any("already complete" in record.message for record in caplog.records)
+
+
+def test_build_resume_raises_on_non_contiguous_batch_ids_under_sync(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Sync resume rejects non-contiguous parquet IDs (likely written by an incompatible engine).
+
+    The sync engine writes batches sequentially, so a hole between batch 0 and batch 2
+    can only mean external mutation or data written by a different engine (e.g. the
+    async engine, which can complete row groups out of order). Letting sync proceed
+    would silently re-generate batch 1 with stale row counters; raising surfaces the
+    inconsistency loudly.
+    """
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 2])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="non-contiguous"):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+
 # ---------------------------------------------------------------------------
 # Async resume via _build_async tests
 # ---------------------------------------------------------------------------
-
-
-def _write_parquet_files(
-    parquet_dir: _Path, row_group_ids: list[int], row_counts: dict[int, int] | None = None
-) -> None:
-    """Create batch_*.parquet files for the given row group IDs."""
-    parquet_dir.mkdir(parents=True, exist_ok=True)
-    for rg_id in row_group_ids:
-        count = row_counts.get(rg_id, 2) if row_counts is not None else 2
-        lazy.pd.DataFrame({"value": list(range(count))}).to_parquet(
-            parquet_dir / f"batch_{rg_id:05d}.parquet", index=False
-        )
 
 
 def test_build_async_resume_logs_warning_when_already_complete(

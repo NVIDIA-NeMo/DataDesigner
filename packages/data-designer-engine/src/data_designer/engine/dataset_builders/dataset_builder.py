@@ -117,6 +117,7 @@ class _ResumeState:
     buffer_size: int
     target_num_records: int
     original_target_num_records: int
+    completed_row_groups: dict[int, int]
 
 
 class DatasetBuilder:
@@ -416,14 +417,25 @@ class DatasetBuilder:
         )
 
     def _load_resume_state(self, num_records: int, buffer_size: int) -> _ResumeState:
-        """Read and validate resume state from an existing metadata.json.
+        """Read and validate resume state from metadata + the filesystem.
 
-        ``num_records`` must be >= the number of records already generated (you may extend
-        the dataset, but cannot shrink it below what has been written). ``buffer_size`` must
-        exactly match the original run because it determines row-group boundaries.
+        ``metadata.json`` is the source of truth for the run *configuration*
+        (``buffer_size``, ``target_num_records``, ``original_target_num_records``,
+        config fingerprint). The filesystem (``parquet-files/batch_*.parquet``) is
+        the source of truth for run *progress* (``num_completed_batches``,
+        ``actual_num_records``). Splitting the two sources is what lets resume
+        survive a crash between writing a batch and updating metadata: the
+        filesystem reflects the durable state even when metadata lags by a step.
+
+        ``num_records`` must be >= the number of records already on disk (you may
+        extend a dataset, but cannot shrink it below what has been written).
+        ``buffer_size`` must match the original run because it determines row-group
+        boundaries. The sync engine additionally requires contiguous batch IDs;
+        the async engine tolerates holes from out-of-order completion.
 
         Raises:
-            DatasetGenerationError: If metadata is missing or incompatible with the current run parameters.
+            DatasetGenerationError: If metadata is missing or incompatible, or if
+                the filesystem state is inconsistent with the engine in use.
         """
         try:
             metadata = self.artifact_storage.read_metadata()
@@ -438,7 +450,10 @@ class DatasetBuilder:
                 "Start a fresh run with resume=ResumeMode.NEVER, or restore a valid metadata.json."
             ) from exc
 
-        actual_num_records = metadata.get("actual_num_records", 0)
+        num_completed_batches, actual_num_records, completed_row_groups = self._recover_progress_from_disk(
+            allow_holes=self._use_async,
+        )
+
         if num_records < actual_num_records:
             raise DatasetGenerationError(
                 f"🛑 Cannot resume: num_records={num_records} is less than the {actual_num_records} "
@@ -452,7 +467,7 @@ class DatasetBuilder:
                 "🛑 Cannot resume: metadata.json is missing required field 'target_num_records'. "
                 "Start a fresh run with resume=ResumeMode.NEVER, or restore a valid metadata.json."
             )
-        if target_num_records is not None and num_records < target_num_records:
+        if num_records < target_num_records:
             raise DatasetGenerationError(
                 f"🛑 Cannot resume: num_records={num_records} is less than the original target "
                 f"({target_num_records}). To resume, use num_records >= {target_num_records} "
@@ -469,11 +484,12 @@ class DatasetBuilder:
             )
 
         return _ResumeState(
-            num_completed_batches=metadata["num_completed_batches"],
+            num_completed_batches=num_completed_batches,
             actual_num_records=actual_num_records,
             buffer_size=buffer_size,
             target_num_records=target_num_records,
             original_target_num_records=metadata.get("original_target_num_records", target_num_records),
+            completed_row_groups=completed_row_groups,
         )
 
     def _build_with_resume(
@@ -651,6 +667,37 @@ class DatasetBuilder:
                 continue
         return row_groups
 
+    def _recover_progress_from_disk(self, *, allow_holes: bool) -> tuple[int, int, dict[int, int]]:
+        """Derive resume progress counters from completed parquet files on disk.
+
+        The filesystem is the source of truth for ``num_completed_batches`` and
+        ``actual_num_records`` because a crash between
+        ``move_partial_result_to_final_file_path`` and the metadata write that follows
+        can leave parquet files on disk while metadata still reports stale counters.
+        Both engines use the same scan so resume semantics stay consistent.
+
+        Args:
+            allow_holes: ``True`` for the async engine, which schedules row groups
+                concurrently and may complete them out of order. ``False`` for the sync
+                engine, which writes batches sequentially — a non-contiguous set of IDs
+                indicates external mutation or a directory written by an incompatible
+                engine and is rejected with ``DatasetGenerationError``.
+
+        Returns:
+            ``(num_completed_batches, actual_num_records, completed_row_groups)``.
+        """
+        completed_row_groups = self._find_completed_row_groups()
+        if completed_row_groups and not allow_holes:
+            ids = sorted(completed_row_groups)
+            if ids != list(range(len(ids))):
+                raise DatasetGenerationError(
+                    "🛑 Cannot resume: completed batch files on disk are non-contiguous "
+                    f"(found row group IDs {ids}). The dataset directory may have been "
+                    "written by an incompatible engine or modified externally. Use "
+                    "resume=ResumeMode.NEVER to start a new run."
+                )
+        return len(completed_row_groups), sum(completed_row_groups.values()), completed_row_groups
+
     def _check_resume_config_compatibility(self) -> _ConfigCompatibility:
         """Compare the current config fingerprint against stored resume identity.
 
@@ -749,14 +796,16 @@ class DatasetBuilder:
 
         if resume == ResumeMode.ALWAYS:
             state = self._load_resume_state(num_records, buffer_size)
-            completed_row_groups = self._find_completed_row_groups()
+            # _load_resume_state already scans the filesystem for completed row groups
+            # and exposes them via state.completed_row_groups. The filesystem is the
+            # source of truth for progress (metadata may lag by one row group between
+            # move_partial_result_to_final_file_path and write_metadata).
+            completed_row_groups = state.completed_row_groups
             completed_ids = set(completed_row_groups)
-            # Use filesystem as source of truth for both counters — metadata may lag by one
-            # row group if a crash occurred between move_partial_result_to_final_file_path
-            # and write_metadata.
+            initial_total_num_batches = state.num_completed_batches
+            initial_actual_num_records = state.actual_num_records
             # Use the original target (not the new num_records) so the last row group of a
             # non-aligned run gets its true size, not buffer_size.
-            initial_total_num_batches = len(completed_row_groups)
             original_target = state.original_target_num_records
 
             num_original_groups = -(-original_target // buffer_size)  # ceil(original_target/buffer_size)
@@ -767,7 +816,6 @@ class DatasetBuilder:
                 ext_group_idx = rg_id - num_original_groups
                 return min(buffer_size, (num_records - original_target) - ext_group_idx * buffer_size)
 
-            initial_actual_num_records = sum(completed_row_groups.values())
             self.artifact_storage.clear_partial_results()
 
             # Original groups are immutable; any extension always needs new groups beyond
