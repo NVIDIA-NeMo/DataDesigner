@@ -355,6 +355,15 @@ class DatasetBuilder:
                 "or start a new run without resume=ResumeMode.ALWAYS."
             )
 
+        target_num_records = metadata.get("target_num_records")
+        if target_num_records is not None and num_records < target_num_records:
+            raise DatasetGenerationError(
+                f"🛑 Cannot resume: num_records={num_records} is less than the original target "
+                f"({target_num_records}). To resume, use num_records >= {target_num_records} "
+                "(you may extend the dataset beyond the original target). "
+                "Use resume=ResumeMode.NEVER to start a new run."
+            )
+
         meta_buffer_size = metadata.get("buffer_size")
         if meta_buffer_size != buffer_size:
             raise DatasetGenerationError(

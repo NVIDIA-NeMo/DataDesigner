@@ -1504,6 +1504,24 @@ def test_build_resume_raises_when_num_records_below_actual(stub_resource_provide
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
 
+def test_build_resume_raises_when_num_records_below_original_target(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """resume=ALWAYS raises when num_records is between actual and original target (negative extension_records)."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=10,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="num_records=7 is less than the original target"):
+        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+
+
 def test_build_resume_allows_larger_num_records(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
     """resume=ALWAYS succeeds when num_records > original target (extending the dataset)."""
     dataset_dir = tmp_path / "dataset"
