@@ -504,7 +504,7 @@ check-fern-docs: prepare-fern-docs
 	cd fern && $(FERN) check
 
 serve-fern-docs-locally: prepare-fern-docs
-	cd fern && $(FERN) docs dev
+	cd fern && PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true $(FERN) docs dev
 
 convert-execute-notebooks:
 ifeq ($(USE_CACHE),1)

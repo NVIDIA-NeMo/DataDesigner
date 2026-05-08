@@ -972,7 +972,7 @@ docs = [
     { name = "mkdocs-redirects", specifier = ">=1.2.2,<2" },
     { name = "mkdocstrings", specifier = ">=0.30.1,<1" },
     { name = "mkdocstrings-python", specifier = ">=1.18.2,<2" },
-    { name = "py2fern", specifier = ">=0.1.6,<1" },
+    { name = "py2fern", specifier = "==0.1.6" },
     { name = "pymdown-extensions", specifier = ">=10.21.2,<11" },
 ]
 notebooks = [

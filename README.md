@@ -110,6 +110,12 @@ preview.display_sample_record()
 - **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/model-configs/)** – Configure custom models and providers
 - **[Person Sampling](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/)** – Learn how to sample realistic person data with demographic attributes
 
+### 📝 Documentation transition
+
+Data Designer is gradually moving documentation from MkDocs to Fern. During the transition, maintainers publish both docs builds for a few releases so the Fern site can mature without losing the existing MkDocs release archive.
+
+Contributors should keep editing the existing docs sources under `docs/`. Tutorial notebook source lives in `docs/notebook_source/*.py`; generated notebooks and Fern artifacts are not the source of truth.
+
 ### 🔧 Configure models via CLI
 
 ```bash
@@ -141,7 +147,7 @@ This repository supports agent-assisted development — see [CONTRIBUTING.md](CO
 
 ## Telemetry
 
-Data Designer collects telemetry to help us improve the library for developers. This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community. 
+Data Designer collects telemetry to help us improve the library for developers. This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community.
 
 Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and-privacy)**
 

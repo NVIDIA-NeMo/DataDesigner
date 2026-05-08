@@ -48,15 +48,15 @@ versions:
 - display-name: "Latest · v0.5.9"
   path: versions/latest.yml
   slug: latest
-  availability: stable
 - display-name: "v0.5.9"
   path: versions/v0.5.9.yml
   slug: v0.5.9
-  availability: stable
 - display-name: "v0.5.8"
   path: versions/v0.5.8.yml
   slug: v0.5.8
-  availability: stable
+- display-name: "Older versions"
+  path: versions/older.yml
+  slug: older-versions
 
 libraries:
   data-designer:

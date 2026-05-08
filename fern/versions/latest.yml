@@ -148,7 +148,9 @@ navigation:
   - section: Dev Notes
     contents:
       - page: Overview
-        path: ./v0.5.8/pages/devnotes/index.mdx
+        path: ./latest/pages/devnotes/index.mdx
+      - page: VLM Long Document Understanding
+        path: ./latest/pages/devnotes/posts/vlm-long-document-understanding.mdx
       - page: Push Datasets to Hugging Face Hub
         path: ./v0.5.8/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
       - page: Text-to-SQL for Nemotron Super

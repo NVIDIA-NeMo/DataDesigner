@@ -2,6 +2,16 @@
 
 This folder is the Fern Docs build for NeMo Data Designer. The site currently deploys to **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`**; [`docs.yml`](docs.yml) also declares the future `docs.nvidia.com/nemo/datadesigner` custom domain.
 
+## Migration phase
+
+Data Designer is moving from MkDocs to Fern over several releases. During that transition:
+
+- Keep the MkDocs build and release archive working.
+- Keep Fern working in parallel for local checks and hosted validation.
+- Treat `docs/` as the docs source of truth unless a page has already been intentionally moved to Fern-only MDX.
+- Treat `docs/notebook_source/*.py` as the notebook source of truth.
+- Keep generated Fern API reference and notebook artifacts gitignored.
+
 ## Prerequisites
 
 ```bash
@@ -53,17 +63,21 @@ Current Fern versions:
 
 ```
 fern/versions/
-├── latest.yml       ← rolling nav file (reuses ./v0.5.8/pages/...)
-├── v0.5.9.yml       ← release nav file (reuses ./v0.5.8/pages/...)
-├── v0.5.8.yml       ← real nav file (reuses ./v0.5.8/pages/...)
-└── v0.5.8/pages/... ← shared migrated MDX tree
+├── latest.yml          ← rolling nav file
+├── latest/pages/...    ← latest-only page overrides
+├── v0.5.9.yml          ← release nav file
+├── v0.5.9/pages/...    ← v0.5.9-only page overrides
+├── v0.5.8.yml          ← first migrated release nav file
+├── v0.5.8/pages/...    ← shared migrated MDX tree
+├── older.yml           ← older versions landing page
+└── older/pages/...     ← links to the MkDocs archive
 ```
 
-`docs.yml` registers `slug: latest`, `slug: v0.5.9`, and `slug: v0.5.8`. The `latest` and `v0.5.9` nav files intentionally reuse the migrated `v0.5.8/pages/` tree so the first Fern-native version does not duplicate every page. Add version-specific page copies only when content diverges.
+`docs.yml` registers `slug: latest`, `slug: v0.5.9`, `slug: v0.5.8`, and `slug: older-versions`. The `latest` and `v0.5.9` nav files intentionally reuse the migrated `v0.5.8/pages/` tree for most content so the first Fern-native versions do not duplicate every page. Add version-specific page copies only when content diverges.
 
-Dev Notes are rolling release: `latest.yml` can include posts from `main` that are not in the release nav yet. Frozen release navs (`v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point.
+Dev Notes are versioned: `latest.yml` can include posts from `main` that are not in old release navs yet. Frozen release navs (`v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point.
 
-Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. `docs.yml` has temporary redirects from `/nemo/datadesigner/v<version>/...` to those archive URLs for versions without a real Fern tree.
+Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. The Fern version picker includes an "Older versions" page linking to those archives.
 
 When cutting future Fern-native versions, add a version YAML that reuses shared pages by default. Copy only pages that need version-specific content.
 
@@ -89,11 +103,12 @@ fern/
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
-├── code-reference/            ← gitignored; populated by `fern docs md generate`
+├── code-reference/            ← gitignored; populated by `make generate-fern-api-reference`
 └── versions/
     ├── latest.yml             ← rolling navigation tree
-    ├── v0.5.9.yml             ← release navigation tree, reuses v0.5.8/pages/
+    ├── v0.5.9.yml             ← release navigation tree
     ├── v0.5.8.yml             ← navigation tree
+    ├── older.yml              ← older versions landing page
     └── v0.5.8/pages/          ← shared MDX content
 ```
 
