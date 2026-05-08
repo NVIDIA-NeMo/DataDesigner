@@ -3,21 +3,29 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import click
 import typer
 
+from data_designer.cli.commands.generation_args import resolve_generation_config_target
 from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 from data_designer.interface.results import SUPPORTED_EXPORT_FORMATS
 
 
 def create_command(
-    config_source: str = typer.Argument(
-        help=(
-            "Path or URL to a config file (.yaml/.yml/.json), or a local Python module (.py)"
-            " that defines a load_config_builder() function."
+    workflow_args: Annotated[
+        list[str] | None,
+        typer.Argument(
+            metavar="[CONFIG_SOURCE] [-- WORKFLOW_ARGS]",
+            help=(
+                "Path or URL to a config file (.yaml/.yml/.json), or a local Python module (.py)"
+                " that defines a load_config_builder() function. Extra arguments after '--' are forwarded to Python"
+                " workflows."
+            ),
         ),
-    ),
+    ] = None,
     num_records: int = typer.Option(
         DEFAULT_NUM_RECORDS,
         "--num-records",
@@ -67,9 +75,11 @@ def create_command(
         # Create from a Python module with custom output path
         data-designer create my_config.py --artifact-path /path/to/output
     """
+    target = resolve_generation_config_target(workflow_args)
     controller = GenerationController()
     controller.run_create(
-        config_source=config_source,
+        config_source=target.config_source,
+        workflow_args=target.workflow_args,
         num_records=num_records,
         dataset_name=dataset_name,
         artifact_path=artifact_path,

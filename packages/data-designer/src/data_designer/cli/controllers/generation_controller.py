@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING, Literal
 import typer
 
 from data_designer.cli.ui import console, print_error, print_header, print_success, wait_for_navigation_key
-from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder
+from data_designer.cli.utils.config_loader import ConfigLoadError, WorkflowHelpRequested, load_config_builder
 from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_sample_records_pager
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.script_params import DataDesignerScriptParams
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.interface import DataDesigner
 from data_designer.logging import LOG_INDENT
@@ -31,13 +32,14 @@ class GenerationController:
 
     def run_preview(
         self,
-        config_source: str,
+        config_source: str | None,
         num_records: int,
         non_interactive: bool,
         save_results: bool = False,
         artifact_path: str | None = None,
         theme: Literal["dark", "light"] = "dark",
         display_width: int = DEFAULT_DISPLAY_WIDTH,
+        workflow_args: tuple[str, ...] = (),
     ) -> None:
         """Load config, generate a preview dataset, and display the results.
 
@@ -49,8 +51,9 @@ class GenerationController:
             artifact_path: Directory to save results in, or None for ./artifacts.
             theme: Color theme for HTML output (dark or light).
             display_width: Maximum width of the rendered record output in characters.
+            workflow_args: Arguments forwarded to Python config workflows.
         """
-        config_builder = self._load_config(config_source)
+        config_builder = self._load_config(config_source, workflow_args=workflow_args)
 
         print_header("Data Designer Preview")
         console.print(f"  Config: [bold]{config_source}[/bold]")
@@ -86,13 +89,18 @@ class GenerationController:
         console.print()
         print_success(f"Preview complete — {total} record(s) generated")
 
-    def run_validate(self, config_source: str) -> None:
+    def run_validate(
+        self,
+        config_source: str,
+        workflow_args: tuple[str, ...] = (),
+    ) -> None:
         """Load config and validate it against the engine.
 
         Args:
             config_source: Path to a config file or Python module.
+            workflow_args: Arguments forwarded to Python config workflows.
         """
-        config_builder = self._load_config(config_source)
+        config_builder = self._load_config(config_source, workflow_args=workflow_args)
 
         print_header("Data Designer Validate")
         console.print(f"  Config: [bold]{config_source}[/bold]")
@@ -112,11 +120,12 @@ class GenerationController:
 
     def run_create(
         self,
-        config_source: str,
+        config_source: str | None,
         num_records: int,
         dataset_name: str,
         artifact_path: str | None,
         output_format: str | None = None,
+        workflow_args: tuple[str, ...] = (),
     ) -> None:
         """Load config, create a full dataset, and save results to disk.
 
@@ -127,8 +136,9 @@ class GenerationController:
             artifact_path: Path where generated artifacts will be stored, or None for default.
             output_format: If set, export the dataset to a single file in this format after
                 generation. One of 'jsonl', 'csv', 'parquet'.
+            workflow_args: Arguments forwarded to Python config workflows.
         """
-        config_builder = self._load_config(config_source)
+        config_builder = self._load_config(config_source, workflow_args=workflow_args)
 
         resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
 
@@ -174,11 +184,16 @@ class GenerationController:
         print_success(f"Dataset created — {actual_record_count} record(s) generated")
         console.print()
 
-    def _load_config(self, config_source: str) -> DataDesignerConfigBuilder:
+    def _load_config(
+        self,
+        config_source: str,
+        workflow_args: tuple[str, ...] = (),
+    ) -> DataDesignerConfigBuilder:
         """Load a config builder from the given source, exiting on failure.
 
         Args:
             config_source: Path to a config file or Python module.
+            workflow_args: Arguments forwarded to Python config workflows.
 
         Returns:
             A DataDesignerConfigBuilder instance.
@@ -186,8 +201,11 @@ class GenerationController:
         Raises:
             typer.Exit: If the config cannot be loaded.
         """
+        script_params = DataDesignerScriptParams(argv=workflow_args)
         try:
-            return load_config_builder(config_source)
+            return load_config_builder(config_source, script_params=script_params)
+        except WorkflowHelpRequested as e:
+            raise typer.Exit(code=0) from e
         except ConfigLoadError as e:
             print_error(str(e))
             raise typer.Exit(code=1)

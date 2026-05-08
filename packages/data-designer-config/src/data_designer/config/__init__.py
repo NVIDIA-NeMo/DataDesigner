@@ -82,6 +82,7 @@ if TYPE_CHECKING:
         UniformSamplerParams,
         UUIDSamplerParams,
     )
+    from data_designer.config.script_params import DataDesignerScriptParams  # noqa: F401
     from data_designer.config.seed import (  # noqa: F401
         IndexRange,
         PartitionBlock,
@@ -204,6 +205,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "PartitionBlock": (_MOD_SEED, "PartitionBlock"),
     "SamplingStrategy": (_MOD_SEED, "SamplingStrategy"),
     "SeedConfig": (_MOD_SEED, "SeedConfig"),
+    # script params
+    "DataDesignerScriptParams": (f"{_MOD_BASE}.script_params", "DataDesignerScriptParams"),
     # seed_source
     "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
     "AgentRolloutFormat": (_MOD_SEED_SOURCE, "AgentRolloutFormat"),
