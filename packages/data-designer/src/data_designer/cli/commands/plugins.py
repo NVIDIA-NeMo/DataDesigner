@@ -13,15 +13,15 @@ from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 def list_command(
     ctx: typer.Context,
-    tap: str | None = typer.Option(
+    catalog: str | None = typer.Option(
         None,
-        "--tap",
-        help="Plugin tap alias to read. Can also be provided before the subcommand.",
+        "--catalog",
+        help="Plugin catalog alias to read. Can also be provided before the subcommand.",
     ),
     refresh: bool = typer.Option(
         False,
         "--refresh",
-        help="Fetch the tap catalog even when a fresh cache entry exists.",
+        help="Fetch the catalog even when a fresh cache entry exists.",
     ),
     include_incompatible: bool = typer.Option(
         False,
@@ -29,10 +29,10 @@ def list_command(
         help="Show plugins that do not satisfy the local Python or Data Designer version.",
     ),
 ) -> None:
-    """List discoverable Data Designer plugins from a tap catalog."""
+    """List discoverable Data Designer plugins from a catalog."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_list(
-        tap_alias=_resolve_tap_alias(ctx, tap),
+        catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
         include_incompatible=include_incompatible,
     )
@@ -41,17 +41,17 @@ def list_command(
 def search_command(
     ctx: typer.Context,
     query: str = typer.Argument(
-        help="Keyword, plugin type, package name, source, docs URL, or entry point to search for."
+        help="Keyword, plugin type, package name, requirement, docs URL, or entry point to search for."
     ),
-    tap: str | None = typer.Option(
+    catalog: str | None = typer.Option(
         None,
-        "--tap",
-        help="Plugin tap alias to search. Can also be provided before the subcommand.",
+        "--catalog",
+        help="Plugin catalog alias to search. Can also be provided before the subcommand.",
     ),
     refresh: bool = typer.Option(
         False,
         "--refresh",
-        help="Fetch the tap catalog even when a fresh cache entry exists.",
+        help="Fetch the catalog even when a fresh cache entry exists.",
     ),
     include_incompatible: bool = typer.Option(
         False,
@@ -59,11 +59,11 @@ def search_command(
         help="Search plugins that do not satisfy the local Python or Data Designer version.",
     ),
 ) -> None:
-    """Search discoverable Data Designer plugins from a tap catalog."""
+    """Search discoverable Data Designer plugins from a catalog."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_search(
         query,
-        tap_alias=_resolve_tap_alias(ctx, tap),
+        catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
         include_incompatible=include_incompatible,
     )
@@ -71,39 +71,39 @@ def search_command(
 
 def info_command(
     ctx: typer.Context,
-    plugin_name: str = typer.Argument(help="Plugin name from the tap catalog."),
-    tap: str | None = typer.Option(
+    plugin_name: str = typer.Argument(help="Runtime plugin name or package name from the catalog."),
+    catalog: str | None = typer.Option(
         None,
-        "--tap",
-        help="Plugin tap alias to read. Can also be provided before the subcommand.",
+        "--catalog",
+        help="Plugin catalog alias to read. Can also be provided before the subcommand.",
     ),
     refresh: bool = typer.Option(
         False,
         "--refresh",
-        help="Fetch the tap catalog even when a fresh cache entry exists.",
+        help="Fetch the catalog even when a fresh cache entry exists.",
     ),
 ) -> None:
-    """Show metadata, compatibility, docs, and install plan for one plugin."""
+    """Show metadata, compatibility, docs, and install plan for one plugin package."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_info(
         plugin_name,
-        tap_alias=_resolve_tap_alias(ctx, tap),
+        catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
     )
 
 
 def install_command(
     ctx: typer.Context,
-    plugin_name: str = typer.Argument(help="Plugin name from the tap catalog."),
-    tap: str | None = typer.Option(
+    plugin_name: str = typer.Argument(help="Runtime plugin name or package name from the catalog."),
+    catalog: str | None = typer.Option(
         None,
-        "--tap",
-        help="Plugin tap alias to install from. Can also be provided before the subcommand.",
+        "--catalog",
+        help="Plugin catalog alias to install from. Can also be provided before the subcommand.",
     ),
     refresh: bool = typer.Option(
         False,
         "--refresh",
-        help="Fetch the tap catalog even when a fresh cache entry exists.",
+        help="Fetch the catalog even when a fresh cache entry exists.",
     ),
     manager: str = typer.Option(
         "auto",
@@ -132,7 +132,7 @@ def install_command(
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_install(
         plugin_name,
-        tap_alias=_resolve_tap_alias(ctx, tap),
+        catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
         manager=manager,
         yes=yes,
@@ -143,26 +143,28 @@ def install_command(
 
 def installed_command(ctx: typer.Context) -> None:
     """List installed Data Designer plugin entry points."""
-    _warn_if_parent_tap_unused(ctx, "installed plugins are discovered from the current Python environment")
+    _warn_if_parent_catalog_unused(ctx, "installed plugins are discovered from the current Python environment")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_installed()
 
 
-def taps_list_command(ctx: typer.Context) -> None:
-    """List configured plugin taps."""
-    _warn_if_parent_tap_unused(ctx, "tap management commands operate on aliases directly")
+def catalogs_list_command(ctx: typer.Context) -> None:
+    """List configured plugin catalogs."""
+    _warn_if_parent_catalog_unused(ctx, "catalog management commands operate on aliases directly")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
-    controller.run_taps_list()
+    controller.run_catalogs_list()
 
 
-def taps_add_command(
+def catalogs_add_command(
     ctx: typer.Context,
-    alias: str = typer.Argument(help="Local alias for the plugin tap."),
-    url: str = typer.Argument(help="Tap repository URL, catalog URL, local catalog file, or local tap directory."),
+    alias: str = typer.Argument(help="Local alias for the plugin catalog."),
+    url: str = typer.Argument(
+        help="Catalog repository URL, catalog URL, local catalog file, or local catalog directory."
+    ),
     trusted: bool = typer.Option(
         False,
         "--trusted",
-        help="Mark the tap as trusted for install-plan display and confirmations.",
+        help="Mark the catalog as trusted for install-plan display and confirmations.",
     ),
     cache_ttl_seconds: int = typer.Option(
         24 * 60 * 60,
@@ -171,10 +173,10 @@ def taps_add_command(
         help="Seconds before cached catalog metadata is refreshed. Use 0 to always refresh.",
     ),
 ) -> None:
-    """Add a plugin tap alias."""
-    _warn_if_parent_tap_unused(ctx, "tap management commands operate on aliases directly")
+    """Add a plugin catalog alias."""
+    _warn_if_parent_catalog_unused(ctx, "catalog management commands operate on aliases directly")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
-    controller.run_taps_add(
+    controller.run_catalogs_add(
         alias=alias,
         url=url,
         trusted=trusted,
@@ -182,36 +184,36 @@ def taps_add_command(
     )
 
 
-def taps_remove_command(
+def catalogs_remove_command(
     ctx: typer.Context,
-    alias: str = typer.Argument(help="Plugin tap alias to remove."),
+    alias: str = typer.Argument(help="Plugin catalog alias to remove."),
 ) -> None:
-    """Remove a plugin tap alias."""
-    _warn_if_parent_tap_unused(ctx, "tap management commands operate on aliases directly")
+    """Remove a plugin catalog alias."""
+    _warn_if_parent_catalog_unused(ctx, "catalog management commands operate on aliases directly")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
-    controller.run_taps_remove(alias=alias)
+    controller.run_catalogs_remove(alias=alias)
 
 
-def _resolve_tap_alias(ctx: typer.Context, tap_alias: str | None) -> str | None:
-    if tap_alias is not None:
-        return tap_alias
+def _resolve_catalog_alias(ctx: typer.Context, catalog_alias: str | None) -> str | None:
+    if catalog_alias is not None:
+        return catalog_alias
 
-    return _parent_tap_alias(ctx)
+    return _parent_catalog_alias(ctx)
 
 
-def _parent_tap_alias(ctx: typer.Context) -> str | None:
-    """Return --tap from the plugins parent command when present."""
+def _parent_catalog_alias(ctx: typer.Context) -> str | None:
+    """Return --catalog from the plugins parent command when present."""
 
     parent = ctx.parent
     while parent is not None:
-        candidate = parent.params.get("tap") if parent.params else None
+        candidate = parent.params.get("catalog") if parent.params else None
         if isinstance(candidate, str) and candidate:
             return candidate
         parent = parent.parent
     return None
 
 
-def _warn_if_parent_tap_unused(ctx: typer.Context, reason: str) -> None:
-    tap_alias = _parent_tap_alias(ctx)
-    if tap_alias is not None:
-        print_info(f"Ignoring --tap {tap_alias!r}; {reason}.")
+def _warn_if_parent_catalog_unused(ctx: typer.Context, reason: str) -> None:
+    catalog_alias = _parent_catalog_alias(ctx)
+    if catalog_alias is not None:
+        print_info(f"Ignoring --catalog {catalog_alias!r}; {reason}.")

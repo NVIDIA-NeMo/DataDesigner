@@ -17,11 +17,11 @@ def test_plugins_list_command_delegates_to_controller(mock_ctrl_cls: MagicMock) 
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "--tap", "research", "list", "--refresh", "--include-incompatible"])
+    result = runner.invoke(app, ["plugins", "--catalog", "research", "list", "--refresh", "--include-incompatible"])
 
     assert result.exit_code == 0
     mock_ctrl.run_list.assert_called_once_with(
-        tap_alias="research",
+        catalog_alias="research",
         refresh=True,
         include_incompatible=True,
     )
@@ -32,12 +32,12 @@ def test_plugins_search_command_delegates_to_controller(mock_ctrl_cls: MagicMock
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "search", "github", "--tap", "research"])
+    result = runner.invoke(app, ["plugins", "search", "github", "--catalog", "research"])
 
     assert result.exit_code == 0
     mock_ctrl.run_search.assert_called_once_with(
         "github",
-        tap_alias="research",
+        catalog_alias="research",
         refresh=False,
         include_incompatible=False,
     )
@@ -53,7 +53,7 @@ def test_plugins_install_command_delegates_to_controller(mock_ctrl_cls: MagicMoc
     assert result.exit_code == 0
     mock_ctrl.run_install.assert_called_once_with(
         "text-transform",
-        tap_alias=None,
+        catalog_alias=None,
         refresh=False,
         manager="pip",
         yes=True,
@@ -63,7 +63,7 @@ def test_plugins_install_command_delegates_to_controller(mock_ctrl_cls: MagicMoc
 
 
 @patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_taps_add_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
+def test_plugins_catalogs_add_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
@@ -71,7 +71,7 @@ def test_plugins_taps_add_command_delegates_to_controller(mock_ctrl_cls: MagicMo
         app,
         [
             "plugins",
-            "taps",
+            "catalogs",
             "add",
             "research",
             "https://github.com/acme/dd-plugins",
@@ -82,7 +82,7 @@ def test_plugins_taps_add_command_delegates_to_controller(mock_ctrl_cls: MagicMo
     )
 
     assert result.exit_code == 0
-    mock_ctrl.run_taps_add.assert_called_once_with(
+    mock_ctrl.run_catalogs_add.assert_called_once_with(
         alias="research",
         url="https://github.com/acme/dd-plugins",
         trusted=True,
@@ -92,35 +92,35 @@ def test_plugins_taps_add_command_delegates_to_controller(mock_ctrl_cls: MagicMo
 
 @patch("data_designer.cli.commands.plugins.print_info")
 @patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_installed_warns_when_parent_tap_is_unused(
+def test_plugins_installed_warns_when_parent_catalog_is_unused(
     mock_ctrl_cls: MagicMock,
     mock_print_info: MagicMock,
 ) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "--tap", "research", "installed"])
+    result = runner.invoke(app, ["plugins", "--catalog", "research", "installed"])
 
     assert result.exit_code == 0
     mock_print_info.assert_called_once_with(
-        "Ignoring --tap 'research'; installed plugins are discovered from the current Python environment."
+        "Ignoring --catalog 'research'; installed plugins are discovered from the current Python environment."
     )
     mock_ctrl.run_installed.assert_called_once_with()
 
 
 @patch("data_designer.cli.commands.plugins.print_info")
 @patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_taps_list_warns_when_parent_tap_is_unused(
+def test_plugins_catalogs_list_warns_when_parent_catalog_is_unused(
     mock_ctrl_cls: MagicMock,
     mock_print_info: MagicMock,
 ) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "--tap", "research", "taps", "list"])
+    result = runner.invoke(app, ["plugins", "--catalog", "research", "catalogs", "list"])
 
     assert result.exit_code == 0
     mock_print_info.assert_called_once_with(
-        "Ignoring --tap 'research'; tap management commands operate on aliases directly."
+        "Ignoring --catalog 'research'; catalog management commands operate on aliases directly."
     )
-    mock_ctrl.run_taps_list.assert_called_once_with()
+    mock_ctrl.run_catalogs_list.assert_called_once_with()

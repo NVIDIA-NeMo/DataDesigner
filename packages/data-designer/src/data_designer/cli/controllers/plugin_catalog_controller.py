@@ -11,14 +11,14 @@ from pydantic import ValidationError
 from rich.table import Table
 
 from data_designer.cli.plugin_catalog import (
-    DEFAULT_PLUGIN_TAP_ALIAS,
-    PLUGIN_TAP_ALIAS_PATTERN,
+    DEFAULT_PLUGIN_CATALOG_ALIAS,
+    PLUGIN_CATALOG_ALIAS_PATTERN,
     CompatibilityResult,
     InstalledPluginInfo,
+    PluginCatalogConfig,
     PluginCatalogEntry,
-    PluginTapConfig,
 )
-from data_designer.cli.repositories.plugin_tap_repository import PluginTapRepository
+from data_designer.cli.repositories.plugin_catalog_repository import PluginCatalogRepository
 from data_designer.cli.services.plugin_catalog_service import PluginCatalogService
 from data_designer.cli.services.plugin_install_service import PluginInstallService
 from data_designer.cli.ui import (
@@ -35,31 +35,31 @@ from data_designer.config.utils.constants import NordColor
 
 
 class PluginCatalogController:
-    """Controller for plugin catalog, tap, and install workflows.
+    """Controller for plugin catalog, catalog, and install workflows.
 
     Catalog browsing and environment mutation intentionally use separate services so
-    read-only tap operations stay decoupled from package-manager execution.
+    read-only catalog operations stay decoupled from package-manager execution.
     """
 
     def __init__(self, config_dir: Path) -> None:
         self.config_dir = config_dir
-        self.tap_repository = PluginTapRepository(config_dir)
-        self.catalog_service = PluginCatalogService(self.tap_repository)
+        self.catalog_repository = PluginCatalogRepository(config_dir)
+        self.catalog_service = PluginCatalogService(self.catalog_repository)
         self.install_service = PluginInstallService()
 
     def run_list(
         self,
         *,
-        tap_alias: str | None = None,
+        catalog_alias: str | None = None,
         refresh: bool = False,
         include_incompatible: bool = False,
     ) -> None:
-        """List plugins from a tap catalog."""
-        tap = self._get_tap_or_exit(tap_alias)
-        entries = self._list_entries_or_exit(tap.alias, refresh=refresh, include_incompatible=include_incompatible)
+        """List plugins from a catalog."""
+        catalog = self._get_catalog_or_exit(catalog_alias)
+        entries = self._list_entries_or_exit(catalog.alias, refresh=refresh, include_incompatible=include_incompatible)
 
         print_header("Data Designer Plugins")
-        print_info(f"Tap: {tap.alias} ({tap.url})")
+        print_info(f"Catalog: {catalog.alias} ({catalog.url})")
         console.print()
 
         if not entries:
@@ -72,16 +72,16 @@ class PluginCatalogController:
         self,
         query: str,
         *,
-        tap_alias: str | None = None,
+        catalog_alias: str | None = None,
         refresh: bool = False,
         include_incompatible: bool = False,
     ) -> None:
-        """Search plugins from a tap catalog."""
-        tap = self._get_tap_or_exit(tap_alias)
+        """Search plugins from a catalog."""
+        catalog = self._get_catalog_or_exit(catalog_alias)
         try:
             entries = self.catalog_service.search_entries(
                 query,
-                tap.alias,
+                catalog.alias,
                 refresh=refresh,
                 include_incompatible=include_incompatible,
             )
@@ -90,7 +90,7 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         print_header("Data Designer Plugin Search")
-        print_info(f"Tap: {tap.alias} ({tap.url})")
+        print_info(f"Catalog: {catalog.alias} ({catalog.url})")
         print_info(f"Query: {query}")
         console.print()
 
@@ -104,32 +104,55 @@ class PluginCatalogController:
         self,
         plugin_name: str,
         *,
-        tap_alias: str | None = None,
+        catalog_alias: str | None = None,
         refresh: bool = False,
     ) -> None:
         """Show full metadata for one plugin."""
-        tap = self._get_tap_or_exit(tap_alias)
-        entry = self._get_entry_or_exit(plugin_name, tap.alias, refresh=refresh)
+        catalog = self._get_catalog_or_exit(catalog_alias)
+        entry = self._get_entry_or_exit(plugin_name, catalog.alias, refresh=refresh)
+        package_entries = self.catalog_service.get_package_entries(
+            entry.package.name,
+            catalog.alias,
+            refresh=refresh,
+            include_incompatible=True,
+        ) or [entry]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
-        print_header(f"Plugin: {entry.name}")
-        print_info(f"Tap: {tap.alias} ({tap.url})")
+        print_header(f"Plugin Package: {entry.package.name}")
+        print_info(f"Catalog: {catalog.alias} ({catalog.url})")
+        console.print(f"  Runtime plugins: [bold]{_format_runtime_plugins(package_entries)}[/bold]")
         self._display_compatibility(compatibility)
 
         try:
-            plan = self.install_service.build_install_plan(entry, tap)
+            plan = self.install_service.build_install_plan(entry, catalog)
+            console.print(f"  Requirement: [bold]{entry.install.requirement}[/bold]")
+            if entry.install.index_url is not None:
+                console.print(f"  Index URL: [bold]{entry.install.index_url}[/bold]")
             console.print(f"  Install command: [bold]{shlex.join(plan.command)}[/bold]")
         except ValueError as e:
             print_warning(str(e))
 
         console.print()
-        display_config_preview(entry.model_dump(mode="json", exclude_none=True), "Plugin Metadata")
+        display_config_preview(
+            {
+                "package": entry.package.name,
+                "install": entry.install.model_dump(mode="json", exclude_none=True),
+                "compatibility": (
+                    entry.compatibility.model_dump(mode="json", exclude_none=True)
+                    if entry.compatibility is not None
+                    else None
+                ),
+                "docs": entry.docs.model_dump(mode="json", exclude_none=True) if entry.docs is not None else None,
+                "plugins": [plugin.model_dump(mode="json", exclude_none=True) for plugin in package_entries],
+            },
+            "Plugin Metadata",
+        )
 
     def run_install(
         self,
         plugin_name: str,
         *,
-        tap_alias: str | None = None,
+        catalog_alias: str | None = None,
         refresh: bool = False,
         manager: str = "auto",
         yes: bool = False,
@@ -137,8 +160,14 @@ class PluginCatalogController:
         force: bool = False,
     ) -> None:
         """Install one plugin from a catalog entry."""
-        tap = self._get_tap_or_exit(tap_alias)
-        entry = self._get_entry_or_exit(plugin_name, tap.alias, refresh=refresh, include_incompatible=True)
+        catalog = self._get_catalog_or_exit(catalog_alias)
+        entry = self._get_entry_or_exit(plugin_name, catalog.alias, refresh=refresh, include_incompatible=True)
+        package_entries = self.catalog_service.get_package_entries(
+            entry.package.name,
+            catalog.alias,
+            refresh=refresh,
+            include_incompatible=True,
+        ) or [entry]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
         if not compatibility.is_compatible and not force:
@@ -148,21 +177,24 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         try:
-            plan = self.install_service.build_install_plan(entry, tap, manager=manager)
+            plan = self.install_service.build_install_plan(entry, catalog, manager=manager)
         except ValueError as e:
             print_error(f"Failed to build plugin install plan: {e}")
             raise typer.Exit(code=1)
 
         print_header("Install Data Designer Plugin")
-        console.print(f"  Plugin: [bold]{entry.name}[/bold]")
-        console.print(f"  Tap: [bold]{tap.alias}[/bold] ({tap.url})")
-        console.print(f"  Source: [bold]{plan.source_description}[/bold]")
+        console.print(f"  Package: [bold]{entry.package.name}[/bold]")
+        console.print(f"  Runtime plugins: [bold]{_format_runtime_plugins(package_entries)}[/bold]")
+        console.print(f"  Catalog: [bold]{catalog.alias}[/bold] ({catalog.url})")
+        console.print(f"  Requirement: [bold]{entry.install.requirement}[/bold]")
+        if entry.install.index_url is not None:
+            console.print(f"  Index URL: [bold]{entry.install.index_url}[/bold]")
         console.print(f"  Command: [bold]{shlex.join(plan.command)}[/bold]")
         self._display_compatibility(compatibility)
 
-        if not tap.trusted:
+        if not catalog.trusted:
             print_warning(
-                "This tap is not marked trusted. Plugin installation executes Python package code from the source above."
+                "This catalog is not marked trusted. Plugin installation executes Python package code from the requirement above."
             )
 
         if dry_run:
@@ -179,11 +211,12 @@ class PluginCatalogController:
             print_error(str(e))
             raise typer.Exit(code=1)
 
-        if self.install_service.verify_entry_point(entry):
-            print_success(f"Plugin {entry.name!r} installed and discovered")
+        if self.install_service.verify_entry_points(package_entries):
+            print_success(f"Plugin package {entry.package.name!r} installed and discovered")
         else:
             print_warning(
-                f"Plugin {entry.name!r} was installed, but Data Designer did not discover its entry point. "
+                f"Plugin package {entry.package.name!r} was installed, but Data Designer did not discover every "
+                "declared entry point. "
                 "Restart the shell or check the package entry point metadata."
             )
 
@@ -196,26 +229,26 @@ class PluginCatalogController:
             return
         self._display_installed_plugins(installed_plugins)
 
-    def run_taps_list(self) -> None:
-        """List configured plugin taps."""
-        print_header("Data Designer Plugin Taps")
-        taps = self.catalog_service.list_taps()
-        table = Table(title="Plugin Taps", border_style=NordColor.NORD8.value)
+    def run_catalogs_list(self) -> None:
+        """List configured plugin catalogs."""
+        print_header("Data Designer Plugin Catalogs")
+        catalogs = self.catalog_service.list_catalogs()
+        table = Table(title="Plugin Catalogs", border_style=NordColor.NORD8.value)
         table.add_column("Alias", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("URL", style=NordColor.NORD4.value)
         table.add_column("Trusted", style=NordColor.NORD13.value, justify="center")
         table.add_column("Cache TTL", style=NordColor.NORD9.value, justify="right")
 
-        for tap in taps:
+        for catalog in catalogs:
             table.add_row(
-                tap.alias,
-                tap.url,
-                "yes" if tap.trusted else "no",
-                f"{tap.cache_ttl_seconds}s",
+                catalog.alias,
+                catalog.url,
+                "yes" if catalog.trusted else "no",
+                f"{catalog.cache_ttl_seconds}s",
             )
         console.print(table)
 
-    def run_taps_add(
+    def run_catalogs_add(
         self,
         *,
         alias: str,
@@ -223,9 +256,9 @@ class PluginCatalogController:
         trusted: bool,
         cache_ttl_seconds: int,
     ) -> None:
-        """Add a plugin tap alias."""
+        """Add a plugin catalog alias."""
         try:
-            tap = self.catalog_service.add_tap(
+            catalog = self.catalog_service.add_catalog(
                 alias,
                 url,
                 trusted=trusted,
@@ -233,43 +266,43 @@ class PluginCatalogController:
             )
         except ValidationError as e:
             if any(tuple(error["loc"]) == ("alias",) for error in e.errors()):
-                print_error(f"Invalid tap alias {alias!r}: must match `{PLUGIN_TAP_ALIAS_PATTERN}`")
+                print_error(f"Invalid catalog alias {alias!r}: must match `{PLUGIN_CATALOG_ALIAS_PATTERN}`")
             else:
-                print_error(f"Invalid plugin tap configuration: {e}")
+                print_error(f"Invalid plugin catalog configuration: {e}")
             raise typer.Exit(code=1)
         except Exception as e:
-            print_error(f"Failed to add plugin tap: {e}")
+            print_error(f"Failed to add plugin catalog: {e}")
             raise typer.Exit(code=1)
 
-        print_success(f"Plugin tap {tap.alias!r} added")
-        print_info(f"Catalog: {tap.url}")
+        print_success(f"Plugin catalog {catalog.alias!r} added")
+        print_info(f"Catalog: {catalog.url}")
 
-    def run_taps_remove(self, *, alias: str) -> None:
-        """Remove a plugin tap alias."""
+    def run_catalogs_remove(self, *, alias: str) -> None:
+        """Remove a plugin catalog alias."""
         try:
-            self.catalog_service.remove_tap(alias)
+            self.catalog_service.remove_catalog(alias)
         except Exception as e:
-            print_error(f"Failed to remove plugin tap: {e}")
+            print_error(f"Failed to remove plugin catalog: {e}")
             raise typer.Exit(code=1)
-        print_success(f"Plugin tap {alias!r} removed")
+        print_success(f"Plugin catalog {alias!r} removed")
 
-    def _get_tap_or_exit(self, tap_alias: str | None) -> PluginTapConfig:
+    def _get_catalog_or_exit(self, catalog_alias: str | None) -> PluginCatalogConfig:
         try:
-            return self.catalog_service.get_tap(tap_alias or DEFAULT_PLUGIN_TAP_ALIAS)
+            return self.catalog_service.get_catalog(catalog_alias or DEFAULT_PLUGIN_CATALOG_ALIAS)
         except ValueError as e:
             print_error(str(e))
             raise typer.Exit(code=1)
 
     def _list_entries_or_exit(
         self,
-        tap_alias: str,
+        catalog_alias: str,
         *,
         refresh: bool,
         include_incompatible: bool,
     ) -> list[PluginCatalogEntry]:
         try:
             return self.catalog_service.list_entries(
-                tap_alias,
+                catalog_alias,
                 refresh=refresh,
                 include_incompatible=include_incompatible,
             )
@@ -280,7 +313,7 @@ class PluginCatalogController:
     def _get_entry_or_exit(
         self,
         plugin_name: str,
-        tap_alias: str,
+        catalog_alias: str,
         *,
         refresh: bool,
         include_incompatible: bool = True,
@@ -288,7 +321,7 @@ class PluginCatalogController:
         try:
             return self.catalog_service.get_entry(
                 plugin_name,
-                tap_alias,
+                catalog_alias,
                 refresh=refresh,
                 include_incompatible=include_incompatible,
             )
@@ -301,7 +334,6 @@ class PluginCatalogController:
         table.add_column("Name", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("Type", style=NordColor.NORD9.value, no_wrap=True)
         table.add_column("Package", style=NordColor.NORD4.value, no_wrap=True)
-        table.add_column("Version", style=NordColor.NORD15.value, no_wrap=True)
         table.add_column("Compatible", style=NordColor.NORD13.value, no_wrap=True)
         table.add_column("Docs", style=NordColor.NORD7.value)
 
@@ -312,7 +344,6 @@ class PluginCatalogController:
                 entry.name,
                 entry.plugin_type.value,
                 entry.package.name,
-                entry.package.version or "",
                 "yes" if compatibility.is_compatible else "no",
                 docs_url,
             )
@@ -340,3 +371,7 @@ class PluginCatalogController:
         console.print("  Compatibility: [bold yellow]not compatible[/bold yellow]")
         for reason in compatibility.reasons:
             console.print(f"    - {reason}")
+
+
+def _format_runtime_plugins(entries: list[PluginCatalogEntry]) -> str:
+    return ", ".join(f"{entry.name} ({entry.plugin_type.value})" for entry in entries)
