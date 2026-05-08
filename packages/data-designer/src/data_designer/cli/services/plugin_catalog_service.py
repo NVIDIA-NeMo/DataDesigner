@@ -14,6 +14,7 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from data_designer.cli.plugin_catalog import (
+    DATA_DESIGNER_PLUGIN_PACKAGE_PREFIX,
     DEFAULT_PLUGIN_CATALOG_ALIAS,
     PLUGIN_ENTRY_POINT_GROUP,
     CompatibilityResult,
@@ -103,22 +104,25 @@ class PluginCatalogService:
 
     def get_package_entries(
         self,
-        package_name: str,
+        package: str,
         catalog_alias: str | None = None,
         *,
         refresh: bool = False,
         include_incompatible: bool = True,
     ) -> list[PluginCatalogEntry]:
-        """Return all runtime plugin entries declared by one catalog package."""
-        canonical_package_name = canonicalize_name(package_name)
+        """Return all runtime plugin entries declared by one catalog package name or package alias."""
+        entries = self.list_entries(
+            catalog_alias,
+            refresh=refresh,
+            include_incompatible=include_incompatible,
+        )
+        canonical_package = canonicalize_name(package)
+        exact_matches = [entry for entry in entries if canonicalize_name(entry.package.name) == canonical_package]
+        if exact_matches:
+            return exact_matches
+
         return [
-            entry
-            for entry in self.list_entries(
-                catalog_alias,
-                refresh=refresh,
-                include_incompatible=include_incompatible,
-            )
-            if canonicalize_name(entry.package.name) == canonical_package_name
+            entry for entry in entries if _package_alias(canonicalize_name(entry.package.name)) == canonical_package
         ]
 
     @staticmethod
@@ -243,11 +247,13 @@ def _tokenize(value: str) -> list[str]:
 
 
 def _entry_search_text(entry: PluginCatalogEntry) -> str:
+    package_name = canonicalize_name(entry.package.name)
     values = [
         entry.name,
         entry.plugin_type.value,
         entry.description,
         entry.package.name,
+        _package_alias(package_name) or "",
         entry.install.requirement,
         entry.install.index_url or "",
         entry.entry_point.name,
@@ -255,6 +261,12 @@ def _entry_search_text(entry: PluginCatalogEntry) -> str:
         entry.docs.url if entry.docs is not None and entry.docs.url else "",
     ]
     return " ".join(values).lower()
+
+
+def _package_alias(canonical_package_name: str) -> str | None:
+    if not canonical_package_name.startswith(DATA_DESIGNER_PLUGIN_PACKAGE_PREFIX):
+        return None
+    return canonical_package_name.removeprefix(DATA_DESIGNER_PLUGIN_PACKAGE_PREFIX)
 
 
 def _major_minor(version: str) -> str:

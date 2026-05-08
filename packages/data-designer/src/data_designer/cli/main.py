@@ -144,7 +144,7 @@ download_app = typer.Typer(
 # Create plugins command group
 plugins_app = typer.Typer(
     name="plugins",
-    help="Discover and install Data Designer plugins from catalogs",
+    help="Discover, install, and uninstall Data Designer plugin packages from catalogs",
     cls=create_lazy_typer_group(
         {
             "list": {
@@ -165,7 +165,12 @@ plugins_app = typer.Typer(
             "install": {
                 "module": f"{_CMD}.plugins",
                 "attr": "install_command",
-                "help": "Install a plugin package and verify runtime discovery",
+                "help": "Install a plugin package and verify package registration",
+            },
+            "uninstall": {
+                "module": f"{_CMD}.plugins",
+                "attr": "uninstall_command",
+                "help": "Uninstall a plugin package and verify package registration is removed",
             },
             "installed": {
                 "module": f"{_CMD}.plugins",

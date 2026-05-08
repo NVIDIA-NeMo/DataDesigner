@@ -71,9 +71,9 @@ def search_command(
 
 def info_command(
     ctx: typer.Context,
-    package_or_plugin: str = typer.Argument(
-        help="Package name or runtime plugin name from the catalog.",
-        metavar="PACKAGE_OR_PLUGIN",
+    package: str = typer.Argument(
+        help="Plugin package name or package alias from the catalog.",
+        metavar="PACKAGE",
     ),
     catalog: str | None = typer.Option(
         None,
@@ -89,7 +89,7 @@ def info_command(
     """Show metadata, compatibility, docs, and install plan for one plugin package."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_info(
-        package_or_plugin,
+        package,
         catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
     )
@@ -97,9 +97,9 @@ def info_command(
 
 def install_command(
     ctx: typer.Context,
-    package_or_plugin: str = typer.Argument(
-        help="Package name or runtime plugin name from the catalog.",
-        metavar="PACKAGE_OR_PLUGIN",
+    package: str = typer.Argument(
+        help="Plugin package name or package alias from the catalog.",
+        metavar="PACKAGE",
     ),
     catalog: str | None = typer.Option(
         None,
@@ -134,16 +134,62 @@ def install_command(
         help="Allow installing a catalog package when compatibility checks fail.",
     ),
 ) -> None:
-    """Install one Data Designer plugin package, then verify runtime discovery."""
+    """Install one Data Designer plugin package, then verify package registration."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_install(
-        package_or_plugin,
+        package,
         catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
         manager=manager,
         yes=yes,
         dry_run=dry_run,
         force=force,
+    )
+
+
+def uninstall_command(
+    ctx: typer.Context,
+    package: str = typer.Argument(
+        help="Plugin package name or package alias from the catalog.",
+        metavar="PACKAGE",
+    ),
+    catalog: str | None = typer.Option(
+        None,
+        "--catalog",
+        help="Plugin catalog alias to uninstall from. Can also be provided before the subcommand.",
+    ),
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help="Fetch the catalog even when a fresh cache entry exists.",
+    ),
+    manager: str = typer.Option(
+        "auto",
+        "--manager",
+        click_type=click.Choice(["auto", "uv", "pip"]),
+        help="Package manager to use for uninstallation.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Uninstall without an interactive confirmation prompt.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the uninstall plan without mutating the current environment.",
+    ),
+) -> None:
+    """Uninstall one Data Designer plugin package, then verify package registration is removed."""
+    controller = PluginCatalogController(DATA_DESIGNER_HOME)
+    controller.run_uninstall(
+        package,
+        catalog_alias=_resolve_catalog_alias(ctx, catalog),
+        refresh=refresh,
+        manager=manager,
+        yes=yes,
+        dry_run=dry_run,
     )
 
 
