@@ -8,7 +8,7 @@ The CLI provides an interactive interface for managing:
 - **Model Providers**: LLM API endpoints (NVIDIA, OpenAI, Anthropic, custom providers)
 - **Model Configs**: Specific model configurations with inference parameters
 - **Plugin Catalogs**: Catalog aliases for discovering Data Designer plugin packages
-- **Plugin Installs**: Safe install-plan rendering, package-manager execution, and entry point verification
+- **Plugin Installs**: Safe install-plan rendering, package-manager execution with active Data Designer protection, and entry point verification
 
 Configuration files are stored in `~/.data-designer/` by default and can be referenced by Data Designer workflows.
 
@@ -84,7 +84,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `model_service.py`: Model configuration business logic
   - `provider_service.py`: Provider business logic
   - `plugin_catalog_service.py`: Plugin catalog discovery, search, compatibility checks, and installed entry point listing
-  - `plugin_install_service.py`: Plugin install/uninstall plan resolution, package-manager execution, and runtime verification
+  - `plugin_install_service.py`: Plugin install/uninstall plan resolution, package-manager execution, active Data Designer protection, and runtime verification
 
 **Key Methods**:
 - `list_all()`: Get all configured items
@@ -313,3 +313,13 @@ data-designer plugin catalog remove research
 # List installed runtime plugin entry points without importing plugin modules
 data-designer plugin installed
 ```
+
+Install plans protect the active `data-designer` distribution before invoking
+the package manager. The plugin package and its other dependencies are resolved
+normally, but `data-designer` itself is kept from being replaced by the plugin
+package dependency. In an active virtual environment with a user `pyproject.toml`,
+`uv` uses `uv add` so the plugin package is recorded in the project; otherwise it
+uses `uv pip install`. `pip` remains supported for pip-only environments. `uv`
+project installs skip installing the Data Designer package family; pip installs
+use a process-scoped temporary constraint file because pip constraints are
+file-based.
