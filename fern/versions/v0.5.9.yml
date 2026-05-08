@@ -77,7 +77,7 @@ navigation:
   - section: Recipes
     contents:
       - page: Recipe Cards
-        path: ./v0.5.8/pages/recipes/cards.mdx
+        path: ./v0.5.9/pages/recipes/cards.mdx
       - section: Code Generation
         contents:
           - page: Text to Python
@@ -108,6 +108,26 @@ navigation:
             path: ./v0.5.8/pages/recipes/mcp_and_tooluse/pdf_qa.mdx
           - page: Nemotron Super Search Agent
             path: ./v0.5.8/pages/recipes/mcp_and_tooluse/search_agent.mdx
+      - section: VLM Long-Document Understanding
+        contents:
+          - page: Seed Dataset Preparation
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/seed_dataset_preparation.mdx
+          - page: Nemotron Parse OCR
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/nemotron_parse_ocr.mdx
+          - page: Text QA from OCR Transcripts
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/text_qa.mdx
+          - page: Page Classification
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/page_classification.mdx
+          - page: Visual QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/visual_qa.mdx
+          - page: Single-Page QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/single_page_qa.mdx
+          - page: Multi-Page Windowed QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/multi_page_windowed_qa.mdx
+          - page: Whole-Document QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/whole_document_qa.mdx
+          - page: Frontier Judge QA Filter
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/frontier_judge.mdx
   - section: Plugins
     contents:
       - page: Overview

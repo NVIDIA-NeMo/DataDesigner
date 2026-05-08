@@ -280,6 +280,25 @@ redirects:
   # Trace ingestion:
   - source: "/nemo/datadesigner/recipes/trace_ingestion/agent_rollout_distillation"
     destination: "/nemo/datadesigner/recipes/trace-ingestion/agent-rollout-trace-distillation"
+  # VLM long-document understanding:
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/seed_dataset_preparation"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/seed-dataset-preparation"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/nemotron_parse_ocr"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/nemotron-parse-ocr"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/text_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/text-qa-from-ocr-transcripts"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/page_classification"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/page-classification"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/visual_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/visual-qa"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/single_page_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/single-page-qa"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/multi_page_windowed_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/multi-page-windowed-qa"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/whole_document_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/whole-document-qa"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/frontier_judge"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/frontier-judge-qa-filter"
   # Subsection :rest* fallbacks for any URL we missed (only the underscored
   # subsection segment gets rewritten; page slug passes through unchanged):
   - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/:rest*"
@@ -292,6 +311,8 @@ redirects:
     destination: "/nemo/datadesigner/recipes/plugin-development/:rest*"
   - source: "/nemo/datadesigner/recipes/trace_ingestion/:rest*"
     destination: "/nemo/datadesigner/recipes/trace-ingestion/:rest*"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/:rest*"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/:rest*"
 
   # Concepts: the "MCP" subsection got promoted to "Tool Use & MCP", and the
   # standalone tool_use_and_mcp.mdx became its overview page.
