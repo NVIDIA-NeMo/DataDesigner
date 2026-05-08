@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -118,27 +119,36 @@ def test_install_raises_when_runner_fails() -> None:
         service.install(plan)
 
 
-@patch("data_designer.cli.services.plugin_install_service.PluginRegistry")
+@patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
 @patch("data_designer.cli.services.plugin_install_service.importlib.invalidate_caches")
-def test_verify_entry_point_invalidates_caches_and_checks_runtime_registry(
+def test_verify_entry_point_invalidates_caches_and_checks_declared_entry_point(
     mock_invalidate_caches: Mock,
-    mock_registry_cls: Mock,
+    mock_entry_points: Mock,
 ) -> None:
-    entry = _entry(source={"type": "pypi", "package": "data-designer-text-transform"})
-    mock_registry = Mock()
-    mock_registry.plugin_exists.return_value = True
-    mock_registry_cls.return_value = mock_registry
+    entry = _entry(
+        source={"type": "pypi", "package": "data-designer-text-transform"},
+        plugin_name="text-transform-v2",
+        entry_point_name="text-transform",
+    )
+    mock_entry_points.return_value = [
+        SimpleNamespace(name="other-plugin"),
+        SimpleNamespace(name="text-transform"),
+    ]
     service = PluginInstallService()
 
     assert service.verify_entry_point(entry) is True
     mock_invalidate_caches.assert_called_once_with()
-    mock_registry_cls.reset.assert_called_once_with()
-    mock_registry.plugin_exists.assert_called_once_with("text-transform")
+    mock_entry_points.assert_called_once_with(group="data_designer.plugins")
 
 
-def _entry(source: dict | None) -> PluginCatalogEntry:
+def _entry(
+    source: dict | None,
+    *,
+    plugin_name: str = "text-transform",
+    entry_point_name: str = "text-transform",
+) -> PluginCatalogEntry:
     payload = {
-        "name": "text-transform",
+        "name": plugin_name,
         "plugin_type": "processor",
         "description": "Transform text records",
         "package": {
@@ -148,7 +158,7 @@ def _entry(source: dict | None) -> PluginCatalogEntry:
         },
         "entry_point": {
             "group": "data_designer.plugins",
-            "name": "text-transform",
+            "name": entry_point_name,
             "value": "data_designer_text_transform.plugin:plugin",
         },
         "compatibility": {

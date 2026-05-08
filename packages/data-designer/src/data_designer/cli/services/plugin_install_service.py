@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import shutil
 import subprocess
 import sys
@@ -11,8 +12,13 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
-from data_designer.cli.plugin_catalog import InstallPlan, PluginCatalogEntry, PluginSourceInfo, PluginTapConfig
-from data_designer.plugins.registry import PluginRegistry
+from data_designer.cli.plugin_catalog import (
+    PLUGIN_ENTRY_POINT_GROUP,
+    InstallPlan,
+    PluginCatalogEntry,
+    PluginSourceInfo,
+    PluginTapConfig,
+)
 
 InstallRunner = Callable[[list[str]], int]
 
@@ -55,11 +61,12 @@ class PluginInstallService:
             raise RuntimeError(f"Plugin installer exited with status {return_code}")
 
     def verify_entry_point(self, entry: PluginCatalogEntry) -> bool:
-        """Verify the plugin is discoverable by the runtime PluginRegistry."""
+        """Verify the plugin's declared entry point is installed."""
         importlib.invalidate_caches()
-        PluginRegistry.reset()
-        registry = PluginRegistry()
-        return registry.plugin_exists(entry.name)
+        return any(
+            entry_point.name == entry.entry_point.name
+            for entry_point in importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP)
+        )
 
 
 def _run_subprocess(command: list[str]) -> int:
