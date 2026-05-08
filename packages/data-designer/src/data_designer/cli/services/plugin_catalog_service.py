@@ -88,9 +88,9 @@ class PluginCatalogService:
         """Return a catalog entry by runtime plugin name or package name."""
         entries = self.list_entries(catalog_alias, refresh=refresh, include_incompatible=True)
         canonical_name = canonicalize_name(name)
-        matches = [
-            entry for entry in entries if entry.name == name or canonicalize_name(entry.package.name) == canonical_name
-        ]
+        runtime_matches = [entry for entry in entries if entry.name == name]
+        package_matches = [entry for entry in entries if canonicalize_name(entry.package.name) == canonical_name]
+        matches = runtime_matches or package_matches
         compatible_matches = [entry for entry in matches if self.evaluate_compatibility(entry).is_compatible]
         if compatible_matches:
             return sorted(compatible_matches, key=lambda entry: (canonicalize_name(entry.package.name), entry.name))[0]

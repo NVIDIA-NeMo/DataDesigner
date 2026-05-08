@@ -181,6 +181,33 @@ def test_get_entry_resolves_package_name() -> None:
     assert entry.package.name == "data-designer-package-target"
 
 
+def test_get_entry_prefers_runtime_plugin_name_over_package_name() -> None:
+    repository = Mock(spec=PluginCatalogRepository)
+    repository.load_catalog.return_value = PluginCatalog.model_validate(
+        {
+            "schema_version": 2,
+            "packages": [
+                _package(
+                    package_name="alpha",
+                    data_designer_specifier=">=0.5.7",
+                    plugins=[_runtime_plugin(name="package-plugin", plugin_type="processor")],
+                ),
+                _package(
+                    package_name="data-designer-runtime-source",
+                    data_designer_specifier=">=0.5.7",
+                    plugins=[_runtime_plugin(name="alpha", plugin_type="processor")],
+                ),
+            ],
+        }
+    )
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+
+    entry = service.get_entry("alpha", "local", include_incompatible=True)
+
+    assert entry.name == "alpha"
+    assert entry.package.name == "data-designer-runtime-source"
+
+
 def test_get_package_entries_resolves_package_alias() -> None:
     repository = Mock(spec=PluginCatalogRepository)
     repository.load_catalog.return_value = PluginCatalog.model_validate(
