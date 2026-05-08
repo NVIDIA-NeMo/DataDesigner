@@ -223,7 +223,12 @@ jobs:
 
       - name: Run fix recipe
         id: fix
-        if: steps.audit.outcome == 'success' && steps.backlog.outcome == 'success' && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
+        # Custom if: bypasses implicit success(), so snapshot.outcome must
+        # be checked explicitly. Without it, a snapshot failure (corrupt
+        # runner-state, disk error) would leave /tmp/prior-attempted-fixes.json
+        # missing, the scope gate's jq --slurpfile would short-circuit, and
+        # the gate would exit 0 — silently approving the agent's PR.
+        if: steps.audit.outcome == 'success' && steps.backlog.outcome == 'success' && steps.snapshot.outcome == 'success' && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
@@ -264,7 +269,10 @@ jobs:
         # suite additionally gets AST-based docstring-only enforcement on
         # .py edits (no non-docstring/non-comment lines may change).
         id: scope_gate
-        if: steps.fix.outcome == 'success'
+        # Belt-and-suspenders: also check snapshot succeeded. The fix step
+        # already gates on snapshot, so if we got here the snapshot ran,
+        # but be explicit so a future condition refactor cannot regress.
+        if: steps.fix.outcome == 'success' && steps.snapshot.outcome == 'success'
         env:
           SUITE: ${{ matrix.suite }}
           GH_TOKEN: ${{ github.token }}
