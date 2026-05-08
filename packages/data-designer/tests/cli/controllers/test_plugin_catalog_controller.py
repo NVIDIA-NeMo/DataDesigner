@@ -109,10 +109,12 @@ def test_run_list_renders_package_first_catalog_table(
     assert printed_tables[0].title == "Catalog Plugin Packages"
     assert [column.header for column in printed_tables[0].columns] == [
         "Package",
+        "Description",
         "Runtime Plugins",
         "Compatible",
         "Docs",
     ]
+    assert list(printed_tables[0].columns[1].cells) == ["Transform text records"]
     controller.catalog_service.group_entries_by_package.assert_called_once_with(package_entries)
 
 
