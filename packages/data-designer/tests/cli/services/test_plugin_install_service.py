@@ -102,6 +102,49 @@ def test_build_auto_install_plan_chooses_pip_when_uv_is_unavailable(mock_which: 
     mock_which.assert_called_once_with("uv")
 
 
+def test_build_pip_uninstall_plan_uses_package_name_not_install_requirement() -> None:
+    requirement = (
+        "data-designer-template @ "
+        "git+https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git@data-designer-template/v0.1.0"
+    )
+    entry = _entry(package_name="data-designer-template", install={"requirement": requirement})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    plan = service.build_uninstall_plan(entry, catalog, manager="pip")
+
+    assert plan.command == [
+        sys.executable,
+        "-m",
+        "pip",
+        "uninstall",
+        "--yes",
+        "data-designer-template",
+    ]
+    assert plan.package_name == "data-designer-template"
+    assert plan.manager == "pip"
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_uninstall_plan_chooses_uv_when_available(mock_which: Mock) -> None:
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+
+    assert plan.command == [
+        "uv",
+        "pip",
+        "uninstall",
+        "--python",
+        sys.executable,
+        "data-designer-template",
+    ]
+    assert plan.manager == "uv"
+    mock_which.assert_called_once_with("uv")
+
+
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
 def test_build_uv_install_plan_targets_current_python_and_adds_catalog_index(mock_which: Mock) -> None:
     entry = _entry(
@@ -152,6 +195,16 @@ def test_install_raises_when_runner_fails() -> None:
 
     with pytest.raises(RuntimeError, match="status 2"):
         service.install(plan)
+
+
+def test_uninstall_raises_when_runner_fails() -> None:
+    service = PluginInstallService(runner=lambda command: 2)
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    plan = service.build_uninstall_plan(entry, catalog, manager="pip")
+
+    with pytest.raises(RuntimeError, match="status 2"):
+        service.uninstall(plan)
 
 
 @patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
@@ -281,6 +334,46 @@ def test_verify_entry_points_verifies_multi_runtime_package_entries(mock_entry_p
     service = PluginInstallService()
 
     assert service.verify_entry_points(entries) is True
+
+
+@patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
+@patch("data_designer.cli.services.plugin_install_service.importlib.invalidate_caches")
+def test_verify_entry_points_removed_succeeds_when_declared_entries_are_absent(
+    mock_invalidate_caches: Mock,
+    mock_entry_points: Mock,
+) -> None:
+    entry = _entry(
+        package_name="data-designer-template",
+        plugin_name="text-transform",
+        entry_point_name="text-transform",
+        entry_point_value="data_designer_template.plugin:plugin",
+        install={"requirement": "data-designer-template"},
+    )
+    mock_entry_points.return_value = [
+        SimpleNamespace(name="other-plugin", value="other_package.plugin:plugin"),
+    ]
+    service = PluginInstallService()
+
+    assert service.verify_entry_points_removed([entry]) is True
+    mock_invalidate_caches.assert_called_once_with()
+    mock_entry_points.assert_called_once_with(group="data_designer.plugins")
+
+
+@patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
+def test_verify_entry_points_removed_fails_when_declared_entry_still_exists(mock_entry_points: Mock) -> None:
+    entry = _entry(
+        package_name="data-designer-template",
+        plugin_name="text-transform",
+        entry_point_name="text-transform",
+        entry_point_value="data_designer_template.plugin:plugin",
+        install={"requirement": "data-designer-template"},
+    )
+    mock_entry_points.return_value = [
+        SimpleNamespace(name="text-transform", value="data_designer_template.plugin:plugin"),
+    ]
+    service = PluginInstallService()
+
+    assert service.verify_entry_points_removed([entry]) is False
 
 
 def _entry(
