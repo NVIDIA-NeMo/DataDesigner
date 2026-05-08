@@ -39,12 +39,12 @@ Plugin catalog commands use the same layering shape:
 
 | Layer | Role | Example |
 |-------|------|---------|
-| **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugins list/search/info/install/installed/catalogs` → `PluginCatalogController(DATA_DESIGNER_HOME)` |
-| **Controller** | UX flow: catalog tables, package metadata, compatibility display, install confirmation | `PluginCatalogController` composes catalog + install services |
-| **Service** | Domain rules: package-first flattening, compatibility checks, install planning, entry point verification | `PluginCatalogService`, `PluginInstallService` |
+| **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugins list/search/info/install/uninstall/installed/catalogs` → `PluginCatalogController(DATA_DESIGNER_HOME)` |
+| **Controller** | UX flow: catalog tables, package metadata, compatibility display, package mutation confirmations | `PluginCatalogController` composes catalog + install services |
+| **Service** | Domain rules: package-first flattening, compatibility checks, install/uninstall planning, entry point verification | `PluginCatalogService`, `PluginInstallService` |
 | **Repository** | File/cache I/O for catalog aliases and catalog documents | `PluginCatalogRepository` |
 
-The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`. `NVIDIA-NeMo/DataDesignerPlugins` defines the package-first catalog shape: top-level packages carry install metadata, compatibility constraints, docs, and nested runtime plugins. The CLI flattens nested plugins for list/search display, but `info` and `install` resolve back to the package so installation targets the package requirement.
+The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`. `NVIDIA-NeMo/DataDesignerPlugins` defines the package-first catalog shape: top-level packages carry install metadata, compatibility constraints, docs, and nested runtime plugins. The CLI flattens nested plugins for list/search display, but `info`, `install`, and `uninstall` resolve package names or package aliases so environment mutations target the package distribution. Package aliases come from the `data-designer-{alias}` package-name pattern; for example, `data-designer-calculator` can be addressed as `calculator`.
 
 ### Generation Commands
 
@@ -82,13 +82,20 @@ User invokes command (e.g., `data-designer plugins list`)
   → PluginCatalogRepository reads local config and cached/remote catalog JSON
 ```
 
-### Plugin Install
+### Plugin Install/Uninstall
 ```
-User invokes command (e.g., `data-designer plugins install text-transform`)
-  → PluginCatalogController resolves runtime plugin or package name
+User invokes command (e.g., `data-designer plugins install calculator`)
+  → PluginCatalogController resolves the plugin package name or package alias
   → PluginCatalogService evaluates Python and Data Designer compatibility
   → PluginInstallService builds a pip/uv install plan for the package requirement
-  → PluginInstallService verifies declared entry points after installation
+  → PluginInstallService verifies declared package entry points after installation
+```
+
+```
+User invokes command (e.g., `data-designer plugins uninstall calculator`)
+  → PluginCatalogController resolves the plugin package name or package alias
+  → PluginInstallService builds a pip/uv uninstall plan for the package distribution
+  → PluginInstallService verifies declared package entry points are no longer discovered
 ```
 
 ### Generation

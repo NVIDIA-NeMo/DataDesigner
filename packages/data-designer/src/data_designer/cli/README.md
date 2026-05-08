@@ -54,7 +54,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `list.py`: List current configurations
   - `models.py`: Configure models
   - `providers.py`: Configure providers
-  - `plugins.py`: Discover and install plugins from catalogs
+  - `plugins.py`: Discover, install, and uninstall plugin packages from catalogs
   - `reset.py`: Reset/delete configurations
 
 #### 2. **Controllers** (`controllers/`)
@@ -67,7 +67,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 - **Files**:
   - `model_controller.py`: Orchestrates model configuration workflows
   - `provider_controller.py`: Orchestrates provider configuration workflows
-  - `plugin_catalog_controller.py`: Orchestrates plugin catalog browsing, alias management, and install workflows
+  - `plugin_catalog_controller.py`: Orchestrates plugin catalog browsing, alias management, and package workflows
 
 **Key Features**:
 - **Associated Resource Management**: When deleting a provider, the controller checks for associated models and prompts the user to delete them together
@@ -84,7 +84,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `model_service.py`: Model configuration business logic
   - `provider_service.py`: Provider business logic
   - `plugin_catalog_service.py`: Plugin catalog discovery, search, compatibility checks, and installed entry point listing
-  - `plugin_install_service.py`: Plugin install-plan resolution, package-manager execution, and runtime verification
+  - `plugin_install_service.py`: Plugin install/uninstall plan resolution, package-manager execution, and runtime verification
 
 **Key Methods**:
 - `list_all()`: Get all configured items
@@ -233,6 +233,11 @@ catalogs:
 
 Stores fetched plugin catalog payloads as JSON cache files keyed by catalog alias and URL hash. This prevents a re-pointed alias from serving stale catalog data from a previous URL.
 
+Plugin package arguments accept either the full package name or the package
+alias. For packages named `data-designer-{alias}`, the alias is `{alias}`. For
+example, `data-designer-github` can be addressed as `github` in `info`,
+`install`, and `uninstall`.
+
 ## Usage Examples
 
 ### Configure Providers
@@ -276,7 +281,7 @@ data-designer config list
 data-designer config reset
 ```
 
-### Discover and Install Plugins
+### Discover, Install, and Uninstall Plugin Packages
 
 ```bash
 # List compatible plugin packages from the default NVIDIA catalog
@@ -286,13 +291,19 @@ data-designer plugins list
 data-designer plugins --catalog research search transform
 
 # Show metadata, compatibility, docs, and exact install command
-data-designer plugins info text-transform
+data-designer plugins info github
 
-# Install a plugin package from a catalog and verify declared runtime entry point discovery
-data-designer plugins install text-transform --yes
+# Install a plugin package from a catalog and verify package registration
+data-designer plugins install github --yes
 
 # Preview the install command without mutating the environment
-data-designer plugins install text-transform --dry-run
+data-designer plugins install github --dry-run
+
+# Uninstall a plugin package from a catalog and verify package registration is removed
+data-designer plugins uninstall github --yes
+
+# Preview the uninstall command without mutating the environment
+data-designer plugins uninstall github --dry-run
 
 # Add and manage catalog aliases
 data-designer plugins catalogs add research https://github.com/acme/dd-plugins
