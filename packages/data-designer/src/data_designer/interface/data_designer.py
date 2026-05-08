@@ -263,6 +263,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder, resume=resume)
 
+        # ``DeprecationWarning`` is re-raised before the generic wrapper so that
+        # ``warnings.warn(..., DeprecationWarning)`` calls inside the engine — most
+        # notably ``allow_resize=True`` deprecation in ``_resolve_async_compatibility``
+        # — surface their original message under strict warning filters
+        # (``pytest.warns``, ``-W error::DeprecationWarning``, etc.) instead of being
+        # swallowed and re-wrapped as a generic ``DataDesignerGenerationError``.
         try:
             builder = self._create_dataset_builder(config_builder.build(), resource_provider)
         except DeprecationWarning:
@@ -384,6 +390,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raw_dataset = builder.build_preview(num_records=num_records)
             processed_dataset = builder.process_preview(raw_dataset)
         except DeprecationWarning:
+            # See comment in create() — strict warning filters convert engine-level
+            # ``warnings.warn(..., DeprecationWarning)`` into exceptions that we let
+            # propagate untouched.
             raise
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}") from e
