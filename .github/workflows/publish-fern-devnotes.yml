@@ -58,8 +58,8 @@ jobs:
           echo "::error::No successful docs build run with notebook artifacts found."
           exit 1
 
-      - name: Prepare Fern docs
-        run: make prepare-fern-docs
+      - name: Check Fern docs
+        run: make check-fern-docs
 
       - name: Publish Fern docs
         run: |

@@ -51,8 +51,8 @@ jobs:
           name: notebooks
           path: docs/notebooks
 
-      - name: Prepare Fern docs
-        run: make prepare-fern-docs
+      - name: Check Fern docs
+        run: make check-fern-docs
 
       - name: Publish Fern docs
         run: |

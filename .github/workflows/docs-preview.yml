@@ -79,8 +79,8 @@ jobs:
       - name: Build docs
         run: uv run mkdocs build
 
-      - name: Prepare Fern docs
-        run: make prepare-fern-docs
+      - name: Check Fern docs
+        run: make check-fern-docs
 
       - name: Deploy Fern preview
         id: fern-preview
