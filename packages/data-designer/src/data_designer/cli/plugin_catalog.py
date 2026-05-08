@@ -204,6 +204,15 @@ class CompatibilityResult:
 
 
 @dataclass(frozen=True)
+class InstallCommandTemporaryFile:
+    """Temporary file needed only while executing one install command."""
+
+    placeholder: str
+    filename: str
+    content: str
+
+
+@dataclass(frozen=True)
 class InstallPlan:
     """Resolved package-manager command for installing one plugin package."""
 
@@ -214,6 +223,11 @@ class InstallPlan:
     catalog_alias: str
     trusted_catalog: bool
     source_warning: str | None = None
+    data_designer_protection: str | None = None
+    command_stdin: str | None = None
+    temporary_file: InstallCommandTemporaryFile | None = None
+    install_mode: str = "environment"
+    project_root: str | None = None
 
 
 @dataclass(frozen=True)
@@ -224,6 +238,9 @@ class UninstallPlan:
     command: list[str]
     manager: str
     catalog_alias: str
+    commands: list[list[str]] | None = None
+    uninstall_mode: str = "environment"
+    project_root: str | None = None
 
 
 @dataclass(frozen=True)

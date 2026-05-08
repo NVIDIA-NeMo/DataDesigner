@@ -239,7 +239,7 @@ def test_run_install_dry_run_renders_plan_without_installing(
 ) -> None:
     entry = _entry()
     catalog = _catalog(trusted=True)
-    plan = _plan(catalog)
+    plan = _plan(catalog, data_designer_protection="pinned to installed data-designer 0.5.10")
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
@@ -257,13 +257,14 @@ def test_run_install_dry_run_renders_plan_without_installing(
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_points.assert_not_called()
     mock_print_info.assert_any_call("Dry run complete; no changes made")
+    mock_console.print.assert_any_call("  Data Designer: [bold]pinned to installed data-designer 0.5.10[/bold]")
     assert all("Runtime plugins" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list)
     assert mock_console.print.call_count >= 1
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
-def test_run_install_blocks_incompatible_package_without_force(
+def test_run_install_blocks_incompatible_package(
     mock_print_error: MagicMock,
     mock_console: MagicMock,
     controller: PluginCatalogController,
@@ -345,15 +346,15 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     mock_console.print.assert_any_call("  Compatibility: [bold yellow]not compatible[/bold yellow]")
     mock_console.print.assert_any_call("    - Data Designer 0.5.7 does not satisfy >=99.0")
     mock_print_warning.assert_called_once_with(
-        "Dry run complete; no changes made. A real install would be blocked unless you pass --force."
+        "Dry run complete; no changes made. A real install would be blocked because compatibility checks failed."
     )
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
-def test_run_install_force_allows_incompatible_entry_for_dry_run(
-    mock_print_info: MagicMock,
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+def test_run_install_dry_run_allows_incompatible_entry_for_inspection(
+    mock_print_warning: MagicMock,
     mock_print_error: MagicMock,
     mock_console: MagicMock,
     controller: PluginCatalogController,
@@ -368,7 +369,7 @@ def test_run_install_force_allows_incompatible_entry_for_dry_run(
     )
     controller.install_service.build_install_plan.return_value = _plan(catalog)
 
-    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True, force=True)
+    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
     controller.catalog_service.get_entry.assert_not_called()
     controller.catalog_service.get_package_entries.assert_called_once_with(
@@ -380,7 +381,9 @@ def test_run_install_force_allows_incompatible_entry_for_dry_run(
     controller.install_service.build_install_plan.assert_called_once_with(entry, catalog, manager="auto")
     controller.install_service.install.assert_not_called()
     mock_print_error.assert_not_called()
-    mock_print_info.assert_any_call("Dry run complete; no changes made")
+    mock_print_warning.assert_called_once_with(
+        "Dry run complete; no changes made. A real install would be blocked because compatibility checks failed."
+    )
     assert mock_console.print.call_count >= 1
 
 
@@ -625,7 +628,12 @@ def _catalog(*, trusted: bool) -> PluginCatalogConfig:
     )
 
 
-def _plan(catalog: PluginCatalogConfig, *, source_warning: str | None = None) -> InstallPlan:
+def _plan(
+    catalog: PluginCatalogConfig,
+    *,
+    source_warning: str | None = None,
+    data_designer_protection: str | None = None,
+) -> InstallPlan:
     return InstallPlan(
         package_name="data-designer-text-transform",
         source_description="data-designer-text-transform",
@@ -634,6 +642,7 @@ def _plan(catalog: PluginCatalogConfig, *, source_warning: str | None = None) ->
         catalog_alias=catalog.alias,
         trusted_catalog=catalog.trusted,
         source_warning=source_warning,
+        data_designer_protection=data_designer_protection,
     )
 
 

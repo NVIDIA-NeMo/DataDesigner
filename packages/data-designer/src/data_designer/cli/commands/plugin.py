@@ -115,7 +115,7 @@ def install_command(
         "auto",
         "--manager",
         click_type=click.Choice(["auto", "uv", "pip"]),
-        help="Package manager to use for installation.",
+        help="Package manager to use. uv adds to the active project when one is detected; pip mutates the environment.",
     ),
     yes: bool = typer.Option(
         False,
@@ -128,11 +128,6 @@ def install_command(
         "--dry-run",
         help="Print the install plan without mutating the current environment.",
     ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        help="Allow installing a catalog package when compatibility checks fail.",
-    ),
 ) -> None:
     """Install one Data Designer plugin package, then verify package registration."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
@@ -143,7 +138,6 @@ def install_command(
         manager=manager,
         yes=yes,
         dry_run=dry_run,
-        force=force,
     )
 
 
@@ -167,7 +161,7 @@ def uninstall_command(
         "auto",
         "--manager",
         click_type=click.Choice(["auto", "uv", "pip"]),
-        help="Package manager to use for uninstallation.",
+        help="Package manager to use. uv removes from the active project when one is detected; pip mutates the environment.",
     ),
     yes: bool = typer.Option(
         False,

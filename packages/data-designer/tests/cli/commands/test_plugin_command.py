@@ -61,7 +61,6 @@ def test_plugin_install_command_delegates_to_controller(mock_ctrl_cls: MagicMock
         manager="pip",
         yes=True,
         dry_run=True,
-        force=False,
     )
 
 
@@ -102,8 +101,7 @@ def test_plugin_install_help_uses_package_first_wording() -> None:
     assert "PACKAGE" in result.output
     assert "Plugin package name or package alias" in result.output
     assert "runtime plugin name" not in result.output
-    assert "Allow installing a catalog" in result.output
-    assert "package when compatibility" in result.output
+    assert "Print the install plan" in result.output
 
 
 def test_plugin_uninstall_help_uses_package_first_wording() -> None:
