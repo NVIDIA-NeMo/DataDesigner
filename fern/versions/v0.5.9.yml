@@ -1,5 +1,4 @@
-# Rolling default version. Dev Notes can include posts from main that are not
-# part of a frozen release nav yet.
+# Frozen v0.5.9 release nav. Reuses shared pages until content needs to diverge.
 navigation:
   - section: Getting Started
     contents:

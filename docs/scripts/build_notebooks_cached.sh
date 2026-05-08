@@ -24,7 +24,15 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SOURCE_DIR="$REPO_ROOT/docs/notebook_source"
 OUTPUT_DIR="$REPO_ROOT/docs/notebooks"
 CACHE_DIR="${1:-$REPO_ROOT/.notebook-cache}"
+DOCS_JUPYTEXT="${DOCS_JUPYTEXT:-$REPO_ROOT/.venv/bin/jupytext}"
 
+if [ ! -x "$DOCS_JUPYTEXT" ]; then
+    echo "❌ Missing jupytext executable: $DOCS_JUPYTEXT"
+    echo "Run 'make install-dev-notebooks' first."
+    exit 1
+fi
+
+rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
 
 # Copy static files
@@ -40,11 +48,11 @@ for src in "$SOURCE_DIR"/*.py; do
     cached_notebook="$CACHE_DIR/${name}.ipynb"
 
     if [ -f "$cached_hash_file" ] && [ -f "$cached_notebook" ] && [ "$(cat "$cached_hash_file")" = "$hash" ]; then
-        echo "  ✅ $name.ipynb — cached (unchanged)"
+        echo "  ✅ $name.ipynb - cached (unchanged)"
         cp "$cached_notebook" "$OUTPUT_DIR/${name}.ipynb"
     else
-        echo "  🔄 $name.ipynb — executing..."
-        uv run --all-packages --group notebooks --group docs jupytext --to ipynb --execute "$src"
+        echo "  🔄 $name.ipynb - executing..."
+        "$DOCS_JUPYTEXT" --to ipynb --execute "$src"
         mv "$SOURCE_DIR/${name}.ipynb" "$OUTPUT_DIR/${name}.ipynb"
         needs_cleanup=true
 

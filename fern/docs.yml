@@ -45,9 +45,13 @@ experimental:
   - ./components
   basepath-aware: true
 versions:
-- display-name: "Latest · v0.5.8"
+- display-name: "Latest · v0.5.9"
   path: versions/latest.yml
   slug: latest
+  availability: stable
+- display-name: "v0.5.9"
+  path: versions/v0.5.9.yml
+  slug: v0.5.9
   availability: stable
 - display-name: "v0.5.8"
   path: versions/v0.5.8.yml
@@ -68,6 +72,155 @@ redirects:
   # Mirrors Curator's /home -> /home/welcome convention.
   - source: "/nemo/datadesigner/getting-started"
     destination: "/nemo/datadesigner/getting-started/welcome"
+
+  # ---- Historical MkDocs archives ----
+  # Fern only has real v0.5.8/v0.5.9 entries today. Older released docs remain on the
+  # legacy MkDocs gh-pages archive, so version-prefixed Fern URLs for those
+  # releases should leave the Fern site rather than showing current content.
+  - source: "/nemo/datadesigner/v0.5.7"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.7/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.7/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.7/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.6"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.6/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.6/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.6/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.5"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.5/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.5/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.5/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.4"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.4/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.4/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.4/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.3"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.3/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.3/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.3/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.2"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.2/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.2/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.2/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.1"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.1/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.1/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.1/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.0"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.0/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.0/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.0/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.4.0"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.4.0/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.4.0/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.4.0/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.8"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.8/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.8/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.8/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.7"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.7/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.7/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.7/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.6"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.6/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.6/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.6/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.5"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.5/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.5/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.5/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.4"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.4/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.4/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.4/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.3"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.3/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.3/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.3/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.2"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.2/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.2/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.2/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.1"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.1/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.1/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.1/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.3"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.3/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.3/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.3/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.2"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.2/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.2/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.2/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.1"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.1/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.1/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.1/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.0"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.0/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.0/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.0/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.5"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.5/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.5/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.5/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.4"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.4/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.4/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.4/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.3"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.3/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.3/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.3/:path*"
+    permanent: false
 
   # ---- MkDocs path renames (most specific first) ----
   # The legacy site lived at https://nvidia-nemo.github.io/DataDesigner/ and used
