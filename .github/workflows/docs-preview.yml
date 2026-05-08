@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - "docs/**"
+      - "fern/**"
       - "mkdocs.yml"
       - ".github/workflows/docs-preview.yml"
 
@@ -78,6 +79,28 @@ jobs:
       - name: Build docs
         run: uv run mkdocs build
 
+      - name: Prepare Fern docs
+        run: make prepare-fern-docs
+
+      - name: Deploy Fern preview
+        id: fern-preview
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        run: |
+          if [ -z "$FERN_TOKEN" ]; then
+            echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern preview docs."
+            exit 1
+          fi
+
+          cd fern
+          npx -y fern-api@$(jq -r .version fern.config.json) generate --docs --preview --id pr-${{ github.event.pull_request.number }} --force --no-prompt 2>&1 | tee /tmp/fern-preview.log
+          PREVIEW_URL=$(grep -Eo 'https://[^[:space:])]+docs\.buildwithfern\.com[^[:space:])]*' /tmp/fern-preview.log | tail -1)
+          if [ -z "$PREVIEW_URL" ]; then
+            echo "::error::Could not find Fern preview URL in CLI output."
+            exit 1
+          fi
+          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to Cloudflare Pages
         id: deploy
         uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
@@ -102,6 +125,8 @@ jobs:
           edit-mode: replace
           body: |
             <!-- docs-preview -->
-            **Docs preview:** ${{ steps.deploy.outputs.deployment-url }}
+            **MkDocs preview:** ${{ steps.deploy.outputs.deployment-url }}
+
+            **Fern preview:** ${{ steps.fern-preview.outputs.url }}
 
             > Notebook tutorials are placeholder-only in previews.
