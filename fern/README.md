@@ -63,7 +63,7 @@ Fern publishing mirrors the MkDocs split during migration:
 
 - `.github/workflows/build-fern-docs.yml` runs on release publication or manual dispatch. It builds executed notebooks, runs `make check-fern-docs`, and publishes Fern.
 - `.github/workflows/publish-fern-devnotes.yml` runs on `main` when Dev Notes or Fern Dev Notes assets change, plus manual dispatch. It reuses the last docs notebook artifact, runs `make check-fern-docs`, and publishes Fern.
-- `.github/workflows/docs-preview.yml` remains the PR preview workflow and posts both MkDocs and Fern preview links.
+- `.github/workflows/docs-preview.yml` remains the PR preview workflow and posts both MkDocs and Fern preview links for same-repository PRs. Fork PRs still run docs build/checks, but skip hosted previews because those require deployment secrets.
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 

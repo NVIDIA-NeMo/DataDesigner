@@ -82,7 +82,12 @@ jobs:
       - name: Check Fern docs
         run: make check-fern-docs
 
+      - name: Skip hosted previews for fork PRs
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: echo "::notice::Skipping hosted docs previews because this PR comes from a fork."
+
       - name: Deploy Fern preview
+        if: github.event.pull_request.head.repo.full_name == github.repository
         id: fern-preview
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
@@ -102,6 +107,7 @@ jobs:
           echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to Cloudflare Pages
+        if: github.event.pull_request.head.repo.full_name == github.repository
         id: deploy
         uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
         with:
@@ -110,6 +116,7 @@ jobs:
           command: pages deploy site/ --project-name=dd-docs-preview --branch=pr-${{ github.event.pull_request.number }}
 
       - name: Find existing comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4
         id: find-comment
         with:
@@ -118,6 +125,7 @@ jobs:
           body-includes: "<!-- docs-preview -->"
 
       - name: Post or update PR comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
