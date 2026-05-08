@@ -67,7 +67,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 - **Files**:
   - `model_controller.py`: Orchestrates model configuration workflows
   - `provider_controller.py`: Orchestrates provider configuration workflows
-  - `plugin_catalog_controller.py`: Orchestrates plugin catalog, catalog, and install workflows
+  - `plugin_catalog_controller.py`: Orchestrates plugin catalog browsing, alias management, and install workflows
 
 **Key Features**:
 - **Associated Resource Management**: When deleting a provider, the controller checks for associated models and prompts the user to delete them together

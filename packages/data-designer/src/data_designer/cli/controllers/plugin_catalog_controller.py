@@ -35,7 +35,7 @@ from data_designer.config.utils.constants import NordColor
 
 
 class PluginCatalogController:
-    """Controller for plugin catalog, catalog, and install workflows.
+    """Controller for plugin catalog browsing, alias management, and install workflows.
 
     Catalog browsing and environment mutation intentionally use separate services so
     read-only catalog operations stay decoupled from package-manager execution.
