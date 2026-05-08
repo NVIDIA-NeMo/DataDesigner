@@ -2055,6 +2055,54 @@ def test_if_possible_incompatible_config_does_not_overwrite_existing_dataset(
     )
 
 
+def test_if_possible_incompatible_config_refreshes_media_storage_path(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """After IF_POSSIBLE → NEVER downgrade, _media_storage must point to the new timestamped dir.
+
+    Bug: validate_folder_names initialises MediaStorage with base_dataset_path at Pydantic
+    construction time (while resume=IF_POSSIBLE), caching the original directory name.
+    After the cache pop and resume=NEVER, base_dataset_path resolves to a new timestamped
+    directory, but _media_storage.base_path still holds the old path — producing broken
+    image references for image-column datasets.
+
+    Fix: refresh_media_storage_path() is called after the cache pop.
+    """
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "existing_file.parquet").write_text("data")  # non-empty dir triggers NEVER→timestamp
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+
+    # Trigger validate_folder_names so _media_storage is initialised with IF_POSSIBLE semantics
+    # (non-empty dir + IF_POSSIBLE → resolved_dataset_name returns "dataset", not timestamped)
+    original_media_base = storage.media_storage.base_path
+
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder, "_run_mcp_tool_check_if_needed"):
+                with patch.object(builder, "_write_builder_config"):
+                    with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+                        with patch.object(builder.batch_manager, "start"):
+                            with patch.object(builder.batch_manager, "finish"):
+                                with patch.object(builder._processor_runner, "run_after_generation"):
+                                    builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+
+    new_media_base = storage.media_storage.base_path
+    assert new_media_base != original_media_base, (
+        "media_storage.base_path must be updated to the new timestamped directory after IF_POSSIBLE → NEVER downgrade"
+    )
+    assert new_media_base == storage.base_dataset_path, (
+        "media_storage.base_path must match base_dataset_path after downgrade"
+    )
+
+
 def test_if_possible_starts_fresh_when_no_existing_directory(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):

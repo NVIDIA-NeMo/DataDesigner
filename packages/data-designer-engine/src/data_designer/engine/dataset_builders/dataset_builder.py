@@ -275,6 +275,7 @@ class DatasetBuilder:
                     resume = ResumeMode.NEVER
                     self.artifact_storage.resume = ResumeMode.NEVER
                     self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
+                    self.artifact_storage.refresh_media_storage_path()
                 else:
                     resume = ResumeMode.ALWAYS
                     self.artifact_storage.resume = ResumeMode.ALWAYS

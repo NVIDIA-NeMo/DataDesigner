@@ -158,6 +158,16 @@ class ArtifactStorage(BaseModel):
         """
         self._media_storage.mode = mode
 
+    def refresh_media_storage_path(self) -> None:
+        """Re-point MediaStorage to the current base_dataset_path.
+
+        Must be called after popping the resolved_dataset_name cache so that
+        _media_storage.base_path and .images_dir reflect the updated directory.
+        """
+        images_subdir = self._media_storage.images_dir.name
+        self._media_storage.base_path = self.base_dataset_path
+        self._media_storage.images_dir = self.base_dataset_path / images_subdir
+
     @staticmethod
     def mkdir_if_needed(path: Path | str) -> Path:
         """Create the directory if it does not exist."""
