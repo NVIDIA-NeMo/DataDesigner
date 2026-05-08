@@ -585,14 +585,14 @@ def test_run_uninstall_warns_when_entry_points_remain(
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
-def test_run_catalogs_add_wraps_invalid_alias_validation_error(
+def test_run_catalog_add_wraps_invalid_alias_validation_error(
     mock_print_error: MagicMock,
     tmp_path: Path,
 ) -> None:
     plugin_controller = PluginCatalogController(tmp_path)
 
     with pytest.raises(typer.Exit) as exc_info:
-        plugin_controller.run_catalogs_add(
+        plugin_controller.run_catalog_add(
             alias="foo/bar",
             url="https://github.com/acme/dd-plugins",
             trusted=False,
@@ -604,14 +604,14 @@ def test_run_catalogs_add_wraps_invalid_alias_validation_error(
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
-def test_run_catalogs_list_wraps_registry_load_error(
+def test_run_catalog_list_wraps_registry_load_error(
     mock_print_error: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
     controller.catalog_service.list_catalogs.side_effect = PluginCatalogError("bad registry")
 
     with pytest.raises(typer.Exit) as exc_info:
-        controller.run_catalogs_list()
+        controller.run_catalog_list()
 
     assert exc_info.value.exit_code == 1
     mock_print_error.assert_called_once_with("Failed to list plugin catalogs: bad registry")

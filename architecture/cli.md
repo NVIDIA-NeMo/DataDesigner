@@ -39,7 +39,7 @@ Plugin catalog commands use the same layering shape:
 
 | Layer | Role | Example |
 |-------|------|---------|
-| **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugin list/search/info/install/uninstall/installed/catalogs` → `PluginCatalogController(DATA_DESIGNER_HOME)` |
+| **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugin list/search/info/install/uninstall/installed/catalog` → `PluginCatalogController(DATA_DESIGNER_HOME)` |
 | **Controller** | UX flow: catalog tables, package metadata, compatibility display, package mutation confirmations | `PluginCatalogController` composes catalog + install services |
 | **Service** | Domain rules: package-first flattening, compatibility checks, install/uninstall planning, entry point verification | `PluginCatalogService`, `PluginInstallService` |
 | **Repository** | File/cache I/O for catalog aliases and catalog documents | `PluginCatalogRepository` |

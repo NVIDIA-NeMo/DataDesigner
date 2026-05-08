@@ -200,14 +200,14 @@ def installed_command(ctx: typer.Context) -> None:
     controller.run_installed()
 
 
-def catalogs_list_command(ctx: typer.Context) -> None:
+def catalog_list_command(ctx: typer.Context) -> None:
     """List configured plugin catalogs."""
     _warn_if_parent_catalog_unused(ctx, "catalog management commands operate on aliases directly")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
-    controller.run_catalogs_list()
+    controller.run_catalog_list()
 
 
-def catalogs_add_command(
+def catalog_add_command(
     ctx: typer.Context,
     alias: str = typer.Argument(help="Local alias for the plugin catalog."),
     url: str = typer.Argument(
@@ -228,7 +228,7 @@ def catalogs_add_command(
     """Add a plugin catalog alias."""
     _warn_if_parent_catalog_unused(ctx, "catalog management commands operate on aliases directly")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
-    controller.run_catalogs_add(
+    controller.run_catalog_add(
         alias=alias,
         url=url,
         trusted=trusted,
@@ -236,14 +236,14 @@ def catalogs_add_command(
     )
 
 
-def catalogs_remove_command(
+def catalog_remove_command(
     ctx: typer.Context,
     alias: str = typer.Argument(help="Plugin catalog alias to remove."),
 ) -> None:
     """Remove a plugin catalog alias."""
     _warn_if_parent_catalog_unused(ctx, "catalog management commands operate on aliases directly")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
-    controller.run_catalogs_remove(alias=alias)
+    controller.run_catalog_remove(alias=alias)
 
 
 def _resolve_catalog_alias(ctx: typer.Context, catalog_alias: str | None) -> str | None:

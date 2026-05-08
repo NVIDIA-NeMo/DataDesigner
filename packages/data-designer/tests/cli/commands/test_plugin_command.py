@@ -117,7 +117,7 @@ def test_plugin_uninstall_help_uses_package_first_wording() -> None:
 
 
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")
-def test_plugin_catalogs_add_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
+def test_plugin_catalog_add_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
@@ -125,7 +125,7 @@ def test_plugin_catalogs_add_command_delegates_to_controller(mock_ctrl_cls: Magi
         app,
         [
             "plugin",
-            "catalogs",
+            "catalog",
             "add",
             "research",
             "https://github.com/acme/dd-plugins",
@@ -136,7 +136,7 @@ def test_plugin_catalogs_add_command_delegates_to_controller(mock_ctrl_cls: Magi
     )
 
     assert result.exit_code == 0
-    mock_ctrl.run_catalogs_add.assert_called_once_with(
+    mock_ctrl.run_catalog_add.assert_called_once_with(
         alias="research",
         url="https://github.com/acme/dd-plugins",
         trusted=True,
@@ -164,17 +164,17 @@ def test_plugin_installed_warns_when_parent_catalog_is_unused(
 
 @patch("data_designer.cli.commands.plugin.print_info")
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")
-def test_plugin_catalogs_list_warns_when_parent_catalog_is_unused(
+def test_plugin_catalog_list_warns_when_parent_catalog_is_unused(
     mock_ctrl_cls: MagicMock,
     mock_print_info: MagicMock,
 ) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugin", "--catalog", "research", "catalogs", "list"])
+    result = runner.invoke(app, ["plugin", "--catalog", "research", "catalog", "list"])
 
     assert result.exit_code == 0
     mock_print_info.assert_called_once_with(
         "Ignoring --catalog 'research'; catalog management commands operate on aliases directly."
     )
-    mock_ctrl.run_catalogs_list.assert_called_once_with()
+    mock_ctrl.run_catalog_list.assert_called_once_with()
