@@ -14,14 +14,15 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from data_designer.cli.plugin_catalog import (
-    DEFAULT_PLUGIN_TAP_ALIAS,
+    DEFAULT_PLUGIN_CATALOG_ALIAS,
+    PLUGIN_ENTRY_POINT_GROUP,
     CompatibilityResult,
     InstalledPluginInfo,
+    PluginCatalogConfig,
     PluginCatalogEntry,
     PluginCompatibilityTarget,
-    PluginTapConfig,
 )
-from data_designer.cli.repositories.plugin_tap_repository import PluginTapRepository
+from data_designer.cli.repositories.plugin_catalog_repository import PluginCatalogRepository
 
 
 class PluginCatalogService:
@@ -29,7 +30,7 @@ class PluginCatalogService:
 
     def __init__(
         self,
-        repository: PluginTapRepository,
+        repository: PluginCatalogRepository,
         *,
         python_version: str | None = None,
         data_designer_version: str | None = None,
@@ -40,14 +41,14 @@ class PluginCatalogService:
 
     def list_entries(
         self,
-        tap_alias: str | None = None,
+        catalog_alias: str | None = None,
         *,
         refresh: bool = False,
         include_incompatible: bool = False,
     ) -> list[PluginCatalogEntry]:
-        """List catalog entries for a tap, filtering incompatible entries by default."""
-        catalog = self.repository.load_catalog(tap_alias, refresh=refresh)
-        entries = sorted(catalog.plugins, key=lambda entry: (entry.name, _entry_version_sort_key(entry)))
+        """List catalog entries for a catalog, filtering incompatible entries by default."""
+        catalog = self.repository.load_catalog(catalog_alias, refresh=refresh)
+        entries = sorted(catalog.entries, key=lambda entry: (canonicalize_name(entry.package.name), entry.name))
         if include_incompatible:
             return entries
         return [entry for entry in entries if self.evaluate_compatibility(entry).is_compatible]
@@ -55,7 +56,7 @@ class PluginCatalogService:
     def search_entries(
         self,
         query: str,
-        tap_alias: str | None = None,
+        catalog_alias: str | None = None,
         *,
         refresh: bool = False,
         include_incompatible: bool = False,
@@ -68,7 +69,7 @@ class PluginCatalogService:
         return [
             entry
             for entry in self.list_entries(
-                tap_alias,
+                catalog_alias,
                 refresh=refresh,
                 include_incompatible=include_incompatible,
             )
@@ -78,26 +79,47 @@ class PluginCatalogService:
     def get_entry(
         self,
         name: str,
-        tap_alias: str | None = None,
+        catalog_alias: str | None = None,
         *,
         refresh: bool = False,
         include_incompatible: bool = True,
     ) -> PluginCatalogEntry:
-        """Return the newest catalog entry by plugin name."""
-        entries = self.list_entries(tap_alias, refresh=refresh, include_incompatible=True)
-        matches = [entry for entry in entries if entry.name == name]
+        """Return a catalog entry by runtime plugin name or package name."""
+        entries = self.list_entries(catalog_alias, refresh=refresh, include_incompatible=True)
+        canonical_name = canonicalize_name(name)
+        matches = [
+            entry for entry in entries if entry.name == name or canonicalize_name(entry.package.name) == canonical_name
+        ]
         compatible_matches = [entry for entry in matches if self.evaluate_compatibility(entry).is_compatible]
         if compatible_matches:
-            return max(compatible_matches, key=_entry_version_sort_key)
+            return sorted(compatible_matches, key=lambda entry: (canonicalize_name(entry.package.name), entry.name))[0]
         if matches and include_incompatible:
-            return max(matches, key=_entry_version_sort_key)
+            return sorted(matches, key=lambda entry: (canonicalize_name(entry.package.name), entry.name))[0]
 
-        resolved_alias = tap_alias or DEFAULT_PLUGIN_TAP_ALIAS
+        resolved_alias = catalog_alias or DEFAULT_PLUGIN_CATALOG_ALIAS
         if matches:
-            raise ValueError(
-                f"Plugin {name!r} was found in tap {resolved_alias!r}, but no compatible version is available"
+            raise ValueError(f"Plugin package {name!r} was found in catalog {resolved_alias!r}, but is not compatible")
+        raise ValueError(f"Plugin or package {name!r} was not found in catalog {resolved_alias!r}")
+
+    def get_package_entries(
+        self,
+        package_name: str,
+        catalog_alias: str | None = None,
+        *,
+        refresh: bool = False,
+        include_incompatible: bool = True,
+    ) -> list[PluginCatalogEntry]:
+        """Return all runtime plugin entries declared by one catalog package."""
+        canonical_package_name = canonicalize_name(package_name)
+        return [
+            entry
+            for entry in self.list_entries(
+                catalog_alias,
+                refresh=refresh,
+                include_incompatible=include_incompatible,
             )
-        raise ValueError(f"Plugin {name!r} was not found in tap {resolved_alias!r}")
+            if canonicalize_name(entry.package.name) == canonical_package_name
+        ]
 
     @staticmethod
     def group_entries_by_package(entries: Iterable[PluginCatalogEntry]) -> dict[str, list[PluginCatalogEntry]]:
@@ -134,40 +156,40 @@ class PluginCatalogService:
         )
         return CompatibilityResult(is_compatible=not reasons, reasons=reasons)
 
-    def list_taps(self) -> list[PluginTapConfig]:
-        """List available plugin taps."""
-        return self.repository.list_taps()
+    def list_catalogs(self) -> list[PluginCatalogConfig]:
+        """List available plugin catalogs."""
+        return self.repository.list_catalogs()
 
-    def get_tap(self, alias: str | None = None) -> PluginTapConfig:
-        """Return a plugin tap or raise a user-facing error."""
-        tap = self.repository.get_tap(alias)
-        if tap is None:
-            raise ValueError(f"Plugin tap alias {alias!r} not found")
-        return tap
+    def get_catalog(self, alias: str | None = None) -> PluginCatalogConfig:
+        """Return a plugin catalog or raise a user-facing error."""
+        catalog = self.repository.get_catalog(alias)
+        if catalog is None:
+            raise ValueError(f"Plugin catalog alias {alias!r} not found")
+        return catalog
 
-    def add_tap(
+    def add_catalog(
         self,
         alias: str,
         url: str,
         *,
         trusted: bool,
         cache_ttl_seconds: int,
-    ) -> PluginTapConfig:
-        """Add a plugin tap alias."""
-        return self.repository.add_tap(
+    ) -> PluginCatalogConfig:
+        """Add a plugin catalog alias."""
+        return self.repository.add_catalog(
             alias,
             url,
             trusted=trusted,
             cache_ttl_seconds=cache_ttl_seconds,
         )
 
-    def remove_tap(self, alias: str) -> None:
-        """Remove a plugin tap alias."""
-        self.repository.remove_tap(alias)
+    def remove_catalog(self, alias: str) -> None:
+        """Remove a plugin catalog alias."""
+        self.repository.remove_catalog(alias)
 
     def list_installed_plugins(self) -> list[InstalledPluginInfo]:
         """List installed Data Designer plugin entry points without importing plugin modules."""
-        entry_points = importlib.metadata.entry_points(group="data_designer.plugins")
+        entry_points = importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP)
         installed_plugins = [
             InstalledPluginInfo(name=entry_point.name, entry_point_value=entry_point.value)
             for entry_point in entry_points
@@ -226,23 +248,13 @@ def _entry_search_text(entry: PluginCatalogEntry) -> str:
         entry.plugin_type.value,
         entry.description,
         entry.package.name,
-        entry.package.version or "",
-        entry.package.path or "",
+        entry.install.requirement,
+        entry.install.index_url or "",
         entry.entry_point.name,
         entry.entry_point.value,
-        entry.source.type if entry.source is not None else "",
-        entry.source.package if entry.source is not None and entry.source.package else "",
-        entry.source.url if entry.source is not None and entry.source.url else "",
         entry.docs.url if entry.docs is not None and entry.docs.url else "",
     ]
     return " ".join(values).lower()
-
-
-def _entry_version_sort_key(entry: PluginCatalogEntry) -> Version:
-    try:
-        return Version(entry.package.version or "0")
-    except InvalidVersion:
-        return Version("0")
 
 
 def _major_minor(version: str) -> str:

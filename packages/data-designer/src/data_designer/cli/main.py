@@ -144,28 +144,28 @@ download_app = typer.Typer(
 # Create plugins command group
 plugins_app = typer.Typer(
     name="plugins",
-    help="Discover and install Data Designer plugins from tap catalogs",
+    help="Discover and install Data Designer plugins from catalogs",
     cls=create_lazy_typer_group(
         {
             "list": {
                 "module": f"{_CMD}.plugins",
                 "attr": "list_command",
-                "help": "List plugins from a tap catalog",
+                "help": "List plugins from a catalog",
             },
             "search": {
                 "module": f"{_CMD}.plugins",
                 "attr": "search_command",
-                "help": "Search plugins from a tap catalog",
+                "help": "Search plugins from a catalog",
             },
             "info": {
                 "module": f"{_CMD}.plugins",
                 "attr": "info_command",
-                "help": "Show plugin metadata and install plan",
+                "help": "Show plugin package metadata and install plan",
             },
             "install": {
                 "module": f"{_CMD}.plugins",
                 "attr": "install_command",
-                "help": "Install a plugin package and verify discovery",
+                "help": "Install a plugin package and verify runtime discovery",
             },
             "installed": {
                 "module": f"{_CMD}.plugins",
@@ -180,34 +180,34 @@ plugins_app = typer.Typer(
 
 @plugins_app.callback()
 def plugins_callback(
-    tap: str | None = typer.Option(
+    catalog: str | None = typer.Option(
         None,
-        "--tap",
-        help="Plugin tap alias to use for catalog commands.",
+        "--catalog",
+        help="Plugin catalog alias to use for catalog commands.",
     ),
 ) -> None:
-    _ = tap
+    _ = catalog
 
 
-plugin_taps_app = typer.Typer(
-    name="taps",
-    help="Manage plugin tap aliases",
+plugin_catalogs_app = typer.Typer(
+    name="catalogs",
+    help="Manage plugin catalog aliases",
     cls=create_lazy_typer_group(
         {
             "list": {
                 "module": f"{_CMD}.plugins",
-                "attr": "taps_list_command",
-                "help": "List configured plugin taps",
+                "attr": "catalogs_list_command",
+                "help": "List configured plugin catalogs",
             },
             "add": {
                 "module": f"{_CMD}.plugins",
-                "attr": "taps_add_command",
-                "help": "Add a plugin tap alias",
+                "attr": "catalogs_add_command",
+                "help": "Add a plugin catalog alias",
             },
             "remove": {
                 "module": f"{_CMD}.plugins",
-                "attr": "taps_remove_command",
-                "help": "Remove a plugin tap alias",
+                "attr": "catalogs_remove_command",
+                "help": "Remove a plugin catalog alias",
             },
         }
     ),
@@ -240,7 +240,7 @@ agent_state_app = typer.Typer(
 )
 
 agent_app.add_typer(agent_state_app, name="state")
-plugins_app.add_typer(plugin_taps_app, name="taps")
+plugins_app.add_typer(plugin_catalogs_app, name="catalogs")
 
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup")

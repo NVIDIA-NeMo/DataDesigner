@@ -14,140 +14,144 @@ from urllib.request import Request, urlopen
 from pydantic import ValidationError
 
 from data_designer.cli.plugin_catalog import (
-    DEFAULT_PLUGIN_TAP_ALIAS,
+    DEFAULT_PLUGIN_CATALOG_ALIAS,
     MAX_PLUGIN_CATALOG_SIZE_BYTES,
-    PLUGIN_TAP_CACHE_DIR_NAME,
-    PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS,
-    PLUGIN_TAPS_FILE_NAME,
+    PLUGIN_CATALOG_CACHE_DIR_NAME,
+    PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS,
+    PLUGIN_CATALOGS_FILE_NAME,
     PluginCatalog,
+    PluginCatalogConfig,
     PluginCatalogError,
-    PluginTapConfig,
-    PluginTapRegistry,
-    get_default_plugin_tap_url,
+    PluginCatalogRegistry,
+    get_default_plugin_catalog_url,
     validate_plugin_catalog_payload,
 )
 from data_designer.cli.repositories.base import ConfigRepository
 from data_designer.config.utils.io_helpers import load_config_file, save_config_file
 
 
-class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
-    """Repository for plugin tap aliases and cached catalog payloads."""
+class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
+    """Repository for plugin catalog aliases and cached catalog payloads."""
 
     @property
     def config_file(self) -> Path:
-        """Get the plugin tap configuration file path."""
-        return self.config_dir / PLUGIN_TAPS_FILE_NAME
+        """Get the plugin catalog configuration file path."""
+        return self.config_dir / PLUGIN_CATALOGS_FILE_NAME
 
     @property
     def cache_dir(self) -> Path:
-        """Get the plugin tap cache directory path."""
-        return self.config_dir / PLUGIN_TAP_CACHE_DIR_NAME
+        """Get the plugin catalog cache directory path."""
+        return self.config_dir / PLUGIN_CATALOG_CACHE_DIR_NAME
 
-    def load(self) -> PluginTapRegistry | None:
-        """Load user-configured plugin taps."""
+    def load(self) -> PluginCatalogRegistry | None:
+        """Load user-configured plugin catalogs."""
         if not self.exists():
             return None
 
         try:
             config_dict = load_config_file(self.config_file)
-            return PluginTapRegistry.model_validate(config_dict)
+            return PluginCatalogRegistry.model_validate(config_dict)
         except Exception:
             return None
 
-    def save(self, config: PluginTapRegistry) -> None:
-        """Save user-configured plugin taps."""
+    def save(self, config: PluginCatalogRegistry) -> None:
+        """Save user-configured plugin catalogs."""
         config_dict = config.model_dump(mode="json", exclude_none=True)
         save_config_file(self.config_file, config_dict)
 
-    def list_taps(self) -> list[PluginTapConfig]:
-        """Return the built-in NVIDIA tap followed by user-configured taps."""
-        taps = [self.default_tap()]
+    def list_catalogs(self) -> list[PluginCatalogConfig]:
+        """Return the built-in NVIDIA catalog followed by user-configured catalogs."""
+        catalogs = [self.default_catalog()]
         registry = self.load()
         if registry is not None:
-            taps.extend(sorted(registry.taps, key=lambda tap: tap.alias.casefold()))
-        return taps
+            catalogs.extend(sorted(registry.catalogs, key=lambda catalog: catalog.alias.casefold()))
+        return catalogs
 
-    def get_tap(self, alias: str | None = None) -> PluginTapConfig | None:
-        """Return a tap by alias, defaulting to the built-in NVIDIA tap."""
-        resolved_alias = alias or DEFAULT_PLUGIN_TAP_ALIAS
-        return next((tap for tap in self.list_taps() if _same_alias(tap.alias, resolved_alias)), None)
+    def get_catalog(self, alias: str | None = None) -> PluginCatalogConfig | None:
+        """Return a catalog by alias, defaulting to the built-in NVIDIA catalog."""
+        resolved_alias = alias or DEFAULT_PLUGIN_CATALOG_ALIAS
+        return next((catalog for catalog in self.list_catalogs() if _same_alias(catalog.alias, resolved_alias)), None)
 
-    def add_tap(
+    def add_catalog(
         self,
         alias: str,
         url: str,
         *,
         trusted: bool = False,
-        cache_ttl_seconds: int = PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS,
-    ) -> PluginTapConfig:
-        """Persist a new tap alias.
+        cache_ttl_seconds: int = PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS,
+    ) -> PluginCatalogConfig:
+        """Persist a new catalog alias.
 
         Raises:
-            ValueError: If the alias already exists or is reserved for the built-in tap.
+            ValueError: If the alias already exists or is reserved for the built-in catalog.
         """
-        if self.get_tap(alias) is not None:
-            raise ValueError(f"Plugin tap alias {alias!r} already exists")
+        if self.get_catalog(alias) is not None:
+            raise ValueError(f"Plugin catalog alias {alias!r} already exists")
 
-        tap = PluginTapConfig(
+        catalog = PluginCatalogConfig(
             alias=alias,
-            url=normalize_tap_location(url),
+            url=normalize_catalog_location(url),
             trusted=trusted,
             cache_ttl_seconds=cache_ttl_seconds,
         )
-        registry = self.load() or PluginTapRegistry()
-        registry.taps.append(tap)
-        registry.taps = sorted(registry.taps, key=lambda item: item.alias.casefold())
+        registry = self.load() or PluginCatalogRegistry()
+        registry.catalogs.append(catalog)
+        registry.catalogs = sorted(registry.catalogs, key=lambda item: item.alias.casefold())
         self.save(registry)
-        return tap
+        return catalog
 
-    def remove_tap(self, alias: str) -> None:
-        """Remove a user-configured tap alias.
+    def remove_catalog(self, alias: str) -> None:
+        """Remove a user-configured catalog alias.
 
         Raises:
             ValueError: If the alias is reserved or does not exist.
         """
-        if _same_alias(alias, DEFAULT_PLUGIN_TAP_ALIAS):
-            raise ValueError(f"Cannot remove the built-in {DEFAULT_PLUGIN_TAP_ALIAS!r} plugin tap")
+        if _same_alias(alias, DEFAULT_PLUGIN_CATALOG_ALIAS):
+            raise ValueError(f"Cannot remove the built-in {DEFAULT_PLUGIN_CATALOG_ALIAS!r} plugin catalog")
 
         registry = self.load()
-        matching_tap = next((tap for tap in registry.taps if _same_alias(tap.alias, alias)), None) if registry else None
-        if registry is None or matching_tap is None:
-            raise ValueError(f"Plugin tap alias {alias!r} not found")
+        matching_catalog = (
+            next((catalog for catalog in registry.catalogs if _same_alias(catalog.alias, alias)), None)
+            if registry
+            else None
+        )
+        if registry is None or matching_catalog is None:
+            raise ValueError(f"Plugin catalog alias {alias!r} not found")
 
-        registry.taps = [tap for tap in registry.taps if not _same_alias(tap.alias, alias)]
-        if registry.taps:
+        registry.catalogs = [catalog for catalog in registry.catalogs if not _same_alias(catalog.alias, alias)]
+        if registry.catalogs:
             self.save(registry)
         else:
             self.delete()
 
-        self._remove_cache_files(matching_tap)
+        self._remove_cache_files(matching_catalog)
 
     def load_catalog(self, alias: str | None = None, *, refresh: bool = False) -> PluginCatalog:
-        """Load a tap catalog from cache or source."""
-        tap = self.get_tap(alias)
-        if tap is None:
-            raise ValueError(f"Plugin tap alias {alias!r} not found")
+        """Load a catalog from cache or source."""
+        catalog_config = self.get_catalog(alias)
+        if catalog_config is None:
+            raise ValueError(f"Plugin catalog alias {alias!r} not found")
 
         if not refresh:
-            cached_catalog = self._load_cached_catalog(tap, require_fresh=True)
+            cached_catalog = self._load_cached_catalog(catalog_config, require_fresh=True)
             if cached_catalog is not None:
                 return cached_catalog
 
         try:
-            payload = self._fetch_catalog_payload(tap.url)
-            catalog = self._validate_catalog(payload, source=tap.url)
+            payload = self._fetch_catalog_payload(catalog_config.url)
+            catalog = self._validate_catalog(payload, source=catalog_config.url)
         except Exception:
             if not refresh:
-                cached_catalog = self._load_cached_catalog(tap, require_fresh=False)
+                cached_catalog = self._load_cached_catalog(catalog_config, require_fresh=False)
                 if cached_catalog is not None:
                     return cached_catalog
             raise
 
-        self._save_catalog_cache(tap, payload)
+        self._save_catalog_cache(catalog_config, payload)
         return catalog
 
-    def _load_cached_catalog(self, tap: PluginTapConfig, *, require_fresh: bool) -> PluginCatalog | None:
-        cache_file = self._cache_file(tap)
+    def _load_cached_catalog(self, catalog: PluginCatalogConfig, *, require_fresh: bool) -> PluginCatalog | None:
+        cache_file = self._cache_file(catalog)
         if not cache_file.exists():
             return None
 
@@ -157,38 +161,38 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
             fetched_at = datetime.fromisoformat(cache_payload["fetched_at"])
             if fetched_at.tzinfo is None:
                 fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-            if require_fresh and tap.cache_ttl_seconds == 0:
+            if require_fresh and catalog.cache_ttl_seconds == 0:
                 return None
             if require_fresh:
                 age_seconds = (datetime.now(timezone.utc) - fetched_at).total_seconds()
-                if age_seconds > tap.cache_ttl_seconds:
+                if age_seconds > catalog.cache_ttl_seconds:
                     return None
             catalog_payload = cache_payload["catalog"]
             return self._validate_catalog(catalog_payload, source=str(cache_file))
         except Exception:
             return None
 
-    def _save_catalog_cache(self, tap: PluginTapConfig, catalog_payload: dict[str, object]) -> None:
+    def _save_catalog_cache(self, catalog: PluginCatalogConfig, catalog_payload: dict[str, object]) -> None:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_payload = {
-            "tap_alias": tap.alias,
-            "tap_url": tap.url,
+            "catalog_alias": catalog.alias,
+            "catalog_url": catalog.url,
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "catalog": catalog_payload,
         }
-        with open(self._cache_file(tap), "w") as f:
+        with open(self._cache_file(catalog), "w") as f:
             json.dump(cache_payload, f, indent=2, sort_keys=True)
 
-    def _cache_file(self, tap: PluginTapConfig) -> Path:
-        url_hash = hashlib.sha256(tap.url.encode("utf-8")).hexdigest()[:12]
-        return self.cache_dir / f"{tap.alias}-{url_hash}.json"
+    def _cache_file(self, catalog: PluginCatalogConfig) -> Path:
+        url_hash = hashlib.sha256(catalog.url.encode("utf-8")).hexdigest()[:12]
+        return self.cache_dir / f"{catalog.alias}-{url_hash}.json"
 
-    def _remove_cache_files(self, tap: PluginTapConfig) -> None:
+    def _remove_cache_files(self, catalog: PluginCatalogConfig) -> None:
         if not self.cache_dir.exists():
             return
 
-        self._cache_file(tap).unlink(missing_ok=True)
-        legacy_cache_file = self.cache_dir / f"{tap.alias}.json"
+        self._cache_file(catalog).unlink(missing_ok=True)
+        legacy_cache_file = self.cache_dir / f"{catalog.alias}.json"
         legacy_cache_file.unlink(missing_ok=True)
 
         for cache_file in self.cache_dir.glob("*.json"):
@@ -197,8 +201,8 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
                     cache_payload = json.load(f)
             except Exception:
                 continue
-            cached_alias = cache_payload.get("tap_alias")
-            if isinstance(cached_alias, str) and _same_alias(cached_alias, tap.alias):
+            cached_alias = cache_payload.get("catalog_alias")
+            if isinstance(cached_alias, str) and _same_alias(cached_alias, catalog.alias):
                 cache_file.unlink(missing_ok=True)
 
     @staticmethod
@@ -217,20 +221,20 @@ class PluginTapRepository(ConfigRepository[PluginTapRegistry]):
         return catalog
 
     @staticmethod
-    def default_tap() -> PluginTapConfig:
-        """Return the built-in NVIDIA plugin tap configuration."""
-        return PluginTapConfig(
-            alias=DEFAULT_PLUGIN_TAP_ALIAS,
-            url=get_default_plugin_tap_url(),
+    def default_catalog() -> PluginCatalogConfig:
+        """Return the built-in NVIDIA plugin catalog configuration."""
+        return PluginCatalogConfig(
+            alias=DEFAULT_PLUGIN_CATALOG_ALIAS,
+            url=get_default_plugin_catalog_url(),
             trusted=True,
-            cache_ttl_seconds=PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS,
+            cache_ttl_seconds=PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS,
         )
 
 
-def normalize_tap_location(location: str) -> str:
-    """Normalize a tap repository, catalog URL, or local path to a catalog location."""
+def normalize_catalog_location(location: str) -> str:
+    """Normalize a catalog repository, catalog URL, or local path to a catalog location."""
     if _is_http_url(location):
-        return _normalize_tap_url(location)
+        return _normalize_catalog_url(location)
 
     path = Path(location).expanduser()
     if path.suffix.lower() == ".json":
@@ -242,7 +246,7 @@ def _same_alias(left: str, right: str) -> bool:
     return left.casefold() == right.casefold()
 
 
-def _normalize_tap_url(url: str) -> str:
+def _normalize_catalog_url(url: str) -> str:
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
     segments = [segment for segment in parsed.path.split("/") if segment]
@@ -257,8 +261,8 @@ def _normalize_tap_url(url: str) -> str:
             return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
         if len(segments) >= 4 and segments[2] == "tree":
             ref = segments[3]
-            tap_root = "/".join(segments[4:])
-            catalog_path = f"{tap_root}/catalog/plugins.json" if tap_root else "catalog/plugins.json"
+            catalog_root = "/".join(segments[4:])
+            catalog_path = f"{catalog_root}/catalog/plugins.json" if catalog_root else "catalog/plugins.json"
             return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{catalog_path}"
 
     return url

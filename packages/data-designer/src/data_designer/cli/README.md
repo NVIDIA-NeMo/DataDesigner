@@ -1,13 +1,13 @@
 # 🎨 NeMo Data Designer CLI
 
-This directory contains the Command-Line Interface (CLI) for configuring model providers, model configurations, managed assets, and plugin tap catalogs used in Data Designer.
+This directory contains the Command-Line Interface (CLI) for configuring model providers, model configurations, managed assets, and plugin catalogs used in Data Designer.
 
 ## Overview
 
 The CLI provides an interactive interface for managing:
 - **Model Providers**: LLM API endpoints (NVIDIA, OpenAI, Anthropic, custom providers)
 - **Model Configs**: Specific model configurations with inference parameters
-- **Plugin Taps**: Catalog aliases for discovering Data Designer plugin packages
+- **Plugin Catalogs**: Catalog aliases for discovering Data Designer plugin packages
 - **Plugin Installs**: Safe install-plan rendering, package-manager execution, and entry point verification
 
 Configuration files are stored in `~/.data-designer/` by default and can be referenced by Data Designer workflows.
@@ -54,7 +54,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `list.py`: List current configurations
   - `models.py`: Configure models
   - `providers.py`: Configure providers
-  - `plugins.py`: Discover and install plugins from tap catalogs
+  - `plugins.py`: Discover and install plugins from catalogs
   - `reset.py`: Reset/delete configurations
 
 #### 2. **Controllers** (`controllers/`)
@@ -67,7 +67,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 - **Files**:
   - `model_controller.py`: Orchestrates model configuration workflows
   - `provider_controller.py`: Orchestrates provider configuration workflows
-  - `plugin_catalog_controller.py`: Orchestrates plugin catalog, tap, and install workflows
+  - `plugin_catalog_controller.py`: Orchestrates plugin catalog, catalog, and install workflows
 
 **Key Features**:
 - **Associated Resource Management**: When deleting a provider, the controller checks for associated models and prompts the user to delete them together
@@ -107,7 +107,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `base.py`: Abstract base repository with common operations
   - `model_repository.py`: Model configuration persistence
   - `provider_repository.py`: Provider persistence
-  - `plugin_tap_repository.py`: Plugin tap aliases, catalog fetching, and URL-keyed catalog cache
+  - `plugin_catalog_repository.py`: Plugin catalog aliases, catalog fetching, and URL-keyed catalog cache
 
 **Base Repository Pattern**:
 ```python
@@ -213,21 +213,25 @@ model_configs:
       max_parallel_requests: 4
 ```
 
-### `~/.data-designer/plugin_taps.yaml`
+### `~/.data-designer/plugin_catalogs.yaml`
 
-Stores user-added plugin tap aliases. The built-in NVIDIA tap is always available and is not written to this file. Set `DATA_DESIGNER_DEFAULT_PLUGIN_TAP_URL` to repoint the built-in tap for QA or staging.
+Stores user-added plugin catalog aliases. The built-in NVIDIA catalog points at
+`https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`, is
+always available, and is not written to this file. Set
+`DATA_DESIGNER_DEFAULT_PLUGIN_CATALOG_URL` to repoint the built-in catalog for QA or
+staging.
 
 ```yaml
-taps:
+catalogs:
   - alias: research
     url: https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json
     trusted: false
     cache_ttl_seconds: 86400
 ```
 
-### `~/.data-designer/plugin-tap-cache/`
+### `~/.data-designer/plugin-catalog-cache/`
 
-Stores fetched plugin catalog payloads as JSON cache files keyed by tap alias and URL hash. This prevents a re-pointed alias from serving stale catalog data from a previous URL.
+Stores fetched plugin catalog payloads as JSON cache files keyed by catalog alias and URL hash. This prevents a re-pointed alias from serving stale catalog data from a previous URL.
 
 ## Usage Examples
 
@@ -275,25 +279,25 @@ data-designer config reset
 ### Discover and Install Plugins
 
 ```bash
-# List compatible plugins from the default NVIDIA tap
+# List compatible plugins from the default NVIDIA catalog
 data-designer plugins list
 
-# Search a specific tap catalog
-data-designer plugins --tap research search transform
+# Search a specific catalog
+data-designer plugins --catalog research search transform
 
 # Show metadata, compatibility, docs, and exact install command
 data-designer plugins info text-transform
 
-# Install from a trusted or user-added tap and verify entry point discovery
+# Install a plugin package from a catalog and verify declared entry point discovery
 data-designer plugins install text-transform --yes
 
 # Preview the install command without mutating the environment
 data-designer plugins install text-transform --dry-run
 
-# Add and manage tap aliases
-data-designer plugins taps add research https://github.com/acme/dd-plugins
-data-designer plugins taps list
-data-designer plugins taps remove research
+# Add and manage catalog aliases
+data-designer plugins catalogs add research https://github.com/acme/dd-plugins
+data-designer plugins catalogs list
+data-designer plugins catalogs remove research
 
 # List installed plugin entry points without importing plugin modules
 data-designer plugins installed

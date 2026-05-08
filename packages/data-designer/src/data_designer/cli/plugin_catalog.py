@@ -4,50 +4,46 @@
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import InvalidName, canonicalize_name
-from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field
 
 from data_designer.plugins.plugin import PluginType
 
-DEFAULT_PLUGIN_TAP_ALIAS = "nvidia"
-DEFAULT_PLUGIN_TAP_URL = "https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesignerPlugins/main/catalog/plugins.json"
-DEFAULT_PLUGIN_TAP_URL_ENV_VAR = "DATA_DESIGNER_DEFAULT_PLUGIN_TAP_URL"
-PLUGIN_TAPS_FILE_NAME = "plugin_taps.yaml"
-PLUGIN_TAP_CACHE_DIR_NAME = "plugin-tap-cache"
-PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS = 24 * 60 * 60
+DEFAULT_PLUGIN_CATALOG_ALIAS = "nvidia"
+DEFAULT_PLUGIN_CATALOG_URL = "https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json"
+DEFAULT_PLUGIN_CATALOG_URL_ENV_VAR = "DATA_DESIGNER_DEFAULT_PLUGIN_CATALOG_URL"
+PLUGIN_CATALOGS_FILE_NAME = "plugin_catalogs.yaml"
+PLUGIN_CATALOG_CACHE_DIR_NAME = "plugin-catalog-cache"
+PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS = 24 * 60 * 60
 MAX_PLUGIN_CATALOG_SIZE_BYTES = 1 * 1024 * 1024
 PLUGIN_CATALOG_SCHEMA_VERSION = 2
-SUPPORTED_PLUGIN_CATALOG_SCHEMA_VERSIONS = {PLUGIN_CATALOG_SCHEMA_VERSION}
-PLUGIN_TAP_ALIAS_PATTERN = r"^[A-Za-z0-9_.-]+$"
+PLUGIN_CATALOG_ALIAS_PATTERN = r"^[A-Za-z0-9_.-]+$"
 DATA_DESIGNER_DISTRIBUTION_NAME = "data-designer"
 PLUGIN_ENTRY_POINT_GROUP = "data_designer.plugins"
-CATALOG_DOCUMENT_KEYS = {"plugins", "schema_version"}
-CATALOG_PLUGIN_KEYS = {
+PYPI_SIMPLE_INDEX_URL = "https://pypi.org/simple/"
+CATALOG_DOCUMENT_KEYS = {"packages", "schema_version"}
+CATALOG_PACKAGE_KEYS = {
     "compatibility",
     "description",
     "docs",
-    "entry_point",
+    "install",
     "name",
-    "package",
-    "plugin_type",
-    "source",
+    "plugins",
 }
-CATALOG_PACKAGE_KEYS = {"name", "path", "version"}
+CATALOG_PLUGIN_KEYS = {"entry_point", "name", "plugin_type"}
 CATALOG_ENTRY_POINT_KEYS = {"group", "name", "value"}
 CATALOG_COMPATIBILITY_KEYS = {"data_designer", "python"}
 CATALOG_PYTHON_COMPATIBILITY_KEYS = {"specifier"}
 CATALOG_DATA_DESIGNER_COMPATIBILITY_KEYS = {"marker", "requirement", "specifier"}
 CATALOG_DOCS_KEYS = {"url"}
+CATALOG_INSTALL_REQUIRED_KEYS = {"requirement"}
+CATALOG_INSTALL_OPTIONAL_KEYS = {"index_url"}
 SUPPORTED_PLUGIN_TYPE_VALUES = {plugin_type.value for plugin_type in PluginType}
-PACKAGE_PATH_ROOT = "plugins"
-PACKAGE_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 class PluginCatalogError(ValueError):
@@ -65,7 +61,7 @@ class PluginCompatibilityTarget(BaseModel):
 
 
 class PluginCompatibility(BaseModel):
-    """Compatibility requirements declared by a catalog entry."""
+    """Compatibility requirements declared by a catalog package."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -74,13 +70,11 @@ class PluginCompatibility(BaseModel):
 
 
 class PluginPackageInfo(BaseModel):
-    """Python package metadata for a catalog entry."""
+    """Python distribution metadata for a catalog entry."""
 
     model_config = ConfigDict(extra="allow")
 
     name: str
-    version: str | None = None
-    path: str | None = None
 
 
 class PluginEntryPointInfo(BaseModel):
@@ -88,27 +82,22 @@ class PluginEntryPointInfo(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    group: str = "data_designer.plugins"
+    group: str = PLUGIN_ENTRY_POINT_GROUP
     name: str
     value: str
 
 
-class PluginSourceInfo(BaseModel):
-    """Install source metadata for a catalog entry."""
+class PluginInstallInfo(BaseModel):
+    """Resolver-native install metadata for a catalog package."""
 
     model_config = ConfigDict(extra="allow")
 
-    type: str
-    package: str | None = None
-    url: str | None = None
-    ref: str | None = None
-    path: str | None = None
-    subdirectory: str | None = None
-    editable: bool | None = None
+    requirement: str
+    index_url: str | None = None
 
 
 class PluginDocsInfo(BaseModel):
-    """Documentation metadata for a catalog entry."""
+    """Documentation metadata for a catalog package."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -116,7 +105,7 @@ class PluginDocsInfo(BaseModel):
 
 
 class PluginCatalogEntry(BaseModel):
-    """One discoverable Data Designer plugin entry from a tap catalog."""
+    """One discoverable runtime plugin entry from a catalog package."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -124,34 +113,84 @@ class PluginCatalogEntry(BaseModel):
     plugin_type: PluginType
     description: str = ""
     package: PluginPackageInfo
+    install: PluginInstallInfo
     entry_point: PluginEntryPointInfo
     compatibility: PluginCompatibility | None = None
-    source: PluginSourceInfo | None = None
     docs: PluginDocsInfo | None = None
 
 
+class PluginCatalogRuntimePlugin(BaseModel):
+    """Runtime plugin metadata nested under one catalog package."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    plugin_type: PluginType
+    entry_point: PluginEntryPointInfo
+
+
+class PluginCatalogPackage(BaseModel):
+    """One installable package from a package-first plugin catalog."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    description: str = ""
+    install: PluginInstallInfo
+    compatibility: PluginCompatibility | None = None
+    docs: PluginDocsInfo | None = None
+    plugins: list[PluginCatalogRuntimePlugin] = Field(default_factory=list)
+
+    def entries(self) -> list[PluginCatalogEntry]:
+        """Flatten nested runtime plugins while preserving package-level metadata."""
+        package = PluginPackageInfo(name=self.name)
+        return [
+            PluginCatalogEntry(
+                name=plugin.name,
+                plugin_type=plugin.plugin_type,
+                description=self.description,
+                package=package,
+                install=self.install,
+                entry_point=plugin.entry_point,
+                compatibility=self.compatibility,
+                docs=self.docs,
+            )
+            for plugin in self.plugins
+        ]
+
+
 class PluginCatalog(BaseModel):
-    """Versioned plugin tap catalog."""
+    """Versioned plugin catalog."""
 
     model_config = ConfigDict(extra="allow")
 
     schema_version: int
-    plugins: list[PluginCatalogEntry] = Field(default_factory=list)
+    packages: list[PluginCatalogPackage] = Field(default_factory=list)
+
+    @property
+    def entries(self) -> list[PluginCatalogEntry]:
+        """Return the runtime plugin entries described by every package."""
+        return [entry for package in self.packages for entry in package.entries()]
+
+    @property
+    def plugins(self) -> list[PluginCatalogEntry]:
+        """Backward-compatible alias for flattened runtime plugin entries."""
+        return self.entries
 
 
-class PluginTapConfig(BaseModel):
-    """Persisted tap configuration."""
+class PluginCatalogConfig(BaseModel):
+    """Persisted catalog configuration."""
 
-    alias: str = Field(pattern=PLUGIN_TAP_ALIAS_PATTERN)
+    alias: str = Field(pattern=PLUGIN_CATALOG_ALIAS_PATTERN)
     url: str
     trusted: bool = False
-    cache_ttl_seconds: int = Field(default=PLUGIN_TAP_DEFAULT_CACHE_TTL_SECONDS, ge=0)
+    cache_ttl_seconds: int = Field(default=PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS, ge=0)
 
 
-class PluginTapRegistry(BaseModel):
-    """Persisted collection of user-configured plugin taps."""
+class PluginCatalogRegistry(BaseModel):
+    """Persisted collection of user-configured plugin catalogs."""
 
-    taps: list[PluginTapConfig] = Field(default_factory=list)
+    catalogs: list[PluginCatalogConfig] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -164,15 +203,15 @@ class CompatibilityResult:
 
 @dataclass(frozen=True)
 class InstallPlan:
-    """Resolved package-manager command for installing one plugin entry."""
+    """Resolved package-manager command for installing one plugin package."""
 
     plugin_name: str
     package_name: str
     source_description: str
     command: list[str]
     manager: str
-    tap_alias: str
-    trusted_tap: bool
+    catalog_alias: str
+    trusted_catalog: bool
 
 
 @dataclass(frozen=True)
@@ -183,13 +222,13 @@ class InstalledPluginInfo:
     entry_point_value: str
 
 
-def get_default_plugin_tap_url() -> str:
-    """Return the built-in plugin tap URL, honoring a local override for QA/staging."""
-    return os.getenv(DEFAULT_PLUGIN_TAP_URL_ENV_VAR, DEFAULT_PLUGIN_TAP_URL)
+def get_default_plugin_catalog_url() -> str:
+    """Return the built-in plugin catalog URL, honoring a local override for QA/staging."""
+    return os.getenv(DEFAULT_PLUGIN_CATALOG_URL_ENV_VAR, DEFAULT_PLUGIN_CATALOG_URL)
 
 
 def validate_plugin_catalog_payload(payload: object, *, source: str) -> None:
-    """Validate a decoded plugin tap catalog against the schema v2 contract."""
+    """Validate a decoded plugin catalog against the schema v2 contract."""
     try:
         _validate_plugin_catalog_payload(payload)
     except PluginCatalogError as e:
@@ -208,36 +247,30 @@ def _validate_plugin_catalog_payload(payload: object) -> None:
             f"unsupported catalog schema_version {schema_version!r}; expected {PLUGIN_CATALOG_SCHEMA_VERSION}"
         )
 
-    plugins = catalog["plugins"]
-    if not isinstance(plugins, list):
-        raise PluginCatalogError("catalog document has invalid plugins; expected a list")
+    packages = catalog["packages"]
+    if not isinstance(packages, list):
+        raise PluginCatalogError("catalog document has invalid packages; expected a list")
 
     runtime_names: dict[str, tuple[str, str]] = {}
-    for index, raw_plugin in enumerate(plugins):
-        package_name, plugin_name, entry_point_name = _validate_catalog_plugin(raw_plugin, index)
-        previous = runtime_names.get(entry_point_name)
-        if previous is not None:
-            previous_package, previous_plugin_name = previous
-            raise PluginCatalogError(
-                f"duplicate runtime plugin name {entry_point_name!r} from "
-                f"catalog plugin {previous_plugin_name!r} in package {previous_package!r} and "
-                f"catalog plugin {plugin_name!r} in package {package_name!r}"
-            )
-        runtime_names[entry_point_name] = (package_name, plugin_name)
+    for index, raw_package in enumerate(packages):
+        for package_name, plugin_name, entry_point_name in _validate_catalog_package(raw_package, index):
+            previous = runtime_names.get(plugin_name)
+            if previous is not None:
+                previous_package, previous_entry_point_name = previous
+                raise PluginCatalogError(
+                    f"duplicate runtime plugin name {plugin_name!r} from "
+                    f"{previous_package!r} entry point {previous_entry_point_name!r} and "
+                    f"{package_name!r} entry point {entry_point_name!r}"
+                )
+            runtime_names[plugin_name] = (package_name, entry_point_name)
 
 
-def _validate_catalog_plugin(raw_plugin: object, index: int) -> tuple[str, str, str]:
-    context = f"catalog plugins[{index}]"
-    plugin = _required_catalog_object(context, raw_plugin, CATALOG_PLUGIN_KEYS)
-    package = _required_catalog_object(f"{context}.package", plugin["package"], CATALOG_PACKAGE_KEYS)
-    entry_point = _required_catalog_object(
-        f"{context}.entry_point",
-        plugin["entry_point"],
-        CATALOG_ENTRY_POINT_KEYS,
-    )
+def _validate_catalog_package(raw_package: object, index: int) -> list[tuple[str, str, str]]:
+    context = f"catalog packages[{index}]"
+    package = _required_catalog_object(context, raw_package, CATALOG_PACKAGE_KEYS)
     compatibility = _required_catalog_object(
         f"{context}.compatibility",
-        plugin["compatibility"],
+        package["compatibility"],
         CATALOG_COMPATIBILITY_KEYS,
     )
     python_compatibility = _required_catalog_object(
@@ -250,12 +283,45 @@ def _validate_catalog_plugin(raw_plugin: object, index: int) -> tuple[str, str, 
         compatibility["data_designer"],
         CATALOG_DATA_DESIGNER_COMPATIBILITY_KEYS,
     )
-    source = _required_catalog_object(f"{context}.source", plugin["source"])
-    docs = _required_catalog_object(f"{context}.docs", plugin["docs"], CATALOG_DOCS_KEYS)
+    install = _required_catalog_object(f"{context}.install", package["install"])
+    docs = _required_catalog_object(f"{context}.docs", package["docs"], CATALOG_DOCS_KEYS)
 
-    package_name = _catalog_package_name(f"{context}.package.name", package["name"])
-    _catalog_version(package_name, f"{context}.package.version", package["version"])
-    _validate_package_path(package_name, _required_catalog_string(f"{context}.package.path", package["path"]))
+    package_name = _catalog_package_name(f"{context}.name", package["name"])
+    _required_catalog_string(f"{context}.description", package["description"])
+    _catalog_version_specifier(
+        package_name,
+        f"{context}.compatibility.python.specifier",
+        python_compatibility["specifier"],
+    )
+    _catalog_data_designer_compatibility(
+        package_name,
+        f"{context}.compatibility.data_designer",
+        data_designer_compatibility,
+    )
+    _validate_install_metadata(package_name, f"{context}.install", install)
+    _catalog_http_url(f"{context}.docs.url", docs["url"])
+
+    plugins = package["plugins"]
+    if not isinstance(plugins, list) or not plugins:
+        raise PluginCatalogError(f"{context}.plugins is invalid; expected a non-empty list")
+
+    return [
+        _validate_catalog_plugin(
+            raw_plugin,
+            package_name=package_name,
+            context=f"{context}.plugins[{plugin_index}]",
+        )
+        for plugin_index, raw_plugin in enumerate(plugins)
+    ]
+
+
+def _validate_catalog_plugin(raw_plugin: object, *, package_name: str, context: str) -> tuple[str, str, str]:
+    plugin = _required_catalog_object(context, raw_plugin, CATALOG_PLUGIN_KEYS)
+    entry_point = _required_catalog_object(
+        f"{context}.entry_point",
+        plugin["entry_point"],
+        CATALOG_ENTRY_POINT_KEYS,
+    )
 
     plugin_type = _required_catalog_string(f"{context}.plugin_type", plugin["plugin_type"])
     if plugin_type not in SUPPORTED_PLUGIN_TYPE_VALUES:
@@ -272,20 +338,38 @@ def _validate_catalog_plugin(raw_plugin: object, index: int) -> tuple[str, str, 
         )
     entry_point_name = _required_catalog_string(f"{context}.entry_point.name", entry_point["name"])
     _required_catalog_string(f"{context}.entry_point.value", entry_point["value"])
-    _required_catalog_string(f"{context}.description", plugin["description"])
-    _catalog_version_specifier(
-        package_name,
-        f"{context}.compatibility.python.specifier",
-        python_compatibility["specifier"],
-    )
-    _catalog_data_designer_compatibility(
-        package_name,
-        f"{context}.compatibility.data_designer",
-        data_designer_compatibility,
-    )
-    _validate_source_metadata(package_name, source)
-    _catalog_http_url(f"{context}.docs.url", docs["url"])
     return package_name, plugin_name, entry_point_name
+
+
+def _validate_install_metadata(package_name: str, context: str, install: dict[str, object]) -> None:
+    keys = set(install)
+    missing_keys = CATALOG_INSTALL_REQUIRED_KEYS - keys
+    extra_keys = keys - CATALOG_INSTALL_REQUIRED_KEYS - CATALOG_INSTALL_OPTIONAL_KEYS
+    if missing_keys or extra_keys:
+        expected_required = _format_catalog_keys(CATALOG_INSTALL_REQUIRED_KEYS)
+        expected_optional = _format_catalog_keys(CATALOG_INSTALL_OPTIONAL_KEYS)
+        raise PluginCatalogError(
+            f"package {package_name!r} has invalid install fields; "
+            f"expected {{{expected_required}; optional {{{expected_optional}}}}}, "
+            f"got {{{_format_catalog_keys(keys)}}}"
+        )
+
+    requirement_text = _required_catalog_string(f"{context}.requirement", install["requirement"])
+    try:
+        requirement = Requirement(requirement_text)
+    except InvalidRequirement as e:
+        raise PluginCatalogError(
+            f"package {package_name!r} has invalid {context}.requirement {requirement_text!r}: {e}"
+        ) from e
+    if canonicalize_name(requirement.name) != canonicalize_name(package_name):
+        raise PluginCatalogError(
+            f"package {package_name!r} has invalid {context}.requirement {requirement_text!r}; "
+            f"expected a requirement for {package_name!r}"
+        )
+
+    index_url = install.get("index_url")
+    if index_url is not None:
+        _catalog_http_url(f"package {package_name!r} install.index_url", index_url)
 
 
 def _required_catalog_object(
@@ -332,15 +416,6 @@ def _catalog_package_name(context: str, value: object) -> str:
     return package_name
 
 
-def _catalog_version(package_name: str, context: str, value: object) -> str:
-    raw_version = _required_catalog_string(context, value)
-    try:
-        Version(raw_version)
-    except InvalidVersion as e:
-        raise PluginCatalogError(f"package {package_name!r} has invalid {context} {raw_version!r}: {e}") from e
-    return raw_version
-
-
 def _catalog_version_specifier(package_name: str, context: str, value: object) -> str:
     raw_specifier = _required_catalog_string(context, value)
     try:
@@ -384,93 +459,6 @@ def _catalog_data_designer_compatibility(
     if marker != expected_marker:
         raise PluginCatalogError(
             f"package {package_name!r} has invalid {context}.marker {marker!r}; expected {expected_marker!r}"
-        )
-
-
-def _validate_source_metadata(package_name: str, source: dict[str, object]) -> None:
-    source_type = source.get("type")
-    if source_type == "pypi":
-        _validate_pypi_source_metadata(package_name, source)
-        return
-    if source_type == "git":
-        _validate_git_source_metadata(package_name, source)
-        return
-    if source_type == "path":
-        _validate_path_source_metadata(package_name, source)
-        return
-    raise PluginCatalogError(
-        f"package {package_name!r} has invalid source.type {source_type!r}; expected one of 'pypi', 'git', or 'path'"
-    )
-
-
-def _validate_pypi_source_metadata(package_name: str, source: dict[str, object]) -> None:
-    _validate_source_keys(package_name, source, "pypi", {"type", "package"})
-    source_package = _required_source_string(package_name, source, "pypi", "package")
-    if source_package != package_name:
-        raise PluginCatalogError(
-            f"package {package_name!r} has invalid pypi source package {source_package!r}; "
-            "expected the source package to match package.name"
-        )
-
-
-def _validate_git_source_metadata(package_name: str, source: dict[str, object]) -> None:
-    _validate_source_keys(package_name, source, "git", {"type", "url", "ref", "subdirectory"})
-    url = _required_source_string(package_name, source, "git", "url")
-    _required_source_string(package_name, source, "git", "ref")
-    subdirectory = _required_source_string(package_name, source, "git", "subdirectory")
-    _validate_package_path(package_name, subdirectory)
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise PluginCatalogError(
-            f"package {package_name!r} has invalid git source url {url!r}; expected an absolute HTTP(S) URL"
-        )
-
-
-def _validate_path_source_metadata(package_name: str, source: dict[str, object]) -> None:
-    _validate_source_keys(package_name, source, "path", {"type", "path", "editable"})
-    path = _required_source_string(package_name, source, "path", "path")
-    _validate_package_path(package_name, path)
-    editable = source.get("editable")
-    if not isinstance(editable, bool):
-        raise PluginCatalogError(f"package {package_name!r} has invalid path source field 'editable'; expected a bool")
-
-
-def _validate_source_keys(
-    package_name: str,
-    source: dict[str, object],
-    source_type: str,
-    expected_keys: set[str],
-) -> None:
-    keys = set(source)
-    if keys != expected_keys:
-        raise PluginCatalogError(
-            f"package {package_name!r} has invalid {source_type!r} source fields; "
-            f"expected {{{_format_catalog_keys(expected_keys)}}}, got {{{_format_catalog_keys(keys)}}}"
-        )
-
-
-def _required_source_string(package_name: str, source: dict[str, object], source_type: str, key: str) -> str:
-    value = source.get(key)
-    if not isinstance(value, str) or not value:
-        raise PluginCatalogError(
-            f"package {package_name!r} has invalid {source_type!r} source field {key!r}; expected a non-empty string"
-        )
-    return value
-
-
-def _validate_package_path(package_name: str, value: str) -> None:
-    parts = value.split("/")
-    if (
-        "\\" in value
-        or value.startswith("/")
-        or len(parts) < 2
-        or parts[0] != PACKAGE_PATH_ROOT
-        or any(part in {"", ".", ".."} for part in parts)
-        or not all(PACKAGE_PATH_SEGMENT_PATTERN.fullmatch(part) for part in parts[1:])
-    ):
-        raise PluginCatalogError(
-            f"package {package_name!r} has invalid package path {value!r}; "
-            f"expected a normalized repository-relative path under {PACKAGE_PATH_ROOT!r}"
         )
 
 

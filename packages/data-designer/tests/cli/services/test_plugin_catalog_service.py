@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from data_designer.cli.plugin_catalog import PluginCatalog, PluginCatalogEntry
-from data_designer.cli.repositories.plugin_tap_repository import PluginTapRepository
+from data_designer.cli.repositories.plugin_catalog_repository import PluginCatalogRepository
 from data_designer.cli.services.plugin_catalog_service import PluginCatalogService
 
 
@@ -78,38 +78,33 @@ def test_get_entry_rejects_incompatible_plugin_when_requested(tmp_path: Path) ->
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
 
-    with pytest.raises(ValueError, match="no compatible version"):
+    with pytest.raises(ValueError, match="not compatible"):
         service.get_entry("future-plugin", "local", include_incompatible=False)
 
 
-def test_get_entry_prefers_newest_compatible_match_when_include_incompatible() -> None:
-    repository = Mock(spec=PluginTapRepository)
+def test_get_entry_resolves_package_name() -> None:
+    repository = Mock(spec=PluginCatalogRepository)
     repository.load_catalog.return_value = PluginCatalog.model_validate(
         {
             "schema_version": 2,
-            "plugins": [
-                _entry(
-                    name="versioned-plugin",
-                    plugin_type="processor",
-                    package_name="data-designer-versioned-plugin",
+            "packages": [
+                _package(
+                    package_name="data-designer-package-target",
                     data_designer_specifier=">=0.5.7",
-                    package_version="0.2.0",
-                ),
-                _entry(
-                    name="versioned-plugin",
-                    plugin_type="processor",
-                    package_name="data-designer-versioned-plugin",
-                    data_designer_specifier=">=99.0",
-                    package_version="99.0.0",
+                    plugins=[
+                        _runtime_plugin(name="package-column", plugin_type="column-generator"),
+                        _runtime_plugin(name="package-processor", plugin_type="processor"),
+                    ],
                 ),
             ],
         }
     )
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
 
-    entry = service.get_entry("versioned-plugin", "local", include_incompatible=True)
+    entry = service.get_entry("data-designer-package-target", "local", include_incompatible=True)
 
-    assert entry.package.version == "0.2.0"
+    assert entry.name == "package-column"
+    assert entry.package.name == "data-designer-package-target"
 
 
 def test_group_entries_by_package_groups_multi_plugin_packages(tmp_path: Path) -> None:
@@ -168,7 +163,7 @@ def test_list_installed_plugins_uses_entry_point_metadata_without_loading_plugin
             group="data_designer.plugins",
         )
     ]
-    service = PluginCatalogService(PluginTapRepository(tmp_path))
+    service = PluginCatalogService(PluginCatalogRepository(tmp_path))
 
     installed = service.list_installed_plugins()
 
@@ -178,43 +173,77 @@ def test_list_installed_plugins_uses_entry_point_metadata_without_loading_plugin
     mock_entry_points.assert_called_once_with(group="data_designer.plugins")
 
 
-def _repository_with_catalog(tmp_path: Path) -> PluginTapRepository:
+def _repository_with_catalog(tmp_path: Path) -> PluginCatalogRepository:
     catalog_path = tmp_path / "plugins.json"
     catalog_path.write_text(json.dumps(_catalog_payload()))
-    repository = PluginTapRepository(tmp_path)
-    repository.add_tap("local", str(catalog_path))
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
     return repository
 
 
 def _catalog_payload() -> dict:
     return {
         "schema_version": 2,
-        "plugins": [
-            _entry(
-                name="compatible-plugin",
-                plugin_type="seed-reader",
+        "packages": [
+            _package(
                 package_name="data-designer-compatible-plugin",
                 data_designer_specifier=">=0.5.7",
+                plugins=[_runtime_plugin(name="compatible-plugin", plugin_type="seed-reader")],
             ),
-            _entry(
-                name="future-plugin",
-                plugin_type="processor",
+            _package(
                 package_name="data-designer-future-plugin",
                 data_designer_specifier=">=99.0",
+                plugins=[_runtime_plugin(name="future-plugin", plugin_type="processor")],
             ),
-            _entry(
-                name="shared-column",
-                plugin_type="column-generator",
+            _package(
                 package_name="data-designer-shared-package",
                 data_designer_specifier=">=0.5.7",
-            ),
-            _entry(
-                name="shared-processor",
-                plugin_type="processor",
-                package_name="data-designer-shared-package",
-                data_designer_specifier=">=0.5.7",
+                plugins=[
+                    _runtime_plugin(name="shared-column", plugin_type="column-generator"),
+                    _runtime_plugin(name="shared-processor", plugin_type="processor"),
+                ],
             ),
         ],
+    }
+
+
+def _package(
+    *,
+    package_name: str,
+    data_designer_specifier: str,
+    plugins: list[dict],
+) -> dict:
+    return {
+        "name": package_name,
+        "description": f"{package_name} description",
+        "install": {
+            "requirement": package_name,
+            "index_url": "https://docs.example.test/simple/",
+        },
+        "compatibility": {
+            "python": {"specifier": ">=3.10"},
+            "data_designer": {
+                "requirement": f"data-designer{data_designer_specifier}",
+                "specifier": data_designer_specifier,
+                "marker": None,
+            },
+        },
+        "docs": {
+            "url": f"https://docs.example.test/plugins/{package_name}/",
+        },
+        "plugins": plugins,
+    }
+
+
+def _runtime_plugin(*, name: str, plugin_type: str) -> dict:
+    return {
+        "name": name,
+        "plugin_type": plugin_type,
+        "entry_point": {
+            "group": "data_designer.plugins",
+            "name": name,
+            "value": f"data_designer_{name.replace('-', '_')}.plugin:plugin",
+        },
     }
 
 
@@ -224,7 +253,6 @@ def _entry(
     plugin_type: str,
     package_name: str,
     data_designer_specifier: str,
-    package_version: str = "0.1.0",
 ) -> dict:
     return {
         "name": name,
@@ -232,8 +260,10 @@ def _entry(
         "description": f"{name} description",
         "package": {
             "name": package_name,
-            "version": package_version,
-            "path": f"plugins/{package_name}",
+        },
+        "install": {
+            "requirement": package_name,
+            "index_url": "https://docs.example.test/simple/",
         },
         "entry_point": {
             "group": "data_designer.plugins",
@@ -247,10 +277,6 @@ def _entry(
                 "specifier": data_designer_specifier,
                 "marker": None,
             },
-        },
-        "source": {
-            "type": "pypi",
-            "package": package_name,
         },
         "docs": {
             "url": f"https://docs.example.test/plugins/{package_name}/",
