@@ -157,6 +157,11 @@ navigation:
         path: ./v0.5.8/pages/devnotes/posts/owning-the-model-stack.mdx
       - page: Data Designer Got Skills
         path: ./v0.5.8/pages/devnotes/posts/data-designer-got-skills.mdx
+  # Keep older posts reachable at /dev-notes/... without listing all of them in
+  # the sidebar.
+  - section: Dev Notes
+    hidden: true
+    contents:
       - page: Search Agent
         path: ./v0.5.8/pages/devnotes/posts/search-agent.mdx
       - page: Structured Outputs from Nemotron
