@@ -994,6 +994,15 @@ def test_allow_resize_multiple_batches(
     assert len(df) == expected_total_rows
 
 
+def test_resume_rejects_allow_resize_columns(stub_resource_provider, stub_model_configs, seed_data_setup):
+    """Resume is rejected when allow_resize=True would make batch boundaries ambiguous."""
+    columns = _resize_columns("cell_x2")
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+
+    with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
+        builder.build(num_records=5, resume=ResumeMode.ALWAYS)
+
+
 # skip metadata preservation tests
 
 
@@ -1558,6 +1567,18 @@ def test_build_resume_raises_on_buffer_size_mismatch(stub_resource_provider, stu
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
 
+def test_build_resume_raises_on_corrupt_metadata(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=ALWAYS raises clearly when metadata.json was partially written."""
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "sentinel.txt").write_text("x")
+    (dataset_dir / "metadata.json").write_text("{not valid json")
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="metadata.json is corrupt"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
 def test_build_resume_always_raises_on_config_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
     """resume=ALWAYS raises DatasetGenerationError when the stored config fingerprint differs."""
     dataset_dir = tmp_path / "dataset"
@@ -1610,6 +1631,47 @@ def test_build_resume_already_complete_does_not_run_after_generation_processors(
     mock_after.assert_not_called()
 
 
+def test_build_resume_post_generation_processed_same_target_returns_existing_path(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """A post-processed completed dataset is a no-op when requested target matches."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+        post_generation_processed=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with patch.object(builder, "_initialize_generators_and_graph") as mock_initialize:
+        result = builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    assert result == builder.artifact_storage.final_dataset_path
+    mock_initialize.assert_not_called()
+
+
+def test_build_resume_post_generation_processed_extension_raises(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """A post-processed dataset cannot be extended via resume."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+        post_generation_processed=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="process_after_generation has already been applied"):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+
 def test_build_resume_not_already_complete_when_extension_fits_in_slack(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
@@ -1638,11 +1700,16 @@ def test_build_resume_not_already_complete_when_extension_fits_in_slack(
 # ---------------------------------------------------------------------------
 
 
-def _write_parquet_files(parquet_dir: _Path, row_group_ids: list[int]) -> None:
-    """Create stub batch_*.parquet files for the given row group IDs."""
+def _write_parquet_files(
+    parquet_dir: _Path, row_group_ids: list[int], row_counts: dict[int, int] | None = None
+) -> None:
+    """Create batch_*.parquet files for the given row group IDs."""
     parquet_dir.mkdir(parents=True, exist_ok=True)
     for rg_id in row_group_ids:
-        (parquet_dir / f"batch_{rg_id:05d}.parquet").write_text("")
+        count = row_counts.get(rg_id, 2) if row_counts is not None else 2
+        lazy.pd.DataFrame({"value": list(range(count))}).to_parquet(
+            parquet_dir / f"batch_{rg_id:05d}.parquet", index=False
+        )
 
 
 def test_build_async_resume_logs_warning_when_already_complete(
@@ -1788,6 +1855,44 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
     assert captured["initial_total_num_batches"] == 2
 
 
+def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_group(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Partial salvaged row groups count persisted parquet rows, not requested group size."""
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+    # Row group 1 was salvaged with only one surviving row.
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1], row_counts={1: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        captured["initial_total_num_batches"] = kwargs.get("initial_total_num_batches", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 5
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    assert captured["initial_actual_num_records"] == 3
+    assert captured["initial_total_num_batches"] == 2
+
+
 def test_build_async_resume_initial_actual_num_records_uses_original_target(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
@@ -1802,7 +1907,7 @@ def test_build_async_resume_initial_actual_num_records_uses_original_target(
     dataset_dir = tmp_path / "dataset"
     # Original run: 5 records, buffer_size=2, all 3 row groups done
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
-    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2])
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
@@ -1850,7 +1955,7 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
 
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
-    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3])
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3], row_counts={2: 1})
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
@@ -1905,7 +2010,7 @@ def test_build_async_resume_stale_original_target_after_incremental_metadata_wri
         num_completed_batches=4,
         actual_num_records=7,
     )
-    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3])
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3], row_counts={2: 1})
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
@@ -1993,7 +2098,7 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
 
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
-    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2])
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
@@ -2035,7 +2140,7 @@ def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
 
     dataset_dir = tmp_path / "dataset"
     _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
-    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2])
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 

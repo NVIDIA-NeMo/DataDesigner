@@ -156,6 +156,44 @@ designer.set_run_config(run_config)
 
 ---
 
+## Resuming Interrupted Runs
+
+Long generation jobs can be resumed from checkpoints by passing `resume` to `DataDesigner.create()` or `data-designer create --resume`.
+
+```python
+from data_designer.interface import DataDesigner, ResumeMode
+
+designer = DataDesigner()
+results = designer.create(
+    config_builder,
+    num_records=10_000,
+    dataset_name="training_data",
+    resume=ResumeMode.IF_POSSIBLE,
+)
+```
+
+Resume modes:
+
+- `ResumeMode.NEVER` (default): always start a fresh generation run. If the dataset directory already exists, Data Designer writes to a timestamped directory.
+- `ResumeMode.ALWAYS`: resume the existing dataset directory. Raises if the checkpoint is incompatible or cannot be resumed safely.
+- `ResumeMode.IF_POSSIBLE`: resume when the stored config fingerprint matches the current config; otherwise start a fresh timestamped run.
+
+Data Designer stores checkpoint state in `metadata.json` and the run configuration in `builder_config.json`. The sync engine resumes from `num_completed_batches`; the async engine scans completed `batch_*.parquet` row groups and reads parquet metadata to recover the actual row count already persisted.
+
+Resume has a few important invariants:
+
+- `buffer_size` must match the original run.
+- `num_records` must be at least the original target; you may extend a run by requesting more records.
+- Only one writer should target a dataset directory at a time.
+- Runs with `allow_resize=True` columns are not resumable because row boundaries can change.
+- Once `process_after_generation()` has run, the dataset is considered terminal for resume. Re-running with the same target returns the existing dataset; extending requires a fresh run.
+
+<Warning>
+Only resume datasets from trusted artifact directories. Resume reads local `metadata.json`, `builder_config.json`, and parquet files to determine checkpoint state.
+</Warning>
+
+---
+
 ### `max_parallel_requests` (InferenceParams)
 
 Sets the **maximum** concurrent LLM API calls **per model**. This is the ceiling that the AIMD throttle controller can ramp up to — the actual concurrency at runtime may be lower if the server signals rate limits.

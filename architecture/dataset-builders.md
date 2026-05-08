@@ -80,6 +80,22 @@ Manages in-memory row buffers and persistence:
 - Updates dataset metadata between batches
 - The async path uses `RowGroupBufferManager` for per-row-group DataFrames and checkpointing
 
+### Resume Checkpointing
+
+`DatasetBuilder.build(..., resume=ResumeMode.*)` can continue an interrupted run from the last durable checkpoint:
+
+- `ResumeMode.NEVER` always starts a fresh run, using a timestamped dataset directory when needed.
+- `ResumeMode.ALWAYS` resumes the existing dataset directory and raises on incompatible state.
+- `ResumeMode.IF_POSSIBLE` resumes when the persisted config fingerprint matches; otherwise it starts a fresh timestamped run.
+
+Checkpoint state lives in `metadata.json`. Each metadata write includes the config fingerprint (`config_hash`, `config_hash_algo`, and `config_hash_version`) so compatibility checks do not need to deserialize `builder_config.json` for the common path. `builder_config.json` remains the human-readable record of the run configuration and the fallback for older datasets.
+
+The sync engine resumes by count: `num_completed_batches` unambiguously means batches `[0, n)` are complete. The async engine resumes by identity: row groups can complete out of order, so it scans `parquet-files/batch_*.parquet` and reads parquet metadata to recover both the completed row-group IDs and their actual persisted row counts. Reading actual row counts matters for early-shutdown salvage, where a completed parquet file can contain fewer rows than the requested row-group size.
+
+Resume deliberately rejects `allow_resize=True` columns because resized batches mutate row boundaries and the original remaining batch plan cannot be reconstructed safely from aggregate counters. It also treats datasets that have completed `process_after_generation()` as terminal: after-generation processors operate on the whole dataset and can re-chunk rows or change schema, invalidating row-group identity for later resume/extension.
+
+Metadata writes are atomic (`tmp` file + `fsync` + `os.replace`) because `metadata.json` is the crash-recovery checkpoint. Corrupt or partially written metadata raises a clear `DatasetGenerationError` rather than falling through as a generic config mismatch.
+
 ## Data Flow
 
 ### Sequential
