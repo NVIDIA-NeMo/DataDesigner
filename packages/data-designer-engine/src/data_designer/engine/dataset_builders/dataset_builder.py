@@ -111,6 +111,7 @@ class _ResumeState:
     actual_num_records: int
     buffer_size: int
     target_num_records: int
+    original_target_num_records: int
 
 
 class DatasetBuilder:
@@ -378,6 +379,7 @@ class DatasetBuilder:
             actual_num_records=actual_num_records,
             buffer_size=buffer_size,
             target_num_records=metadata["target_num_records"],
+            original_target_num_records=metadata.get("original_target_num_records", metadata["target_num_records"]),
         )
 
     def _build_with_resume(
@@ -398,7 +400,7 @@ class DatasetBuilder:
         # Compute the correct per-batch sizes. ceil(num_records/bs) is wrong for a
         # non-aligned extension: original groups are immutable, so any extension always
         # adds new groups beyond num_original_batches.
-        original_target = state.target_num_records
+        original_target = state.original_target_num_records
         num_original_batches = -(-original_target // buffer_size)
         extension_records = num_records - original_target
         num_extension_batches = -(-extension_records // buffer_size)
@@ -411,6 +413,7 @@ class DatasetBuilder:
             start_batch=state.num_completed_batches,
             initial_actual_num_records=state.actual_num_records,
             num_records_list=original_sizes + extension_sizes,
+            original_target_num_records=original_target,
         )
 
         if state.num_completed_batches >= self.batch_manager.num_batches:
@@ -610,6 +613,7 @@ class DatasetBuilder:
         precomputed_row_groups: list[tuple[int, int]] | None = None
         initial_actual_num_records = 0
         initial_total_num_batches = 0
+        original_target = num_records  # immutable original target; overridden on resume
 
         if resume == ResumeMode.ALWAYS:
             state = self._load_resume_state(num_records, buffer_size)
@@ -620,7 +624,7 @@ class DatasetBuilder:
             # Use the original target (not the new num_records) so the last row group of a
             # non-aligned run gets its true size, not buffer_size.
             initial_total_num_batches = len(completed_ids)
-            original_target = state.target_num_records
+            original_target = state.original_target_num_records
 
             num_original_groups = -(-original_target // buffer_size)  # ceil(original_target/buffer_size)
 
@@ -664,7 +668,11 @@ class DatasetBuilder:
 
             buffer_manager.checkpoint_row_group(rg_id, on_complete=on_complete)
             # Write incremental metadata after each row group so interrupted runs can be resumed.
-            buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
+            buffer_manager.write_metadata(
+                target_num_records=num_records,
+                original_target_num_records=original_target,
+                buffer_size=buffer_size,
+            )
 
         scheduler, buffer_manager = self._prepare_async_run(
             generators,
@@ -707,7 +715,11 @@ class DatasetBuilder:
             logger.debug("Failed to emit batch telemetry for async run", exc_info=True)
 
         # Write final metadata (overwrites the last incremental write with identical content).
-        buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
+        buffer_manager.write_metadata(
+            target_num_records=num_records,
+            original_target_num_records=original_target,
+            buffer_size=buffer_size,
+        )
 
         # Surface partial completion
         actual = self._actual_num_records

@@ -1879,6 +1879,61 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
     assert captured["initial_actual_num_records"] == 7
 
 
+def test_build_async_resume_stale_original_target_after_incremental_metadata_write(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """original_target_num_records stays immutable even after an incremental metadata write.
+
+    Scenario: original run had num_records=5, buffer_size=2 (row groups [2,2,1], all done).
+    Extension to num_records=9 starts; row group 3 (2 records) completes and finalize_row_group
+    writes metadata with target_num_records=9. Crash before row group 4.
+
+    On second resume, metadata now shows target_num_records=9. Without the fix, original_target
+    would be read as 9, making num_original_groups=5 and producing wrong _rg_size values.
+    With the fix, original_target_num_records=5 is preserved in metadata, giving the correct
+    initial_actual_num_records=7 (2+2+1 original + 2 extension).
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    # Metadata reflects a post-incremental-write state: target updated to 9, original still 5
+    _write_metadata(
+        dataset_dir,
+        target_num_records=9,
+        original_target_num_records=5,
+        buffer_size=2,
+        num_completed_batches=4,
+        actual_num_records=7,
+    )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 9
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+
+    # original_target=5 → groups 0,1 → 2+2; group 2 → 1; group 3 (ext) → min(2,9-6)=2. Total=7
+    assert captured["initial_actual_num_records"] == 7
+
+
 def test_build_async_resume_skip_row_groups_contains_completed_ids(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):

@@ -134,11 +134,14 @@ class RowGroupBufferManager:
 
         self.free_row_group(row_group)
 
-    def write_metadata(self, target_num_records: int, buffer_size: int) -> None:
+    def write_metadata(
+        self, target_num_records: int, buffer_size: int, original_target_num_records: int | None = None
+    ) -> None:
         """Write final metadata after all row groups are checkpointed."""
         self._artifact_storage.write_metadata(
             {
                 "target_num_records": target_num_records,
+                "original_target_num_records": original_target_num_records or target_num_records,
                 "actual_num_records": self._actual_num_records,
                 "total_num_batches": self._total_num_batches,
                 "buffer_size": buffer_size,
