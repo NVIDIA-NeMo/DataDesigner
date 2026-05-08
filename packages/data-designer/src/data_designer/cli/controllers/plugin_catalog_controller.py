@@ -17,6 +17,7 @@ from data_designer.cli.plugin_catalog import (
     InstalledPluginInfo,
     PluginCatalogConfig,
     PluginCatalogEntry,
+    PluginCatalogError,
 )
 from data_designer.cli.repositories.plugin_catalog_repository import PluginCatalogRepository
 from data_designer.cli.services.plugin_catalog_service import PluginCatalogService
@@ -54,16 +55,16 @@ class PluginCatalogController:
         refresh: bool = False,
         include_incompatible: bool = False,
     ) -> None:
-        """List plugins from a catalog."""
+        """List plugin packages from a catalog."""
         catalog = self._get_catalog_or_exit(catalog_alias)
         entries = self._list_entries_or_exit(catalog.alias, refresh=refresh, include_incompatible=include_incompatible)
 
-        print_header("Data Designer Plugins")
+        print_header("Data Designer Plugin Packages")
         print_info(f"Catalog: {catalog.alias} ({catalog.url})")
         console.print()
 
         if not entries:
-            print_warning("No plugins found")
+            self._display_empty_list_state(catalog.alias, include_incompatible=include_incompatible)
             return
 
         self._display_catalog_entries(entries)
@@ -76,41 +77,41 @@ class PluginCatalogController:
         refresh: bool = False,
         include_incompatible: bool = False,
     ) -> None:
-        """Search plugins from a catalog."""
+        """Search plugin packages from a catalog."""
         catalog = self._get_catalog_or_exit(catalog_alias)
-        try:
-            entries = self.catalog_service.search_entries(
-                query,
-                catalog.alias,
-                refresh=refresh,
-                include_incompatible=include_incompatible,
-            )
-        except Exception as e:
-            print_error(f"Failed to search plugin catalog: {e}")
-            raise typer.Exit(code=1)
+        entries = self._search_entries_or_exit(
+            query,
+            catalog.alias,
+            refresh=refresh,
+            include_incompatible=include_incompatible,
+        )
 
-        print_header("Data Designer Plugin Search")
+        print_header("Data Designer Plugin Package Search")
         print_info(f"Catalog: {catalog.alias} ({catalog.url})")
         print_info(f"Query: {query}")
         console.print()
 
         if not entries:
-            print_warning("No matching plugins found")
+            self._display_empty_search_state(
+                query,
+                catalog.alias,
+                include_incompatible=include_incompatible,
+            )
             return
 
         self._display_catalog_entries(entries)
 
     def run_info(
         self,
-        plugin_name: str,
+        package_or_plugin: str,
         *,
         catalog_alias: str | None = None,
         refresh: bool = False,
     ) -> None:
-        """Show full metadata for one plugin."""
+        """Show full metadata for one plugin package."""
         catalog = self._get_catalog_or_exit(catalog_alias)
-        entry = self._get_entry_or_exit(plugin_name, catalog.alias, refresh=refresh)
-        package_entries = self.catalog_service.get_package_entries(
+        entry = self._get_entry_or_exit(package_or_plugin, catalog.alias, refresh=refresh)
+        package_entries = self._get_package_entries_or_exit(
             entry.package.name,
             catalog.alias,
             refresh=refresh,
@@ -135,7 +136,10 @@ class PluginCatalogController:
         console.print()
         display_config_preview(
             {
-                "package": entry.package.name,
+                "package": {
+                    "name": entry.package.name,
+                    "description": entry.description,
+                },
                 "install": entry.install.model_dump(mode="json", exclude_none=True),
                 "compatibility": (
                     entry.compatibility.model_dump(mode="json", exclude_none=True)
@@ -143,14 +147,14 @@ class PluginCatalogController:
                     else None
                 ),
                 "docs": entry.docs.model_dump(mode="json", exclude_none=True) if entry.docs is not None else None,
-                "plugins": [plugin.model_dump(mode="json", exclude_none=True) for plugin in package_entries],
+                "plugins": [_runtime_plugin_metadata(plugin) for plugin in package_entries],
             },
             "Plugin Metadata",
         )
 
     def run_install(
         self,
-        plugin_name: str,
+        package_or_plugin: str,
         *,
         catalog_alias: str | None = None,
         refresh: bool = False,
@@ -159,10 +163,10 @@ class PluginCatalogController:
         dry_run: bool = False,
         force: bool = False,
     ) -> None:
-        """Install one plugin from a catalog entry."""
+        """Install one plugin package from the catalog."""
         catalog = self._get_catalog_or_exit(catalog_alias)
-        entry = self._get_entry_or_exit(plugin_name, catalog.alias, refresh=refresh, include_incompatible=True)
-        package_entries = self.catalog_service.get_package_entries(
+        entry = self._get_entry_or_exit(package_or_plugin, catalog.alias, refresh=refresh, include_incompatible=True)
+        package_entries = self._get_package_entries_or_exit(
             entry.package.name,
             catalog.alias,
             refresh=refresh,
@@ -170,8 +174,8 @@ class PluginCatalogController:
         ) or [entry]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
-        if not compatibility.is_compatible and not force:
-            print_error(f"Plugin {entry.name!r} is not compatible with this environment")
+        if not compatibility.is_compatible and not force and not dry_run:
+            print_error(f"Plugin package {entry.package.name!r} is not compatible with this environment")
             for reason in compatibility.reasons:
                 console.print(f"  - {reason}")
             raise typer.Exit(code=1)
@@ -182,7 +186,7 @@ class PluginCatalogController:
             print_error(f"Failed to build plugin install plan: {e}")
             raise typer.Exit(code=1)
 
-        print_header("Install Data Designer Plugin")
+        print_header("Install Data Designer Plugin Package")
         console.print(f"  Package: [bold]{entry.package.name}[/bold]")
         console.print(f"  Runtime plugins: [bold]{_format_runtime_plugins(package_entries)}[/bold]")
         console.print(f"  Catalog: [bold]{catalog.alias}[/bold] ({catalog.url})")
@@ -198,10 +202,15 @@ class PluginCatalogController:
             )
 
         if dry_run:
-            print_info("Dry run complete; no changes made")
+            if not compatibility.is_compatible and not force:
+                print_warning(
+                    "Dry run complete; no changes made. A real install would be blocked unless you pass --force."
+                )
+            else:
+                print_info("Dry run complete; no changes made")
             return
 
-        if not yes and not confirm_action("Install this plugin into the current Python environment?", default=False):
+        if not yes and not confirm_action("Install this package into the current Python environment?", default=False):
             print_info("No changes made")
             return
 
@@ -221,18 +230,23 @@ class PluginCatalogController:
             )
 
     def run_installed(self) -> None:
-        """List installed plugin entry points without importing plugin modules."""
-        print_header("Installed Data Designer Plugins")
+        """List installed runtime plugin entry points without importing plugin modules."""
+        print_header("Installed Data Designer Runtime Plugins")
         installed_plugins = self.catalog_service.list_installed_plugins()
         if not installed_plugins:
-            print_warning("No installed Data Designer plugins were discovered")
+            print_warning("No installed Data Designer runtime plugins were discovered")
             return
         self._display_installed_plugins(installed_plugins)
 
     def run_catalogs_list(self) -> None:
         """List configured plugin catalogs."""
         print_header("Data Designer Plugin Catalogs")
-        catalogs = self.catalog_service.list_catalogs()
+        try:
+            catalogs = self.catalog_service.list_catalogs()
+        except (PluginCatalogError, OSError) as e:
+            print_error(f"Failed to list plugin catalogs: {e}")
+            raise typer.Exit(code=1)
+
         table = Table(title="Plugin Catalogs", border_style=NordColor.NORD8.value)
         table.add_column("Alias", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("URL", style=NordColor.NORD4.value)
@@ -270,7 +284,7 @@ class PluginCatalogController:
             else:
                 print_error(f"Invalid plugin catalog configuration: {e}")
             raise typer.Exit(code=1)
-        except Exception as e:
+        except (PluginCatalogError, OSError, ValueError) as e:
             print_error(f"Failed to add plugin catalog: {e}")
             raise typer.Exit(code=1)
 
@@ -281,7 +295,7 @@ class PluginCatalogController:
         """Remove a plugin catalog alias."""
         try:
             self.catalog_service.remove_catalog(alias)
-        except Exception as e:
+        except (PluginCatalogError, OSError, ValueError) as e:
             print_error(f"Failed to remove plugin catalog: {e}")
             raise typer.Exit(code=1)
         print_success(f"Plugin catalog {alias!r} removed")
@@ -289,7 +303,7 @@ class PluginCatalogController:
     def _get_catalog_or_exit(self, catalog_alias: str | None) -> PluginCatalogConfig:
         try:
             return self.catalog_service.get_catalog(catalog_alias or DEFAULT_PLUGIN_CATALOG_ALIAS)
-        except ValueError as e:
+        except (PluginCatalogError, OSError, ValueError) as e:
             print_error(str(e))
             raise typer.Exit(code=1)
 
@@ -306,13 +320,32 @@ class PluginCatalogController:
                 refresh=refresh,
                 include_incompatible=include_incompatible,
             )
-        except Exception as e:
+        except (PluginCatalogError, OSError, ValueError) as e:
             print_error(f"Failed to load plugin catalog: {e}")
+            raise typer.Exit(code=1)
+
+    def _search_entries_or_exit(
+        self,
+        query: str,
+        catalog_alias: str,
+        *,
+        refresh: bool,
+        include_incompatible: bool,
+    ) -> list[PluginCatalogEntry]:
+        try:
+            return self.catalog_service.search_entries(
+                query,
+                catalog_alias,
+                refresh=refresh,
+                include_incompatible=include_incompatible,
+            )
+        except (PluginCatalogError, OSError, ValueError) as e:
+            print_error(f"Failed to search plugin catalog: {e}")
             raise typer.Exit(code=1)
 
     def _get_entry_or_exit(
         self,
-        plugin_name: str,
+        package_or_plugin: str,
         catalog_alias: str,
         *,
         refresh: bool,
@@ -320,30 +353,85 @@ class PluginCatalogController:
     ) -> PluginCatalogEntry:
         try:
             return self.catalog_service.get_entry(
-                plugin_name,
+                package_or_plugin,
                 catalog_alias,
                 refresh=refresh,
                 include_incompatible=include_incompatible,
             )
-        except Exception as e:
+        except (PluginCatalogError, OSError, ValueError) as e:
             print_error(str(e))
             raise typer.Exit(code=1)
 
+    def _get_package_entries_or_exit(
+        self,
+        package_name: str,
+        catalog_alias: str,
+        *,
+        refresh: bool,
+        include_incompatible: bool,
+    ) -> list[PluginCatalogEntry]:
+        try:
+            return self.catalog_service.get_package_entries(
+                package_name,
+                catalog_alias,
+                refresh=refresh,
+                include_incompatible=include_incompatible,
+            )
+        except (PluginCatalogError, OSError, ValueError) as e:
+            print_error(f"Failed to load plugin package metadata: {e}")
+            raise typer.Exit(code=1)
+
+    def _display_empty_list_state(self, catalog_alias: str, *, include_incompatible: bool) -> None:
+        if include_incompatible:
+            print_warning("No plugin packages found")
+            return
+
+        all_entries = self._list_entries_or_exit(catalog_alias, refresh=False, include_incompatible=True)
+        if all_entries:
+            print_warning("No compatible plugin packages found")
+            print_info("Incompatible catalog packages are hidden. Use --include-incompatible to show them.")
+            return
+
+        print_warning("No plugin packages found")
+
+    def _display_empty_search_state(
+        self,
+        query: str,
+        catalog_alias: str,
+        *,
+        include_incompatible: bool,
+    ) -> None:
+        if include_incompatible:
+            print_warning("No matching plugin packages found")
+            return
+
+        all_matches = self._search_entries_or_exit(
+            query,
+            catalog_alias,
+            refresh=False,
+            include_incompatible=True,
+        )
+        if all_matches:
+            print_warning("No compatible plugin packages matched")
+            print_info("Matching incompatible catalog packages are hidden. Use --include-incompatible to show them.")
+            return
+
+        print_warning("No matching plugin packages found")
+
     def _display_catalog_entries(self, entries: list[PluginCatalogEntry]) -> None:
-        table = Table(title="Catalog Plugins", border_style=NordColor.NORD8.value)
-        table.add_column("Name", style=NordColor.NORD14.value, no_wrap=True)
-        table.add_column("Type", style=NordColor.NORD9.value, no_wrap=True)
-        table.add_column("Package", style=NordColor.NORD4.value, no_wrap=True)
+        table = Table(title="Catalog Plugin Packages", border_style=NordColor.NORD8.value)
+        table.add_column("Package", style=NordColor.NORD14.value, no_wrap=True)
+        table.add_column("Runtime Plugins", style=NordColor.NORD9.value)
         table.add_column("Compatible", style=NordColor.NORD13.value, no_wrap=True)
         table.add_column("Docs", style=NordColor.NORD7.value)
 
-        for entry in entries:
+        for package_entries in self.catalog_service.group_entries_by_package(entries).values():
+            entry = package_entries[0]
             compatibility = self.catalog_service.evaluate_compatibility(entry)
             docs_url = entry.docs.url if entry.docs is not None and entry.docs.url is not None else ""
             table.add_row(
-                entry.name,
-                entry.plugin_type.value,
                 entry.package.name,
+                _format_runtime_plugins(package_entries),
                 "yes" if compatibility.is_compatible else "no",
                 docs_url,
             )
@@ -351,8 +439,8 @@ class PluginCatalogController:
 
     @staticmethod
     def _display_installed_plugins(installed_plugins: list[InstalledPluginInfo]) -> None:
-        table = Table(title="Installed Plugins", border_style=NordColor.NORD8.value)
-        table.add_column("Name", style=NordColor.NORD14.value, no_wrap=True)
+        table = Table(title="Installed Runtime Plugins", border_style=NordColor.NORD8.value)
+        table.add_column("Runtime Plugin", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("Entry Point", style=NordColor.NORD4.value)
 
         for plugin in installed_plugins:
@@ -375,3 +463,11 @@ class PluginCatalogController:
 
 def _format_runtime_plugins(entries: list[PluginCatalogEntry]) -> str:
     return ", ".join(f"{entry.name} ({entry.plugin_type.value})" for entry in entries)
+
+
+def _runtime_plugin_metadata(entry: PluginCatalogEntry) -> dict[str, object]:
+    return {
+        "name": entry.name,
+        "plugin_type": entry.plugin_type.value,
+        "entry_point": entry.entry_point.model_dump(mode="json", exclude_none=True),
+    }

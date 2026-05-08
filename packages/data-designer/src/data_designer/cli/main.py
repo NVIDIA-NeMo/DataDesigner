@@ -150,12 +150,12 @@ plugins_app = typer.Typer(
             "list": {
                 "module": f"{_CMD}.plugins",
                 "attr": "list_command",
-                "help": "List plugins from a catalog",
+                "help": "List plugin packages from a catalog",
             },
             "search": {
                 "module": f"{_CMD}.plugins",
                 "attr": "search_command",
-                "help": "Search plugins from a catalog",
+                "help": "Search plugin packages from a catalog",
             },
             "info": {
                 "module": f"{_CMD}.plugins",
@@ -170,7 +170,7 @@ plugins_app = typer.Typer(
             "installed": {
                 "module": f"{_CMD}.plugins",
                 "attr": "installed_command",
-                "help": "List installed plugin entry points",
+                "help": "List installed runtime plugin entry points",
             },
         }
     ),

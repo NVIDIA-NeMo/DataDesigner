@@ -62,6 +62,24 @@ def test_plugins_install_command_delegates_to_controller(mock_ctrl_cls: MagicMoc
     )
 
 
+def test_plugins_info_help_uses_package_or_runtime_plugin_argument() -> None:
+    result = runner.invoke(app, ["plugins", "info", "--help"])
+
+    assert result.exit_code == 0
+    assert "PACKAGE_OR_PLUGIN" in result.output
+    assert "Package name or runtime plugin name" in result.output
+
+
+def test_plugins_install_help_uses_package_first_wording() -> None:
+    result = runner.invoke(app, ["plugins", "install", "--help"])
+
+    assert result.exit_code == 0
+    assert "PACKAGE_OR_PLUGIN" in result.output
+    assert "Package name or runtime plugin name" in result.output
+    assert "Allow installing a catalog" in result.output
+    assert "package when compatibility" in result.output
+
+
 @patch("data_designer.cli.commands.plugins.PluginCatalogController")
 def test_plugins_catalogs_add_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     mock_ctrl = MagicMock()
@@ -103,7 +121,7 @@ def test_plugins_installed_warns_when_parent_catalog_is_unused(
 
     assert result.exit_code == 0
     mock_print_info.assert_called_once_with(
-        "Ignoring --catalog 'research'; installed plugins are discovered from the current Python environment."
+        "Ignoring --catalog 'research'; installed runtime plugins are discovered from the current Python environment."
     )
     mock_ctrl.run_installed.assert_called_once_with()
 

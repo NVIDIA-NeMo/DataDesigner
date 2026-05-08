@@ -53,7 +53,7 @@ class PluginCatalogError(ValueError):
 class PluginCompatibilityTarget(BaseModel):
     """Version requirement for one environment target."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     requirement: str | None = None
     specifier: str | None = None
@@ -63,7 +63,7 @@ class PluginCompatibilityTarget(BaseModel):
 class PluginCompatibility(BaseModel):
     """Compatibility requirements declared by a catalog package."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     python: PluginCompatibilityTarget | None = None
     data_designer: PluginCompatibilityTarget | None = None
@@ -72,7 +72,7 @@ class PluginCompatibility(BaseModel):
 class PluginPackageInfo(BaseModel):
     """Python distribution metadata for a catalog entry."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     name: str
 
@@ -80,7 +80,7 @@ class PluginPackageInfo(BaseModel):
 class PluginEntryPointInfo(BaseModel):
     """Runtime entry point exposed by an installable plugin package."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     group: str = PLUGIN_ENTRY_POINT_GROUP
     name: str
@@ -90,7 +90,7 @@ class PluginEntryPointInfo(BaseModel):
 class PluginInstallInfo(BaseModel):
     """Resolver-native install metadata for a catalog package."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     requirement: str
     index_url: str | None = None
@@ -99,7 +99,7 @@ class PluginInstallInfo(BaseModel):
 class PluginDocsInfo(BaseModel):
     """Documentation metadata for a catalog package."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     url: str | None = None
 
@@ -107,7 +107,7 @@ class PluginDocsInfo(BaseModel):
 class PluginCatalogEntry(BaseModel):
     """One discoverable runtime plugin entry from a catalog package."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     plugin_type: PluginType
@@ -122,7 +122,7 @@ class PluginCatalogEntry(BaseModel):
 class PluginCatalogRuntimePlugin(BaseModel):
     """Runtime plugin metadata nested under one catalog package."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     plugin_type: PluginType
@@ -132,7 +132,7 @@ class PluginCatalogRuntimePlugin(BaseModel):
 class PluginCatalogPackage(BaseModel):
     """One installable package from a package-first plugin catalog."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str = ""
@@ -162,7 +162,7 @@ class PluginCatalogPackage(BaseModel):
 class PluginCatalog(BaseModel):
     """Versioned plugin catalog."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: int
     packages: list[PluginCatalogPackage] = Field(default_factory=list)
@@ -251,9 +251,21 @@ def _validate_plugin_catalog_payload(payload: object) -> None:
     if not isinstance(packages, list):
         raise PluginCatalogError("catalog document has invalid packages; expected a list")
 
+    package_names: dict[str, str] = {}
     runtime_names: dict[str, tuple[str, str]] = {}
     for index, raw_package in enumerate(packages):
-        for package_name, plugin_name, entry_point_name in _validate_catalog_package(raw_package, index):
+        validated_plugins = _validate_catalog_package(raw_package, index)
+        package_name = validated_plugins[0][0]
+        canonical_package_name = canonicalize_name(package_name)
+        previous_package_name = package_names.get(canonical_package_name)
+        if previous_package_name is not None:
+            raise PluginCatalogError(
+                f"duplicate package name {package_name!r}; canonical name {canonical_package_name!r} "
+                f"already used by {previous_package_name!r}"
+            )
+        package_names[canonical_package_name] = package_name
+
+        for package_name, plugin_name, entry_point_name in validated_plugins:
             previous = runtime_names.get(plugin_name)
             if previous is not None:
                 previous_package, previous_entry_point_name = previous
@@ -367,9 +379,8 @@ def _validate_install_metadata(package_name: str, context: str, install: dict[st
             f"expected a requirement for {package_name!r}"
         )
 
-    index_url = install.get("index_url")
-    if index_url is not None:
-        _catalog_http_url(f"package {package_name!r} install.index_url", index_url)
+    if "index_url" in install:
+        _catalog_http_url(f"package {package_name!r} install.index_url", install["index_url"])
 
 
 def _required_catalog_object(

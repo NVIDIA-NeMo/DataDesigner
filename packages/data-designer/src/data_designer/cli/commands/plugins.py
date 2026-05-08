@@ -26,10 +26,10 @@ def list_command(
     include_incompatible: bool = typer.Option(
         False,
         "--include-incompatible",
-        help="Show plugins that do not satisfy the local Python or Data Designer version.",
+        help="Show catalog packages that do not satisfy the local Python or Data Designer version.",
     ),
 ) -> None:
-    """List discoverable Data Designer plugins from a catalog."""
+    """List installable Data Designer plugin packages from a catalog."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_list(
         catalog_alias=_resolve_catalog_alias(ctx, catalog),
@@ -41,7 +41,7 @@ def list_command(
 def search_command(
     ctx: typer.Context,
     query: str = typer.Argument(
-        help="Keyword, plugin type, package name, requirement, docs URL, or entry point to search for."
+        help="Keyword, runtime plugin name or type, package name, requirement, docs URL, or entry point to search for."
     ),
     catalog: str | None = typer.Option(
         None,
@@ -56,10 +56,10 @@ def search_command(
     include_incompatible: bool = typer.Option(
         False,
         "--include-incompatible",
-        help="Search plugins that do not satisfy the local Python or Data Designer version.",
+        help="Search catalog packages that do not satisfy the local Python or Data Designer version.",
     ),
 ) -> None:
-    """Search discoverable Data Designer plugins from a catalog."""
+    """Search installable Data Designer plugin packages from a catalog."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_search(
         query,
@@ -71,7 +71,10 @@ def search_command(
 
 def info_command(
     ctx: typer.Context,
-    plugin_name: str = typer.Argument(help="Runtime plugin name or package name from the catalog."),
+    package_or_plugin: str = typer.Argument(
+        help="Package name or runtime plugin name from the catalog.",
+        metavar="PACKAGE_OR_PLUGIN",
+    ),
     catalog: str | None = typer.Option(
         None,
         "--catalog",
@@ -86,7 +89,7 @@ def info_command(
     """Show metadata, compatibility, docs, and install plan for one plugin package."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_info(
-        plugin_name,
+        package_or_plugin,
         catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
     )
@@ -94,7 +97,10 @@ def info_command(
 
 def install_command(
     ctx: typer.Context,
-    plugin_name: str = typer.Argument(help="Runtime plugin name or package name from the catalog."),
+    package_or_plugin: str = typer.Argument(
+        help="Package name or runtime plugin name from the catalog.",
+        metavar="PACKAGE_OR_PLUGIN",
+    ),
     catalog: str | None = typer.Option(
         None,
         "--catalog",
@@ -125,13 +131,13 @@ def install_command(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Allow installation when only incompatible catalog entries are available.",
+        help="Allow installing a catalog package when compatibility checks fail.",
     ),
 ) -> None:
     """Install one Data Designer plugin package, then verify runtime discovery."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_install(
-        plugin_name,
+        package_or_plugin,
         catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
         manager=manager,
@@ -142,8 +148,8 @@ def install_command(
 
 
 def installed_command(ctx: typer.Context) -> None:
-    """List installed Data Designer plugin entry points."""
-    _warn_if_parent_catalog_unused(ctx, "installed plugins are discovered from the current Python environment")
+    """List installed Data Designer runtime plugin entry points."""
+    _warn_if_parent_catalog_unused(ctx, "installed runtime plugins are discovered from the current Python environment")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_installed()
 

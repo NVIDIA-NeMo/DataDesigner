@@ -279,7 +279,7 @@ data-designer config reset
 ### Discover and Install Plugins
 
 ```bash
-# List compatible plugins from the default NVIDIA catalog
+# List compatible plugin packages from the default NVIDIA catalog
 data-designer plugins list
 
 # Search a specific catalog
@@ -288,7 +288,7 @@ data-designer plugins --catalog research search transform
 # Show metadata, compatibility, docs, and exact install command
 data-designer plugins info text-transform
 
-# Install a plugin package from a catalog and verify declared entry point discovery
+# Install a plugin package from a catalog and verify declared runtime entry point discovery
 data-designer plugins install text-transform --yes
 
 # Preview the install command without mutating the environment
@@ -299,6 +299,6 @@ data-designer plugins catalogs add research https://github.com/acme/dd-plugins
 data-designer plugins catalogs list
 data-designer plugins catalogs remove research
 
-# List installed plugin entry points without importing plugin modules
+# List installed runtime plugin entry points without importing plugin modules
 data-designer plugins installed
 ```

@@ -59,6 +59,80 @@ def test_evaluate_compatibility_reports_data_designer_constraint(tmp_path: Path)
     assert result.reasons == ["Data Designer 0.5.7 does not satisfy >=99.0"]
 
 
+def test_evaluate_compatibility_reports_python_constraint() -> None:
+    service = PluginCatalogService(
+        Mock(spec=PluginCatalogRepository),
+        python_version="3.11.0",
+        data_designer_version="0.5.7",
+    )
+    entry = PluginCatalogEntry.model_validate(
+        _entry(
+            name="future-python-plugin",
+            plugin_type="processor",
+            package_name="data-designer-future-python-plugin",
+            python_specifier=">=3.12",
+            data_designer_specifier=">=0.5.7",
+        )
+    )
+
+    result = service.evaluate_compatibility(entry)
+
+    assert result.is_compatible is False
+    assert result.reasons == ["Python 3.11.0 does not satisfy >=3.12"]
+
+
+@pytest.mark.parametrize(
+    ("marker", "expected_is_compatible", "expected_reasons"),
+    [
+        ("python_version >= '3.12'", True, []),
+        ("python_version < '3.12'", False, ["Data Designer 0.5.7 does not satisfy >=99.0"]),
+    ],
+)
+def test_evaluate_compatibility_respects_data_designer_marker(
+    marker: str,
+    expected_is_compatible: bool,
+    expected_reasons: list[str],
+) -> None:
+    service = PluginCatalogService(
+        Mock(spec=PluginCatalogRepository),
+        python_version="3.11.0",
+        data_designer_version="0.5.7",
+    )
+    entry = PluginCatalogEntry.model_validate(
+        _entry(
+            name="marker-gated-plugin",
+            plugin_type="processor",
+            package_name="data-designer-marker-gated-plugin",
+            data_designer_specifier=">=99.0",
+            data_designer_marker=marker,
+        )
+    )
+
+    result = service.evaluate_compatibility(entry)
+
+    assert result.is_compatible is expected_is_compatible
+    assert result.reasons == expected_reasons
+
+
+@patch("data_designer.cli.services.plugin_catalog_service._get_installed_data_designer_version", return_value=None)
+def test_evaluate_compatibility_reports_missing_data_designer_version(mock_version: Mock) -> None:
+    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0")
+    entry = PluginCatalogEntry.model_validate(
+        _entry(
+            name="compatible-plugin",
+            plugin_type="processor",
+            package_name="data-designer-compatible-plugin",
+            data_designer_specifier=">=0.5.7",
+        )
+    )
+
+    result = service.evaluate_compatibility(entry)
+
+    assert result.is_compatible is False
+    assert result.reasons == ["Unable to resolve installed Data Designer version for constraint '>=0.5.7'"]
+    mock_version.assert_called_once_with()
+
+
 def test_evaluate_compatibility_accepts_local_dev_version_above_lower_bound(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(
@@ -212,6 +286,8 @@ def _package(
     package_name: str,
     data_designer_specifier: str,
     plugins: list[dict],
+    data_designer_marker: str | None = None,
+    python_specifier: str = ">=3.10",
 ) -> dict:
     return {
         "name": package_name,
@@ -221,11 +297,11 @@ def _package(
             "index_url": "https://docs.example.test/simple/",
         },
         "compatibility": {
-            "python": {"specifier": ">=3.10"},
+            "python": {"specifier": python_specifier},
             "data_designer": {
                 "requirement": f"data-designer{data_designer_specifier}",
                 "specifier": data_designer_specifier,
-                "marker": None,
+                "marker": data_designer_marker,
             },
         },
         "docs": {
@@ -253,6 +329,8 @@ def _entry(
     plugin_type: str,
     package_name: str,
     data_designer_specifier: str,
+    data_designer_marker: str | None = None,
+    python_specifier: str = ">=3.10",
 ) -> dict:
     return {
         "name": name,
@@ -271,11 +349,11 @@ def _entry(
             "value": f"{package_name.replace('-', '_')}.plugin:plugin",
         },
         "compatibility": {
-            "python": {"specifier": ">=3.10"},
+            "python": {"specifier": python_specifier},
             "data_designer": {
                 "requirement": f"data-designer{data_designer_specifier}",
                 "specifier": data_designer_specifier,
-                "marker": None,
+                "marker": data_designer_marker,
             },
         },
         "docs": {

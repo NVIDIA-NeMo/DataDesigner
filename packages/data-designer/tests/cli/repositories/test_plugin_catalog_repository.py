@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 import pytest
 
 from data_designer.cli.plugin_catalog import (
     DEFAULT_PLUGIN_CATALOG_ALIAS,
     DEFAULT_PLUGIN_CATALOG_URL_ENV_VAR,
+    MAX_PLUGIN_CATALOG_SIZE_BYTES,
     PluginCatalogError,
 )
 from data_designer.cli.repositories.plugin_catalog_repository import PluginCatalogRepository, normalize_catalog_location
@@ -32,6 +35,7 @@ def test_default_catalog_honors_url_environment_override(tmp_path: Path, monkeyp
     catalog = repository.default_catalog()
 
     assert catalog.url == "https://example.test/catalog/plugins.json"
+    assert catalog.trusted is False
 
 
 def test_add_catalog_normalizes_github_repository_url(tmp_path: Path) -> None:
@@ -49,6 +53,14 @@ def test_add_catalog_normalizes_github_tree_url_with_subdirectory(tmp_path: Path
     catalog = repository.add_catalog("research", "https://github.com/acme/dd-plugins/tree/main/custom-catalog")
 
     assert catalog.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/custom-catalog/catalog/plugins.json"
+
+
+def test_add_catalog_normalizes_github_tree_url_ending_with_catalog(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+
+    catalog = repository.add_catalog("research", "https://github.com/acme/dd-plugins/tree/main/catalog")
+
+    assert catalog.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json"
 
 
 def test_catalog_aliases_are_case_insensitive(tmp_path: Path) -> None:
@@ -73,6 +85,31 @@ def test_normalize_local_catalog_directory() -> None:
     assert normalized.endswith("/plugins/catalog/plugins.json")
 
 
+def test_normalize_local_catalog_directory_ending_with_catalog(tmp_path: Path) -> None:
+    normalized = normalize_catalog_location(str(tmp_path / "plugins" / "catalog"))
+
+    assert normalized == str((tmp_path / "plugins" / "catalog" / "plugins.json").resolve(strict=False))
+
+
+def test_load_invalid_catalog_registry_raises_user_facing_error(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+    repository.config_file.write_text("catalogs:\n- alias: research\n")
+
+    with pytest.raises(PluginCatalogError, match="Failed to load plugin catalog registry"):
+        repository.load()
+
+
+def test_add_catalog_does_not_replace_invalid_catalog_registry(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+    saved_registry = "catalogs:\n- alias: research\n"
+    repository.config_file.write_text(saved_registry)
+
+    with pytest.raises(PluginCatalogError, match="Failed to load plugin catalog registry"):
+        repository.add_catalog("local", "https://github.com/acme/dd-plugins")
+
+    assert repository.config_file.read_text() == saved_registry
+
+
 def test_load_catalog_uses_cache_when_source_is_unavailable(tmp_path: Path) -> None:
     catalog_path = _write_catalog(tmp_path)
     repository = PluginCatalogRepository(tmp_path)
@@ -84,6 +121,18 @@ def test_load_catalog_uses_cache_when_source_is_unavailable(tmp_path: Path) -> N
 
     assert first_catalog.plugins[0].name == "text-transform"
     assert cached_catalog.plugins[0].name == "text-transform"
+
+
+def test_load_catalog_falls_back_to_stale_cache_when_refresh_fetch_fails(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(tmp_path, plugin_name="cached-transform")
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path), cache_ttl_seconds=0)
+
+    repository.load_catalog("local")
+    catalog_path.unlink()
+    cached_catalog = repository.load_catalog("local")
+
+    assert cached_catalog.plugins[0].name == "cached-transform"
 
 
 def test_load_catalog_with_zero_cache_ttl_refreshes_source(tmp_path: Path) -> None:
@@ -110,6 +159,42 @@ def test_load_catalog_cache_file_is_keyed_by_alias_and_url(tmp_path: Path) -> No
     assert len(cache_files) == 1
     assert cache_files[0].name.startswith("local-")
     assert cache_files[0].name != "local.json"
+
+
+@patch("data_designer.cli.repositories.plugin_catalog_repository.urlopen")
+def test_load_catalog_reports_remote_http_error(mock_urlopen: Mock, tmp_path: Path) -> None:
+    mock_urlopen.side_effect = HTTPError(
+        "https://example.test/catalog/plugins.json",
+        404,
+        "Not Found",
+        {},
+        None,
+    )
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("remote", "https://example.test/catalog/plugins.json")
+
+    with pytest.raises(PluginCatalogError, match="HTTP 404"):
+        repository.load_catalog("remote", refresh=True)
+
+
+@patch("data_designer.cli.repositories.plugin_catalog_repository.urlopen")
+def test_load_catalog_rejects_oversized_remote_catalog(mock_urlopen: Mock, tmp_path: Path) -> None:
+    mock_urlopen.return_value = _RemoteResponse(b"{" + (b" " * MAX_PLUGIN_CATALOG_SIZE_BYTES) + b"}")
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("remote", "https://example.test/catalog/plugins.json")
+
+    with pytest.raises(PluginCatalogError, match="exceeds maximum size"):
+        repository.load_catalog("remote", refresh=True)
+
+
+@patch("data_designer.cli.repositories.plugin_catalog_repository.urlopen")
+def test_load_catalog_reports_remote_json_decode_error(mock_urlopen: Mock, tmp_path: Path) -> None:
+    mock_urlopen.return_value = _RemoteResponse(b"{")
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("remote", "https://example.test/catalog/plugins.json")
+
+    with pytest.raises(PluginCatalogError, match="Failed to parse plugin catalog JSON"):
+        repository.load_catalog("remote", refresh=True)
 
 
 def test_load_catalog_rejects_unsupported_schema_version(tmp_path: Path) -> None:
@@ -199,6 +284,48 @@ def test_load_catalog_rejects_invalid_schema_v2_install_metadata(tmp_path: Path)
         repository.load_catalog("local", refresh=True)
 
 
+def test_load_catalog_rejects_null_schema_v2_install_index_url(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        packages=[
+            _package_entry(
+                package_name="data-designer-invalid-index",
+                plugins=[_runtime_plugin("invalid-index")],
+                install={
+                    "requirement": "data-designer-invalid-index",
+                    "index_url": None,
+                },
+            )
+        ],
+    )
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="install.index_url.*expected a non-empty string"):
+        repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_empty_schema_v2_install_index_url(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        packages=[
+            _package_entry(
+                package_name="data-designer-empty-index",
+                plugins=[_runtime_plugin("empty-index")],
+                install={
+                    "requirement": "data-designer-empty-index",
+                    "index_url": "",
+                },
+            )
+        ],
+    )
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="install.index_url.*expected a non-empty string"):
+        repository.load_catalog("local", refresh=True)
+
+
 def test_load_catalog_rejects_unexpected_schema_v2_fields(tmp_path: Path) -> None:
     package = _package_entry()
     package["tags"] = ["extra"]
@@ -229,6 +356,43 @@ def test_load_catalog_rejects_duplicate_runtime_plugin_names(tmp_path: Path) -> 
 
     with pytest.raises(PluginCatalogError, match="duplicate runtime plugin name"):
         repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_duplicate_canonical_package_names(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        packages=[
+            _package_entry(
+                package_name="data-designer-foo",
+                plugins=[_runtime_plugin("first-plugin")],
+            ),
+            _package_entry(
+                package_name="data_designer_foo",
+                plugins=[_runtime_plugin("second-plugin")],
+            ),
+        ],
+    )
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="duplicate package name"):
+        repository.load_catalog("local", refresh=True)
+
+
+class _RemoteResponse:
+    def __init__(self, content: bytes, *, status: int = 200) -> None:
+        self._content = content
+        self.status = status
+
+    def __enter__(self) -> "_RemoteResponse":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        return None
+
+    def read(self, size: int = -1) -> bytes:
+        _ = size
+        return self._content
 
 
 def _write_catalog(
