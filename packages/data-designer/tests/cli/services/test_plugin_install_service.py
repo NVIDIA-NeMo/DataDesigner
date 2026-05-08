@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import sys
+from collections.abc import Iterator
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -11,6 +14,17 @@ import pytest
 
 from data_designer.cli.plugin_catalog import PluginCatalogConfig, PluginCatalogEntry
 from data_designer.cli.services.plugin_install_service import PIP_EXTRA_INDEX_SOURCE_WARNING, PluginInstallService
+
+DATA_DESIGNER_VERSION = "0.5.10"
+
+
+@pytest.fixture(autouse=True)
+def mock_data_designer_version() -> Iterator[None]:
+    with patch(
+        "data_designer.cli.services.plugin_install_service.importlib.metadata.version",
+        return_value=DATA_DESIGNER_VERSION,
+    ):
+        yield
 
 
 def test_build_pip_install_plan_uses_requirement_and_extra_index() -> None:
@@ -33,10 +47,19 @@ def test_build_pip_install_plan_uses_requirement_and_extra_index() -> None:
         "-m",
         "pip",
         "install",
+        "--constraint",
+        "<temporary-data-designer-constraint-file>",
         "--extra-index-url",
         "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
         "data-designer-template",
     ]
+    assert plan.temporary_file is not None
+    assert plan.temporary_file.filename == "data-designer-constraint.txt"
+    assert plan.temporary_file.content == (
+        f"# Data Designer is provided by the active CLI environment.\ndata-designer=={DATA_DESIGNER_VERSION}\n"
+    )
+    assert plan.command_stdin is None
+    assert plan.data_designer_protection == f"pinned to installed data-designer {DATA_DESIGNER_VERSION}"
     assert plan.source_description == (
         "data-designer-template via https://nvidia-nemo.github.io/DataDesignerPlugins/simple/"
     )
@@ -76,19 +99,132 @@ def test_build_auto_install_plan_chooses_uv_when_available(mock_which: Mock) -> 
     plan = service.build_install_plan(entry, catalog, manager="auto")
 
     assert plan.manager == "uv"
+    assert plan.install_mode == "uv-environment"
     assert plan.command == [
         "uv",
         "pip",
         "install",
         "--python",
         sys.executable,
+        "--excludes",
+        "-",
         "--default-index",
         "https://pypi.org/simple/",
         "--index",
         "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
         "data-designer-template",
     ]
+    assert plan.command_stdin == "data-designer\n"
+    assert plan.temporary_file is None
+    assert (
+        plan.data_designer_protection
+        == f"using installed data-designer {DATA_DESIGNER_VERSION}; uv will not resolve it"
+    )
     assert plan.source_warning is None
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_install_plan_uses_uv_add_for_active_project(mock_which: Mock, tmp_path: Path) -> None:
+    working_dir = _write_project(tmp_path) / "src"
+    working_dir.mkdir()
+    entry = _entry(
+        package_name="data-designer-template",
+        install={
+            "requirement": "data-designer-template",
+            "index_url": "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        },
+    )
+    catalog = PluginCatalogConfig(
+        alias="nvidia", url="https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json"
+    )
+    service = PluginInstallService(working_dir=working_dir, active_virtualenv=True)
+
+    plan = service.build_install_plan(entry, catalog, manager="auto")
+
+    assert plan.manager == "uv"
+    assert plan.install_mode == "uv-project"
+    assert plan.project_root == str(tmp_path)
+    assert plan.command == [
+        "uv",
+        "add",
+        "--project",
+        str(tmp_path),
+        "--active",
+        "--no-install-package",
+        "data-designer",
+        "--no-install-package",
+        "data-designer-config",
+        "--no-install-package",
+        "data-designer-engine",
+        "--index",
+        "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        "data-designer-template",
+    ]
+    assert plan.command_stdin is None
+    assert plan.temporary_file is None
+    assert (
+        plan.data_designer_protection
+        == f"using installed data-designer {DATA_DESIGNER_VERSION}; uv will not install Data Designer packages"
+    )
+    assert plan.source_warning is None
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_install_plan_does_not_use_uv_add_without_active_virtualenv(
+    mock_which: Mock,
+    tmp_path: Path,
+) -> None:
+    _write_project(tmp_path)
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=False)
+
+    plan = service.build_install_plan(entry, catalog, manager="auto")
+
+    assert plan.install_mode == "uv-environment"
+    assert plan.command[:6] == ["uv", "pip", "install", "--python", sys.executable, "--excludes"]
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_install_plan_does_not_use_uv_add_for_data_designer_workspace(
+    mock_which: Mock,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "data-designer-workspace"\n[tool.uv]\npackage = false\n',
+        encoding="utf-8",
+    )
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    plan = service.build_install_plan(entry, catalog, manager="auto")
+
+    assert plan.install_mode == "uv-environment"
+    assert plan.project_root is None
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_install_plan_uses_uv_add_for_non_package_user_project(
+    mock_which: Mock,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "experiment-workspace"\n[tool.uv]\npackage = false\n',
+        encoding="utf-8",
+    )
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    plan = service.build_install_plan(entry, catalog, manager="auto")
+
+    assert plan.install_mode == "uv-project"
+    assert plan.project_root == str(tmp_path)
     mock_which.assert_called_once_with("uv")
 
 
@@ -101,7 +237,16 @@ def test_build_auto_install_plan_chooses_pip_when_uv_is_unavailable(mock_which: 
     plan = service.build_install_plan(entry, catalog, manager="auto")
 
     assert plan.manager == "pip"
-    assert plan.command == [sys.executable, "-m", "pip", "install", "data-designer-template"]
+    assert plan.command == [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--constraint",
+        "<temporary-data-designer-constraint-file>",
+        "data-designer-template",
+    ]
+    assert plan.temporary_file is not None
     mock_which.assert_called_once_with("uv")
 
 
@@ -145,6 +290,47 @@ def test_build_auto_uninstall_plan_chooses_uv_when_available(mock_which: Mock) -
         "data-designer-template",
     ]
     assert plan.manager == "uv"
+    assert plan.uninstall_mode == "uv-environment"
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_uninstall_plan_uses_uv_remove_for_active_project(mock_which: Mock, tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+
+    assert plan.command == [
+        "uv",
+        "remove",
+        "--project",
+        str(tmp_path),
+        "--no-sync",
+        "data-designer-template",
+    ]
+    assert plan.commands == [
+        [
+            "uv",
+            "remove",
+            "--project",
+            str(tmp_path),
+            "--no-sync",
+            "data-designer-template",
+        ],
+        [
+            "uv",
+            "pip",
+            "uninstall",
+            "--python",
+            sys.executable,
+            "data-designer-template",
+        ],
+    ]
+    assert plan.uninstall_mode == "uv-project"
+    assert plan.project_root == str(tmp_path)
     mock_which.assert_called_once_with("uv")
 
 
@@ -170,12 +356,34 @@ def test_build_uv_install_plan_targets_current_python_and_adds_catalog_index(moc
         "install",
         "--python",
         sys.executable,
+        "--excludes",
+        "-",
         "--default-index",
         "https://pypi.org/simple/",
         "--index",
         "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
         "data-designer-template",
     ]
+    assert plan.command_stdin == "data-designer\n"
+    assert plan.temporary_file is None
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_uv_add_plan_preserves_direct_reference_with_raw(mock_which: Mock, tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    requirement = (
+        "data-designer-template @ "
+        "git+https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git@data-designer-template/v0.1.0"
+    )
+    entry = _entry(package_name="data-designer-template", install={"requirement": requirement})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    plan = service.build_install_plan(entry, catalog, manager="uv")
+
+    assert plan.command[-2:] == ["--raw", requirement]
+    assert "--index" not in plan.command
+    mock_which.assert_called_once_with("uv")
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value=None)
@@ -190,8 +398,38 @@ def test_build_uv_install_plan_raises_when_uv_is_unavailable(mock_which: Mock) -
     mock_which.assert_called_once_with("uv")
 
 
+def test_build_install_plan_requires_installed_data_designer_version() -> None:
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    with (
+        patch(
+            "data_designer.cli.services.plugin_install_service.importlib.metadata.version",
+            side_effect=importlib.metadata.PackageNotFoundError,
+        ),
+        pytest.raises(ValueError, match="Unable to resolve installed 'data-designer' version"),
+    ):
+        service.build_install_plan(entry, catalog, manager="pip")
+
+
+def test_build_install_plan_rejects_invalid_installed_data_designer_version() -> None:
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    with (
+        patch(
+            "data_designer.cli.services.plugin_install_service.importlib.metadata.version",
+            return_value="not a version",
+        ),
+        pytest.raises(ValueError, match="version 'not a version' is not a valid package version"),
+    ):
+        service.build_install_plan(entry, catalog, manager="pip")
+
+
 def test_install_raises_when_runner_fails() -> None:
-    service = PluginInstallService(runner=lambda command: 2)
+    service = PluginInstallService(runner=lambda command, stdin_text: 2)
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     plan = service.build_install_plan(entry, catalog, manager="pip")
@@ -200,14 +438,95 @@ def test_install_raises_when_runner_fails() -> None:
         service.install(plan)
 
 
+def test_install_materializes_pip_constraint_as_temporary_file() -> None:
+    seen: dict[str, Path | str | None] = {}
+
+    def runner(command: list[str], stdin_text: str | None) -> int:
+        constraint_file = Path(command[command.index("--constraint") + 1])
+        seen["constraint_file"] = constraint_file
+        seen["constraint_parent"] = constraint_file.parent
+        seen["constraint_text"] = constraint_file.read_text(encoding="utf-8")
+        seen["stdin_text"] = stdin_text
+        return 0
+
+    service = PluginInstallService(runner=runner)
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    plan = service.build_install_plan(entry, catalog, manager="pip")
+
+    service.install(plan)
+
+    constraint_file = seen["constraint_file"]
+    constraint_parent = seen["constraint_parent"]
+    assert isinstance(constraint_file, Path)
+    assert isinstance(constraint_parent, Path)
+    assert not constraint_file.exists()
+    assert not constraint_parent.exists()
+    assert seen["constraint_text"] == (
+        f"# Data Designer is provided by the active CLI environment.\ndata-designer=={DATA_DESIGNER_VERSION}\n"
+    )
+    assert seen["stdin_text"] is None
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_install_passes_uv_exclude_over_stdin(mock_which: Mock) -> None:
+    seen: dict[str, list[str] | str | None] = {}
+
+    def runner(command: list[str], stdin_text: str | None) -> int:
+        seen["command"] = command
+        seen["stdin_text"] = stdin_text
+        return 0
+
+    service = PluginInstallService(runner=runner)
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    plan = service.build_install_plan(entry, catalog, manager="uv")
+
+    service.install(plan)
+
+    assert seen["command"] == [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        sys.executable,
+        "--excludes",
+        "-",
+        "data-designer-template",
+    ]
+    assert seen["stdin_text"] == "data-designer\n"
+    mock_which.assert_called_once_with("uv")
+
+
 def test_uninstall_raises_when_runner_fails() -> None:
-    service = PluginInstallService(runner=lambda command: 2)
+    service = PluginInstallService(runner=lambda command, stdin_text: 2)
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     plan = service.build_uninstall_plan(entry, catalog, manager="pip")
 
     with pytest.raises(RuntimeError, match="status 2"):
         service.uninstall(plan)
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_uninstall_runs_every_project_uninstall_command(mock_which: Mock, tmp_path: Path) -> None:
+    seen: list[list[str]] = []
+
+    def runner(command: list[str], stdin_text: str | None) -> int:
+        assert stdin_text is None
+        seen.append(command)
+        return 0
+
+    _write_project(tmp_path)
+    service = PluginInstallService(runner=runner, working_dir=tmp_path, active_virtualenv=True)
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+
+    service.uninstall(plan)
+
+    assert seen == plan.commands
+    mock_which.assert_called_once_with("uv")
 
 
 @patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
@@ -413,3 +732,9 @@ def _entry(
         },
     }
     return PluginCatalogEntry.model_validate(payload)
+
+
+def _write_project(path: Path, *, name: str = "synthetic-data-project") -> Path:
+    path.mkdir(exist_ok=True)
+    (path / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n', encoding="utf-8")
+    return path
