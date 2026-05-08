@@ -12,12 +12,12 @@ from data_designer.cli.main import app
 runner = CliRunner()
 
 
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_list_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_plugin_list_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "--catalog", "research", "list", "--refresh", "--include-incompatible"])
+    result = runner.invoke(app, ["plugin", "--catalog", "research", "list", "--refresh", "--include-incompatible"])
 
     assert result.exit_code == 0
     mock_ctrl.run_list.assert_called_once_with(
@@ -27,12 +27,12 @@ def test_plugins_list_command_delegates_to_controller(mock_ctrl_cls: MagicMock) 
     )
 
 
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_search_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_plugin_search_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "search", "github", "--catalog", "research"])
+    result = runner.invoke(app, ["plugin", "search", "github", "--catalog", "research"])
 
     assert result.exit_code == 0
     mock_ctrl.run_search.assert_called_once_with(
@@ -43,14 +43,14 @@ def test_plugins_search_command_delegates_to_controller(mock_ctrl_cls: MagicMock
     )
 
 
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_install_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_plugin_install_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
     result = runner.invoke(
         app,
-        ["plugins", "install", "data-designer-text-transform", "--manager", "pip", "--yes", "--dry-run"],
+        ["plugin", "install", "data-designer-text-transform", "--manager", "pip", "--yes", "--dry-run"],
     )
 
     assert result.exit_code == 0
@@ -65,14 +65,14 @@ def test_plugins_install_command_delegates_to_controller(mock_ctrl_cls: MagicMoc
     )
 
 
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_uninstall_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_plugin_uninstall_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
     result = runner.invoke(
         app,
-        ["plugins", "uninstall", "data-designer-text-transform", "--manager", "pip", "--yes", "--dry-run"],
+        ["plugin", "uninstall", "data-designer-text-transform", "--manager", "pip", "--yes", "--dry-run"],
     )
 
     assert result.exit_code == 0
@@ -86,8 +86,8 @@ def test_plugins_uninstall_command_delegates_to_controller(mock_ctrl_cls: MagicM
     )
 
 
-def test_plugins_info_help_uses_package_argument() -> None:
-    result = runner.invoke(app, ["plugins", "info", "--help"])
+def test_plugin_info_help_uses_package_argument() -> None:
+    result = runner.invoke(app, ["plugin", "info", "--help"])
 
     assert result.exit_code == 0
     assert "PACKAGE" in result.output
@@ -95,8 +95,8 @@ def test_plugins_info_help_uses_package_argument() -> None:
     assert "runtime plugin name" not in result.output
 
 
-def test_plugins_install_help_uses_package_first_wording() -> None:
-    result = runner.invoke(app, ["plugins", "install", "--help"])
+def test_plugin_install_help_uses_package_first_wording() -> None:
+    result = runner.invoke(app, ["plugin", "install", "--help"])
 
     assert result.exit_code == 0
     assert "PACKAGE" in result.output
@@ -106,8 +106,8 @@ def test_plugins_install_help_uses_package_first_wording() -> None:
     assert "package when compatibility" in result.output
 
 
-def test_plugins_uninstall_help_uses_package_first_wording() -> None:
-    result = runner.invoke(app, ["plugins", "uninstall", "--help"])
+def test_plugin_uninstall_help_uses_package_first_wording() -> None:
+    result = runner.invoke(app, ["plugin", "uninstall", "--help"])
 
     assert result.exit_code == 0
     assert "PACKAGE" in result.output
@@ -116,15 +116,15 @@ def test_plugins_uninstall_help_uses_package_first_wording() -> None:
     assert "Print the uninstall plan" in result.output
 
 
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_catalogs_add_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_plugin_catalogs_add_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
     result = runner.invoke(
         app,
         [
-            "plugins",
+            "plugin",
             "catalogs",
             "add",
             "research",
@@ -144,16 +144,16 @@ def test_plugins_catalogs_add_command_delegates_to_controller(mock_ctrl_cls: Mag
     )
 
 
-@patch("data_designer.cli.commands.plugins.print_info")
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_installed_warns_when_parent_catalog_is_unused(
+@patch("data_designer.cli.commands.plugin.print_info")
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_plugin_installed_warns_when_parent_catalog_is_unused(
     mock_ctrl_cls: MagicMock,
     mock_print_info: MagicMock,
 ) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "--catalog", "research", "installed"])
+    result = runner.invoke(app, ["plugin", "--catalog", "research", "installed"])
 
     assert result.exit_code == 0
     mock_print_info.assert_called_once_with(
@@ -162,16 +162,16 @@ def test_plugins_installed_warns_when_parent_catalog_is_unused(
     mock_ctrl.run_installed.assert_called_once_with()
 
 
-@patch("data_designer.cli.commands.plugins.print_info")
-@patch("data_designer.cli.commands.plugins.PluginCatalogController")
-def test_plugins_catalogs_list_warns_when_parent_catalog_is_unused(
+@patch("data_designer.cli.commands.plugin.print_info")
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_plugin_catalogs_list_warns_when_parent_catalog_is_unused(
     mock_ctrl_cls: MagicMock,
     mock_print_info: MagicMock,
 ) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    result = runner.invoke(app, ["plugins", "--catalog", "research", "catalogs", "list"])
+    result = runner.invoke(app, ["plugin", "--catalog", "research", "catalogs", "list"])
 
     assert result.exit_code == 0
     mock_print_info.assert_called_once_with(

@@ -1,6 +1,6 @@
 # CLI
 
-The CLI (`data-designer`) provides an interactive command-line interface for configuring models, providers, tools, and personas, discovering/installing plugins from catalogs, and running dataset generation. It uses a layered architecture for setup workflows and delegates generation to the public `DataDesigner` API.
+The CLI (`data-designer`) provides an interactive command-line interface for configuring models, providers, tools, and personas, discovering/installing plugin packages from catalogs, and running dataset generation. It uses a layered architecture for setup workflows and delegates generation to the public `DataDesigner` API.
 
 Source: `packages/data-designer/src/data_designer/cli/`
 
@@ -39,7 +39,7 @@ Plugin catalog commands use the same layering shape:
 
 | Layer | Role | Example |
 |-------|------|---------|
-| **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugins list/search/info/install/uninstall/installed/catalogs` → `PluginCatalogController(DATA_DESIGNER_HOME)` |
+| **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugin list/search/info/install/uninstall/installed/catalogs` → `PluginCatalogController(DATA_DESIGNER_HOME)` |
 | **Controller** | UX flow: catalog tables, package metadata, compatibility display, package mutation confirmations | `PluginCatalogController` composes catalog + install services |
 | **Service** | Domain rules: package-first flattening, compatibility checks, install/uninstall planning, entry point verification | `PluginCatalogService`, `PluginInstallService` |
 | **Repository** | File/cache I/O for catalog aliases and catalog documents | `PluginCatalogRepository` |
@@ -75,7 +75,7 @@ User invokes command (e.g., `data-designer config models`)
 
 ### Plugin Catalog Discovery
 ```
-User invokes command (e.g., `data-designer plugins list`)
+User invokes command (e.g., `data-designer plugin list`)
   → Command function wires DATA_DESIGNER_HOME and catalog options
   → PluginCatalogController resolves the catalog alias
   → PluginCatalogService loads and filters package-first catalog entries
@@ -84,7 +84,7 @@ User invokes command (e.g., `data-designer plugins list`)
 
 ### Plugin Install/Uninstall
 ```
-User invokes command (e.g., `data-designer plugins install calculator`)
+User invokes command (e.g., `data-designer plugin install calculator`)
   → PluginCatalogController resolves the plugin package name or package alias
   → PluginCatalogService evaluates Python and Data Designer compatibility
   → PluginInstallService builds a pip/uv install plan for the package requirement
@@ -92,7 +92,7 @@ User invokes command (e.g., `data-designer plugins install calculator`)
 ```
 
 ```
-User invokes command (e.g., `data-designer plugins uninstall calculator`)
+User invokes command (e.g., `data-designer plugin uninstall calculator`)
   → PluginCatalogController resolves the plugin package name or package alias
   → PluginInstallService builds a pip/uv uninstall plan for the package distribution
   → PluginInstallService verifies declared package entry points are no longer discovered

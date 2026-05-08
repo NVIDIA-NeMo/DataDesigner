@@ -19,7 +19,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         Commands                            │
-│  Entry points for CLI commands (list, providers, plugins)   │
+│  Entry points for CLI commands (list, providers, plugin)    │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -54,7 +54,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `list.py`: List current configurations
   - `models.py`: Configure models
   - `providers.py`: Configure providers
-  - `plugins.py`: Discover, install, and uninstall plugin packages from catalogs
+  - `plugin.py`: Discover, install, and uninstall plugin packages from catalogs
   - `reset.py`: Reset/delete configurations
 
 #### 2. **Controllers** (`controllers/`)
@@ -285,31 +285,31 @@ data-designer config reset
 
 ```bash
 # List compatible plugin packages from the default NVIDIA catalog
-data-designer plugins list
+data-designer plugin list
 
 # Search a specific catalog
-data-designer plugins --catalog research search transform
+data-designer plugin --catalog research search transform
 
 # Show metadata, compatibility, docs, and exact install command
-data-designer plugins info github
+data-designer plugin info github
 
 # Install a plugin package from a catalog and verify package registration
-data-designer plugins install github --yes
+data-designer plugin install github --yes
 
 # Preview the install command without mutating the environment
-data-designer plugins install github --dry-run
+data-designer plugin install github --dry-run
 
 # Uninstall a plugin package from a catalog and verify package registration is removed
-data-designer plugins uninstall github --yes
+data-designer plugin uninstall github --yes
 
 # Preview the uninstall command without mutating the environment
-data-designer plugins uninstall github --dry-run
+data-designer plugin uninstall github --dry-run
 
 # Add and manage catalog aliases
-data-designer plugins catalogs add research https://github.com/acme/dd-plugins
-data-designer plugins catalogs list
-data-designer plugins catalogs remove research
+data-designer plugin catalogs add research https://github.com/acme/dd-plugins
+data-designer plugin catalogs list
+data-designer plugin catalogs remove research
 
 # List installed runtime plugin entry points without importing plugin modules
-data-designer plugins installed
+data-designer plugin installed
 ```
