@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from data_designer.cli.plugin_catalog import PluginCatalogConfig, PluginCatalogEntry
-from data_designer.cli.services.plugin_install_service import PluginInstallService
+from data_designer.cli.services.plugin_install_service import PIP_EXTRA_INDEX_SOURCE_WARNING, PluginInstallService
 
 
 def test_build_pip_install_plan_uses_requirement_and_extra_index() -> None:
@@ -40,6 +40,7 @@ def test_build_pip_install_plan_uses_requirement_and_extra_index() -> None:
     assert plan.source_description == (
         "data-designer-template via https://nvidia-nemo.github.io/DataDesignerPlugins/simple/"
     )
+    assert plan.source_warning == PIP_EXTRA_INDEX_SOURCE_WARNING
 
 
 def test_build_direct_reference_install_plan_uses_requirement_verbatim() -> None:
@@ -55,6 +56,7 @@ def test_build_direct_reference_install_plan_uses_requirement_verbatim() -> None
 
     assert plan.command[-1] == requirement
     assert "--extra-index-url" not in plan.command
+    assert plan.source_warning is None
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
@@ -86,6 +88,7 @@ def test_build_auto_install_plan_chooses_uv_when_available(mock_which: Mock) -> 
         "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
         "data-designer-template",
     ]
+    assert plan.source_warning is None
     mock_which.assert_called_once_with("uv")
 
 

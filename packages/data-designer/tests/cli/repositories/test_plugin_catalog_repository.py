@@ -135,6 +135,18 @@ def test_load_catalog_falls_back_to_stale_cache_when_refresh_fetch_fails(tmp_pat
     assert cached_catalog.plugins[0].name == "cached-transform"
 
 
+def test_load_catalog_does_not_fall_back_to_stale_cache_when_fresh_catalog_is_invalid(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(tmp_path, plugin_name="cached-transform")
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path), cache_ttl_seconds=0)
+
+    repository.load_catalog("local")
+    catalog_path.write_text(json.dumps(_catalog_payload(schema_version=999, plugin_name="invalid-transform")))
+
+    with pytest.raises(PluginCatalogError, match="unsupported catalog schema_version"):
+        repository.load_catalog("local")
+
+
 def test_load_catalog_with_zero_cache_ttl_refreshes_source(tmp_path: Path) -> None:
     catalog_path = _write_catalog(tmp_path, plugin_name="text-transform")
     repository = PluginCatalogRepository(tmp_path)
@@ -261,6 +273,24 @@ def test_load_catalog_accepts_schema_v2_package_catalog(tmp_path: Path) -> None:
         "url-plugin",
     ]
     assert catalog.plugins[0].install.index_url == "https://docs.example.test/simple/"
+
+
+def test_load_catalog_accepts_equivalent_data_designer_marker_quoting(tmp_path: Path) -> None:
+    package = _package_entry()
+    package["compatibility"]["data_designer"] = {
+        "requirement": "data-designer>=0.5.7; python_version < '3.12'",
+        "specifier": ">=0.5.7",
+        "marker": "python_version < '3.12'",
+    }
+    catalog_path = _write_catalog(tmp_path, packages=[package])
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    catalog = repository.load_catalog("local", refresh=True)
+
+    assert catalog.plugins[0].compatibility is not None
+    assert catalog.plugins[0].compatibility.data_designer is not None
+    assert catalog.plugins[0].compatibility.data_designer.marker == "python_version < '3.12'"
 
 
 def test_load_catalog_rejects_invalid_schema_v2_install_metadata(tmp_path: Path) -> None:

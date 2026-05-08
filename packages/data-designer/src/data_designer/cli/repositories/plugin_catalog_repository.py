@@ -141,7 +141,6 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
 
         try:
             payload = self._fetch_catalog_payload(catalog_config.url)
-            catalog = self._validate_catalog(payload, source=catalog_config.url)
         except (PluginCatalogError, OSError, ValueError):
             if not refresh:
                 cached_catalog = self._load_cached_catalog(catalog_config, require_fresh=False)
@@ -149,6 +148,7 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
                     return cached_catalog
             raise
 
+        catalog = self._validate_catalog(payload, source=catalog_config.url)
         self._save_catalog_cache(catalog_config, payload)
         return catalog
 
