@@ -61,7 +61,7 @@ class _InstallTarget:
 
 
 class PluginInstallService:
-    """Resolve, execute, and verify plugin package install/uninstall plans.
+    """Resolve, execute, and verify plugin package install and uninstall plans.
 
     When no working directory is provided, plan resolution uses the current
     process directory at build time so CLI calls follow the user's active shell.
@@ -160,11 +160,11 @@ class PluginInstallService:
                 raise RuntimeError(f"Plugin package uninstaller exited with status {return_code}")
 
     def verify_entry_point(self, entry: PluginCatalogEntry) -> bool:
-        """Verify the plugin's declared entry point is installed."""
+        """Verify the runtime plugin's declared entry point is installed."""
         return self.verify_entry_points([entry])
 
     def verify_entry_points(self, entries: list[PluginCatalogEntry]) -> bool:
-        """Verify every declared entry point for an installed catalog package."""
+        """Verify every declared runtime entry point for an installed catalog package."""
         if not entries:
             return False
 
@@ -179,7 +179,7 @@ class PluginInstallService:
         )
 
     def verify_entry_points_removed(self, entries: list[PluginCatalogEntry]) -> bool:
-        """Verify every declared entry point for a catalog package is no longer installed."""
+        """Verify every declared runtime entry point for a catalog package is no longer installed."""
         if not entries:
             return False
 

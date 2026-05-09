@@ -176,7 +176,7 @@ class PluginCatalog(BaseModel):
 
     @property
     def plugins(self) -> list[PluginCatalogEntry]:
-        """Backward-compatible alias for flattened runtime plugin entries."""
+        """Convenience alias for flattened runtime plugin entries."""
         return self.entries
 
 
@@ -245,7 +245,7 @@ class UninstallPlan:
 
 @dataclass(frozen=True)
 class InstalledPluginInfo:
-    """Installed plugin entry point discovered without importing plugin code."""
+    """Installed runtime plugin entry point discovered without importing plugin code."""
 
     name: str
     entry_point_value: str
