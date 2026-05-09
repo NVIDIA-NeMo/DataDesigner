@@ -213,11 +213,6 @@ def catalog_add_command(
     url: str = typer.Argument(
         help="Catalog repository URL, catalog URL, local catalog file, or local catalog directory."
     ),
-    trusted: bool = typer.Option(
-        False,
-        "--trusted",
-        help="Mark the catalog as trusted for install-plan display and confirmations.",
-    ),
 ) -> None:
     """Add a plugin catalog alias."""
     _warn_if_parent_catalog_unused(ctx, "catalog management commands operate on aliases directly")
@@ -225,7 +220,6 @@ def catalog_add_command(
     controller.run_catalog_add(
         alias=alias,
         url=url,
-        trusted=trusted,
     )
 
 

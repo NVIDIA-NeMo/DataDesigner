@@ -30,7 +30,6 @@ def test_repository_includes_default_nvidia_catalog(tmp_path: Path) -> None:
     catalogs = repository.list_catalogs()
 
     assert [catalog.alias for catalog in catalogs] == [DEFAULT_PLUGIN_CATALOG_ALIAS]
-    assert catalogs[0].trusted is True
 
 
 def test_default_catalog_honors_url_environment_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -40,7 +39,6 @@ def test_default_catalog_honors_url_environment_override(tmp_path: Path, monkeyp
     catalog = repository.default_catalog()
 
     assert catalog.url == "https://example.test/catalog/plugins.json"
-    assert catalog.trusted is False
 
 
 def test_add_catalog_normalizes_github_repository_url(tmp_path: Path) -> None:

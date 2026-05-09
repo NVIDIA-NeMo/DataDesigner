@@ -104,7 +104,6 @@ class PluginInstallService:
             command=command,
             manager=target.manager,
             catalog_alias=catalog.alias,
-            trusted_catalog=catalog.trusted,
             source_warning=_combine_warnings(target.warning, source_warning),
             data_designer_protection=data_designer_protection,
             command_stdin=command_stdin,

@@ -185,7 +185,6 @@ class PluginCatalogConfig(BaseModel):
 
     alias: str = Field(pattern=PLUGIN_CATALOG_ALIAS_PATTERN)
     url: str
-    trusted: bool = False
     cache_ttl_seconds: int = Field(default=PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS, ge=0)
 
 
@@ -221,7 +220,6 @@ class InstallPlan:
     command: list[str]
     manager: str
     catalog_alias: str
-    trusted_catalog: bool
     source_warning: str | None = None
     data_designer_protection: str | None = None
     command_stdin: str | None = None
@@ -428,7 +426,7 @@ def _validate_catalog_object_keys(context: str, value: dict[str, object], expect
     keys = set(value)
     if keys != expected_keys:
         # Catalog v2 is strict by design: additive wire-schema changes should bump
-        # schema_version so older CLIs do not silently ignore trust-sensitive fields.
+        # schema_version so older CLIs do not silently ignore new fields.
         raise PluginCatalogError(
             f"{context} has invalid fields; expected {{{_format_catalog_keys(expected_keys)}}}, "
             f"got {{{_format_catalog_keys(keys)}}}"

@@ -16,7 +16,6 @@ from pydantic import ValidationError
 
 from data_designer.cli.plugin_catalog import (
     DEFAULT_PLUGIN_CATALOG_ALIAS,
-    DEFAULT_PLUGIN_CATALOG_URL,
     MAX_PLUGIN_CATALOG_SIZE_BYTES,
     PLUGIN_CATALOG_CACHE_DIR_NAME,
     PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS,
@@ -80,7 +79,6 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
         alias: str,
         url: str,
         *,
-        trusted: bool = False,
         cache_ttl_seconds: int = PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS,
     ) -> PluginCatalogConfig:
         """Persist a new catalog alias.
@@ -94,7 +92,6 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
         catalog = PluginCatalogConfig(
             alias=alias,
             url=normalize_catalog_location(url),
-            trusted=trusted,
             cache_ttl_seconds=cache_ttl_seconds,
         )
         registry = self.load() or PluginCatalogRegistry()
@@ -235,7 +232,6 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
         return PluginCatalogConfig(
             alias=DEFAULT_PLUGIN_CATALOG_ALIAS,
             url=catalog_url,
-            trusted=catalog_url == DEFAULT_PLUGIN_CATALOG_URL,
             cache_ttl_seconds=PLUGIN_CATALOG_DEFAULT_CACHE_TTL_SECONDS,
         )
 

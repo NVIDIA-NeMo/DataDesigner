@@ -273,7 +273,6 @@ staging.
 catalogs:
   - alias: research
     url: https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json
-    trusted: false
 ```
 
 ### `~/.data-designer/plugin-catalog-cache/`

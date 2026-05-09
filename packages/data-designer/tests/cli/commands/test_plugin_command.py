@@ -127,7 +127,6 @@ def test_plugin_catalog_add_command_delegates_to_controller(mock_ctrl_cls: Magic
             "add",
             "research",
             "https://github.com/acme/dd-plugins",
-            "--trusted",
         ],
     )
 
@@ -135,7 +134,6 @@ def test_plugin_catalog_add_command_delegates_to_controller(mock_ctrl_cls: Magic
     mock_ctrl.run_catalog_add.assert_called_once_with(
         alias="research",
         url="https://github.com/acme/dd-plugins",
-        trusted=True,
     )
 
 

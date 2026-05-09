@@ -42,7 +42,7 @@ def test_run_list_mentions_hidden_incompatible_packages_when_visible_list_is_emp
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.list_entries.side_effect = [[], [entry]]
 
@@ -69,7 +69,7 @@ def test_run_search_mentions_hidden_incompatible_packages_when_visible_matches_a
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.search_entries.side_effect = [[], [entry]]
 
@@ -95,7 +95,7 @@ def test_run_list_renders_package_first_catalog_table(
         _entry(name="text-column", plugin_type="column-generator"),
         _entry(name="text-processor", plugin_type="processor"),
     ]
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.list_entries.return_value = package_entries
     controller.catalog_service.group_entries_by_package.return_value = {
@@ -148,7 +148,7 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
         _entry(name="text-column", plugin_type="column-generator"),
         _entry(name="text-processor", plugin_type="processor"),
     ]
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = package_entries
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
@@ -209,7 +209,7 @@ def test_run_info_warns_when_install_plan_has_source_warning(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
@@ -230,7 +230,7 @@ def test_run_info_rejects_runtime_plugin_name_that_is_not_package_alias(
     mock_print_error: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = []
 
@@ -255,7 +255,7 @@ def test_run_install_dry_run_renders_plan_without_installing(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     plan = _plan(catalog, data_designer_protection="pinned installed Data Designer packages; data-designer 0.5.10")
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -288,7 +288,7 @@ def test_run_install_blocks_incompatible_package(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
@@ -318,7 +318,7 @@ def test_run_install_rejects_runtime_plugin_name_as_target(
     mock_print_error: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = []
 
@@ -344,7 +344,7 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
@@ -376,7 +376,7 @@ def test_run_install_dry_run_allows_incompatible_entry_for_inspection(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
@@ -410,7 +410,7 @@ def test_run_install_warns_when_install_plan_has_source_warning(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
@@ -426,29 +426,6 @@ def test_run_install_warns_when_install_plan_has_source_warning(
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
-def test_run_install_warns_for_untrusted_catalog(
-    mock_print_warning: MagicMock,
-    mock_console: MagicMock,
-    controller: PluginCatalogController,
-) -> None:
-    entry = _entry()
-    catalog = _catalog(trusted=False)
-    controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_package_entries.return_value = [entry]
-    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
-    controller.install_service.build_install_plan.return_value = _plan(catalog)
-
-    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
-
-    mock_print_warning.assert_called_once_with(
-        "This catalog is not marked trusted. Plugin package installation executes Python package code from "
-        "the requirement above."
-    )
-    assert mock_console.print.call_count >= 1
-
-
-@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_success")
 def test_run_install_reports_success_when_verification_finds_entry_point(
     mock_print_success: MagicMock,
@@ -456,7 +433,7 @@ def test_run_install_reports_success_when_verification_finds_entry_point(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     plan = _plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -482,7 +459,7 @@ def test_run_install_warns_when_verification_misses_entry_point(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     plan = _plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -509,7 +486,7 @@ def test_run_uninstall_dry_run_renders_plan_without_uninstalling(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     plan = _uninstall_plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -539,7 +516,7 @@ def test_run_uninstall_wraps_plan_error(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.install_service.build_uninstall_plan.side_effect = ValueError("uv was requested")
@@ -560,7 +537,7 @@ def test_run_uninstall_reports_success_when_entry_points_are_removed(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     plan = _uninstall_plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -585,7 +562,7 @@ def test_run_uninstall_warns_when_entry_points_remain(
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry()
-    catalog = _catalog(trusted=True)
+    catalog = _catalog()
     plan = _uninstall_plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -614,7 +591,6 @@ def test_run_catalog_add_wraps_invalid_alias_validation_error(
         plugin_controller.run_catalog_add(
             alias="foo/bar",
             url="https://github.com/acme/dd-plugins",
-            trusted=False,
         )
 
     assert exc_info.value.exit_code == 1
@@ -635,11 +611,10 @@ def test_run_catalog_list_wraps_registry_load_error(
     mock_print_error.assert_called_once_with("Failed to list plugin catalogs: bad registry")
 
 
-def _catalog(*, trusted: bool) -> PluginCatalogConfig:
+def _catalog() -> PluginCatalogConfig:
     return PluginCatalogConfig(
         alias="local",
         url="https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json",
-        trusted=trusted,
     )
 
 
@@ -655,7 +630,6 @@ def _plan(
         command=["python", "-m", "pip", "install", "data-designer-text-transform"],
         manager="pip",
         catalog_alias=catalog.alias,
-        trusted_catalog=catalog.trusted,
         source_warning=source_warning,
         data_designer_protection=data_designer_protection,
     )
