@@ -44,6 +44,7 @@ DATA_DESIGNER_DISTRIBUTION_NAMES = (
 DATA_DESIGNER_PROJECT_NAMES = (*DATA_DESIGNER_DISTRIBUTION_NAMES, "data-designer-workspace")
 PIP_DATA_DESIGNER_CONSTRAINT_FILE_NAME = "data-designer-constraint.txt"
 DATA_DESIGNER_CONSTRAINT_PLACEHOLDER = "<temporary-data-designer-constraint-file>"
+UV_PLUGIN_INSTALL_MIN_VERSION = Version("0.6.0")
 
 try:
     import tomllib
@@ -56,10 +57,15 @@ class _InstallTarget:
     manager: str
     mode: str
     project_root: Path | None = None
+    warning: str | None = None
 
 
 class PluginInstallService:
-    """Resolve, execute, and verify plugin package install/uninstall plans."""
+    """Resolve, execute, and verify plugin package install/uninstall plans.
+
+    When no working directory is provided, plan resolution uses the current
+    process directory at build time so CLI calls follow the user's active shell.
+    """
 
     def __init__(
         self,
@@ -85,10 +91,10 @@ class PluginInstallService:
             working_dir=self._working_dir or Path.cwd(),
             active_virtualenv=self._active_virtualenv,
         )
-        data_designer_version = _installed_data_designer_version()
+        data_designer_versions = _installed_data_designer_distribution_versions()
         protection_args, data_designer_protection, command_stdin, temporary_file = _data_designer_protection_args(
             target.mode,
-            data_designer_version,
+            data_designer_versions,
         )
         install_args, source_description, source_warning = _install_args_for_entry(entry, target)
         command = _base_command(target) + protection_args + install_args
@@ -99,7 +105,7 @@ class PluginInstallService:
             manager=target.manager,
             catalog_alias=catalog.alias,
             trusted_catalog=catalog.trusted,
-            source_warning=source_warning,
+            source_warning=_combine_warnings(target.warning, source_warning),
             data_designer_protection=data_designer_protection,
             command_stdin=command_stdin,
             temporary_file=temporary_file,
@@ -236,9 +242,16 @@ def _resolve_install_target(
         raise ValueError(f"Unsupported plugin installer {manager!r}. Expected 'auto', 'uv', or 'pip'.")
 
     uv_path = shutil.which("uv") if manager in {"auto", "uv"} else None
+    uv_error = _uv_plugin_install_error(uv_path) if uv_path is not None else None
     if manager == "auto":
         if uv_path is None:
             return _InstallTarget(manager="pip", mode="pip-environment")
+        if uv_error is not None:
+            return _InstallTarget(
+                manager="pip",
+                mode="pip-environment",
+                warning=f"{uv_error}; falling back to pip.",
+            )
         project_root = _project_root_for_uv_add(working_dir, active_virtualenv)
         if project_root is not None:
             return _InstallTarget(manager="uv", mode="uv-project", project_root=project_root)
@@ -247,6 +260,8 @@ def _resolve_install_target(
     if manager == "uv":
         if uv_path is None:
             raise ValueError("uv was requested for plugin package installation, but it is not available on PATH")
+        if uv_error is not None:
+            raise ValueError(f"{uv_error}. Use --manager pip or update uv.")
         project_root = _project_root_for_uv_add(working_dir, active_virtualenv)
         if project_root is not None:
             return _InstallTarget(manager="uv", mode="uv-project", project_root=project_root)
@@ -298,6 +313,44 @@ def _has_active_virtualenv(active_virtualenv: bool | None) -> bool:
     return sys.prefix != getattr(sys, "base_prefix", sys.prefix) or bool(os.getenv("VIRTUAL_ENV"))
 
 
+def _uv_plugin_install_error(uv_path: str) -> str | None:
+    try:
+        result = subprocess.run(
+            [uv_path, "--version"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"Unable to verify uv at {uv_path!r}: {e}"
+
+    output = (result.stdout or result.stderr).strip()
+    if result.returncode != 0:
+        details = f": {output}" if output else ""
+        return f"Unable to verify uv at {uv_path!r}; `uv --version` exited with status {result.returncode}{details}"
+
+    uv_version = _parse_uv_version(output)
+    if uv_version is None:
+        return (
+            f"Unable to parse uv version from {output!r}; plugin package installs require "
+            f"uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}"
+        )
+    if uv_version < UV_PLUGIN_INSTALL_MIN_VERSION:
+        return f"Found uv {uv_version}, but plugin package installs require uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}"
+    return None
+
+
+def _parse_uv_version(output: str) -> Version | None:
+    for token in output.split():
+        try:
+            return Version(token)
+        except InvalidVersion:
+            continue
+    return None
+
+
 def _find_nearest_pyproject_root(working_dir: Path) -> Path | None:
     resolved_working_dir = working_dir.resolve()
     for candidate in (resolved_working_dir, *resolved_working_dir.parents):
@@ -339,6 +392,8 @@ def _load_pyproject_data(pyproject_path: Path) -> dict[str, Any]:
 
 
 def _load_pyproject_markers_without_tomllib(text: str) -> dict[str, Any]:
+    # Python 3.10 only needs a deliberately lossy fallback: detect simple
+    # [project] name markers from this repo's pyprojects, not parse TOML.
     project: dict[str, Any] = {}
     section = ""
 
@@ -369,34 +424,39 @@ def _parse_simple_toml_value(raw_value: str) -> str | None:
     return None
 
 
-def _installed_data_designer_version() -> str:
-    try:
-        version = importlib.metadata.version(DATA_DESIGNER_DISTRIBUTION_NAME)
-    except importlib.metadata.PackageNotFoundError as e:
-        raise ValueError(
-            f"Unable to resolve installed {DATA_DESIGNER_DISTRIBUTION_NAME!r} version; "
-            "plugin package installs require Data Designer to be installed first."
-        ) from e
+def _installed_data_designer_distribution_versions() -> dict[str, str]:
+    versions: dict[str, str] = {}
+    for distribution_name in DATA_DESIGNER_DISTRIBUTION_NAMES:
+        try:
+            version = importlib.metadata.version(distribution_name)
+        except importlib.metadata.PackageNotFoundError as e:
+            raise ValueError(
+                f"Unable to resolve installed {distribution_name!r} version; "
+                "plugin package installs require the Data Designer package family to be installed first."
+            ) from e
 
-    try:
-        Version(version)
-    except InvalidVersion as e:
-        raise ValueError(
-            f"Installed {DATA_DESIGNER_DISTRIBUTION_NAME!r} version {version!r} is not a valid package version; "
-            "cannot protect the current Data Designer installation during plugin package install."
-        ) from e
-    return version
+        try:
+            Version(version)
+        except InvalidVersion as e:
+            raise ValueError(
+                f"Installed {distribution_name!r} version {version!r} is not a valid package version; "
+                "cannot protect the current Data Designer installation during plugin package install."
+            ) from e
+        versions[distribution_name] = version
+    return versions
 
 
 def _data_designer_protection_args(
     mode: str,
-    version: str,
+    versions: dict[str, str],
 ) -> tuple[list[str], str, str | None, InstallCommandTemporaryFile | None]:
+    data_designer_version = versions[DATA_DESIGNER_DISTRIBUTION_NAME]
     if mode == "uv-environment":
         return (
             ["--excludes", "-"],
-            f"using installed {DATA_DESIGNER_DISTRIBUTION_NAME} {version}; uv will not resolve it",
-            f"{DATA_DESIGNER_DISTRIBUTION_NAME}\n",
+            f"using installed {DATA_DESIGNER_DISTRIBUTION_NAME} {data_designer_version}; "
+            "uv will not resolve Data Designer packages",
+            "".join(f"{distribution_name}\n" for distribution_name in DATA_DESIGNER_DISTRIBUTION_NAMES),
             None,
         )
 
@@ -409,25 +469,28 @@ def _data_designer_protection_args(
                     for item in ("--no-install-package", distribution_name)
                 ],
             ],
-            f"using installed {DATA_DESIGNER_DISTRIBUTION_NAME} {version}; uv will not install Data Designer packages",
+            f"using installed {DATA_DESIGNER_DISTRIBUTION_NAME} {data_designer_version}; "
+            "uv will not install Data Designer packages",
             None,
             None,
         )
 
     return (
         ["--constraint", DATA_DESIGNER_CONSTRAINT_PLACEHOLDER],
-        f"pinned to installed {DATA_DESIGNER_DISTRIBUTION_NAME} {version}",
+        f"pinned installed Data Designer packages; {DATA_DESIGNER_DISTRIBUTION_NAME} {data_designer_version}",
         None,
-        _data_designer_constraint_file(version),
+        _data_designer_constraint_file(versions),
     )
 
 
-def _data_designer_constraint_file(version: str) -> InstallCommandTemporaryFile:
+def _data_designer_constraint_file(versions: dict[str, str]) -> InstallCommandTemporaryFile:
+    constraints = "\n".join(
+        f"{distribution_name}=={versions[distribution_name]}" for distribution_name in DATA_DESIGNER_DISTRIBUTION_NAMES
+    )
     return InstallCommandTemporaryFile(
         placeholder=DATA_DESIGNER_CONSTRAINT_PLACEHOLDER,
         filename=PIP_DATA_DESIGNER_CONSTRAINT_FILE_NAME,
-        content=f"# Data Designer is provided by the active CLI environment.\n"
-        f"{DATA_DESIGNER_DISTRIBUTION_NAME}=={version}\n",
+        content=f"# Data Designer is provided by the active CLI environment.\n{constraints}\n",
     )
 
 
@@ -475,6 +538,13 @@ def _source_description(requirement: str, index_url: str | None) -> str:
     if index_url is None:
         return requirement
     return f"{requirement} via {index_url}"
+
+
+def _combine_warnings(*warnings: str | None) -> str | None:
+    active_warnings = [warning for warning in warnings if warning]
+    if not active_warnings:
+        return None
+    return "\n".join(active_warnings)
 
 
 def _requirement_is_direct_reference(requirement: str) -> bool:
