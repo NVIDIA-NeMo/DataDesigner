@@ -8,7 +8,9 @@ from pathlib import Path
 
 import typer
 from pydantic import ValidationError
+from rich.style import Style
 from rich.table import Table
+from rich.text import Text
 
 from data_designer.cli.plugin_catalog import (
     DEFAULT_PLUGIN_CATALOG_ALIAS,
@@ -490,7 +492,7 @@ class PluginCatalogController:
                 entry.description,
                 _format_runtime_plugins(package_entries),
                 "yes" if compatibility.is_compatible else "no",
-                docs_url,
+                _format_docs_link(docs_url),
             )
         console.print(table)
 
@@ -536,6 +538,12 @@ def _target_description(mode: str, project_root: str | None) -> str:
 
 def _format_runtime_plugins(entries: list[PluginCatalogEntry]) -> str:
     return ", ".join(f"{entry.name} ({entry.plugin_type.value})" for entry in entries)
+
+
+def _format_docs_link(docs_url: str | None) -> Text:
+    if not docs_url:
+        return Text("")
+    return Text("docs", style=Style(color=NordColor.NORD7.value, link=docs_url))
 
 
 def _runtime_plugin_metadata(entry: PluginCatalogEntry) -> dict[str, object]:
