@@ -1,6 +1,6 @@
 # CLI
 
-The CLI (`data-designer`) provides an interactive command-line interface for configuring models, providers, tools, and personas, discovering/installing plugin packages from catalogs, and running dataset generation. It uses a layered architecture for setup workflows and delegates generation to the public `DataDesigner` API.
+The CLI (`data-designer`) provides an interactive command-line interface for configuring models, providers, MCP providers, and tools, downloading managed persona datasets, discovering, installing, and uninstalling plugin packages from catalogs, and running dataset generation. It uses a layered architecture for setup workflows and delegates generation to the public `DataDesigner` API.
 
 Source: `packages/data-designer/src/data_designer/cli/`
 
@@ -22,7 +22,7 @@ The CLI is built on Typer with lazy command loading to keep startup fast. Config
 
 ### Layering Pattern (Setup Workflows)
 
-Config management commands (models, providers, tools, personas) follow a consistent four-layer pattern:
+Config management commands (models, providers, MCP providers, tools) follow a consistent four-layer pattern:
 
 | Layer | Role | Example |
 |-------|------|---------|
@@ -31,7 +31,8 @@ Config management commands (models, providers, tools, personas) follow a consist
 | **Service** | Domain rules: uniqueness, merge, delete-all | `ModelService.add/update/delete` over `ModelRepository` |
 | **Repository** | File I/O for typed config registries | `ModelRepository` extends `ConfigRepository[ModelConfigRegistry]` |
 
-Repositories: `ModelRepository`, `ProviderRepository`, `ToolRepository`, `MCPProviderRepository`, `PersonaRepository`.
+Repositories: `ModelRepository`, `ProviderRepository`, `MCPProviderRepository`, and `ToolRepository`.
+`PersonaRepository` provides read-only locale metadata for managed persona dataset downloads.
 
 Services mirror the repository domains with business logic (validation, conflict resolution).
 
@@ -39,9 +40,9 @@ Plugin catalog commands use the same layering shape:
 
 | Layer | Role | Example |
 |-------|------|---------|
-| **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugin list/search/info/install/uninstall/installed/catalog` → `PluginCatalogController(DATA_DESIGNER_HOME)` |
+| **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugin` subcommands (`list`, `search`, `info`, `install`, `uninstall`, `installed`, `catalog`) → `PluginCatalogController(DATA_DESIGNER_HOME)` |
 | **Controller** | UX flow: catalog tables, package metadata, compatibility display, package mutation confirmations | `PluginCatalogController` composes catalog + install services |
-| **Service** | Domain rules: package-first flattening, compatibility checks, install/uninstall planning, entry point verification | `PluginCatalogService`, `PluginInstallService` |
+| **Service** | Domain rules: package-first flattening, compatibility checks, install and uninstall planning, runtime entry-point verification | `PluginCatalogService`, `PluginInstallService` |
 | **Repository** | File/cache I/O for catalog aliases and catalog documents | `PluginCatalogRepository` |
 
 The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`. `NVIDIA-NeMo/DataDesignerPlugins` defines the package-first catalog shape: top-level packages carry install metadata, compatibility constraints, docs, and nested runtime plugins. The CLI flattens nested plugins for list/search display, but `info`, `install`, and `uninstall` resolve package names or package aliases so environment mutations target the package distribution. Package aliases come from the `data-designer-{alias}` package-name pattern; for example, `data-designer-calculator` can be addressed as `calculator`.
@@ -90,9 +91,10 @@ User invokes command (e.g., `data-designer plugin install calculator`)
   → PluginInstallService builds a pip/uv install plan for the package requirement.
     In active uv projects it uses `uv add` so the package lands in `pyproject.toml`;
     otherwise it mutates the active Python environment with `uv pip install` or pip.
-    The active `data-designer` distribution is skipped, excluded, or pinned from
-    replacement depending on package-manager capabilities.
-  → PluginInstallService verifies declared package entry points after installation
+    The active Data Designer package family (`data-designer`,
+    `data-designer-config`, and `data-designer-engine`) is skipped, excluded, or
+    pinned from replacement depending on package-manager capabilities.
+  → PluginInstallService verifies declared runtime entry points after installation
 ```
 
 ```
@@ -101,7 +103,7 @@ User invokes command (e.g., `data-designer plugin uninstall calculator`)
   → PluginInstallService builds a pip/uv uninstall plan for the package distribution.
     Active uv projects remove the dependency from project metadata without a uv sync,
     then uninstall the package from the active environment.
-  → PluginInstallService verifies declared package entry points are no longer discovered
+  → PluginInstallService verifies declared runtime entry points are no longer discovered
 ```
 
 ### Generation
@@ -116,8 +118,8 @@ User invokes command (e.g., `data-designer create config.yaml`)
 
 - **Lazy command loading** keeps `data-designer --help` responsive: command modules (and their heavy dependencies, such as the engine and model stacks) load only when a command is invoked, not at process startup.
 - **Controller/service/repo for setup workflows, direct API for generation** — config and plugin catalog workflows benefit from the layered pattern (testable services, swappable repositories). Generation doesn't need this indirection; it delegates to the same `DataDesigner` class that Python users call directly.
-- **`DATA_DESIGNER_HOME`** centralizes all CLI-managed state (model configs, provider configs, tool configs, personas) in a single directory, defaulting to `~/.data_designer/`.
-- **Package-first plugin catalogs** keep install metadata at the package boundary while allowing one package to expose multiple runtime plugins through entry points.
+- **`DATA_DESIGNER_HOME`** centralizes CLI-managed state (model configs, provider configs, MCP provider configs, tool configs, managed assets, plugin catalog aliases, and catalog caches) in a single directory, defaulting to `~/.data-designer/`.
+- **Package-first plugin catalogs** keep install metadata at the package boundary while allowing one package to expose multiple runtime plugins through runtime entry points.
 - **Rich-based UI** provides formatted tables, progress bars, and interactive prompts without requiring a web interface.
 
 ## Cross-References
