@@ -35,7 +35,7 @@ def test_list_entries_filters_incompatible_plugins_by_default(tmp_path: Path) ->
     ]
 
 
-def test_search_entries_matches_name_type_package_and_docs(tmp_path: Path) -> None:
+def test_search_entries_matches_package_description_name_and_type(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
 
@@ -46,6 +46,26 @@ def test_search_entries_matches_name_type_package_and_docs(tmp_path: Path) -> No
     assert [entry.name for entry in name_matches] == ["compatible-plugin"]
     assert [entry.name for entry in package_matches] == ["shared-column", "shared-processor"]
     assert [entry.name for entry in type_matches] == ["compatible-plugin"]
+
+
+def test_search_entries_ignores_install_docs_and_entry_point_metadata(tmp_path: Path) -> None:
+    package = _package(
+        package_name="data-designer-retrieval-sdg",
+        data_designer_specifier=">=0.5.7",
+        plugins=[_runtime_plugin(name="document-chunker", plugin_type="seed-reader")],
+    )
+    package["install"]["index_url"] = "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/"
+    package["docs"]["url"] = "https://nvidia-nemo.github.io/DataDesignerPlugins/plugins/data-designer-retrieval-sdg/"
+    package["plugins"][0]["entry_point"]["value"] = "data_designer_github_noise.plugin:plugin"
+    catalog_path = tmp_path / "plugins.json"
+    catalog_path.write_text(json.dumps({"schema_version": 2, "packages": [package]}))
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+
+    matches = service.search_entries("github", "local")
+
+    assert matches == []
 
 
 def test_evaluate_compatibility_reports_data_designer_constraint(tmp_path: Path) -> None:

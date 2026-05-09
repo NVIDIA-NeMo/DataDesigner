@@ -41,7 +41,7 @@ def list_command(
 def search_command(
     ctx: typer.Context,
     query: str = typer.Argument(
-        help="Keyword, runtime plugin name or type, package name, requirement, docs URL, or entry point to search for."
+        help="Keyword, package name or alias, description, runtime plugin name, or runtime plugin type to search for."
     ),
     catalog: str | None = typer.Option(
         None,
