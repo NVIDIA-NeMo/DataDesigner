@@ -207,12 +207,6 @@ class PluginCatalogController:
         if plan.source_warning is not None:
             print_warning(plan.source_warning)
 
-        if not catalog.trusted:
-            print_warning(
-                "This catalog is not marked trusted. Plugin package installation executes Python package code from "
-                "the requirement above."
-            )
-
         if dry_run:
             if not compatibility.is_compatible:
                 print_warning(
@@ -322,13 +316,11 @@ class PluginCatalogController:
         table = Table(title="Plugin Catalogs", border_style=NordColor.NORD8.value)
         table.add_column("Alias", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("URL", style=NordColor.NORD4.value)
-        table.add_column("Trusted", style=NordColor.NORD13.value, justify="center")
 
         for catalog in catalogs:
             table.add_row(
                 catalog.alias,
                 catalog.url,
-                "yes" if catalog.trusted else "no",
             )
         console.print(table)
 
@@ -337,14 +329,12 @@ class PluginCatalogController:
         *,
         alias: str,
         url: str,
-        trusted: bool,
     ) -> None:
         """Add a plugin catalog alias."""
         try:
             catalog = self.catalog_service.add_catalog(
                 alias,
                 url,
-                trusted=trusted,
             )
         except ValidationError as e:
             if any(tuple(error["loc"]) == ("alias",) for error in e.errors()):

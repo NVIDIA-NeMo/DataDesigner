@@ -146,14 +146,11 @@ class PluginCatalogService:
         self,
         alias: str,
         url: str,
-        *,
-        trusted: bool,
     ) -> PluginCatalogConfig:
         """Add a plugin catalog alias."""
         return self.repository.add_catalog(
             alias,
             url,
-            trusted=trusted,
         )
 
     def remove_catalog(self, alias: str) -> None:
