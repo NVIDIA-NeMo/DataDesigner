@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 import typer
+from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from data_designer.cli.controllers.plugin_catalog_controller import PluginCatalogController
 from data_designer.cli.plugin_catalog import (
@@ -115,6 +118,22 @@ def test_run_list_renders_package_first_catalog_table(
         "Docs",
     ]
     assert list(printed_tables[0].columns[1].cells) == ["Transform text records"]
+    docs_cell = list(printed_tables[0].columns[4].cells)[0]
+    assert isinstance(docs_cell, Text)
+    assert docs_cell.plain == "docs"
+    assert docs_cell.style is not None
+    assert docs_cell.style.link == "https://docs.example.test/plugins/data-designer-text-transform/"
+
+    rendered_output = StringIO()
+    narrow_console = Console(
+        file=rendered_output,
+        force_terminal=True,
+        color_system="standard",
+        width=60,
+        legacy_windows=False,
+    )
+    narrow_console.print(printed_tables[0])
+    assert "https://docs.example.test/plugins/data-designer-text-transform/" in rendered_output.getvalue()
     controller.catalog_service.group_entries_by_package.assert_called_once_with(package_entries)
 
 
