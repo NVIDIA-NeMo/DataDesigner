@@ -151,6 +151,7 @@ def test_build_auto_install_plan_uses_uv_add_for_active_project(mock_which: Mock
         "--project",
         str(tmp_path),
         "--active",
+        "--no-install-project",
         "--no-install-package",
         "data-designer",
         "--no-install-package",

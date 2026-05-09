@@ -259,7 +259,7 @@ def _base_command(target: _InstallTarget) -> list[str]:
     if target.mode == "uv-project":
         if target.project_root is None:
             raise ValueError("uv project install target requires a project root")
-        return ["uv", "add", "--project", str(target.project_root), "--active"]
+        return ["uv", "add", "--project", str(target.project_root), "--active", "--no-install-project"]
     if target.mode == "uv-environment":
         return ["uv", "pip", "install", "--python", sys.executable]
     return [sys.executable, "-m", "pip", "install"]
