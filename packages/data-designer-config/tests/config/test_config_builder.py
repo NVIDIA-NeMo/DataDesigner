@@ -196,6 +196,7 @@ def test_from_config_auto_wraps_bare_dict() -> None:
             {
                 "alias": "test-model",
                 "model": "openai/meta/llama-3.3-70b-instruct",
+                "provider": "openai",
             }
         ],
         "columns": [
@@ -219,6 +220,7 @@ def test_from_config_passthrough_when_already_wrapped() -> None:
                 {
                     "alias": "test-model",
                     "model": "openai/meta/llama-3.3-70b-instruct",
+                    "provider": "openai",
                 }
             ],
             "columns": [
@@ -253,6 +255,7 @@ def test_from_config_auto_wraps_bare_json_file() -> None:
             {
                 "alias": "test-model",
                 "model": "openai/meta/llama-3.3-70b-instruct",
+                "provider": "openai",
             }
         ],
         "columns": [

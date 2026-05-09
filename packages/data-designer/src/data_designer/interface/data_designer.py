@@ -17,7 +17,6 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
     get_default_model_configs,
-    get_default_provider_name,
     get_default_providers,
     get_providers_with_missing_api_keys,
     resolve_seed_default_model_settings,
@@ -159,52 +158,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._throttle_manager: ThrottleManager = self._create_throttle_manager()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
-        # Only consult the YAML's `default:` key when we are also falling back to
-        # the YAML's `providers:` list. A user-supplied `model_providers` list
-        # owns its own default (first wins), so the YAML default must not leak
-        # in and either (a) hard-fail validation when the YAML names a provider
-        # absent from the supplied list or (b) silently override the
-        # documented first-wins ordering. See issue #588.
-        if model_providers is None:
-            self._model_providers = self._resolve_model_providers(None)
-            default_provider_name = get_default_provider_name()
-        else:
-            self._model_providers = self._resolve_model_providers(model_providers)
-            default_provider_name = None
+        self._model_providers = self._resolve_model_providers(model_providers)
         self._mcp_providers = mcp_providers or []
-        # Suppress ``ModelProviderRegistry._warn_on_explicit_default`` whenever
-        # *we* are filling ``default=`` on the user's behalf rather than the
-        # user actively opting into the deprecated registry-level default. Two
-        # such cases:
-        #   1. ``model_providers is None`` — the caller passed nothing, so we
-        #      load the YAML's ``providers:`` list and (in the multi-provider
-        #      case) ``resolve_model_provider_registry`` synthesises
-        #      ``default=providers[0].name`` to satisfy ``check_implicit_default``.
-        #      The fresh-install YAML ships three providers and no ``default:``
-        #      key, so this fires for every default ``DataDesigner()``
-        #      construction. The user has no actionable lever here, and the
-        #      warning's "Specify provider= on each ModelConfig" remediation
-        #      doesn't apply when they haven't built a ``ModelConfig`` at all.
-        #   2. ``default_provider_name is not None`` — the YAML carried a
-        #      ``default:`` key and ``get_default_provider_name`` already
-        #      emitted the YAML-level ``DeprecationWarning``. The registry
-        #      warning would fire for the same root cause, so suppress it to
-        #      avoid double-warning. See PR #594 review.
-        # Users who hand-construct a multi-provider list in Python still see
-        # the warning (they wrote the multi-provider intent themselves), and
-        # users who hand-construct ``ModelProviderRegistry(default=...)``
-        # directly always see it — those are the entry points #589 targets.
-        library_synthesised_default = model_providers is None or default_provider_name is not None
-        with warnings.catch_warnings():
-            if library_synthesised_default:
-                warnings.filterwarnings(
-                    "ignore",
-                    message="ModelProviderRegistry.default is deprecated",
-                    category=DeprecationWarning,
-                )
-            self._model_provider_registry = resolve_model_provider_registry(
-                self._model_providers, default_provider_name
-            )
+        self._model_provider_registry = resolve_model_provider_registry(self._model_providers)
         self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
 
     @property
@@ -579,11 +535,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """Get the resolved model provider registry.
 
         Returns:
-            The ModelProviderRegistry containing the providers and default
-            resolved at construction time. The default is taken from the
-            first user-supplied provider when ``model_providers`` was passed
-            to the constructor; otherwise from the YAML's ``default:`` key
-            when set, falling back to the first provider in the YAML list.
+            The ModelProviderRegistry containing the providers resolved at
+            construction time, either the user-supplied ``model_providers``
+            list or the providers loaded from the YAML.
         """
         return self._model_provider_registry
 
