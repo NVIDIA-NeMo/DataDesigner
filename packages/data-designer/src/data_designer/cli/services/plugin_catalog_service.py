@@ -15,7 +15,6 @@ from packaging.version import InvalidVersion, Version
 
 from data_designer.cli.plugin_catalog import (
     DATA_DESIGNER_PLUGIN_PACKAGE_PREFIX,
-    DEFAULT_PLUGIN_CATALOG_ALIAS,
     PLUGIN_ENTRY_POINT_GROUP,
     CompatibilityResult,
     InstalledPluginInfo,
@@ -77,31 +76,6 @@ class PluginCatalogService:
             if all(token in _entry_search_text(entry) for token in query_tokens)
         ]
 
-    def get_entry(
-        self,
-        name: str,
-        catalog_alias: str | None = None,
-        *,
-        refresh: bool = False,
-        include_incompatible: bool = True,
-    ) -> PluginCatalogEntry:
-        """Return a catalog entry by runtime plugin name or package name."""
-        entries = self.list_entries(catalog_alias, refresh=refresh, include_incompatible=True)
-        canonical_name = canonicalize_name(name)
-        runtime_matches = [entry for entry in entries if entry.name == name]
-        package_matches = [entry for entry in entries if canonicalize_name(entry.package.name) == canonical_name]
-        matches = runtime_matches or package_matches
-        compatible_matches = [entry for entry in matches if self.evaluate_compatibility(entry).is_compatible]
-        if compatible_matches:
-            return sorted(compatible_matches, key=lambda entry: (canonicalize_name(entry.package.name), entry.name))[0]
-        if matches and include_incompatible:
-            return sorted(matches, key=lambda entry: (canonicalize_name(entry.package.name), entry.name))[0]
-
-        resolved_alias = catalog_alias or DEFAULT_PLUGIN_CATALOG_ALIAS
-        if matches:
-            raise ValueError(f"Plugin package {name!r} was found in catalog {resolved_alias!r}, but is not compatible")
-        raise ValueError(f"Plugin or package {name!r} was not found in catalog {resolved_alias!r}")
-
     def get_package_entries(
         self,
         package: str,
@@ -138,9 +112,6 @@ class PluginCatalogService:
     def evaluate_compatibility(self, entry: PluginCatalogEntry) -> CompatibilityResult:
         """Evaluate whether a catalog entry is compatible with the local environment."""
         compatibility = entry.compatibility
-        if compatibility is None:
-            return CompatibilityResult(is_compatible=True, reasons=[])
-
         reasons = []
         reasons.extend(
             self._evaluate_target(
@@ -203,14 +174,11 @@ class PluginCatalogService:
     def _evaluate_target(
         self,
         *,
-        target: PluginCompatibilityTarget | None,
+        target: PluginCompatibilityTarget,
         label: str,
         version: str | None,
         marker_environment: dict[str, str],
     ) -> list[str]:
-        if target is None or not target.specifier:
-            return []
-
         marker_error = _marker_error(target.marker, marker_environment)
         if marker_error is not None:
             return [f"{label} marker {target.marker!r} is invalid: {marker_error}"]

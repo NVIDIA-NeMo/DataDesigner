@@ -58,7 +58,7 @@ class PluginCompatibilityTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     requirement: str | None = None
-    specifier: str | None = None
+    specifier: str = Field(min_length=1)
     marker: str | None = None
 
 
@@ -67,8 +67,8 @@ class PluginCompatibility(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    python: PluginCompatibilityTarget | None = None
-    data_designer: PluginCompatibilityTarget | None = None
+    python: PluginCompatibilityTarget
+    data_designer: PluginCompatibilityTarget
 
 
 class PluginPackageInfo(BaseModel):
@@ -103,7 +103,7 @@ class PluginDocsInfo(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    url: str | None = None
+    url: str = Field(min_length=1)
 
 
 class PluginCatalogEntry(BaseModel):
@@ -113,12 +113,12 @@ class PluginCatalogEntry(BaseModel):
 
     name: str
     plugin_type: PluginType
-    description: str = ""
+    description: str = Field(min_length=1)
     package: PluginPackageInfo
     install: PluginInstallInfo
     entry_point: PluginEntryPointInfo
-    compatibility: PluginCompatibility | None = None
-    docs: PluginDocsInfo | None = None
+    compatibility: PluginCompatibility
+    docs: PluginDocsInfo
 
 
 class PluginCatalogRuntimePlugin(BaseModel):
@@ -137,11 +137,11 @@ class PluginCatalogPackage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    description: str = ""
+    description: str = Field(min_length=1)
     install: PluginInstallInfo
-    compatibility: PluginCompatibility | None = None
-    docs: PluginDocsInfo | None = None
-    plugins: list[PluginCatalogRuntimePlugin] = Field(default_factory=list)
+    compatibility: PluginCompatibility
+    docs: PluginDocsInfo
+    plugins: list[PluginCatalogRuntimePlugin] = Field(min_length=1)
 
     def entries(self) -> list[PluginCatalogEntry]:
         """Flatten nested runtime plugins while preserving package-level metadata."""
@@ -427,6 +427,8 @@ def _required_catalog_object(
 def _validate_catalog_object_keys(context: str, value: dict[str, object], expected_keys: set[str]) -> None:
     keys = set(value)
     if keys != expected_keys:
+        # Catalog v2 is strict by design: additive wire-schema changes should bump
+        # schema_version so older CLIs do not silently ignore trust-sensitive fields.
         raise PluginCatalogError(
             f"{context} has invalid fields; expected {{{_format_catalog_keys(expected_keys)}}}, "
             f"got {{{_format_catalog_keys(keys)}}}"
