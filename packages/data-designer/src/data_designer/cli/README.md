@@ -274,7 +274,6 @@ catalogs:
   - alias: research
     url: https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json
     trusted: false
-    cache_ttl_seconds: 86400
 ```
 
 ### `~/.data-designer/plugin-catalog-cache/`

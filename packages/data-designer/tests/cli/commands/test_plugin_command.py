@@ -128,8 +128,6 @@ def test_plugin_catalog_add_command_delegates_to_controller(mock_ctrl_cls: Magic
             "research",
             "https://github.com/acme/dd-plugins",
             "--trusted",
-            "--cache-ttl-seconds",
-            "60",
         ],
     )
 
@@ -138,7 +136,6 @@ def test_plugin_catalog_add_command_delegates_to_controller(mock_ctrl_cls: Magic
         alias="research",
         url="https://github.com/acme/dd-plugins",
         trusted=True,
-        cache_ttl_seconds=60,
     )
 
 

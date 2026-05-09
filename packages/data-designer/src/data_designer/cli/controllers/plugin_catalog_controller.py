@@ -323,14 +323,12 @@ class PluginCatalogController:
         table.add_column("Alias", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("URL", style=NordColor.NORD4.value)
         table.add_column("Trusted", style=NordColor.NORD13.value, justify="center")
-        table.add_column("Cache TTL", style=NordColor.NORD9.value, justify="right")
 
         for catalog in catalogs:
             table.add_row(
                 catalog.alias,
                 catalog.url,
                 "yes" if catalog.trusted else "no",
-                f"{catalog.cache_ttl_seconds}s",
             )
         console.print(table)
 
@@ -340,7 +338,6 @@ class PluginCatalogController:
         alias: str,
         url: str,
         trusted: bool,
-        cache_ttl_seconds: int,
     ) -> None:
         """Add a plugin catalog alias."""
         try:
@@ -348,7 +345,6 @@ class PluginCatalogController:
                 alias,
                 url,
                 trusted=trusted,
-                cache_ttl_seconds=cache_ttl_seconds,
             )
         except ValidationError as e:
             if any(tuple(error["loc"]) == ("alias",) for error in e.errors()):

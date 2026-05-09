@@ -148,14 +148,12 @@ class PluginCatalogService:
         url: str,
         *,
         trusted: bool,
-        cache_ttl_seconds: int,
     ) -> PluginCatalogConfig:
         """Add a plugin catalog alias."""
         return self.repository.add_catalog(
             alias,
             url,
             trusted=trusted,
-            cache_ttl_seconds=cache_ttl_seconds,
         )
 
     def remove_catalog(self, alias: str) -> None:

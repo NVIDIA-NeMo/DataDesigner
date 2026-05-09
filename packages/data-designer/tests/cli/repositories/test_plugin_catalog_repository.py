@@ -52,6 +52,17 @@ def test_add_catalog_normalizes_github_repository_url(tmp_path: Path) -> None:
     assert repository.get_catalog("research") == catalog
 
 
+def test_add_catalog_persists_only_public_catalog_fields(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+
+    repository.add_catalog("research", "https://github.com/acme/dd-plugins")
+
+    saved_registry = repository.config_file.read_text()
+    assert "alias: research" in saved_registry
+    assert "url: https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json" in saved_registry
+    assert "cache_ttl_seconds" not in saved_registry
+
+
 def test_add_catalog_normalizes_github_tree_url_with_subdirectory(tmp_path: Path) -> None:
     repository = PluginCatalogRepository(tmp_path)
 
