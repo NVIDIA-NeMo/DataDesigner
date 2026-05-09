@@ -29,7 +29,7 @@ class ProviderService:
         Raises:
             ValueError: If provider name already exists
         """
-        registry = self.repository.load() or ModelProviderRegistry(providers=[], default=None)
+        registry = self.repository.load() or ModelProviderRegistry(providers=[])
 
         if any(p.name == provider.name for p in registry.providers):
             raise ValueError(f"Provider '{provider.name}' already exists")
@@ -61,9 +61,6 @@ class ProviderService:
 
         registry.providers[index] = updated_provider
 
-        if registry.default == original_name and updated_provider.name != original_name:
-            registry.default = updated_provider.name
-
         self.repository.save(registry)
 
     def delete(self, name: str) -> None:
@@ -81,33 +78,7 @@ class ProviderService:
 
         registry.providers = [p for p in registry.providers if p.name != name]
 
-        if registry.default == name:
-            registry.default = registry.providers[0].name if registry.providers else None
-
         if registry.providers:
             self.repository.save(registry)
         else:
             self.repository.delete()
-
-    def set_default(self, name: str) -> None:
-        """Set the default provider.
-
-        Raises:
-            ValueError: If provider not found
-        """
-        registry = self.repository.load()
-        if not registry:
-            raise ValueError("No providers configured")
-
-        if not any(p.name == name for p in registry.providers):
-            raise ValueError(f"Provider '{name}' not found")
-
-        registry.default = name
-        self.repository.save(registry)
-
-    def get_default(self) -> str | None:
-        """Get the default provider name."""
-        registry = self.repository.load()
-        if not registry:
-            return None
-        return registry.default or (registry.providers[0].name if registry.providers else None)

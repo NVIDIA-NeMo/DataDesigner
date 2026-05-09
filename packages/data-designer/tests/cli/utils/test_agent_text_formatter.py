@@ -26,7 +26,7 @@ def test_format_context_text_includes_config_module_path() -> None:
             "columns": [{"type": "a", "description": "A thing."}],
         },
         "state": {
-            "model_aliases": {"default_provider": None, "items": []},
+            "model_aliases": {"items": []},
             "persona_datasets": {"items": []},
         },
         "operations": [{"command_pattern": "agent context", "description": "Bootstrap payload."}],
@@ -52,7 +52,6 @@ def test_format_context_text_no_usable_aliases_shows_warning() -> None:
         "types": {},
         "state": {
             "model_aliases": {
-                "default_provider": "nvidia",
                 "items": [{"model_alias": "bad", "usable": False, "reason": "missing key"}],
             },
             "persona_datasets": {"items": []},
@@ -120,13 +119,12 @@ def test_format_types_text_empty_items() -> None:
 
 def test_format_model_aliases_text_with_items() -> None:
     state: dict[str, Any] = {
-        "default_provider": "nvidia",
         "items": [
             {
                 "model_alias": "test",
                 "model": "meta/llama-3",
                 "generation_type": "chat",
-                "effective_provider": "nvidia",
+                "provider": "nvidia",
                 "usable": True,
                 "reason": None,
             },
@@ -134,16 +132,15 @@ def test_format_model_aliases_text_with_items() -> None:
     }
     result = format_model_aliases_text(state)
 
-    assert "default_provider: nvidia" in result
     assert "test" in result
     assert "meta/llama-3" in result
+    assert "nvidia" in result
 
 
 def test_format_model_aliases_text_empty() -> None:
-    state: dict[str, Any] = {"default_provider": None, "items": []}
+    state: dict[str, Any] = {"items": []}
     result = format_model_aliases_text(state)
 
-    assert "default_provider: (none)" in result
     assert "(no items)" in result
 
 

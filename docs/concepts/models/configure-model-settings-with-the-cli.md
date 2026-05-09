@@ -65,14 +65,6 @@ data-designer config providers
 
 **Delete all providers**: Remove all providers and their associated models.
 
-**Change default provider**: Set which provider is used by default. This option is only available when multiple providers are configured.
-
-!!! warning "Deprecated: 'Change default provider' workflow"
-    The "Change default provider" workflow is **deprecated** and will be removed in a future
-    release alongside the registry-level default. Specify `provider=` explicitly on each
-    `ModelConfig` instead — the workflow now emits a `DeprecationWarning` when entered.
-    See [issue #589](https://github.com/NVIDIA-NeMo/DataDesigner/issues/589).
-
 ## Managing Model Configurations
 
 Run the interactive model configuration command:
@@ -117,7 +109,6 @@ data-designer config list
 This command displays:
 
 - **Model Providers**: All configured providers with their endpoints (API keys are masked)
-- **Default Provider**: The currently selected default provider _(deprecated; see issue #589)_
 - **Model Configurations**: All configured models with their settings
 
 ## Resetting Configurations
