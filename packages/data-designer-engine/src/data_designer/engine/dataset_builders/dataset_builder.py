@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from pydantic import ValidationError
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -1089,10 +1088,7 @@ class DatasetBuilder:
     def _run_model_health_check_if_needed(self) -> None:
         model_aliases: set[str] = set()
         for config in self.single_column_configs:
-            if column_type_is_model_generated(config.column_type):
-                model_aliases.add(config.model_alias)
-            if isinstance(config, CustomColumnConfig) and config.model_aliases:
-                model_aliases.update(config.model_aliases)
+            model_aliases.update(config.get_model_aliases())
 
         if not model_aliases:
             return

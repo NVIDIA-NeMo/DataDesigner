@@ -325,6 +325,61 @@ def test_dataset_builder_build_method_basic_flow(
     assert result_path == stub_resource_provider.artifact_storage.final_dataset_path
 
 
+def test_run_model_health_check_collects_aliases_from_get_model_aliases(
+    stub_resource_provider,
+    stub_model_configs,
+) -> None:
+    """The health check pings every alias returned by each config's get_model_aliases().
+
+    Regression test for #606: secondary aliases on multi-model plugin configs (returned via
+    get_model_aliases()) must be passed to run_health_check(), not just the primary
+    model_alias field.
+    """
+    stub_resource_provider.model_registry.run_health_check = Mock()
+
+    @custom_column_generator(model_aliases=["custom-model-a", "custom-model-b"])
+    def gen_with_two_models(row: dict, generator_params, models) -> dict:
+        del generator_params, models
+        return row
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(name="seed_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
+    config_builder.add_column(LLMTextColumnConfig(name="builtin_llm_col", prompt="x", model_alias="builtin-model"))
+    config_builder.add_column(CustomColumnConfig(name="custom_col", generator_function=gen_with_two_models))
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    builder._run_model_health_check_if_needed()
+
+    stub_resource_provider.model_registry.run_health_check.assert_called_once()
+    (called_aliases,), _ = stub_resource_provider.model_registry.run_health_check.call_args
+    assert set(called_aliases) == {"builtin-model", "custom-model-a", "custom-model-b"}
+
+
+def test_run_model_health_check_skips_when_no_model_aliases(
+    stub_resource_provider,
+    stub_model_configs,
+) -> None:
+    """Configs with no model aliases (e.g. samplers only) skip the health check entirely."""
+    stub_resource_provider.model_registry.run_health_check = Mock()
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(name="seed_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    builder._run_model_health_check_if_needed()
+
+    stub_resource_provider.model_registry.run_health_check.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "column_configs,expected_error",
     [

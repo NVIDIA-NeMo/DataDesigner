@@ -105,6 +105,8 @@ def test_config_and_decorator_integration() -> None:
     assert config.required_columns == ["col1", "col2"]
     assert config.side_effect_columns == ["extra"]
     assert config.model_aliases == ["model-a"]
+    # get_model_aliases() opts the decorator-declared aliases into the startup health check
+    assert config.get_model_aliases() == ["model-a"]
 
     # Serialization works
     assert config.model_dump()["generator_function"] == "decorated_generator"
