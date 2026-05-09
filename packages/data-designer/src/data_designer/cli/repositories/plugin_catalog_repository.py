@@ -59,7 +59,7 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
 
     def save(self, config: PluginCatalogRegistry) -> None:
         """Save user-configured plugin catalogs."""
-        config_dict = config.model_dump(mode="json", exclude_none=True)
+        config_dict = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
         save_config_file(self.config_file, config_dict)
 
     def list_catalogs(self) -> list[PluginCatalogConfig]:

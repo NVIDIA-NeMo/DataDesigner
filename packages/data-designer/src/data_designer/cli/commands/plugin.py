@@ -218,12 +218,6 @@ def catalog_add_command(
         "--trusted",
         help="Mark the catalog as trusted for install-plan display and confirmations.",
     ),
-    cache_ttl_seconds: int = typer.Option(
-        24 * 60 * 60,
-        "--cache-ttl-seconds",
-        min=0,
-        help="Seconds before cached catalog metadata is refreshed. Use 0 to always refresh.",
-    ),
 ) -> None:
     """Add a plugin catalog alias."""
     _warn_if_parent_catalog_unused(ctx, "catalog management commands operate on aliases directly")
@@ -232,7 +226,6 @@ def catalog_add_command(
         alias=alias,
         url=url,
         trusted=trusted,
-        cache_ttl_seconds=cache_ttl_seconds,
     )
 
 

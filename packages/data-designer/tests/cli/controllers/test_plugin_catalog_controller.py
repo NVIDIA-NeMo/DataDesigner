@@ -615,7 +615,6 @@ def test_run_catalog_add_wraps_invalid_alias_validation_error(
             alias="foo/bar",
             url="https://github.com/acme/dd-plugins",
             trusted=False,
-            cache_ttl_seconds=60,
         )
 
     assert exc_info.value.exit_code == 1
