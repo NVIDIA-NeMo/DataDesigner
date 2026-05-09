@@ -237,11 +237,11 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         if self.install_service.verify_entry_points(package_entries):
-            print_success(f"Plugin package {entry.package.name!r} installed and registered")
+            print_success(f"Plugin package {entry.package.name!r} installed and runtime entry points verified")
         else:
             print_warning(
                 f"Plugin package {entry.package.name!r} was installed, but Data Designer did not discover every "
-                "declared package entry point. Restart the shell or check the package entry point metadata."
+                "declared runtime entry point. Restart the shell or check the package entry point metadata."
             )
 
     def run_uninstall(
@@ -294,11 +294,11 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         if self.install_service.verify_entry_points_removed(package_entries):
-            print_success(f"Plugin package {entry.package.name!r} uninstalled and no longer registered")
+            print_success(f"Plugin package {entry.package.name!r} uninstalled and runtime entry points removed")
         else:
             print_warning(
                 f"Plugin package {entry.package.name!r} was uninstalled, but Data Designer still discovers one or "
-                "more declared package entry points. Restart the shell or check the package environment."
+                "more declared runtime entry points. Restart the shell or check the package environment."
             )
 
     def run_installed(self) -> None:

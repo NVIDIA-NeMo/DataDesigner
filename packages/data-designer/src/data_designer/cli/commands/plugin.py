@@ -115,7 +115,10 @@ def install_command(
         "auto",
         "--manager",
         click_type=click.Choice(["auto", "uv", "pip"]),
-        help="Package manager to use. uv adds to the active project when one is detected; pip mutates the environment.",
+        help=(
+            "Package manager to use. auto prefers uv; uv adds to the active project when one is detected; "
+            "pip mutates the environment."
+        ),
     ),
     yes: bool = typer.Option(
         False,
@@ -129,7 +132,7 @@ def install_command(
         help="Print the install plan without mutating the current environment.",
     ),
 ) -> None:
-    """Install one Data Designer plugin package, then verify package registration."""
+    """Install one Data Designer plugin package, then verify declared runtime entry points."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_install(
         package,
@@ -161,7 +164,10 @@ def uninstall_command(
         "auto",
         "--manager",
         click_type=click.Choice(["auto", "uv", "pip"]),
-        help="Package manager to use. uv removes from the active project when one is detected; pip mutates the environment.",
+        help=(
+            "Package manager to use. auto prefers uv; uv removes from the active project and environment when a "
+            "project is detected; pip mutates the environment."
+        ),
     ),
     yes: bool = typer.Option(
         False,
@@ -175,7 +181,7 @@ def uninstall_command(
         help="Print the uninstall plan without mutating the current environment.",
     ),
 ) -> None:
-    """Uninstall one Data Designer plugin package, then verify package registration is removed."""
+    """Uninstall one Data Designer plugin package, then verify declared runtime entry points are removed."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_uninstall(
         package,

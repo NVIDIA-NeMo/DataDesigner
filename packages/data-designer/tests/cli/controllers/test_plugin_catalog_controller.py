@@ -468,7 +468,9 @@ def test_run_install_reports_success_when_verification_finds_entry_point(
 
     controller.install_service.install.assert_called_once_with(plan)
     controller.install_service.verify_entry_points.assert_called_once_with([entry])
-    mock_print_success.assert_called_once_with("Plugin package 'data-designer-text-transform' installed and registered")
+    mock_print_success.assert_called_once_with(
+        "Plugin package 'data-designer-text-transform' installed and runtime entry points verified"
+    )
     assert mock_console.print.call_count >= 1
 
 
@@ -494,7 +496,7 @@ def test_run_install_warns_when_verification_misses_entry_point(
     controller.install_service.verify_entry_points.assert_called_once_with([entry])
     mock_print_warning.assert_called_once_with(
         "Plugin package 'data-designer-text-transform' was installed, but Data Designer did not discover every "
-        "declared package entry point. Restart the shell or check the package entry point metadata."
+        "declared runtime entry point. Restart the shell or check the package entry point metadata."
     )
     assert mock_console.print.call_count >= 1
 
@@ -570,7 +572,7 @@ def test_run_uninstall_reports_success_when_entry_points_are_removed(
     controller.install_service.uninstall.assert_called_once_with(plan)
     controller.install_service.verify_entry_points_removed.assert_called_once_with([entry])
     mock_print_success.assert_called_once_with(
-        "Plugin package 'data-designer-text-transform' uninstalled and no longer registered"
+        "Plugin package 'data-designer-text-transform' uninstalled and runtime entry points removed"
     )
     assert mock_console.print.call_count >= 1
 
@@ -596,7 +598,7 @@ def test_run_uninstall_warns_when_entry_points_remain(
     controller.install_service.verify_entry_points_removed.assert_called_once_with([entry])
     mock_print_warning.assert_called_once_with(
         "Plugin package 'data-designer-text-transform' was uninstalled, but Data Designer still discovers one or "
-        "more declared package entry points. Restart the shell or check the package environment."
+        "more declared runtime entry points. Restart the shell or check the package environment."
     )
     assert mock_console.print.call_count >= 1
 

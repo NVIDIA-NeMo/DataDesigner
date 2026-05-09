@@ -165,12 +165,12 @@ plugin_app = typer.Typer(
             "install": {
                 "module": f"{_CMD}.plugin",
                 "attr": "install_command",
-                "help": "Install a plugin package and verify package registration",
+                "help": "Install a plugin package and verify declared runtime entry points",
             },
             "uninstall": {
                 "module": f"{_CMD}.plugin",
                 "attr": "uninstall_command",
-                "help": "Uninstall a plugin package and verify package registration is removed",
+                "help": "Uninstall a plugin package and verify declared runtime entry points are removed",
             },
             "installed": {
                 "module": f"{_CMD}.plugin",
@@ -188,7 +188,7 @@ def plugin_callback(
     catalog: str | None = typer.Option(
         None,
         "--catalog",
-        help="Plugin catalog alias to use for catalog commands.",
+        help="Plugin catalog alias to use for commands that read package metadata.",
     ),
 ) -> None:
     _ = catalog

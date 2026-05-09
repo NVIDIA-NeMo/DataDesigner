@@ -163,7 +163,7 @@ class PluginCatalogService:
         self.repository.remove_catalog(alias)
 
     def list_installed_plugins(self) -> list[InstalledPluginInfo]:
-        """List installed Data Designer plugin entry points without importing plugin modules."""
+        """List installed Data Designer runtime plugin entry points without importing plugin modules."""
         entry_points = importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP)
         installed_plugins = [
             InstalledPluginInfo(name=entry_point.name, entry_point_value=entry_point.value)
