@@ -61,7 +61,7 @@ class PluginCatalogService:
         refresh: bool = False,
         include_incompatible: bool = False,
     ) -> list[PluginCatalogEntry]:
-        """Search catalog entries by simple token matching."""
+        """Search catalog entries by package metadata and runtime plugin metadata."""
         query_tokens = _tokenize(query)
         if not query_tokens:
             return []
@@ -217,16 +217,11 @@ def _tokenize(value: str) -> list[str]:
 def _entry_search_text(entry: PluginCatalogEntry) -> str:
     package_name = canonicalize_name(entry.package.name)
     values = [
-        entry.name,
-        entry.plugin_type.value,
-        entry.description,
         entry.package.name,
         _package_alias(package_name) or "",
-        entry.install.requirement,
-        entry.install.index_url or "",
-        entry.entry_point.name,
-        entry.entry_point.value,
-        entry.docs.url if entry.docs is not None and entry.docs.url else "",
+        entry.description,
+        entry.name,
+        entry.plugin_type.value,
     ]
     return " ".join(values).lower()
 
