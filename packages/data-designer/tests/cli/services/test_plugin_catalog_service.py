@@ -51,7 +51,7 @@ def test_search_entries_matches_name_type_package_and_docs(tmp_path: Path) -> No
 def test_evaluate_compatibility_reports_data_designer_constraint(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
-    entry = service.get_entry("future-plugin", "local")
+    entry = _entry_by_name(service.list_entries("local", include_incompatible=True), "future-plugin")
 
     result = service.evaluate_compatibility(entry)
 
@@ -140,72 +140,12 @@ def test_evaluate_compatibility_accepts_local_dev_version_above_lower_bound(tmp_
         python_version="3.11.0",
         data_designer_version="0.5.10.dev18+604fdd96",
     )
-    entry = service.get_entry("compatible-plugin", "local")
+    entry = _entry_by_name(service.list_entries("local", include_incompatible=True), "compatible-plugin")
 
     result = service.evaluate_compatibility(entry)
 
     assert result.is_compatible is True
     assert result.reasons == []
-
-
-def test_get_entry_rejects_incompatible_plugin_when_requested(tmp_path: Path) -> None:
-    repository = _repository_with_catalog(tmp_path)
-    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
-
-    with pytest.raises(ValueError, match="not compatible"):
-        service.get_entry("future-plugin", "local", include_incompatible=False)
-
-
-def test_get_entry_resolves_package_name() -> None:
-    repository = Mock(spec=PluginCatalogRepository)
-    repository.load_catalog.return_value = PluginCatalog.model_validate(
-        {
-            "schema_version": 2,
-            "packages": [
-                _package(
-                    package_name="data-designer-package-target",
-                    data_designer_specifier=">=0.5.7",
-                    plugins=[
-                        _runtime_plugin(name="package-column", plugin_type="column-generator"),
-                        _runtime_plugin(name="package-processor", plugin_type="processor"),
-                    ],
-                ),
-            ],
-        }
-    )
-    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
-
-    entry = service.get_entry("data-designer-package-target", "local", include_incompatible=True)
-
-    assert entry.name == "package-column"
-    assert entry.package.name == "data-designer-package-target"
-
-
-def test_get_entry_prefers_runtime_plugin_name_over_package_name() -> None:
-    repository = Mock(spec=PluginCatalogRepository)
-    repository.load_catalog.return_value = PluginCatalog.model_validate(
-        {
-            "schema_version": 2,
-            "packages": [
-                _package(
-                    package_name="alpha",
-                    data_designer_specifier=">=0.5.7",
-                    plugins=[_runtime_plugin(name="package-plugin", plugin_type="processor")],
-                ),
-                _package(
-                    package_name="data-designer-runtime-source",
-                    data_designer_specifier=">=0.5.7",
-                    plugins=[_runtime_plugin(name="alpha", plugin_type="processor")],
-                ),
-            ],
-        }
-    )
-    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
-
-    entry = service.get_entry("alpha", "local", include_incompatible=True)
-
-    assert entry.name == "alpha"
-    assert entry.package.name == "data-designer-runtime-source"
 
 
 def test_get_package_entries_resolves_package_alias() -> None:
@@ -351,6 +291,10 @@ def _repository_with_catalog(tmp_path: Path) -> PluginCatalogRepository:
     repository = PluginCatalogRepository(tmp_path)
     repository.add_catalog("local", str(catalog_path))
     return repository
+
+
+def _entry_by_name(entries: list[PluginCatalogEntry], name: str) -> PluginCatalogEntry:
+    return next(entry for entry in entries if entry.name == name)
 
 
 def _catalog_payload() -> dict:

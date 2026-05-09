@@ -4,19 +4,24 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 import pytest
+from pydantic import ValidationError
 
 from data_designer.cli.plugin_catalog import (
     DEFAULT_PLUGIN_CATALOG_ALIAS,
     DEFAULT_PLUGIN_CATALOG_URL_ENV_VAR,
     MAX_PLUGIN_CATALOG_SIZE_BYTES,
+    PluginCatalog,
     PluginCatalogError,
 )
 from data_designer.cli.repositories.plugin_catalog_repository import PluginCatalogRepository, normalize_catalog_location
+
+UPSTREAM_CATALOG_FIXTURES_DIR = Path(__file__).parents[1] / "fixtures" / "upstream-catalogs"
 
 
 def test_repository_includes_default_nvidia_catalog(tmp_path: Path) -> None:
@@ -273,6 +278,63 @@ def test_load_catalog_accepts_schema_v2_package_catalog(tmp_path: Path) -> None:
         "url-plugin",
     ]
     assert catalog.plugins[0].install.index_url == "https://docs.example.test/simple/"
+
+
+def test_consumer_accepts_upstream_valid_catalog_fixture(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("upstream", str(UPSTREAM_CATALOG_FIXTURES_DIR / "catalog-valid.json"))
+
+    catalog = repository.load_catalog("upstream", refresh=True)
+
+    assert [package.name for package in catalog.packages] == [
+        "data-designer-compatible-column",
+        "data-designer-git-seed-reader",
+        "data-designer-url-processor",
+        "data-designer-python312-column",
+        "data-designer-future-dd-processor",
+        "data-designer-multi-plugin-package",
+    ]
+    assert [entry.name for entry in catalog.plugins][-2:] == ["multi-seed-reader", "multi-processor"]
+
+
+def test_consumer_rejects_upstream_invalid_install_fixture(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("upstream", str(UPSTREAM_CATALOG_FIXTURES_DIR / "catalog-invalid-install.json"))
+
+    with pytest.raises(PluginCatalogError, match="expected a requirement for 'data-designer-invalid-install'"):
+        repository.load_catalog("upstream", refresh=True)
+
+
+def test_consumer_rejects_upstream_unsupported_version_fixture(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("upstream", str(UPSTREAM_CATALOG_FIXTURES_DIR / "catalog-unsupported-version.json"))
+
+    with pytest.raises(PluginCatalogError, match="unsupported catalog schema_version 999"):
+        repository.load_catalog("upstream", refresh=True)
+
+
+def test_catalog_model_requires_contract_required_package_metadata() -> None:
+    package = _package_entry()
+    package.pop("compatibility")
+
+    with pytest.raises(ValidationError, match="compatibility"):
+        PluginCatalog.model_validate(_catalog_payload(packages=[package]))
+
+
+def test_catalog_model_requires_non_empty_runtime_plugins() -> None:
+    package = _package_entry(plugins=[])
+
+    with pytest.raises(ValidationError, match="plugins"):
+        PluginCatalog.model_validate(_catalog_payload(packages=[package]))
+
+
+def test_fetches_production_catalog_when_enabled(tmp_path: Path) -> None:
+    if os.getenv("DATA_DESIGNER_TEST_REMOTE_PLUGIN_CATALOG") != "1":
+        pytest.skip("Set DATA_DESIGNER_TEST_REMOTE_PLUGIN_CATALOG=1 to run the live catalog smoke test")
+
+    catalog = PluginCatalogRepository(tmp_path).load_catalog(refresh=True)
+
+    assert catalog.packages
 
 
 def test_load_catalog_accepts_equivalent_data_designer_marker_quoting(tmp_path: Path) -> None:

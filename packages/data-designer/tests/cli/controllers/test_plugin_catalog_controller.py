@@ -170,7 +170,6 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     assert all("install" not in plugin for plugin in metadata["plugins"])
     assert all("compatibility" not in plugin for plugin in metadata["plugins"])
     assert all("docs" not in plugin for plugin in metadata["plugins"])
-    controller.catalog_service.get_entry.assert_not_called()
     controller.catalog_service.get_package_entries.assert_called_once_with(
         "text-transform",
         "local",
@@ -220,7 +219,6 @@ def test_run_info_rejects_runtime_plugin_name_that_is_not_package_alias(
         controller.run_info("text-column", catalog_alias="local")
 
     assert exc_info.value.exit_code == 1
-    controller.catalog_service.get_entry.assert_not_called()
     controller.catalog_service.get_package_entries.assert_called_once_with(
         "text-column",
         "local",
@@ -239,7 +237,7 @@ def test_run_install_dry_run_renders_plan_without_installing(
 ) -> None:
     entry = _entry()
     catalog = _catalog(trusted=True)
-    plan = _plan(catalog, data_designer_protection="pinned to installed data-designer 0.5.10")
+    plan = _plan(catalog, data_designer_protection="pinned installed Data Designer packages; data-designer 0.5.10")
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
@@ -247,7 +245,6 @@ def test_run_install_dry_run_renders_plan_without_installing(
 
     controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
-    controller.catalog_service.get_entry.assert_not_called()
     controller.catalog_service.get_package_entries.assert_called_once_with(
         "data-designer-text-transform",
         "local",
@@ -257,7 +254,9 @@ def test_run_install_dry_run_renders_plan_without_installing(
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_points.assert_not_called()
     mock_print_info.assert_any_call("Dry run complete; no changes made")
-    mock_console.print.assert_any_call("  Data Designer: [bold]pinned to installed data-designer 0.5.10[/bold]")
+    mock_console.print.assert_any_call(
+        "  Data Designer: [bold]pinned installed Data Designer packages; data-designer 0.5.10[/bold]"
+    )
     assert all("Runtime plugins" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list)
     assert mock_console.print.call_count >= 1
 
@@ -282,7 +281,6 @@ def test_run_install_blocks_incompatible_package(
         controller.run_install("data-designer-text-transform", catalog_alias="local")
 
     assert exc_info.value.exit_code == 1
-    controller.catalog_service.get_entry.assert_not_called()
     controller.catalog_service.get_package_entries.assert_called_once_with(
         "data-designer-text-transform",
         "local",
@@ -309,7 +307,6 @@ def test_run_install_rejects_runtime_plugin_name_as_target(
         controller.run_install("text-column", catalog_alias="local")
 
     assert exc_info.value.exit_code == 1
-    controller.catalog_service.get_entry.assert_not_called()
     controller.catalog_service.get_package_entries.assert_called_once_with(
         "text-column",
         "local",
@@ -371,7 +368,6 @@ def test_run_install_dry_run_allows_incompatible_entry_for_inspection(
 
     controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
-    controller.catalog_service.get_entry.assert_not_called()
     controller.catalog_service.get_package_entries.assert_called_once_with(
         "data-designer-text-transform",
         "local",
@@ -500,7 +496,6 @@ def test_run_uninstall_dry_run_renders_plan_without_uninstalling(
 
     controller.run_uninstall("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
-    controller.catalog_service.get_entry.assert_not_called()
     controller.catalog_service.get_package_entries.assert_called_once_with(
         "data-designer-text-transform",
         "local",

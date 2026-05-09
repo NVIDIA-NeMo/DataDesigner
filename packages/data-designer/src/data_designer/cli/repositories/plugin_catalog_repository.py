@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -182,8 +183,13 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "catalog": catalog_payload,
         }
-        with open(self._cache_file(catalog), "w") as f:
-            json.dump(cache_payload, f, indent=2, sort_keys=True)
+        cache_file = self._cache_file(catalog)
+        temp_path = cache_file.with_name(f"{cache_file.name}.{os.getpid()}.tmp")
+        try:
+            temp_path.write_text(json.dumps(cache_payload, indent=2, sort_keys=True), encoding="utf-8")
+            temp_path.replace(cache_file)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     def _cache_file(self, catalog: PluginCatalogConfig) -> Path:
         url_hash = hashlib.sha256(catalog.url.encode("utf-8")).hexdigest()[:12]
@@ -312,6 +318,8 @@ def _fetch_remote_catalog(url: str) -> dict[str, object]:
             status = getattr(response, "status", 200)
             if isinstance(status, int) and status >= 400:
                 raise PluginCatalogError(f"Failed to fetch plugin catalog {url!r}: HTTP {status}")
+            # Read one byte past the limit so oversized chunked responses are
+            # rejected without keeping the full response body in memory.
             content = response.read(MAX_PLUGIN_CATALOG_SIZE_BYTES + 1)
     except HTTPError as e:
         raise PluginCatalogError(f"Failed to fetch plugin catalog {url!r}: HTTP {e.code}") from e
