@@ -41,11 +41,11 @@ Plugin catalog commands use the same layering shape:
 | Layer | Role | Example |
 |-------|------|---------|
 | **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugin` subcommands (`list`, `search`, `info`, `install`, `uninstall`, `installed`, `catalog`) → `PluginCatalogController(DATA_DESIGNER_HOME)` |
-| **Controller** | UX flow: catalog tables, package metadata, compatibility display, package mutation confirmations | `PluginCatalogController` composes catalog + install services |
-| **Service** | Domain rules: package-first flattening, compatibility checks, install and uninstall planning, runtime entry-point verification | `PluginCatalogService`, `PluginInstallService` |
+| **Controller** | UX flow: catalog tables, package metadata, compatibility display, install/uninstall confirmations | `PluginCatalogController` composes catalog + install services |
+| **Service** | Domain rules: package listing, compatibility checks, uv/pip install and uninstall commands, plugin discovery verification | `PluginCatalogService`, `PluginInstallService` |
 | **Repository** | File/cache I/O for catalog aliases and catalog documents | `PluginCatalogRepository` |
 
-The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`. `NVIDIA-NeMo/DataDesignerPlugins` defines the package-first catalog shape: top-level packages carry install metadata, compatibility constraints, docs, and nested runtime plugins. The CLI flattens nested plugins for list/search display, but `info`, `install`, and `uninstall` resolve package names or package aliases so environment mutations target the package distribution. Package aliases come from the `data-designer-{alias}` package-name pattern; for example, `data-designer-calculator` can be addressed as `calculator`.
+The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`. `NVIDIA-NeMo/DataDesignerPlugins` defines the catalog format. Each catalog entry is an installable package with docs, install metadata, compatibility constraints, and one or more runtime plugins. Users install and uninstall packages, not individual runtime plugins. Commands that take a package name also accept the package alias from the `data-designer-{alias}` package-name pattern; for example, `data-designer-calculator` can be addressed as `calculator`.
 
 ### Generation Commands
 
@@ -79,7 +79,7 @@ User invokes command (e.g., `data-designer config models`)
 User invokes command (e.g., `data-designer plugin list`)
   → Command function wires DATA_DESIGNER_HOME and catalog options
   → PluginCatalogController resolves the catalog alias
-  → PluginCatalogService loads and filters package-first catalog entries
+  → PluginCatalogService loads packages and filters out incompatible packages by default
   → PluginCatalogRepository reads local config and cached/remote catalog JSON
 ```
 
@@ -88,22 +88,21 @@ User invokes command (e.g., `data-designer plugin list`)
 User invokes command (e.g., `data-designer plugin install calculator`)
   → PluginCatalogController resolves the plugin package name or package alias
   → PluginCatalogService evaluates Python and Data Designer compatibility
-  → PluginInstallService builds a pip/uv install plan for the package requirement.
-    In active uv projects it uses `uv add` so the package lands in `pyproject.toml`;
-    otherwise it mutates the active Python environment with `uv pip install` or pip.
-    The active Data Designer package family (`data-designer`,
-    `data-designer-config`, and `data-designer-engine`) is skipped, excluded, or
-    pinned from replacement depending on package-manager capabilities.
-  → PluginInstallService verifies declared runtime entry points after installation
+  → PluginInstallService chooses uv or pip and builds the command.
+    In active uv projects it uses `uv add` so the package is recorded in
+    `pyproject.toml`; otherwise it installs into the current Python environment.
+    Data Designer itself is already installed, so its packages are not reinstalled
+    or replaced while installing plugin dependencies.
+  → PluginInstallService verifies Data Designer can discover the package's runtime plugins
 ```
 
 ```
 User invokes command (e.g., `data-designer plugin uninstall calculator`)
   → PluginCatalogController resolves the plugin package name or package alias
-  → PluginInstallService builds a pip/uv uninstall plan for the package distribution.
-    Active uv projects remove the dependency from project metadata without a uv sync,
-    then uninstall the package from the active environment.
-  → PluginInstallService verifies declared runtime entry points are no longer discovered
+  → PluginInstallService chooses uv or pip and builds the uninstall command.
+    Active uv projects remove the dependency from project metadata and uninstall
+    the package from the current environment.
+  → PluginInstallService verifies Data Designer no longer discovers the package's runtime plugins
 ```
 
 ### Generation
@@ -119,7 +118,7 @@ User invokes command (e.g., `data-designer create config.yaml`)
 - **Lazy command loading** keeps `data-designer --help` responsive: command modules (and their heavy dependencies, such as the engine and model stacks) load only when a command is invoked, not at process startup.
 - **Controller/service/repo for setup workflows, direct API for generation** — config and plugin catalog workflows benefit from the layered pattern (testable services, swappable repositories). Generation doesn't need this indirection; it delegates to the same `DataDesigner` class that Python users call directly.
 - **`DATA_DESIGNER_HOME`** centralizes CLI-managed state (model configs, provider configs, MCP provider configs, tool configs, managed assets, plugin catalog aliases, and catalog caches) in a single directory, defaulting to `~/.data-designer/`.
-- **Package-first plugin catalogs** keep install metadata at the package boundary while allowing one package to expose multiple runtime plugins through runtime entry points.
+- **Package-first plugin catalogs** match how users install plugins: one package can provide one or more runtime plugins, but install and uninstall commands always target the package.
 - **Rich-based UI** provides formatted tables, progress bars, and interactive prompts without requiring a web interface.
 
 ## Cross-References

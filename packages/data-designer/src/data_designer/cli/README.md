@@ -10,8 +10,8 @@ The CLI provides an interactive interface for managing:
 - **MCP Providers**: MCP server configurations for tool integration
 - **Tool Configs**: Tool definitions used by configured models and workflows
 - **Managed Assets**: Persona dataset downloads under the Data Designer home directory
-- **Plugin Catalogs**: Catalog aliases for discovering Data Designer plugin packages
-- **Plugin Installs**: Safe install-plan rendering, package-manager execution with active Data Designer package-family protection, and runtime entry-point verification
+- **Plugin Catalogs**: Catalog aliases for finding Data Designer plugin packages
+- **Plugin Packages**: Install and uninstall packages from catalogs, check version compatibility first, and verify Data Designer can discover the plugins they provide
 
 Configuration files and CLI-managed state are stored in `~/.data-designer/` by default.
 
@@ -93,8 +93,8 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `mcp_provider_service.py`: MCP provider configuration business logic
   - `model_service.py`: Model configuration business logic
   - `provider_service.py`: Provider business logic
-  - `plugin_catalog_service.py`: Plugin catalog discovery, search, compatibility checks, and installed runtime entry-point listing
-  - `plugin_install_service.py`: Plugin install and uninstall plan resolution, package-manager execution, active Data Designer package-family protection, and runtime entry-point verification
+  - `plugin_catalog_service.py`: Plugin catalog loading, search, compatibility checks, and installed plugin listing
+  - `plugin_install_service.py`: Chooses and runs uv or pip commands for installing/uninstalling plugin packages, keeps installed Data Designer packages in place, and verifies installed plugins
   - `tool_service.py`: Tool configuration business logic
 
 **Key Methods**:
@@ -338,19 +338,19 @@ data-designer plugin list
 # Search a specific catalog
 data-designer plugin --catalog research search transform
 
-# Show metadata, compatibility, docs, and the install plan
+# Show package metadata, compatibility, docs, and the install command
 data-designer plugin info github
 
-# Install a plugin package from a catalog and verify declared runtime entry points
+# Install a plugin package from a catalog and verify Data Designer can discover its plugins
 data-designer plugin install github --yes
 
-# Preview the install plan without mutating the environment
+# Preview without changing the current environment
 data-designer plugin install github --dry-run
 
-# Uninstall a plugin package from a catalog and verify declared runtime entry points are removed
+# Uninstall a plugin package and verify Data Designer no longer discovers its plugins
 data-designer plugin uninstall github --yes
 
-# Preview the uninstall plan without mutating the environment
+# Preview without changing the current environment
 data-designer plugin uninstall github --dry-run
 
 # Add and manage catalog aliases
@@ -362,14 +362,15 @@ data-designer plugin catalog remove research
 data-designer plugin installed
 ```
 
-Install plans protect the active Data Designer package family (`data-designer`,
-`data-designer-config`, and `data-designer-engine`) before invoking the package
-manager. The plugin package and its other dependencies are resolved normally,
-but the installed Data Designer packages are kept from being replaced by plugin
-package dependencies. In an active virtual environment with a user
-`pyproject.toml`, `uv` uses `uv add` so the plugin package is recorded in the
-project; otherwise it uses `uv pip install`. `uv` plugin installs require
-`uv >= 0.6.0`; auto mode falls back to `pip` when `uv` is missing or too old.
-`pip` remains supported for pip-only environments. `uv` project installs skip
-installing the Data Designer package family; pip installs use a process-scoped
-temporary constraint file because pip constraints are file-based.
+When installing a plugin package, the CLI first checks the package's Python and
+Data Designer version requirements. The plugin package and its other
+dependencies are installed normally, but the currently installed Data Designer
+packages (`data-designer`, `data-designer-config`, and `data-designer-engine`)
+are kept in place. This prevents a plugin dependency from upgrading,
+downgrading, or reinstalling Data Designer itself.
+
+In an active virtual environment with a user `pyproject.toml`, `uv` uses
+`uv add` so the plugin package is recorded in the project. Otherwise the CLI
+installs into the current Python environment with `uv pip install` or `pip`.
+`uv` plugin installs require `uv >= 0.6.0`; auto mode falls back to `pip` when
+`uv` is missing or too old. `pip` remains supported for pip-only environments.
