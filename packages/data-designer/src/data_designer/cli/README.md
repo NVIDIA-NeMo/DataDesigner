@@ -314,12 +314,14 @@ data-designer plugin catalog remove research
 data-designer plugin installed
 ```
 
-Install plans protect the active `data-designer` distribution before invoking
-the package manager. The plugin package and its other dependencies are resolved
-normally, but `data-designer` itself is kept from being replaced by the plugin
-package dependency. In an active virtual environment with a user `pyproject.toml`,
-`uv` uses `uv add` so the plugin package is recorded in the project; otherwise it
-uses `uv pip install`. `pip` remains supported for pip-only environments. `uv`
-project installs skip installing the Data Designer package family; pip installs
-use a process-scoped temporary constraint file because pip constraints are
-file-based.
+Install plans protect the active Data Designer package family (`data-designer`,
+`data-designer-config`, and `data-designer-engine`) before invoking the package
+manager. The plugin package and its other dependencies are resolved normally,
+but the installed Data Designer packages are kept from being replaced by plugin
+package dependencies. In an active virtual environment with a user
+`pyproject.toml`, `uv` uses `uv add` so the plugin package is recorded in the
+project; otherwise it uses `uv pip install`. `uv` plugin installs require
+`uv >= 0.6.0`; auto mode falls back to `pip` when `uv` is missing or too old.
+`pip` remains supported for pip-only environments. `uv` project installs skip
+installing the Data Designer package family; pip installs use a process-scoped
+temporary constraint file because pip constraints are file-based.
