@@ -1,16 +1,19 @@
 # 🎨 NeMo Data Designer CLI
 
-This directory contains the Command-Line Interface (CLI) for configuring model providers, model configurations, managed assets, and plugin catalogs used in Data Designer.
+This directory contains the Command-Line Interface (CLI) for configuring model providers, model configurations, MCP providers, tool configs, managed assets, and plugin catalogs used in Data Designer.
 
 ## Overview
 
 The CLI provides an interactive interface for managing:
 - **Model Providers**: LLM API endpoints (NVIDIA, OpenAI, Anthropic, custom providers)
 - **Model Configs**: Specific model configurations with inference parameters
+- **MCP Providers**: MCP server configurations for tool integration
+- **Tool Configs**: Tool definitions used by configured models and workflows
+- **Managed Assets**: Persona dataset downloads under the Data Designer home directory
 - **Plugin Catalogs**: Catalog aliases for discovering Data Designer plugin packages
-- **Plugin Installs**: Safe install-plan rendering, package-manager execution with active Data Designer protection, and entry point verification
+- **Plugin Installs**: Safe install-plan rendering, package-manager execution with active Data Designer package-family protection, and runtime entry-point verification
 
-Configuration files are stored in `~/.data-designer/` by default and can be referenced by Data Designer workflows.
+Configuration files and CLI-managed state are stored in `~/.data-designer/` by default.
 
 ## Architecture
 
@@ -19,7 +22,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         Commands                            │
-│  Entry points for CLI commands (list, providers, plugin)    │
+│  Entry points for CLI commands (config, download, plugin)   │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -52,10 +55,13 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - Handle top-level error reporting
 - **Files**:
   - `list.py`: List current configurations
+  - `mcp.py`: Configure MCP providers
   - `models.py`: Configure models
   - `providers.py`: Configure providers
+  - `download.py`: Download managed assets
   - `plugin.py`: Discover, install, and uninstall plugin packages from catalogs
   - `reset.py`: Reset/delete configurations
+  - `tools.py`: Configure tool configs
 
 #### 2. **Controllers** (`controllers/`)
 - **Purpose**: Orchestrate user workflows and coordinate between services, forms, and UI
@@ -65,9 +71,12 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - Handle user navigation and session state
   - Manage associated resource deletion (e.g., deleting models when provider is deleted)
 - **Files**:
+  - `download_controller.py`: Orchestrates managed asset download workflows
+  - `mcp_provider_controller.py`: Orchestrates MCP provider configuration workflows
   - `model_controller.py`: Orchestrates model configuration workflows
   - `provider_controller.py`: Orchestrates provider configuration workflows
   - `plugin_catalog_controller.py`: Orchestrates plugin catalog browsing, alias management, and package workflows
+  - `tool_controller.py`: Orchestrates tool configuration workflows
 
 **Key Features**:
 - **Associated Resource Management**: When deleting a provider, the controller checks for associated models and prompts the user to delete them together
@@ -81,10 +90,12 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - Coordinate between multiple repositories when needed
   - Handle default management (e.g., default provider selection)
 - **Files**:
+  - `mcp_provider_service.py`: MCP provider configuration business logic
   - `model_service.py`: Model configuration business logic
   - `provider_service.py`: Provider business logic
-  - `plugin_catalog_service.py`: Plugin catalog discovery, search, compatibility checks, and installed entry point listing
-  - `plugin_install_service.py`: Plugin install/uninstall plan resolution, package-manager execution, active Data Designer protection, and runtime verification
+  - `plugin_catalog_service.py`: Plugin catalog discovery, search, compatibility checks, and installed runtime entry-point listing
+  - `plugin_install_service.py`: Plugin install and uninstall plan resolution, package-manager execution, active Data Designer package-family protection, and runtime entry-point verification
+  - `tool_service.py`: Tool configuration business logic
 
 **Key Methods**:
 - `list_all()`: Get all configured items
@@ -97,17 +108,20 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
 - `set_default()`, `get_default()`: Manage default provider (providers only)
 
 #### 4. **Repositories** (`repositories/`)
-- **Purpose**: Handle data persistence (YAML file I/O)
+- **Purpose**: Handle data persistence and read-only reference metadata
 - **Responsibilities**:
   - Load configuration from YAML files
   - Save configuration to YAML files
-  - Check file existence
-  - Delete configuration files
+  - Check file existence and delete configuration files where applicable
+  - Provide read-only metadata for built-in managed assets
 - **Files**:
   - `base.py`: Abstract base repository with common operations
+  - `mcp_provider_repository.py`: MCP provider configuration persistence
   - `model_repository.py`: Model configuration persistence
+  - `persona_repository.py`: Read-only persona locale metadata
   - `provider_repository.py`: Provider persistence
   - `plugin_catalog_repository.py`: Plugin catalog aliases, catalog fetching, and URL-keyed catalog cache
+  - `tool_repository.py`: Tool configuration persistence
 
 **Base Repository Pattern**:
 ```python
@@ -129,8 +143,10 @@ class ConfigRepository(ABC, Generic[T]):
   - `builder.py`: Abstract form builder base
   - `field.py`: Form field types (TextField, SelectField, NumericField)
   - `form.py`: Form container and prompt orchestration
+  - `mcp_provider_builder.py`: Interactive MCP provider configuration builder
   - `model_builder.py`: Interactive model configuration builder
   - `provider_builder.py`: Interactive provider configuration builder
+  - `tool_builder.py`: Interactive tool configuration builder
 
 **Form Features**:
 - Field-level validation
@@ -159,7 +175,7 @@ class ConfigRepository(ABC, Generic[T]):
 
 ## Configuration Files
 
-The CLI manages YAML configuration files and plugin catalog caches under `~/.data-designer/`:
+The CLI manages YAML configuration files, managed assets, and plugin catalog caches under `~/.data-designer/`:
 
 ### `~/.data-designer/model_providers.yaml`
 
@@ -212,6 +228,38 @@ model_configs:
       dimensions: 1024
       max_parallel_requests: 4
 ```
+
+### `~/.data-designer/mcp_providers.yaml`
+
+Stores MCP provider configurations:
+
+```yaml
+providers:
+  - name: local-tools
+    provider_type: stdio
+    command: python
+    args:
+      - "-m"
+      - my_mcp_server
+```
+
+### `~/.data-designer/tool_configs.yaml`
+
+Stores tool configurations that reference MCP providers:
+
+```yaml
+tool_configs:
+  - tool_alias: research-tools
+    providers:
+      - local-tools
+    max_tool_call_turns: 5
+```
+
+### `~/.data-designer/managed-assets/`
+
+Stores managed assets downloaded by CLI commands such as
+`data-designer download personas`. Set `DATA_DESIGNER_MANAGED_ASSETS_PATH` to
+store managed assets outside `DATA_DESIGNER_HOME`.
 
 ### `~/.data-designer/plugin_catalogs.yaml`
 
@@ -290,19 +338,19 @@ data-designer plugin list
 # Search a specific catalog
 data-designer plugin --catalog research search transform
 
-# Show metadata, compatibility, docs, and exact install command
+# Show metadata, compatibility, docs, and the install plan
 data-designer plugin info github
 
-# Install a plugin package from a catalog and verify package registration
+# Install a plugin package from a catalog and verify declared runtime entry points
 data-designer plugin install github --yes
 
-# Preview the install command without mutating the environment
+# Preview the install plan without mutating the environment
 data-designer plugin install github --dry-run
 
-# Uninstall a plugin package from a catalog and verify package registration is removed
+# Uninstall a plugin package from a catalog and verify declared runtime entry points are removed
 data-designer plugin uninstall github --yes
 
-# Preview the uninstall command without mutating the environment
+# Preview the uninstall plan without mutating the environment
 data-designer plugin uninstall github --dry-run
 
 # Add and manage catalog aliases
