@@ -225,6 +225,22 @@ def test_app_help_keeps_config_and_plugin_commands_reachable() -> None:
     assert "catalog" in plugin_result.output
 
 
+def test_no_args_help_exits_successfully_for_lazy_groups() -> None:
+    root_result = runner.invoke(app, [])
+    plugin_result = runner.invoke(app, ["plugin"])
+    plugin_catalog_result = runner.invoke(app, ["plugin", "catalog"])
+
+    assert root_result.exit_code == 0
+    assert "Data Designer CLI" in root_result.output
+    assert "plugin" in root_result.output
+    assert plugin_result.exit_code == 0
+    assert "Discover, install, and uninstall" in plugin_result.output
+    assert "catalog" in plugin_result.output
+    assert plugin_catalog_result.exit_code == 0
+    assert "Manage plugin catalog aliases" in plugin_catalog_result.output
+    assert "add" in plugin_catalog_result.output
+
+
 def test_app_does_not_expose_legacy_plugins_command() -> None:
     result = runner.invoke(app, ["plugins", "--help"])
 
