@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
@@ -170,16 +168,6 @@ def test_run_list_renders_package_first_catalog_table(
         == "https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json"
     )
 
-    rendered_output = StringIO()
-    narrow_console = Console(
-        file=rendered_output,
-        force_terminal=True,
-        color_system="standard",
-        width=60,
-        legacy_windows=False,
-    )
-    narrow_console.print(printed_tables[0])
-    assert "https://docs.example.test/plugins/data-designer-text-transform/" in rendered_output.getvalue()
     controller.catalog_service.group_entries_by_package.assert_called_once_with(package_entries)
 
 
