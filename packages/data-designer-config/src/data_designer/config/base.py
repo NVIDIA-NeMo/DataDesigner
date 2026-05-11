@@ -168,20 +168,25 @@ class SingleColumnConfig(ConfigBase, ABC):
         """Return every model alias this column depends on.
 
         The startup model health check uses this to decide which model endpoints to ping.
-        The default implementation returns the column's primary ``model_alias`` (if set),
-        which covers the built-in LLM, embedding, and image columns.
+        The default implementation returns the column's primary ``model_alias`` (if the
+        attribute is present), which covers the built-in LLM, embedding, and image columns.
 
         Override this method on configs that depend on more than one model — for example,
         a plugin config with both a ``model_alias`` and a ``judge_model_alias`` should return
         both so a typo or unreachable endpoint on the secondary alias surfaces at startup
         rather than at first generation.
 
+        An empty-string ``model_alias`` is forwarded to the health check so that the
+        registry's "no model config with alias '' found" error is raised eagerly at startup
+        instead of at first generation; only a truly missing attribute is treated as "no
+        model endpoints".
+
         Returns:
             List of model aliases this column depends on. Empty list indicates the column
             does not call any model endpoints.
         """
         alias: str | None = getattr(self, "model_alias", None)
-        return [alias] if alias else []
+        return [alias] if alias is not None else []
 
 
 class ProcessorConfig(ConfigBase, ABC):

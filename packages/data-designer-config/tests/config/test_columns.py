@@ -608,6 +608,17 @@ def test_get_model_aliases_empty_when_no_model_alias_field() -> None:
     assert StubColumnConfig(name="test").get_model_aliases() == []
 
 
+def test_get_model_aliases_forwards_empty_string_for_fail_fast() -> None:
+    """An empty model_alias is surfaced so run_health_check fails fast at startup.
+
+    Empty strings are accepted by the config model and previously reached
+    ``run_health_check``, which raised ``No model config with alias '' found!``.
+    Only a truly missing attribute should skip the health check.
+    """
+    config = LLMTextColumnConfig(name="t", prompt=stub_prompt, model_alias="")
+    assert config.get_model_aliases() == [""]
+
+
 @pytest.mark.parametrize(
     "config",
     [
