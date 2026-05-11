@@ -32,6 +32,14 @@ from data_designer.config.errors import InvalidConfigError, InvalidFileFormatErr
 from data_designer.config.utils.io_helpers import load_config_file, save_config_file
 
 
+class _PluginCatalogSourceUnavailableError(PluginCatalogError):
+    pass
+
+
+class _PluginCatalogContentError(PluginCatalogError):
+    pass
+
+
 class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
     """Repository for plugin catalog aliases and cached catalog payloads."""
 
@@ -139,7 +147,7 @@ class PluginCatalogRepository(ConfigRepository[PluginCatalogRegistry]):
 
         try:
             payload = self._fetch_catalog_payload(catalog_config.url)
-        except (PluginCatalogError, OSError, ValueError):
+        except _PluginCatalogSourceUnavailableError:
             if not refresh:
                 cached_catalog = self._load_cached_catalog(catalog_config, require_fresh=False)
                 if cached_catalog is not None:
@@ -257,7 +265,7 @@ def _normalize_catalog_url(url: str) -> str:
     segments = [segment for segment in parsed.path.split("/") if segment]
 
     if hostname in {"github.com", "www.github.com"} and len(segments) >= 2:
-        owner, repo = segments[0], segments[1]
+        owner, repo = segments[0], segments[1].removesuffix(".git")
         if len(segments) == 2:
             return f"https://raw.githubusercontent.com/{owner}/{repo}/main/catalog/plugins.json"
         if len(segments) >= 5 and segments[2] == "blob":
@@ -289,21 +297,26 @@ def _catalog_plugins_url_path(catalog_root: str) -> str:
 
 def _fetch_local_catalog(location: str) -> dict[str, object]:
     path = Path(location).expanduser()
-    if not path.exists():
-        raise PluginCatalogError(f"Plugin catalog file not found: {path}")
-    if path.stat().st_size > MAX_PLUGIN_CATALOG_SIZE_BYTES:
-        raise PluginCatalogError(
-            f"Plugin catalog at {path} exceeds maximum size of {MAX_PLUGIN_CATALOG_SIZE_BYTES} bytes"
-        )
+    try:
+        if not path.exists():
+            raise _PluginCatalogSourceUnavailableError(f"Plugin catalog file not found: {path}")
+        if path.stat().st_size > MAX_PLUGIN_CATALOG_SIZE_BYTES:
+            raise _PluginCatalogContentError(
+                f"Plugin catalog at {path} exceeds maximum size of {MAX_PLUGIN_CATALOG_SIZE_BYTES} bytes"
+            )
+    except OSError as e:
+        raise _PluginCatalogSourceUnavailableError(f"Failed to read plugin catalog file {path}: {e}") from e
 
     try:
         with open(path) as f:
             payload = json.load(f)
+    except OSError as e:
+        raise _PluginCatalogSourceUnavailableError(f"Failed to read plugin catalog file {path}: {e}") from e
     except json.JSONDecodeError as e:
-        raise PluginCatalogError(f"Failed to parse plugin catalog JSON at {path}: {e}") from e
+        raise _PluginCatalogContentError(f"Failed to parse plugin catalog JSON at {path}: {e}") from e
 
     if not isinstance(payload, dict):
-        raise PluginCatalogError(f"Plugin catalog at {path} must be a JSON object")
+        raise _PluginCatalogContentError(f"Plugin catalog at {path} must be a JSON object")
     return payload
 
 
@@ -313,27 +326,29 @@ def _fetch_remote_catalog(url: str) -> dict[str, object]:
         with urlopen(request, timeout=10) as response:
             status = getattr(response, "status", 200)
             if isinstance(status, int) and status >= 400:
-                raise PluginCatalogError(f"Failed to fetch plugin catalog {url!r}: HTTP {status}")
+                raise _PluginCatalogSourceUnavailableError(f"Failed to fetch plugin catalog {url!r}: HTTP {status}")
             # Read one byte past the limit so oversized chunked responses are
             # rejected without keeping the full response body in memory.
             content = response.read(MAX_PLUGIN_CATALOG_SIZE_BYTES + 1)
     except HTTPError as e:
-        raise PluginCatalogError(f"Failed to fetch plugin catalog {url!r}: HTTP {e.code}") from e
+        raise _PluginCatalogSourceUnavailableError(f"Failed to fetch plugin catalog {url!r}: HTTP {e.code}") from e
     except URLError as e:
-        raise PluginCatalogError(f"Failed to fetch plugin catalog {url!r}: {e.reason}") from e
+        raise _PluginCatalogSourceUnavailableError(f"Failed to fetch plugin catalog {url!r}: {e.reason}") from e
+    except OSError as e:
+        raise _PluginCatalogSourceUnavailableError(f"Failed to read plugin catalog {url!r}: {e}") from e
 
     if len(content) > MAX_PLUGIN_CATALOG_SIZE_BYTES:
-        raise PluginCatalogError(
+        raise _PluginCatalogContentError(
             f"Plugin catalog at {url!r} exceeds maximum size of {MAX_PLUGIN_CATALOG_SIZE_BYTES} bytes"
         )
 
     try:
         payload = json.loads(content.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
-        raise PluginCatalogError(f"Failed to parse plugin catalog JSON at {url!r}: {e}") from e
+        raise _PluginCatalogContentError(f"Failed to parse plugin catalog JSON at {url!r}: {e}") from e
 
     if not isinstance(payload, dict):
-        raise PluginCatalogError(f"Plugin catalog at {url!r} must be a JSON object")
+        raise _PluginCatalogContentError(f"Plugin catalog at {url!r} must be a JSON object")
     return payload
 
 
