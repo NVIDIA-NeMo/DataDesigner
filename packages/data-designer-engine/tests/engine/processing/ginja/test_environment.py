@@ -12,7 +12,11 @@ from data_designer.engine.processing.ginja.environment import (
     is_jinja_template,
     jsonpath_jinja_filter,
 )
-from data_designer.engine.processing.ginja.exceptions import UserTemplateError, UserTemplateUnsupportedFiltersError
+from data_designer.engine.processing.ginja.exceptions import (
+    EmptyTemplateRenderError,
+    UserTemplateError,
+    UserTemplateUnsupportedFiltersError,
+)
 
 SECURITY_EXCEPTIONS = [
     "{{ self.__init__ }}",
@@ -234,3 +238,145 @@ def test_with_jinja2_user_template_rendering_defaults_to_secure_mode() -> None:
 
     with pytest.raises(UserTemplateUnsupportedFiltersError):
         renderer.prepare_jinja2_template_renderer("{{ items | join('-') }}", dataset_variables=["items"])
+
+
+# Regression tests for https://github.com/NVIDIA-NeMo/DataDesigner/issues/629
+# (Empty/undefined-access render failures used to surface a generic, unactionable
+# "User provided prompt generation template is invalid." message.)
+
+
+def _make_secure_renderer(template: str, dataset_variables: list[str]) -> WithJinja2UserTemplateRendering:
+    class Demo(WithJinja2UserTemplateRendering):
+        def __init__(self):
+            self._jinja_rendering_engine = JinjaRenderingEngine.SECURE
+
+    renderer = Demo()
+    renderer.prepare_jinja2_template_renderer(template, dataset_variables=dataset_variables)
+    return renderer
+
+
+def _make_native_renderer(template: str, dataset_variables: list[str]) -> WithJinja2UserTemplateRendering:
+    class Demo(WithJinja2UserTemplateRendering):
+        def __init__(self):
+            self._jinja_rendering_engine = JinjaRenderingEngine.NATIVE
+
+    renderer = Demo()
+    renderer.prepare_jinja2_template_renderer(template, dataset_variables=dataset_variables)
+    return renderer
+
+
+def test_empty_render_raises_empty_template_render_error_with_culprit_chain():
+    # Bug 1: ``{{ x }}`` renders to empty when x is missing from the record.
+    renderer = _make_secure_renderer("{{ person.preferred_english_name }}", dataset_variables=["person"])
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"person": {"first_name": "John", "last_name": "Doe"}})
+
+    msg = str(exc_info.value)
+    # Names the offending chain so the user can find it in their data.
+    assert "person.preferred_english_name" in msg
+    assert "missing from record" in msg
+    # Includes both remediation suggestions verbatim enough that copy-paste works.
+    assert "{{ person.preferred_english_name if person.preferred_english_name else 'N/A' }}" in msg
+    assert 'skip=SkipConfig(when="{{ not person.preferred_english_name }}")' in msg
+
+
+def test_undefined_nested_attr_raises_empty_template_render_error_with_safe_gate():
+    # Bug 3: nested missing-attr lookups used to leak raw Jinja UndefinedError.
+    renderer = _make_secure_renderer("Hi {{ person.address.street }}", dataset_variables=["person"])
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"person": {}})
+
+    msg = str(exc_info.value)
+    assert "person.address.street" in msg
+    assert "missing from record" in msg
+    # The "gate" expression in the suggestions stops one step short of the
+    # broken accessor so it stays safe to evaluate in Jinja.
+    assert "{{ person.address.street if person.address else 'N/A' }}" in msg
+    assert 'skip=SkipConfig(when="{{ not person.address }}")' in msg
+
+
+def test_empty_render_message_reports_resolved_to_none():
+    # When a finalize callable converts None -> "", the chain resolves but the
+    # render is still empty; the diagnostic should call out the None value.
+    class Demo(WithJinja2UserTemplateRendering):
+        def __init__(self):
+            self._jinja_rendering_engine = JinjaRenderingEngine.SECURE
+
+    demo = Demo()
+    demo.prepare_jinja2_template_renderer(
+        "{{ x }}",
+        dataset_variables=["x"],
+        record_str_fn=lambda v: "" if v is None else str(v),
+    )
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        demo.render_template({"x": None})
+
+    msg = str(exc_info.value)
+    assert "x (resolved to None)" in msg
+
+
+def test_empty_render_message_reports_resolved_to_empty_string():
+    renderer = _make_secure_renderer("{{ x }}", dataset_variables=["x"])
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"x": ""})
+
+    assert "x (resolved to empty string)" in str(exc_info.value)
+
+
+def test_empty_render_message_lists_all_culprits():
+    renderer = _make_secure_renderer(
+        "{{ a.b }}{{ c.d.e }}{{ z }}",
+        dataset_variables=["a", "c", "z"],
+    )
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"a": {}, "c": {}, "z": ""})
+
+    msg = str(exc_info.value)
+    assert "a.b" in msg
+    assert "c.d.e" in msg
+    assert "- z (resolved to empty string)" in msg
+
+
+def test_empty_template_render_error_bypasses_generic_sanitizer():
+    # ``sanitize_user_exceptions`` wraps every UserTemplateError into the same
+    # generic message; EmptyTemplateRenderError must escape that wrapper so the
+    # actionable detail survives end-to-end.
+    renderer = _make_secure_renderer("{{ x }}", dataset_variables=["x"])
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"x": ""})
+
+    # The generic sanitized text is precisely what we DO NOT want here.
+    assert "User provided prompt generation template is invalid." not in str(exc_info.value)
+
+
+def test_native_engine_converts_undefined_error_to_empty_template_render_error():
+    renderer = _make_native_renderer("Hi {{ person.address.street }}", dataset_variables=["person"])
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"person": {}})
+
+    msg = str(exc_info.value)
+    assert "person.address.street" in msg
+
+
+def test_happy_path_still_renders():
+    renderer = _make_secure_renderer("{{ person.first_name }}", dataset_variables=["person"])
+    assert renderer.render_template({"person": {"first_name": "John"}}) == "John"
+
+
+def test_safe_render_with_skip_template_validation_still_attaches_diagnostic():
+    # safe_render is called via the prepared renderer with skip_template_validation=True;
+    # the error path needs to reparse the template for AST walking, which is what we
+    # exercise here.
+    renderer = _make_secure_renderer("{{ person.foo }}", dataset_variables=["person"])
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"person": {"bar": 1}})
+
+    assert "person.foo" in str(exc_info.value)
