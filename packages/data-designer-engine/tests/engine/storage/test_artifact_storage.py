@@ -115,6 +115,22 @@ def test_artifact_storage_write_metadata(stub_artifact_storage):
     assert loaded_metadata == metadata
 
 
+def test_artifact_storage_write_metadata_includes_defaults(stub_artifact_storage):
+    """Metadata defaults are included in each checkpoint write."""
+    stub_artifact_storage.set_metadata_defaults({"config_hash": "sha256:abc", "config_hash_version": 1})
+
+    file_path = stub_artifact_storage.write_metadata({"dataset_name": "test", "rows": 100})
+
+    with open(file_path, "r") as f:
+        loaded_metadata = json.load(f)
+    assert loaded_metadata == {
+        "config_hash": "sha256:abc",
+        "config_hash_version": 1,
+        "dataset_name": "test",
+        "rows": 100,
+    }
+
+
 def test_artifact_storage_metadata_file_path_property(stub_artifact_storage):
     expected_path = stub_artifact_storage.base_dataset_path / "metadata.json"
     assert stub_artifact_storage.metadata_file_path == expected_path
