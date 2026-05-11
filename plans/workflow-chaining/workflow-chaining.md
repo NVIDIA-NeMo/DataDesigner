@@ -117,7 +117,7 @@ The callback receives the path to the completed stage's artifact directory (cont
 
 **Callback resume policy**: The pipeline does not hash arbitrary Python source or bytecode in v1. `after_version` is the explicit callback identity recorded in `pipeline-metadata.json` and included in the next stage's fingerprint. If `after` is set without `after_version`, that stage is treated as dirty on every resume so a changed callback cannot silently reuse stale transformed data. The resolved path returned by the callback is also recorded as the dependent stage's seed path; a stage seeded from callback output is skippable only if that recorded path still exists and is readable by `LocalFileSeedSource`.
 
-**Empty stage policy**: If a callback filters all rows (or a stage produces zero rows), the pipeline raises `DataDesignerPipelineError` by default. Stages can opt in to empty output with `allow_empty=True` on `add_stage()`, in which case the pipeline short-circuits and skips subsequent stages.
+**Empty stage policy**: If a callback filters all rows (or a stage produces zero rows), the pipeline raises `DataDesignerPipelineError` by default. Stages can opt in to empty output with `allow_empty=True` on `add_stage()`, in which case the pipeline marks that stage as `completed_empty` and all downstream stages as `skipped_empty_upstream`. `PipelineResults` still contains every declared stage name: executed stages map to `DatasetCreationResults`, while skipped downstream stages map to `SkippedStageResult` with `status="skipped_empty_upstream"` and `upstream_stage=<stage_name>`. This avoids `KeyError`/`None` ambiguity and gives resume a durable state distinct from normal completion.
 
 #### `num_records` and seed behavior
 
@@ -179,6 +179,7 @@ The connection to #526/#525: chaining gives workflow-level checkpointing and sma
 `pipeline-metadata.json` records:
 - Pipeline name
 - Stage order, names, and configs used
+- Per-stage status: `completed`, `completed_empty`, `skipped_empty_upstream`, or `failed`
 - Per-stage fingerprint for resume invalidation: `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, seed sampling/selection controls, `after_version`, DD version, and the upstream stage fingerprint
 - `num_records` requested vs actual per stage
 - Which stage's output seeded the next
@@ -371,6 +372,7 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 - Resolve the metadata path from the explicit pipeline name.
 - Compute each stage's fingerprint via `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, seed sampling/selection controls, `after_version`, DD version, and upstream stage fingerprint; invalidate the stage and everything downstream on any mismatch.
 - Skip stages whose fingerprints match and are complete; for matching partial stages, call `DataDesigner.create(..., resume=ResumeMode.ALWAYS)` to use #526's batch/row-group resume.
+- Preserve `completed_empty` and `skipped_empty_upstream` statuses on resume when fingerprints still match; rerun from the first changed or missing upstream stage otherwise.
 - Before skipping or resuming a stage seeded by `after`, validate the recorded callback output path exists and can seed `LocalFileSeedSource`; if missing, invalidate that stage and descendants.
 - For invalidated stages, clear or replace the deterministic stage directory before starting fresh so `ArtifactStorage` does not timestamp away from the pipeline layout.
 - Depends on artifact layout from phase 1.
