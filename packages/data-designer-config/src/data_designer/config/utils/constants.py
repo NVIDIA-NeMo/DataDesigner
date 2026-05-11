@@ -378,7 +378,7 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
         "reasoning": {"model": "openai/gpt-oss-20b", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
         "vision": {
             "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-            "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS,
+            "inference_parameters": NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS,
         },
         "embedding": {
             "model": "openai/text-embedding-3-large",

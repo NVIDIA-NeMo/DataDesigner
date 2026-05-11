@@ -68,7 +68,7 @@ The following model configurations are automatically available when `OPENROUTER_
 |-------|-------|----------|---------------------|
 | `openrouter-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
 | `openrouter-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
-| `openrouter-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `openrouter-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | Vision and image understanding | `temperature=0.60, top_p=0.95` |
 | `openrouter-embedding` | `openai/text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
 
 

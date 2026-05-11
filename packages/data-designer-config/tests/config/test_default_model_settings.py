@@ -90,6 +90,10 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[10].alias == "openrouter-vision"
     assert builtin_model_configs[10].model == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
     assert builtin_model_configs[10].provider == "openrouter"
+    assert builtin_model_configs[10].inference_parameters == ChatCompletionInferenceParams(
+        temperature=0.60,
+        top_p=0.95,
+    )
     assert builtin_model_configs[11].alias == "openrouter-embedding"
     assert builtin_model_configs[11].model == "openai/text-embedding-3-large"
     assert builtin_model_configs[11].provider == "openrouter"
