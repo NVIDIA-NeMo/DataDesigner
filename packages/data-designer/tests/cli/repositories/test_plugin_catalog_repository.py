@@ -50,6 +50,14 @@ def test_add_catalog_normalizes_github_repository_url(tmp_path: Path) -> None:
     assert repository.get_catalog("research") == catalog
 
 
+def test_add_catalog_normalizes_github_repository_url_with_git_suffix(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+
+    catalog = repository.add_catalog("research", "https://github.com/acme/dd-plugins.git")
+
+    assert catalog.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json"
+
+
 def test_add_catalog_persists_only_public_catalog_fields(tmp_path: Path) -> None:
     repository = PluginCatalogRepository(tmp_path)
 
@@ -69,10 +77,29 @@ def test_add_catalog_normalizes_github_tree_url_with_subdirectory(tmp_path: Path
     assert catalog.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/custom-catalog/catalog/plugins.json"
 
 
+def test_add_catalog_normalizes_github_tree_url_with_git_suffix(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+
+    catalog = repository.add_catalog("research", "https://github.com/acme/dd-plugins.git/tree/main/custom-catalog")
+
+    assert catalog.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/custom-catalog/catalog/plugins.json"
+
+
 def test_add_catalog_normalizes_github_tree_url_ending_with_catalog(tmp_path: Path) -> None:
     repository = PluginCatalogRepository(tmp_path)
 
     catalog = repository.add_catalog("research", "https://github.com/acme/dd-plugins/tree/main/catalog")
+
+    assert catalog.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json"
+
+
+def test_add_catalog_normalizes_github_blob_url_with_git_suffix(tmp_path: Path) -> None:
+    repository = PluginCatalogRepository(tmp_path)
+
+    catalog = repository.add_catalog(
+        "research",
+        "https://github.com/acme/dd-plugins.git/blob/main/catalog/plugins.json",
+    )
 
     assert catalog.url == "https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json"
 
@@ -158,6 +185,18 @@ def test_load_catalog_does_not_fall_back_to_stale_cache_when_fresh_catalog_is_in
     catalog_path.write_text(json.dumps(_catalog_payload(schema_version=999, plugin_name="invalid-transform")))
 
     with pytest.raises(PluginCatalogError, match="unsupported catalog schema_version"):
+        repository.load_catalog("local")
+
+
+def test_load_catalog_does_not_fall_back_to_stale_cache_when_source_json_is_malformed(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(tmp_path, plugin_name="cached-transform")
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path), cache_ttl_seconds=0)
+
+    repository.load_catalog("local")
+    catalog_path.write_text("{")
+
+    with pytest.raises(PluginCatalogError, match="Failed to parse plugin catalog JSON"):
         repository.load_catalog("local")
 
 
