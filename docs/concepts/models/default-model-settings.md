@@ -107,13 +107,6 @@ Both methods operate on the same files, ensuring consistency across your entire 
 !!! warning "API Key Requirements"
     While default model configurations are always available, you need to set the appropriate API key environment variable (`NVIDIA_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`) to actually use the corresponding models for data generation. Without a valid API key, any attempt to generate data using that provider's models will fail.
 
-!!! warning "Deprecated: implicit default provider routing"
-    The `default:` key in `~/.data-designer/model_providers.yaml` and the registry-level
-    "default provider" concept are **deprecated** and will be removed in a future release.
-    Specify `provider=` explicitly on every `ModelConfig` instead — the built-in defaults
-    above already do this, and a `DeprecationWarning` is now emitted whenever the legacy
-    routing is exercised. See [issue #589](https://github.com/NVIDIA-NeMo/DataDesigner/issues/589).
-
 !!! tip "Environment Variables"
     Store your API keys in environment variables rather than hardcoding them in your scripts:
 

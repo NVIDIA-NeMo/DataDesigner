@@ -14,7 +14,6 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
     get_default_model_configs,
-    get_default_provider_name,
     get_default_providers,
     get_providers_with_missing_api_keys,
     resolve_seed_default_model_settings,
@@ -153,34 +152,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
-        # Only consult the YAML's `default:` key when we are also falling back to
-        # the YAML's `providers:` list. A user-supplied `model_providers` list
-        # owns its own default (first wins), so the YAML default must not leak
-        # in and either (a) hard-fail validation when the YAML names a provider
-        # absent from the supplied list or (b) silently override the
-        # documented first-wins ordering. See issue #588.
-        if model_providers is None:
-            self._model_providers = self._resolve_model_providers(None)
-            default_provider_name = get_default_provider_name()
-        else:
-            self._model_providers = self._resolve_model_providers(model_providers)
-            default_provider_name = None
+        self._model_providers = self._resolve_model_providers(model_providers)
         self._mcp_providers = mcp_providers or []
-        # When the YAML carries a default, ``get_default_provider_name`` already
-        # nudged the user with a ``DeprecationWarning``. Building the registry
-        # below would re-fire ``ModelProviderRegistry._warn_on_explicit_default``
-        # for the same root cause, so suppress that second warning. See PR #594
-        # review.
-        with warnings.catch_warnings():
-            if default_provider_name is not None:
-                warnings.filterwarnings(
-                    "ignore",
-                    message="ModelProviderRegistry.default is deprecated",
-                    category=DeprecationWarning,
-                )
-            self._model_provider_registry = resolve_model_provider_registry(
-                self._model_providers, default_provider_name
-            )
+        self._model_provider_registry = resolve_model_provider_registry(self._model_providers)
         self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
 
     @property
@@ -484,11 +458,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """Get the resolved model provider registry.
 
         Returns:
-            The ModelProviderRegistry containing the providers and default
-            resolved at construction time. The default is taken from the
-            first user-supplied provider when ``model_providers`` was passed
-            to the constructor; otherwise from the YAML's ``default:`` key
-            when set, falling back to the first provider in the YAML list.
+            The ModelProviderRegistry containing the providers resolved at
+            construction time, either the user-supplied ``model_providers``
+            list or the providers loaded from the YAML.
         """
         return self._model_provider_registry
 

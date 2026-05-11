@@ -170,38 +170,29 @@ def get_model_aliases_state(config_dir: Path) -> dict[str, Any]:
         return {
             "model_config_present": False,
             "provider_config_present": provider_registry is not None,
-            "default_provider": None if provider_registry is None else provider_registry.default,
             "items": items,
         }
 
     providers_by_name: dict[str, Any] = {}
     missing_key_names: set[str] = set()
-    default_provider: str | None = None
     if provider_registry is not None:
         providers_by_name = {p.name: p for p in provider_registry.providers}
-        default_provider = provider_registry.default or (
-            provider_registry.providers[0].name if provider_registry.providers else None
-        )
         missing_key_names = {p.name for p in get_providers_with_missing_api_keys(provider_registry.providers)}
 
     for mc in sorted(model_registry.model_configs, key=lambda m: m.alias):
-        effective = mc.provider or default_provider
         usable = True
         reason: str | None = None
-        if effective is None:
-            usable, reason = False, "No model provider is configured."
-        elif effective not in providers_by_name:
-            usable, reason = False, f"Provider {effective!r} is not configured."
-        elif effective in missing_key_names:
-            usable, reason = False, f"Provider {effective!r} is missing an API key."
+        if mc.provider not in providers_by_name:
+            usable, reason = False, f"Provider {mc.provider!r} is not configured."
+        elif mc.provider in missing_key_names:
+            usable, reason = False, f"Provider {mc.provider!r} is missing an API key."
 
         items.append(
             {
                 "model_alias": mc.alias,
                 "model": mc.model,
                 "generation_type": getattr(mc.generation_type, "value", str(mc.generation_type)),
-                "configured_provider": mc.provider,
-                "effective_provider": effective,
+                "provider": mc.provider,
                 "usable": usable,
                 "reason": reason,
             }
@@ -210,7 +201,6 @@ def get_model_aliases_state(config_dir: Path) -> dict[str, Any]:
     return {
         "model_config_present": True,
         "provider_config_present": provider_registry is not None,
-        "default_provider": default_provider,
         "items": items,
     }
 
