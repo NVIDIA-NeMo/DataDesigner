@@ -31,6 +31,7 @@ def controller(tmp_path: Path) -> PluginCatalogController:
     plugin_controller.catalog_service = MagicMock()
     plugin_controller.catalog_service.get_runtime_plugin_entries.return_value = []
     plugin_controller.catalog_service.suggest_entries.return_value = []
+    plugin_controller.catalog_service.list_installed_plugins.return_value = []
     plugin_controller.install_service = MagicMock()
     return plugin_controller
 
@@ -129,6 +130,10 @@ def test_run_list_renders_package_first_catalog_table(
         "data-designer-text-transform": package_entries,
     }
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.catalog_service.list_installed_plugins.return_value = [
+        InstalledPluginInfo(name="text-column", entry_point_value="data_designer_text_transform.plugin:plugin"),
+        InstalledPluginInfo(name="text-processor", entry_point_value="data_designer_text_transform.plugin:plugin"),
+    ]
 
     controller.run_list(catalog_alias="local", include_incompatible=True)
 
@@ -137,19 +142,33 @@ def test_run_list_renders_package_first_catalog_table(
     ]
     assert printed_tables
     assert printed_tables[0].title == "Catalog Plugin Packages"
+    assert printed_tables[0].leading == 1
     assert [column.header for column in printed_tables[0].columns] == [
         "Package",
         "Description",
         "Runtime Plugins",
         "Compatible",
+        "Installed",
         "Docs",
     ]
     assert list(printed_tables[0].columns[1].cells) == ["Transform text records"]
-    docs_cell = list(printed_tables[0].columns[4].cells)[0]
+    assert list(printed_tables[0].columns[3].cells) == ["✓"]
+    assert list(printed_tables[0].columns[4].cells) == ["✓"]
+    docs_cell = list(printed_tables[0].columns[5].cells)[0]
     assert isinstance(docs_cell, Text)
     assert docs_cell.plain == "docs"
     assert docs_cell.style is not None
     assert docs_cell.style.link == "https://docs.example.test/plugins/data-designer-text-transform/"
+    catalog_footer = mock_console.print.call_args_list[-2].args[0]
+    assert isinstance(catalog_footer, Text)
+    assert catalog_footer.plain == "  🗂️  Catalog: local"
+    catalog_footer_spans = catalog_footer.spans
+    assert catalog_footer_spans
+    assert catalog_footer_spans[0].style is not None
+    assert (
+        catalog_footer_spans[0].style.link
+        == "https://raw.githubusercontent.com/acme/dd-plugins/main/catalog/plugins.json"
+    )
 
     rendered_output = StringIO()
     narrow_console = Console(
@@ -162,6 +181,59 @@ def test_run_list_renders_package_first_catalog_table(
     narrow_console.print(printed_tables[0])
     assert "https://docs.example.test/plugins/data-designer-text-transform/" in rendered_output.getvalue()
     controller.catalog_service.group_entries_by_package.assert_called_once_with(package_entries)
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+def test_run_list_leaves_installed_column_empty_when_runtime_entry_points_are_missing(
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    package_entries = [
+        _entry(name="text-column", plugin_type="column-generator"),
+        _entry(name="text-processor", plugin_type="processor"),
+    ]
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.list_entries.return_value = package_entries
+    controller.catalog_service.group_entries_by_package.return_value = {
+        "data-designer-text-transform": package_entries,
+    }
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.catalog_service.list_installed_plugins.return_value = [
+        InstalledPluginInfo(name="text-column", entry_point_value="data_designer_text_transform.plugin:plugin"),
+    ]
+
+    controller.run_list(catalog_alias="local", include_incompatible=True)
+
+    printed_tables = [
+        call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
+    ]
+    assert list(printed_tables[0].columns[4].cells) == [""]
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+def test_run_list_marks_incompatible_packages_with_x(
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.list_entries.return_value = [entry]
+    controller.catalog_service.group_entries_by_package.return_value = {
+        "data-designer-text-transform": [entry],
+    }
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
+        False,
+        ["Data Designer 0.5.7 does not satisfy >=99.0"],
+    )
+
+    controller.run_list(catalog_alias="local", include_incompatible=True)
+
+    printed_tables = [
+        call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
+    ]
+    assert list(printed_tables[0].columns[3].cells) == ["x"]
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -181,6 +253,10 @@ def test_run_list_uses_vertical_layout_in_narrow_terminals(
         "data-designer-retrieval-sdg": package_entries,
     }
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.catalog_service.list_installed_plugins.return_value = [
+        InstalledPluginInfo(name="document-chunker", entry_point_value="data_designer_text_transform.plugin:plugin"),
+        InstalledPluginInfo(name="embedding-dedup", entry_point_value="data_designer_text_transform.plugin:plugin"),
+    ]
 
     controller.run_list(catalog_alias="local")
 
@@ -188,6 +264,8 @@ def test_run_list_uses_vertical_layout_in_narrow_terminals(
         call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
     ]
     assert printed_tables == []
+    mock_console.print.assert_any_call("  Compatible: ✓")
+    mock_console.print.assert_any_call("  Installed: ✓")
     mock_console.print.assert_any_call(
         "  Runtime plugins: document-chunker (seed-reader), embedding-dedup (column-generator)"
     )
