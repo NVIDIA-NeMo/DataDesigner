@@ -67,6 +67,8 @@ Fern publishing mirrors the MkDocs split during migration:
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 
+Release publishing also runs `fern/scripts/fern-release-version.py check` before building notebooks. A release fails early if the release tag is not represented in `docs.yml` and `versions/vX.Y.Z.yml`.
+
 ## Versioning
 
 Current Fern versions:
@@ -93,12 +95,12 @@ Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvi
 
 When cutting future Fern-native versions, use a hybrid model:
 
-1. Add the new version to `docs.yml`.
-2. Add `versions/vX.Y.Z.yml`.
+1. Run `make prepare-fern-release VERSION=X.Y.Z`.
+2. Review the generated `docs.yml` and `versions/vX.Y.Z.yml` changes.
 3. Reuse older page paths for unchanged content.
 4. Copy changed/new pages into `versions/vX.Y.Z/pages/...`.
 5. Point only changed nav entries at the copied `vX.Y.Z` pages.
-6. Update `latest.yml` and the `Latest · vX.Y.Z` label.
+6. Update `latest.yml` if the rolling docs should diverge after release prep.
 7. Run `make check-fern-docs`.
 
 Do not add a new version entry without deciding which pages are release-specific. A version YAML that points at shared pages can drift when those shared files change later.
@@ -144,6 +146,8 @@ fern/
 | `fern generate --docs --preview` | Hosted preview on `*.docs.buildwithfern.com` (needs Fern token) |
 | `make generate-fern-api-reference` | Generate local Fern API reference with `py2fern` |
 | `make generate-fern-api-reference-native` | Generate Fern API reference with Fern CLI (requires Fern auth) |
+| `make prepare-fern-release VERSION=X.Y.Z` | Add Fern version files before cutting a release |
+| `make check-fern-release-version VERSION=X.Y.Z` | Verify Fern release metadata exists before publishing |
 | `make prepare-fern-docs` | Generate local Fern artifacts |
 | `make check-fern-docs` | Generate local Fern artifacts and run `fern check` |
 | `make serve-fern-docs-locally` | Generate local Fern artifacts and serve local docs |

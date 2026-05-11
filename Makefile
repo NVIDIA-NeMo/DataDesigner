@@ -82,6 +82,8 @@ help:
 	@echo "  generate-fern-notebooks-with-outputs - Full pipeline: execute notebooks (needs API key), colabify, convert to Fern"
 	@echo "  generate-fern-api-reference - Generate local Fern API reference with py2fern"
 	@echo "  generate-fern-api-reference-native - Generate Fern API reference with Fern CLI (requires auth)"
+	@echo "  prepare-fern-release VERSION=X.Y.Z - Add Fern version files before cutting a release"
+	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
 	@echo "  check-fern-docs           - Generate local Fern artifacts and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
@@ -497,6 +499,18 @@ generate-fern-api-reference-native:
 	@echo "📚 Generating Fern API reference with Fern CLI..."
 	cd fern && $(FERN) docs md generate
 
+prepare-fern-release:
+ifndef VERSION
+	$(error VERSION is required, e.g. make prepare-fern-release VERSION=0.5.10)
+endif
+	$(DOCS_PYTHON) fern/scripts/fern-release-version.py prepare --version $(VERSION)
+
+check-fern-release-version:
+ifndef VERSION
+	$(error VERSION is required, e.g. make check-fern-release-version VERSION=0.5.10)
+endif
+	$(DOCS_PYTHON) fern/scripts/fern-release-version.py check --version $(VERSION)
+
 prepare-fern-docs: generate-fern-api-reference generate-fern-notebooks
 	@echo "✅ Fern local artifacts ready"
 
@@ -715,7 +729,7 @@ clean-test-coverage:
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
         build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
-        check-fern-docs check-license-headers \
+        check-fern-docs check-fern-release-version check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \
@@ -724,7 +738,7 @@ clean-test-coverage:
         generate-colab-notebooks generate-fern-api-reference generate-fern-api-reference-native generate-fern-notebooks generate-fern-notebooks-with-outputs help \
         install install-dev install-dev-notebooks install-dev-recipes \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
-        perf-import perf-import-runtime prepare-fern-docs publish serve-docs-locally serve-fern-docs-locally show-versions \
+        perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-docs-locally serve-fern-docs-locally show-versions \
         health-checks \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
         test-interface test-interface-isolated test-isolated \

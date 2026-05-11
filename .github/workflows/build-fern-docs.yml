@@ -14,7 +14,36 @@ on:
 permissions: {}
 
 jobs:
+  check-release-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Find release tag
+        id: release-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            RELEASE_TAG="${{ github.event.release.tag_name }}"
+          else
+            RELEASE_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null)
+            if [ -z "$RELEASE_TAG" ]; then
+              echo "::error::Could not find the latest published release tag."
+              exit 1
+            fi
+          fi
+
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check Fern release version
+        run: python3 fern/scripts/fern-release-version.py check --version "${{ steps.release-tag.outputs.release_tag }}"
+
   build-notebooks:
+    needs: check-release-version
     uses: ./.github/workflows/build-notebooks.yml
     permissions:
       actions: read
@@ -24,7 +53,9 @@ jobs:
     secrets: inherit
 
   publish:
-    needs: build-notebooks
+    needs:
+      - check-release-version
+      - build-notebooks
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -29,12 +29,14 @@ Do not call a version frozen if its YAML points at shared pages that may change 
 
 For a future Fern-native release:
 
-1. Add `vX.Y.Z` to `fern/docs.yml`.
-2. Add `fern/versions/vX.Y.Z.yml`.
+1. Run `make prepare-fern-release VERSION=X.Y.Z`.
+2. Review the generated `fern/docs.yml` and `fern/versions/vX.Y.Z.yml` changes.
 3. Reuse older paths for unchanged pages.
 4. Copy only changed/new pages into `fern/versions/vX.Y.Z/pages/...`.
 5. Update only those nav paths to the copied pages.
-6. Update `latest.yml` and the `Latest · vX.Y.Z` label.
+6. Update `latest.yml` if the rolling docs should diverge after release prep.
 7. Run `make check-fern-docs`.
+
+Release publishing runs `fern/scripts/fern-release-version.py check` before building notebooks. If a release tag is not represented in `docs.yml` and `versions/vX.Y.Z.yml`, the workflow should fail early.
 
 Older releases before the Fern migration stay on the MkDocs archive through the "Older versions" page and redirects in `docs.yml`.
