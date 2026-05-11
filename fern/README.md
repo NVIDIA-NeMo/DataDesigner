@@ -67,7 +67,7 @@ Fern publishing mirrors the MkDocs split during migration:
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 
-Release publishing also runs `fern/scripts/fern-release-version.py check` before building notebooks. A release fails early if the release tag is not represented in `docs.yml` and `versions/vX.Y.Z.yml`.
+Release publishing also runs `fern/scripts/fern-release-version.py check` before building notebooks. A release fails early if the release tag is not represented in `docs.yml` and `versions/vX.Y.Z.yml`. Manual dispatch can validate a specific tag through the workflow's `release_tag` input; otherwise it uses the latest published release.
 
 ## Versioning
 

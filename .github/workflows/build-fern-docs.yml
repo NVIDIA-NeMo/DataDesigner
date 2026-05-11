@@ -7,6 +7,10 @@ on:
         description: "Use cached notebooks for unchanged sources"
         type: boolean
         default: true
+      release_tag:
+        description: "Release tag to validate and publish. Defaults to the latest published release."
+        type: string
+        required: false
   release:
     types:
       - published
@@ -26,11 +30,16 @@ jobs:
         id: release-tag
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            RELEASE_TAG="${{ github.event.release.tag_name }}"
+          if [ "$EVENT_NAME" = "release" ]; then
+            RELEASE_TAG="$EVENT_RELEASE_TAG"
+          elif [ -n "$INPUT_RELEASE_TAG" ]; then
+            RELEASE_TAG="$INPUT_RELEASE_TAG"
           else
-            RELEASE_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null)
+            RELEASE_TAG=$(gh release view --json tagName -q .tagName)
             if [ -z "$RELEASE_TAG" ]; then
               echo "::error::Could not find the latest published release tag."
               exit 1
@@ -40,7 +49,9 @@ jobs:
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Check Fern release version
-        run: python3 fern/scripts/fern-release-version.py check --version "${{ steps.release-tag.outputs.release_tag }}"
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
+        run: python3 fern/scripts/fern-release-version.py check --version "$RELEASE_TAG"
 
   build-notebooks:
     needs: check-release-version
