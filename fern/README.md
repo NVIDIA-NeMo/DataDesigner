@@ -85,11 +85,23 @@ fern/versions/
 
 `docs.yml` registers `slug: latest`, `slug: v0.5.9`, `slug: v0.5.8`, and `slug: older-versions`. The `latest` and `v0.5.9` nav files intentionally reuse the migrated `v0.5.8/pages/` tree for most content so the first Fern-native versions do not duplicate every page. Add version-specific page copies only when content diverges.
 
+Fern version URLs are based on the active version entry, not the source file path. A `v0.5.9` page can point at `./v0.5.8/pages/...` and still render under `/nemo/datadesigner/v0.5.9/...`; users do not see the reused source path.
+
 Dev Notes are versioned: `latest.yml` can include posts from `main` that are not in old release navs yet. Frozen release navs (`v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point.
 
 Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. The Fern version picker includes an "Older versions" page linking to those archives.
 
-When cutting future Fern-native versions, add a version YAML that reuses shared pages by default. Copy only pages that need version-specific content.
+When cutting future Fern-native versions, use a hybrid model:
+
+1. Add the new version to `docs.yml`.
+2. Add `versions/vX.Y.Z.yml`.
+3. Reuse older page paths for unchanged content.
+4. Copy changed/new pages into `versions/vX.Y.Z/pages/...`.
+5. Point only changed nav entries at the copied `vX.Y.Z` pages.
+6. Update `latest.yml` and the `Latest · vX.Y.Z` label.
+7. Run `make check-fern-docs`.
+
+Do not add a new version entry without deciding which pages are release-specific. A version YAML that points at shared pages can drift when those shared files change later.
 
 ## Folder layout
 
