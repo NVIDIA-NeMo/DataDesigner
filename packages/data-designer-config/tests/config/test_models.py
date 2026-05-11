@@ -4,6 +4,7 @@
 import base64
 import json
 import tempfile
+import warnings
 from collections import Counter
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def test_image_context_get_contexts_single_string():
     assert image_context.get_contexts({"image_base64": "somebase64encodedimagestring"}) == [
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,somebase64encodedimagestring", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,somebase64encodedimagestring"},
         }
     ]
 
@@ -46,7 +47,7 @@ def test_image_context_get_contexts_single_string():
     assert image_context.get_contexts({"image_url": "https://example.com/examle_image.png"}) == [
         {
             "type": "image_url",
-            "image_url": "https://example.com/examle_image.png",
+            "image_url": {"url": "https://example.com/examle_image.png"},
         }
     ]
 
@@ -59,15 +60,15 @@ def test_image_context_get_contexts_list_of_strings():
     assert image_context.get_contexts({"image_base64": ["image1base64", "image2base64", "image3base64"]}) == [
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image1base64"},
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image2base64"},
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image3base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image3base64"},
         },
     ]
 
@@ -77,11 +78,11 @@ def test_image_context_get_contexts_list_of_strings():
     ) == [
         {
             "type": "image_url",
-            "image_url": "https://example.com/image1.png",
+            "image_url": {"url": "https://example.com/image1.png"},
         },
         {
             "type": "image_url",
-            "image_url": "https://example.com/image2.png",
+            "image_url": {"url": "https://example.com/image2.png"},
         },
     ]
 
@@ -95,11 +96,11 @@ def test_image_context_get_contexts_numpy_array():
     assert image_context.get_contexts({"image_base64": numpy_array}) == [
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image1base64"},
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image2base64"},
         },
     ]
 
@@ -108,11 +109,11 @@ def test_image_context_get_contexts_numpy_array():
     assert image_context.get_contexts({"image_url": numpy_array}) == [
         {
             "type": "image_url",
-            "image_url": "https://example.com/image1.png",
+            "image_url": {"url": "https://example.com/image1.png"},
         },
         {
             "type": "image_url",
-            "image_url": "https://example.com/image2.png",
+            "image_url": {"url": "https://example.com/image2.png"},
         },
     ]
 
@@ -126,11 +127,11 @@ def test_image_context_get_contexts_json_serialized_list():
     assert image_context.get_contexts({"image_base64": json_str}) == [
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image1base64"},
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
+            "image_url": {"url": "data:image/png;base64,image2base64"},
         },
     ]
 
@@ -139,11 +140,11 @@ def test_image_context_get_contexts_json_serialized_list():
     assert image_context.get_contexts({"image_url": json_str}) == [
         {
             "type": "image_url",
-            "image_url": "https://example.com/image1.png",
+            "image_url": {"url": "https://example.com/image1.png"},
         },
         {
             "type": "image_url",
-            "image_url": "https://example.com/image2.png",
+            "image_url": {"url": "https://example.com/image2.png"},
         },
     ]
 
@@ -152,11 +153,10 @@ def test_image_context_get_contexts_json_string_not_list():
     """Test get_contexts with a JSON string that isn't a list (should treat as single string)."""
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
     json_str = json.dumps({"nested": "object"})
-    # Should treat the entire JSON string as a single image URL
     assert image_context.get_contexts({"image_url": json_str}) == [
         {
             "type": "image_url",
-            "image_url": json_str,
+            "image_url": {"url": json_str},
         }
     ]
 
@@ -168,7 +168,7 @@ def test_image_context_get_contexts_invalid_json():
     assert image_context.get_contexts({"image_url": invalid_json}) == [
         {
             "type": "image_url",
-            "image_url": invalid_json,
+            "image_url": {"url": invalid_json},
         }
     ]
 
@@ -195,7 +195,7 @@ def test_image_context_auto_detect_url() -> None:
     """Test auto-detection with URL value (no data_type)."""
     context = ImageContext(column_name="image_col")
     result = context.get_contexts({"image_col": "https://example.com/image.png"})
-    assert result == [{"type": "image_url", "image_url": "https://example.com/image.png"}]
+    assert result == [{"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}]
 
 
 def test_image_context_auto_detect_base64(minimal_png_base64: str) -> None:
@@ -205,7 +205,6 @@ def test_image_context_auto_detect_base64(minimal_png_base64: str) -> None:
     result = context.get_contexts({"image_col": png_base64})
     assert len(result) == 1
     assert result[0]["type"] == "image_url"
-    assert result[0]["image_url"]["format"] == "png"
     assert f"base64,{png_base64}" in result[0]["image_url"]["url"]
 
 
@@ -415,8 +414,8 @@ def test_generation_parameters_max_tokens_validation():
 
 def test_load_model_configs():
     stub_model_configs = [
-        ModelConfig(alias="test", model="test"),
-        ModelConfig(alias="test2", model="test2"),
+        ModelConfig(alias="test", model="test", provider="test-provider"),
+        ModelConfig(alias="test2", model="test2", provider="test-provider"),
     ]
     stub_model_configs_dict_list = [mc.model_dump(mode="json") for mc in stub_model_configs]
     assert load_model_configs([]) == []
@@ -456,27 +455,63 @@ def test_load_model_configs():
 
 def test_model_config_construction():
     # test default construction
-    model_config = ModelConfig(alias="test", model="test")
+    model_config = ModelConfig(alias="test", model="test", provider="test-provider")
     assert model_config.inference_parameters == ChatCompletionInferenceParams()
     assert model_config.generation_type == GenerationType.CHAT_COMPLETION
 
     # test construction with completion inference parameters
     completion_params = ChatCompletionInferenceParams(temperature=0.5, top_p=0.5, max_tokens=100)
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=completion_params)
+    model_config = ModelConfig(
+        alias="test", model="test", provider="test-provider", inference_parameters=completion_params
+    )
     assert model_config.inference_parameters == completion_params
     assert model_config.generation_type == GenerationType.CHAT_COMPLETION
 
     # test construction with embedding inference parameters
     embedding_params = EmbeddingInferenceParams(dimensions=100)
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=embedding_params)
+    model_config = ModelConfig(
+        alias="test", model="test", provider="test-provider", inference_parameters=embedding_params
+    )
     assert model_config.inference_parameters == embedding_params
     assert model_config.generation_type == GenerationType.EMBEDDING
 
     # test construction with image inference parameters
     image_params = ImageInferenceParams(extra_body={"size": "1024x1024", "quality": "hd"})
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=image_params)
+    model_config = ModelConfig(alias="test", model="test", provider="test-provider", inference_parameters=image_params)
     assert model_config.inference_parameters == image_params
     assert model_config.generation_type == GenerationType.IMAGE
+
+
+def test_model_config_provider_none_emits_deprecation_warning():
+    """Regression for #589: omitting ``provider=`` (or passing ``provider=None``)
+    on a ``ModelConfig`` is deprecated; construction must emit a
+    ``DeprecationWarning`` pointing users at the explicit-provider migration.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig(alias="legacy", model="legacy-model")
+
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig(alias="legacy", model="legacy-model", provider=None)
+
+
+def test_model_config_provider_none_via_model_validate_emits_deprecation_warning():
+    """Regression for #589 / PR #594 review: deserialising legacy on-disk configs
+    via ``ModelConfig.model_validate(...)`` must surface the same
+    ``DeprecationWarning`` as direct construction. Both paths funnel through
+    the same validator today, so this pin protects against a future refactor
+    that, e.g., only runs the validator on construction and not on revalidation.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig.model_validate({"alias": "legacy", "model": "legacy-model"})
+
+
+def test_model_config_with_provider_does_not_warn():
+    """Pin the post-deprecation happy path: specifying ``provider=`` must not
+    emit any deprecation warning.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        ModelConfig(alias="modern", model="modern-model", provider="some-provider")
 
 
 def test_model_config_generation_type_from_dict():
@@ -485,6 +520,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "test",
+            "provider": "test-provider",
             "inference_parameters": {"generation_type": "embedding", "dimensions": 100},
         }
     )
@@ -495,6 +531,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "test",
+            "provider": "test-provider",
             "inference_parameters": {"generation_type": "chat-completion", "temperature": 0.5},
         }
     )
@@ -505,6 +542,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "image-model",
+            "provider": "test-provider",
             "inference_parameters": {
                 "generation_type": "image",
                 "extra_body": {"size": "1024x1024", "quality": "hd"},

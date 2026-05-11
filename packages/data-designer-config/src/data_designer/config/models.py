@@ -31,6 +31,7 @@ from data_designer.config.utils.image_helpers import (
     load_image_path_to_base64,
 )
 from data_designer.config.utils.io_helpers import smart_load_yaml
+from data_designer.config.utils.warning_helpers import warn_at_caller
 
 logger = logging.getLogger(__name__)
 
@@ -121,13 +122,11 @@ class ImageContext(ModalityContext):
         for context_value in context_values:
             context = dict(type="image_url")
             if self.data_type is not None:
-                # Explicit data_type: use existing behavior
                 if self.data_type == ModalityDataType.URL:
-                    context["image_url"] = context_value
+                    context["image_url"] = {"url": context_value}
                 else:
                     context["image_url"] = {
                         "url": f"data:image/{self.image_format.value};base64,{context_value}",
-                        "format": self.image_format.value,
                     }
             else:
                 # Auto-detect: resolve file paths, pass through URLs, assume base64 otherwise
@@ -136,7 +135,7 @@ class ImageContext(ModalityContext):
 
         return contexts
 
-    def _auto_resolve_context_value(self, context_value: str, base_path: str | None) -> str | dict[str, str]:
+    def _auto_resolve_context_value(self, context_value: str, base_path: str | None) -> dict[str, str]:
         """Auto-detect the format of a context value and resolve it.
 
         Resolution rules:
@@ -150,7 +149,7 @@ class ImageContext(ModalityContext):
                 return self._format_base64_context(base64_data)
 
         if is_image_url(context_value):
-            return context_value
+            return {"url": context_value}
 
         return self._format_base64_context(context_value)
 
@@ -165,7 +164,6 @@ class ImageContext(ModalityContext):
             image_format = detect_image_format(image_bytes)
         return {
             "url": f"data:image/{image_format.value};base64,{base64_data}",
-            "format": image_format.value,
         }
 
     @model_validator(mode="after")
@@ -287,7 +285,7 @@ class BaseInferenceParams(ConfigBase, ABC):
     """Base configuration for inference parameters.
 
     Attributes:
-        generation_type: Type of generation (chat-completion or embedding). Acts as discriminator.
+        generation_type: Type of generation (chat-completion, embedding, or image). Acts as discriminator.
         max_parallel_requests: Maximum number of parallel requests to the model API.
         timeout: Timeout in seconds for each request.
         extra_body: Additional parameters to pass to the model API.
@@ -506,7 +504,10 @@ class ModelConfig(ConfigBase):
         model: Model identifier (e.g., from build.nvidia.com or other providers).
         inference_parameters: Inference parameters for the model (temperature, top_p, max_tokens, etc.).
             The generation_type is determined by the type of inference_parameters.
-        provider: Optional model provider name if using custom providers.
+        provider: Name of the model provider. Required in a future release. Leaving
+            ``provider`` unset (or ``None``) currently routes through the registry's
+            implicit default and is **deprecated**; specify ``provider=`` explicitly.
+            See issue #589.
         skip_health_check: Whether to skip the health check for this model. Defaults to False.
     """
 
@@ -537,6 +538,22 @@ class ModelConfig(ConfigBase):
             else:
                 return ChatCompletionInferenceParams(**value)
         return value
+
+    @model_validator(mode="after")
+    def _warn_on_implicit_provider(self) -> Self:
+        if self.provider is None:
+            # Use ``warn_at_caller`` so the warning is attributed to the user's
+            # ``ModelConfig(...)`` / ``model_validate(...)`` call rather than a
+            # pydantic-internal frame. Without this, every call dedupes to the
+            # same pydantic line and only the first emission is shown. See
+            # PR #594 review.
+            warn_at_caller(
+                f"ModelConfig.provider=None is deprecated and will be required in a future release. "
+                f"Specify provider= explicitly on ModelConfig(alias={self.alias!r}, ...). "
+                "See issue #589.",
+                DeprecationWarning,
+            )
+        return self
 
 
 class ModelProvider(ConfigBase):

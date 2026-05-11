@@ -93,7 +93,7 @@ class DatetimeSamplerParams(ConfigBase):
     Attributes:
         start (required): Earliest possible datetime for the sampling range (inclusive). Must be a valid
             datetime string parseable by pandas.to_datetime().
-        end (required): Latest possible datetime for the sampling range (inclusive). Must be a valid
+        end (required): Exclusive upper bound for the sampling range. Must be a valid
             datetime string parseable by pandas.to_datetime().
         unit: Time unit for sampling granularity. Options:
             - "Y": Years
@@ -105,7 +105,7 @@ class DatetimeSamplerParams(ConfigBase):
     """
 
     start: str = Field(..., description="Earliest possible datetime for sampling range, inclusive.")
-    end: str = Field(..., description="Latest possible datetime for sampling range, inclusive.")
+    end: str = Field(..., description="Exclusive upper bound for datetime sampling range.")
     unit: Literal["Y", "M", "D", "h", "m", "s"] = Field(
         default="D",
         description="Sampling units, e.g. the smallest possible time interval between samples.",
@@ -394,13 +394,13 @@ class UniformSamplerParams(ConfigBase):
 
     Attributes:
         low (required): Lower bound of the uniform distribution (inclusive). Can be any real number.
-        high (required): Upper bound of the uniform distribution (inclusive). Must be greater than `low`.
+        high (required): Upper bound of the uniform distribution. Must be greater than `low`.
         decimal_places: Optional number of decimal places to round sampled values to. If None,
             values are not rounded and may have many decimal places.
     """
 
     low: float = Field(..., description="Lower bound of the uniform distribution, inclusive.")
-    high: float = Field(..., description="Upper bound of the uniform distribution, inclusive.")
+    high: float = Field(..., description="Upper bound of the uniform distribution.")
     decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
@@ -418,9 +418,9 @@ class PersonSamplerParams(ConfigBase):
     """Parameters for sampling synthetic person data with demographic attributes.
 
     Generates realistic synthetic person data including names, addresses, phone numbers, and other
-    demographic information. Data can be sampled from managed datasets (when available) or generated
-    using Faker. The sampler supports filtering by locale, sex, age, geographic location, and can
-    optionally include synthetic persona descriptions.
+    demographic information from managed datasets. The sampler supports filtering by locale, sex, age,
+    geographic location, and selected managed-dataset fields, and can optionally include synthetic
+    persona descriptions. For Faker-generated person data, use PersonFromFakerSamplerParams.
 
     Attributes:
         locale: Locale string determining the language and geographic region for synthetic people.
@@ -436,9 +436,8 @@ class PersonSamplerParams(ConfigBase):
         with_synthetic_personas: If True, appends additional synthetic persona columns including
             personality traits, interests, and background descriptions. Only supported for certain
             locales with managed datasets.
-        sample_dataset_when_available: If True, samples from curated managed datasets when available
-            for the specified locale. If False or unavailable, falls back to Faker-generated data.
-            Managed datasets typically provide more realistic and diverse synthetic people.
+        select_field_values: Optional field-value filters for managed datasets. Supported field
+            names are checked against the managed person data fields.
     """
 
     locale: str = Field(

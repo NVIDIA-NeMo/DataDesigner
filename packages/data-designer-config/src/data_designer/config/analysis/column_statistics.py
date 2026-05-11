@@ -268,7 +268,7 @@ class ValidationColumnStatistics(GeneralColumnStatistics):
 
     Inherits general statistics plus validation-specific metrics including the count and
     percentage of records that passed validation. Stores results from validation logic
-    (Python, SQL, or remote) executed against target columns.
+    (Python, SQL, local callable, or remote) executed against target columns.
 
     Attributes:
         num_valid_records: Number of records that passed validation.

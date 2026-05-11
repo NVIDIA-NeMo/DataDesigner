@@ -24,6 +24,7 @@ from data_designer.config.utils.constants import (
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
 from data_designer.config.utils.io_helpers import load_config_file, save_config_file
+from data_designer.config.utils.warning_helpers import warn_at_caller
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,28 @@ def get_default_providers() -> list[ModelProvider]:
 
 
 def get_default_provider_name() -> str | None:
-    return _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
+    """Return the YAML's ``default:`` provider name, if set.
+
+    Deprecated: this function and the underlying YAML key are deprecated and
+    will be removed in a future release. Specify ``provider=`` explicitly on
+    each ``ModelConfig`` instead. See issue #589.
+    """
+    default = _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
+    if default is not None:
+        # ``warn_at_caller`` (rather than ``warnings.warn(stacklevel=2)``) so the
+        # warning attributes to the user's call site rather than this library
+        # module. The only real call path is ``DataDesigner.__init__``, which
+        # is itself a ``data_designer`` frame; under default Python filters,
+        # library-attributed ``DeprecationWarning`` entries are silenced
+        # (``ignore::DeprecationWarning``), so library attribution = invisible
+        # warning. See PR #594 review.
+        warn_at_caller(
+            f"The 'default:' key in {MODEL_PROVIDERS_FILE_PATH} is deprecated and will "
+            "be removed in a future release. Remove it and specify provider= explicitly "
+            "on each ModelConfig instead. See issue #589.",
+            DeprecationWarning,
+        )
+    return default
 
 
 def resolve_seed_default_model_settings() -> None:

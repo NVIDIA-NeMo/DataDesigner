@@ -114,13 +114,13 @@ def test_image_cell_generator_missing_columns_error(stub_image_column_config, st
 
 
 def test_image_cell_generator_empty_prompt_error(stub_resource_provider):
-    """Test that empty rendered prompt raises UserTemplateError."""
+    """Test that empty rendered prompt is rejected by the secure renderer."""
     # Create config with template that renders to empty string
     config = ImageColumnConfig(name="test_image", prompt="{{ empty }}", model_alias="test_model")
 
     generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
 
-    with pytest.raises(UserTemplateError):
+    with pytest.raises(UserTemplateError, match="invalid"):
         generator.generate(data={"empty": ""})
 
 
@@ -172,7 +172,7 @@ def test_image_cell_generator_with_multi_modal_context(stub_resource_provider):
         assert call_args.kwargs["multi_modal_context"] is not None
         assert len(call_args.kwargs["multi_modal_context"]) == 1
         assert call_args.kwargs["multi_modal_context"][0]["type"] == "image_url"
-        assert call_args.kwargs["multi_modal_context"][0]["image_url"] == "https://example.com/image.png"
+        assert call_args.kwargs["multi_modal_context"][0]["image_url"] == {"url": "https://example.com/image.png"}
 
 
 def test_image_cell_generator_with_base64_multi_modal_context(stub_resource_provider):
@@ -302,4 +302,4 @@ def test_image_cell_generator_auto_detect_passes_through_urls(stub_resource_prov
         mock_generate.assert_called_once()
         context = mock_generate.call_args.kwargs["multi_modal_context"]
         assert context is not None
-        assert context[0]["image_url"] == "https://example.com/image.png"
+        assert context[0]["image_url"] == {"url": "https://example.com/image.png"}

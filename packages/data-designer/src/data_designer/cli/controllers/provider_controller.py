@@ -27,6 +27,7 @@ from data_designer.cli.ui import (
     print_warning,
     select_with_arrows,
 )
+from data_designer.config.utils.warning_helpers import warn_at_caller
 
 if TYPE_CHECKING:
     from data_designer.engine.model_provider import ModelProvider
@@ -288,6 +289,23 @@ class ProviderController:
 
     def _handle_change_default(self) -> None:
         """Handle changing the default provider."""
+        deprecation_msg = (
+            "The 'Change default provider' workflow is deprecated and will be removed "
+            "in a future release. Specify provider= explicitly on each ModelConfig "
+            "instead of relying on a registry-level default. See issue #589."
+        )
+        print_warning(deprecation_msg)
+        # ``print_warning`` always shows the user the message in the console,
+        # but ``warnings.warn`` is what's observable to programmatic callers
+        # (``pytest.warns``, ``filterwarnings("error", ...)``). With
+        # ``stacklevel=2`` attribution lands on the menu dispatcher in this
+        # same module — a ``data_designer.cli.*`` frame — and Python's default
+        # ``ignore::DeprecationWarning`` filter silences it. ``warn_at_caller``
+        # walks past every ``data_designer.*`` frame so the warning attributes
+        # to the user's call site and stays visible. See PR #594 review.
+        warn_at_caller(deprecation_msg, DeprecationWarning)
+        console.print()
+
         providers = self.service.list_all()
         current_default = self.service.get_default()
 

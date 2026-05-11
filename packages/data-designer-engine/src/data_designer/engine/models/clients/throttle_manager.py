@@ -28,7 +28,6 @@ class ThrottleDomain(str, Enum):
 # ---------------------------------------------------------------------------
 
 DEFAULT_MIN_LIMIT: int = 1
-DEFAULT_ACQUIRE_TIMEOUT: float = 300.0
 CAPACITY_POLL_INTERVAL: float = 0.05
 
 
@@ -310,6 +309,15 @@ class ThrottleManager:
         with self._lock:
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.in_flight = max(0, state.in_flight - 1)
+            # Non-rate-limit failure breaks the 429 cascade: a sequence like
+            # 429 → 500 → 429 should treat the second 429 as the start of a
+            # new cascade. But only after the prior burst has fully drained
+            # (in_flight == 0) - otherwise mixed responses from a single
+            # in-flight wave (429 → 500 → 429 with concurrent slots) would
+            # double-reduce the limit even though the provider hasn't
+            # recovered between the two 429s.
+            if state.in_flight == 0:
+                state.consecutive_429s = 0
 
     # -------------------------------------------------------------------
     # Sync / async wrappers
@@ -321,9 +329,17 @@ class ThrottleManager:
         provider_name: str,
         model_id: str,
         domain: ThrottleDomain,
-        timeout: float = DEFAULT_ACQUIRE_TIMEOUT,
+        timeout: float | None = None,
     ) -> None:
-        deadline = time.monotonic() + timeout
+        """Block until a permit is available.
+
+        ``timeout=None`` (the default) waits indefinitely; the per-request HTTP
+        timeout (``inference_parameters.timeout``) is the only deadline that bounds
+        actual work, and queue waits scale naturally with provider speed and
+        AIMD's adaptive concurrency. Pass an explicit float for tests or for
+        support cases where a queue-wait deadline is genuinely desired.
+        """
+        deadline = (time.monotonic() + timeout) if timeout is not None else None
         wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
         if wait == 0.0:
             return
@@ -343,13 +359,17 @@ class ThrottleManager:
                 )
         try:
             while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0 or wait > remaining:
-                    raise TimeoutError(
-                        f"Throttle acquire timed out after {timeout:.0f}s "
-                        f"for {provider_name}/{model_id} [{domain.value}]"
-                    )
-                time.sleep(min(wait, remaining))
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or wait > remaining:
+                        raise TimeoutError(
+                            f"Throttle acquire timed out after {timeout:.0f}s "
+                            f"for {provider_name}/{model_id} [{domain.value}]"
+                        )
+                    sleep_for = min(wait, remaining)
+                else:
+                    sleep_for = wait
+                time.sleep(sleep_for)
                 wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
                 if wait == 0.0:
                     return
@@ -370,9 +390,17 @@ class ThrottleManager:
         provider_name: str,
         model_id: str,
         domain: ThrottleDomain,
-        timeout: float = DEFAULT_ACQUIRE_TIMEOUT,
+        timeout: float | None = None,
     ) -> None:
-        deadline = time.monotonic() + timeout
+        """Block until a permit is available.
+
+        ``timeout=None`` (the default) waits indefinitely; the per-request HTTP
+        timeout (``inference_parameters.timeout``) is the only deadline that bounds
+        actual work, and queue waits scale naturally with provider speed and
+        AIMD's adaptive concurrency. Pass an explicit float for tests or for
+        support cases where a queue-wait deadline is genuinely desired.
+        """
+        deadline = (time.monotonic() + timeout) if timeout is not None else None
         wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
         if wait == 0.0:
             return
@@ -392,13 +420,17 @@ class ThrottleManager:
                 )
         try:
             while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0 or wait > remaining:
-                    raise TimeoutError(
-                        f"Throttle acquire timed out after {timeout:.0f}s "
-                        f"for {provider_name}/{model_id} [{domain.value}]"
-                    )
-                await asyncio.sleep(min(wait, remaining))
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or wait > remaining:
+                        raise TimeoutError(
+                            f"Throttle acquire timed out after {timeout:.0f}s "
+                            f"for {provider_name}/{model_id} [{domain.value}]"
+                        )
+                    sleep_for = min(wait, remaining)
+                else:
+                    sleep_for = wait
+                await asyncio.sleep(sleep_for)
                 wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
                 if wait == 0.0:
                     return

@@ -13,7 +13,7 @@ from pyarrow import ArrowNotImplementedError
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.io_helpers import load_processor_dataset
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage, ResumeMode
 
 
 @pytest.fixture
@@ -412,3 +412,77 @@ def test_standalone_load_processor_dataset_raises_file_not_found(tmp_path):
     """Standalone function raises FileNotFoundError (not ArtifactStorageError)."""
     with pytest.raises(FileNotFoundError, match="No artifacts found"):
         load_processor_dataset(tmp_path, "nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# Resume flag tests
+# ---------------------------------------------------------------------------
+
+
+def test_resolved_dataset_name_creates_timestamped_copy_when_folder_exists(tmp_path):
+    """Default behaviour: existing non-empty folder gets a timestamped sibling."""
+    existing = tmp_path / "dataset"
+    existing.mkdir()
+    (existing / "some_file.txt").write_text("x")
+
+    storage = ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset")
+    name = storage.resolved_dataset_name
+    assert name != "dataset"
+    assert name.startswith("dataset_")
+
+
+def test_resolved_dataset_name_resume_uses_existing_folder(tmp_path):
+    """With resume=ALWAYS, an existing non-empty folder is used as-is."""
+    existing = tmp_path / "dataset"
+    existing.mkdir()
+    (existing / "some_file.txt").write_text("x")
+
+    storage = ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset", resume=ResumeMode.ALWAYS)
+    assert storage.resolved_dataset_name == "dataset"
+
+
+def test_resolved_dataset_name_resume_raises_when_no_existing_folder(tmp_path):
+    """With resume=ALWAYS, missing dataset folder raises ArtifactStorageError."""
+    with pytest.raises(ArtifactStorageError, match="Cannot resume"):
+        ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset", resume=ResumeMode.ALWAYS)
+
+
+def test_resolved_dataset_name_resume_raises_when_folder_is_empty(tmp_path):
+    """With resume=ALWAYS, an empty existing folder raises ArtifactStorageError."""
+    (tmp_path / "dataset").mkdir()
+
+    with pytest.raises(ArtifactStorageError, match="Cannot resume"):
+        ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset", resume=ResumeMode.ALWAYS)
+
+
+def test_resolved_dataset_name_if_possible_uses_existing_folder(tmp_path):
+    """With resume=IF_POSSIBLE, an existing non-empty folder is used as-is."""
+    existing = tmp_path / "dataset"
+    existing.mkdir()
+    (existing / "some_file.txt").write_text("x")
+
+    storage = ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset", resume=ResumeMode.IF_POSSIBLE)
+    assert storage.resolved_dataset_name == "dataset"
+
+
+def test_resolved_dataset_name_if_possible_uses_clean_name_when_no_existing_folder(tmp_path):
+    """With resume=IF_POSSIBLE, a missing dataset folder results in a fresh run (no error)."""
+    storage = ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset", resume=ResumeMode.IF_POSSIBLE)
+    assert storage.resolved_dataset_name == "dataset"
+
+
+def test_clear_partial_results_removes_partial_folder(tmp_path, stub_sample_dataframe):
+    """clear_partial_results() deletes the partial results directory and its contents."""
+    storage = ArtifactStorage(artifact_path=tmp_path)
+    storage.write_batch_to_parquet_file(0, stub_sample_dataframe, BatchStage.PARTIAL_RESULT)
+    assert storage.partial_results_path.exists()
+
+    storage.clear_partial_results()
+    assert not storage.partial_results_path.exists()
+
+
+def test_clear_partial_results_is_noop_when_no_partial_folder(tmp_path):
+    """clear_partial_results() does not raise when the partial results folder is absent."""
+    storage = ArtifactStorage(artifact_path=tmp_path)
+    assert not storage.partial_results_path.exists()
+    storage.clear_partial_results()  # must not raise

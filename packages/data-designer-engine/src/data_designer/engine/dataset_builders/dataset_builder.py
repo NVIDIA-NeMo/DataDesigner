@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import json
 import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
+
+from pydantic import ValidationError
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig
@@ -22,6 +26,8 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.utils.type_helpers import StrEnum
+from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
@@ -52,29 +58,27 @@ from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.storage.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
+from data_designer.engine.storage.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage, ResumeMode
 from data_designer.engine.storage.media_storage import StorageMode
 
 if TYPE_CHECKING:
     import pandas as pd
 
+    from data_designer.config.run_config import RunConfig
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
 
-DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
+# Async engine is the default execution path. Set ``DATA_DESIGNER_ASYNC_ENGINE=0``
+# to opt back into the legacy sync engine for one transitional release; the sync
+# path is scheduled for removal afterwards.
+DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
 
 if DATA_DESIGNER_ASYNC_ENGINE:
     import asyncio
-    import sys
 
-    if sys.version_info < (3, 11):
-        raise RuntimeError(
-            "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
-            f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
-        )
     from data_designer.engine.dataset_builders.async_scheduler import (
         DEFAULT_TASK_POOL_SIZE,
         LLM_WAIT_POOL_MULTIPLIER,
@@ -89,6 +93,25 @@ if DATA_DESIGNER_ASYNC_ENGINE:
 
 
 _CLIENT_VERSION: str = get_library_version()
+
+
+def _is_async_trace_enabled(settings: RunConfig) -> bool:
+    return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+
+class _ConfigCompatibility(StrEnum):
+    COMPATIBLE = "compatible"
+    INCOMPATIBLE = "incompatible"
+    NO_PRIOR_DATASET = "no_prior_dataset"
+
+
+@dataclass
+class _ResumeState:
+    num_completed_batches: int
+    actual_num_records: int
+    buffer_size: int
+    target_num_records: int
+    original_target_num_records: int
 
 
 class DatasetBuilder:
@@ -106,6 +129,21 @@ class DatasetBuilder:
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
+        self._use_async: bool = DATA_DESIGNER_ASYNC_ENGINE
+        # Structured signal: set by _build_async if the scheduler hit early shutdown.
+        # Stays at defaults for sync-engine and successful async runs. Reset at
+        # the start of each public run path so reused builder instances don't
+        # leak state across runs.
+        self._early_shutdown: bool = False
+        self._partial_row_groups: tuple[int, ...] = ()
+        # Number of records actually written by the most recent async run.
+        # ``-1`` means "no async run has executed yet" so callers can
+        # distinguish "0 records produced" from "never ran".
+        self._actual_num_records: int = -1
+        # First non-retryable error captured by the scheduler in the most recent
+        # async run, if any. Used by the interface to surface the original cause
+        # when a run produces 0 records due to deterministic failures.
+        self._first_non_retryable_error: Exception | None = None
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -127,6 +165,26 @@ class DatasetBuilder:
     @property
     def task_traces(self) -> list[TaskTrace]:
         return self._task_traces
+
+    @property
+    def early_shutdown(self) -> bool:
+        """True if the most recent async run terminated via the early-shutdown gate."""
+        return self._early_shutdown
+
+    @property
+    def partial_row_groups(self) -> tuple[int, ...]:
+        """Row group ids that were partially salvaged after early shutdown (most recent run)."""
+        return self._partial_row_groups
+
+    @property
+    def actual_num_records(self) -> int:
+        """Records actually written by the most recent async run (-1 if no run yet)."""
+        return self._actual_num_records
+
+    @property
+    def first_non_retryable_error(self) -> Exception | None:
+        """First non-retryable error captured by the scheduler in the most recent run."""
+        return self._first_non_retryable_error
 
     def set_processor_runner(self, processors: list[Processor]) -> None:
         """Replace the processor runner with a new one using the given processors."""
@@ -159,6 +217,7 @@ class DatasetBuilder:
         num_records: int,
         on_batch_complete: Callable[[Path], None] | None = None,
         save_multimedia_to_disk: bool = True,
+        resume: ResumeMode = ResumeMode.NEVER,
     ) -> Path:
         """Build the dataset.
 
@@ -168,12 +227,61 @@ class DatasetBuilder:
             save_multimedia_to_disk: Whether to save generated multimedia (images, audio, video) to disk.
                 If False, multimedia is stored directly in the DataFrame (e.g., images as base64).
                 Default is True.
+            resume: Controls how interrupted runs are handled.
+
+                - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
+                - ``ResumeMode.ALWAYS``: resume from the last completed batch (sync) or row group
+                  (async). ``buffer_size`` must match the original run. ``num_records`` may be
+                  equal to or greater than what was already generated (you can extend the dataset);
+                  ``num_records`` less than actual records so far raises ``DatasetGenerationError``.
+                  If no checkpoint exists yet (interrupted before the first batch finished), silently
+                  restarts from the beginning. Raises if the stored config is incompatible.
+                - ``ResumeMode.IF_POSSIBLE``: like ``ALWAYS`` when the current config fingerprint
+                  matches the stored config; otherwise starts a fresh run without raising an error.
+
+                In all resume modes, in-flight partial results from the interrupted run are
+                discarded before generation continues.
 
         Returns:
             Path to the generated dataset directory.
         """
+        self._reset_run_state()
+
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
+
+        # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
+        # directory. _check_resume_config_compatibility() must NOT access base_dataset_path
+        # (which would cache resolved_dataset_name prematurely). After the decision, sync
+        # artifact_storage.resume so that resolved_dataset_name picks up the right semantics
+        # on its first real access.
+        #
+        # Also invalidate any stale resolved_dataset_name cache: ArtifactStorage's Pydantic
+        # validator accesses base_dataset_path at construction time, which caches resolved_dataset_name
+        # under the original resume mode semantics. Popping it forces a fresh resolution.
+        if resume in (ResumeMode.IF_POSSIBLE, ResumeMode.ALWAYS):
+            compat = self._check_resume_config_compatibility()
+            if resume == ResumeMode.ALWAYS and compat == _ConfigCompatibility.INCOMPATIBLE:
+                raise DatasetGenerationError(
+                    "🛑 Cannot resume: the current config does not match the config used in the interrupted run. "
+                    "Use resume=ResumeMode.IF_POSSIBLE to start fresh automatically, or "
+                    "resume=ResumeMode.NEVER to force a new run."
+                )
+            if resume == ResumeMode.IF_POSSIBLE:
+                if compat != _ConfigCompatibility.COMPATIBLE:
+                    if compat == _ConfigCompatibility.INCOMPATIBLE:
+                        logger.info(
+                            "▶️ Config has changed since the last run — starting a fresh generation (resume=IF_POSSIBLE)."
+                        )
+                    resume = ResumeMode.NEVER
+                    self.artifact_storage.resume = ResumeMode.NEVER
+                    self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
+                    self.artifact_storage.refresh_media_storage_path()
+                else:
+                    resume = ResumeMode.ALWAYS
+                    self.artifact_storage.resume = ResumeMode.ALWAYS
+                    self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
+
         self._write_builder_config()
 
         # Set media storage mode based on parameters
@@ -185,9 +293,24 @@ class DatasetBuilder:
         start_time = time.perf_counter()
         buffer_size = self._resource_provider.run_config.buffer_size
 
-        if DATA_DESIGNER_ASYNC_ENGINE:
-            self._validate_async_compatibility()
-            self._build_async(generators, num_records, buffer_size, on_batch_complete)
+        if resume == ResumeMode.ALWAYS and not self.artifact_storage.metadata_file_path.exists():
+            # No metadata.json means the previous run was interrupted before any batch (sync) or
+            # row group (async) completed.  Nothing to resume — discard any leftover partial
+            # results and start fresh.
+            logger.info(
+                "▶️ No metadata.json found — the previous run was interrupted before any batch "
+                "completed. Starting generation from the beginning."
+            )
+            self.artifact_storage.clear_partial_results()
+            resume = ResumeMode.NEVER
+            self.artifact_storage.resume = ResumeMode.NEVER
+
+        generated = True
+        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        if self._use_async:
+            generated = self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
+        elif resume == ResumeMode.ALWAYS:
+            generated = self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
         else:
             group_id = uuid.uuid4().hex
             self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
@@ -202,12 +325,126 @@ class DatasetBuilder:
                 )
             self.batch_manager.finish()
 
-        self._processor_runner.run_after_generation(buffer_size)
+        if generated:
+            self._processor_runner.run_after_generation(buffer_size)
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return self.artifact_storage.final_dataset_path
 
+    def _load_resume_state(self, num_records: int, buffer_size: int) -> _ResumeState:
+        """Read and validate resume state from an existing metadata.json.
+
+        ``num_records`` must be >= the number of records already generated (you may extend
+        the dataset, but cannot shrink it below what has been written). ``buffer_size`` must
+        exactly match the original run because it determines row-group boundaries.
+
+        Raises:
+            DatasetGenerationError: If metadata is missing or incompatible with the current run parameters.
+        """
+        try:
+            metadata = self.artifact_storage.read_metadata()
+        except FileNotFoundError as exc:
+            raise DatasetGenerationError(
+                "🛑 Cannot resume: metadata.json not found in the existing dataset directory. "
+                "Run without resume=ResumeMode.ALWAYS to start a new generation."
+            ) from exc
+
+        actual_num_records = metadata.get("actual_num_records", 0)
+        if num_records < actual_num_records:
+            raise DatasetGenerationError(
+                f"🛑 Cannot resume: num_records={num_records} is less than the {actual_num_records} "
+                "records already generated. Use num_records >= actual_num_records, "
+                "or start a new run without resume=ResumeMode.ALWAYS."
+            )
+
+        target_num_records = metadata.get("target_num_records")
+        if target_num_records is not None and num_records < target_num_records:
+            raise DatasetGenerationError(
+                f"🛑 Cannot resume: num_records={num_records} is less than the original target "
+                f"({target_num_records}). To resume, use num_records >= {target_num_records} "
+                "(you may extend the dataset beyond the original target). "
+                "Use resume=ResumeMode.NEVER to start a new run."
+            )
+
+        meta_buffer_size = metadata.get("buffer_size")
+        if meta_buffer_size != buffer_size:
+            raise DatasetGenerationError(
+                f"🛑 Cannot resume: buffer_size={buffer_size} does not match the original run's "
+                f"buffer_size={meta_buffer_size}. Use the same buffer_size as the interrupted run, "
+                "or start a new run without resume=ResumeMode.ALWAYS."
+            )
+
+        return _ResumeState(
+            num_completed_batches=metadata["num_completed_batches"],
+            actual_num_records=actual_num_records,
+            buffer_size=buffer_size,
+            target_num_records=metadata["target_num_records"],
+            original_target_num_records=metadata.get("original_target_num_records", metadata["target_num_records"]),
+        )
+
+    def _build_with_resume(
+        self,
+        generators: list[ColumnGenerator],
+        num_records: int,
+        buffer_size: int,
+        on_batch_complete: Callable[[Path], None] | None,
+    ) -> bool:
+        """Resume generation from the last completed batch.
+
+        Returns:
+            False if the dataset was already complete (no new records generated),
+            True after successfully generating the remaining batches.
+        """
+        state = self._load_resume_state(num_records, buffer_size)
+
+        # Compute the correct per-batch sizes. ceil(num_records/bs) is wrong for a
+        # non-aligned extension: original groups are immutable, so any extension always
+        # adds new groups beyond num_original_batches.
+        original_target = state.original_target_num_records
+        num_original_batches = -(-original_target // buffer_size)
+        extension_records = num_records - original_target
+        num_extension_batches = -(-extension_records // buffer_size)
+        original_sizes = [min(buffer_size, original_target - i * buffer_size) for i in range(num_original_batches)]
+        extension_sizes = [min(buffer_size, extension_records - i * buffer_size) for i in range(num_extension_batches)]
+
+        self.batch_manager.start(
+            num_records=num_records,
+            buffer_size=buffer_size,
+            start_batch=state.num_completed_batches,
+            initial_actual_num_records=state.actual_num_records,
+            num_records_list=original_sizes + extension_sizes,
+            original_target_num_records=original_target,
+        )
+
+        if state.num_completed_batches >= self.batch_manager.num_batches:
+            logger.warning(
+                "⚠️ Dataset is already complete — all batches were found in the existing artifact directory. "
+                "Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
+            )
+            return False
+
+        logger.info(
+            f"▶️ Resuming from batch {state.num_completed_batches + 1} of {self.batch_manager.num_batches} "
+            f"({state.actual_num_records} records already generated)."
+        )
+
+        self.artifact_storage.clear_partial_results()
+
+        group_id = uuid.uuid4().hex
+        for batch_idx in range(state.num_completed_batches, self.batch_manager.num_batches):
+            logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
+            self._run_batch(
+                generators,
+                batch_mode="batch",
+                group_id=group_id,
+                current_batch_number=batch_idx,
+                on_batch_complete=on_batch_complete,
+            )
+        self.batch_manager.finish()
+        return True
+
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
+        self._reset_run_state()
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
 
@@ -218,8 +455,8 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        if DATA_DESIGNER_ASYNC_ENGINE:
-            self._validate_async_compatibility()
+        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        if self._use_async:
             dataset = self._build_async_preview(generators, num_records)
         else:
             group_id = uuid.uuid4().hex
@@ -232,22 +469,39 @@ class DatasetBuilder:
 
         return dataset
 
+    def _reset_run_state(self) -> None:
+        """Clear per-run signals so reused builder instances don't leak state across runs."""
+        self._early_shutdown = False
+        self._partial_row_groups = ()
+        self._actual_num_records = -1
+        self._first_non_retryable_error = None
+        self._task_traces = []
+
     def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview")
+
+        settings = self._resource_provider.run_config
+        trace_enabled = _is_async_trace_enabled(settings)
 
         scheduler, buffer_manager = self._prepare_async_run(
             generators,
             num_records,
             buffer_size=num_records,
             run_post_batch_in_scheduler=False,
+            trace=trace_enabled,
         )
 
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        future.result()
-
-        self._task_traces = scheduler.traces
+        try:
+            future.result()
+        finally:
+            self._task_traces = scheduler.traces
+            self._early_shutdown = scheduler.early_shutdown
+            self._partial_row_groups = scheduler.partial_row_groups
+            self._actual_num_records = buffer_manager.actual_num_records
+            self._first_non_retryable_error = scheduler.first_non_retryable_error
 
         if not buffer_manager.has_row_group(0):
             return lazy.pd.DataFrame()
@@ -256,15 +510,85 @@ class DatasetBuilder:
         buffer_manager.free_row_group(0)
         return dataset
 
-    def _validate_async_compatibility(self) -> None:
-        """Raise if any column uses allow_resize=True with the async scheduler."""
+    def _resolve_async_compatibility(self) -> bool:
+        """Check if the async engine can be used; auto-fallback to sync if not.
+
+        Returns True if async is usable, False if allow_resize forces sync fallback.
+        """
         offending = [config.name for config in self.single_column_configs if getattr(config, "allow_resize", False)]
         if offending:
-            raise DatasetGenerationError(
-                f"allow_resize=True is not supported with DATA_DESIGNER_ASYNC_ENGINE=1. "
-                f"Offending column(s): {offending}. Either remove allow_resize=True or "
-                f"disable the async scheduler."
+            msg = (
+                f"allow_resize=True detected on column(s) {offending}. "
+                "Falling back to sync engine for this run. "
+                "allow_resize is deprecated and will be removed in a future release; "
+                "use workflow chaining instead (see issue #552)."
             )
+            logger.warning(f"⚠️ {msg}")
+            # ``warn_at_caller`` rather than ``warnings.warn(stacklevel=N)`` so
+            # attribution lands on the user's call site instead of an internal
+            # ``DatasetBuilder.build`` / ``data_designer.interface`` frame.
+            # The exact internal-frame depth from this method up to user code
+            # depends on which entry point invoked the builder (build vs.
+            # build_preview, sync vs. async wrapping), so a hard-coded
+            # ``stacklevel`` is brittle; ``warn_at_caller`` walks past every
+            # ``data_designer.*`` frame regardless of chain shape. Library
+            # attribution would also be silenced under Python's default
+            # ``ignore::DeprecationWarning`` filter. See PR #594 review.
+            warn_at_caller(msg, DeprecationWarning)
+            return False
+        return True
+
+    def _find_completed_row_group_ids(self) -> set[int]:
+        """Scan the final dataset directory for already-written row group parquet files.
+
+        Returns:
+            Set of row-group IDs (batch numbers) that have a parquet file in ``parquet-files/``.
+        """
+        final_path = self.artifact_storage.final_dataset_path
+        if not final_path.exists():
+            return set()
+        ids: set[int] = set()
+        for p in final_path.glob("batch_*.parquet"):
+            try:
+                ids.add(int(p.stem.split("_", 1)[1]))
+            except (ValueError, IndexError):
+                continue
+        return ids
+
+    def _check_resume_config_compatibility(self) -> _ConfigCompatibility:
+        """Compare the current config fingerprint against the stored builder_config.json.
+
+        Returns:
+            NO_PRIOR_DATASET  — directory absent or empty (no prior run to resume from).
+            COMPATIBLE        — fingerprints match, or stored config is unreadable (warning logged).
+            INCOMPATIBLE      — fingerprints differ; continuing would mix records from two configs.
+
+        Uses artifact_path / dataset_name directly — NOT base_dataset_path — to avoid
+        prematurely triggering the resolved_dataset_name cached_property before the
+        caller has had a chance to decide whether to resume or start fresh.
+        """
+        dataset_dir = Path(self.artifact_storage.artifact_path) / self.artifact_storage.dataset_name
+        if not dataset_dir.exists() or not any(dataset_dir.iterdir()):
+            return _ConfigCompatibility.NO_PRIOR_DATASET
+        config_path = dataset_dir / SDG_CONFIG_FILENAME
+        if not config_path.exists():
+            logger.warning(
+                "⚠️ No builder_config.json found in %s — skipping config compatibility check on resume.",
+                dataset_dir,
+            )
+            return _ConfigCompatibility.COMPATIBLE
+        try:
+            stored_data = json.loads(config_path.read_text())
+            stored_config = BuilderConfig.model_validate(stored_data)
+            current_fp = self._data_designer_config.fingerprint()["config_hash"]
+            stored_fp = stored_config.data_designer.fingerprint()["config_hash"]
+            return _ConfigCompatibility.COMPATIBLE if current_fp == stored_fp else _ConfigCompatibility.INCOMPATIBLE
+        except (OSError, json.JSONDecodeError, ValidationError):
+            logger.warning(
+                "⚠️ Could not read stored config at %s for compatibility check — assuming compatible.",
+                config_path,
+            )
+            return _ConfigCompatibility.COMPATIBLE
 
     def _build_async(
         self,
@@ -272,12 +596,70 @@ class DatasetBuilder:
         num_records: int,
         buffer_size: int,
         on_batch_complete: Callable[[Path], None] | None = None,
-    ) -> None:
-        """Async task-queue builder path - dispatches tasks based on dependency readiness."""
+        *,
+        resume: ResumeMode = ResumeMode.NEVER,
+    ) -> bool:
+        """Async task-queue builder path - dispatches tasks based on dependency readiness.
+
+        Returns:
+            False if the dataset was already complete (no new records generated),
+            True after successfully running the scheduler.
+        """
         logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
 
         settings = self._resource_provider.run_config
-        trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+        trace_enabled = _is_async_trace_enabled(settings)
+
+        precomputed_row_groups: list[tuple[int, int]] | None = None
+        initial_actual_num_records = 0
+        initial_total_num_batches = 0
+        original_target = num_records  # immutable original target; overridden on resume
+
+        if resume == ResumeMode.ALWAYS:
+            state = self._load_resume_state(num_records, buffer_size)
+            completed_ids = self._find_completed_row_group_ids()
+            # Use filesystem as source of truth for both counters — metadata may lag by one
+            # row group if a crash occurred between move_partial_result_to_final_file_path
+            # and write_metadata.
+            # Use the original target (not the new num_records) so the last row group of a
+            # non-aligned run gets its true size, not buffer_size.
+            initial_total_num_batches = len(completed_ids)
+            original_target = state.original_target_num_records
+
+            num_original_groups = -(-original_target // buffer_size)  # ceil(original_target/buffer_size)
+
+            def _rg_size(rg_id: int) -> int:
+                if rg_id < num_original_groups:
+                    return min(buffer_size, original_target - rg_id * buffer_size)
+                ext_group_idx = rg_id - num_original_groups
+                return min(buffer_size, (num_records - original_target) - ext_group_idx * buffer_size)
+
+            initial_actual_num_records = sum(_rg_size(rg_id) for rg_id in completed_ids)
+            self.artifact_storage.clear_partial_results()
+
+            # Original groups are immutable; any extension always needs new groups beyond
+            # num_original_groups — ceil(num_records/bs) gives the wrong count when the
+            # original run was non-aligned and the extension fits in the last group's slack.
+            extension_records = num_records - original_target
+            total_row_groups = num_original_groups + -(-extension_records // buffer_size)
+            if len(completed_ids) >= total_row_groups:
+                logger.warning(
+                    "⚠️ Dataset is already complete — all row groups were found in the existing artifact "
+                    "directory. Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
+                )
+                return False
+
+            logger.info(
+                f"▶️ Resuming async run: {len(completed_ids)} of {total_row_groups} row group(s) already "
+                f"complete ({initial_actual_num_records} records), skipping them."
+            )
+
+            # Pre-compute the full row-group list with correct per-group sizes so that
+            # non-aligned skipped groups deduct their actual on-disk record count rather
+            # than buffer_size, keeping extension group sizes accurate.
+            precomputed_row_groups = [
+                (rg_id, _rg_size(rg_id)) for rg_id in range(total_row_groups) if rg_id not in completed_ids
+            ]
 
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
@@ -285,6 +667,12 @@ class DatasetBuilder:
                     on_batch_complete(final_path)
 
             buffer_manager.checkpoint_row_group(rg_id, on_complete=on_complete)
+            # Write incremental metadata after each row group so interrupted runs can be resumed.
+            buffer_manager.write_metadata(
+                target_num_records=num_records,
+                original_target_num_records=original_target,
+                buffer_size=buffer_size,
+            )
 
         scheduler, buffer_manager = self._prepare_async_run(
             generators,
@@ -295,18 +683,29 @@ class DatasetBuilder:
             shutdown_error_window=settings.shutdown_error_window,
             disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
+            precomputed_row_groups=precomputed_row_groups,
+            initial_actual_num_records=initial_actual_num_records,
+            initial_total_num_batches=initial_total_num_batches,
         )
 
         # Telemetry snapshot
         group_id = uuid.uuid4().hex
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
 
-        # Run on background event loop
+        # Run on background event loop. Capture scheduler state in `finally`
+        # so the structured signal is preserved even if `scheduler.run()`
+        # raises during the salvage path - otherwise callers see a generic
+        # error and lose the early-shutdown context.
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        future.result()
-
-        self._task_traces = scheduler.traces
+        try:
+            future.result()
+        finally:
+            self._task_traces = scheduler.traces
+            self._early_shutdown = scheduler.early_shutdown
+            self._partial_row_groups = scheduler.partial_row_groups
+            self._actual_num_records = buffer_manager.actual_num_records
+            self._first_non_retryable_error = scheduler.first_non_retryable_error
 
         # Emit telemetry
         try:
@@ -315,8 +714,31 @@ class DatasetBuilder:
         except Exception:
             logger.debug("Failed to emit batch telemetry for async run", exc_info=True)
 
-        # Write metadata
-        buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
+        # Write final metadata (overwrites the last incremental write with identical content).
+        buffer_manager.write_metadata(
+            target_num_records=num_records,
+            original_target_num_records=original_target,
+            buffer_size=buffer_size,
+        )
+
+        # Surface partial completion
+        actual = self._actual_num_records
+        if actual < num_records:
+            pct = actual / num_records * 100 if num_records > 0 else 0
+            base = f"⚠️ Generated {actual} of {num_records} requested records ({pct:.0f}%). "
+            if scheduler.early_shutdown:
+                partial = scheduler.partial_row_groups
+                detail = (
+                    f"Early shutdown was triggered (non-retryable error rate exceeded threshold); "
+                    f"{len(partial)} row group(s) salvaged with partial rows."
+                    if partial
+                    else "Early shutdown was triggered (non-retryable error rate exceeded threshold)."
+                )
+                logger.warning(base + detail)
+            else:
+                logger.warning(base + "The dataset may be incomplete due to dropped rows.")
+
+        return True
 
     def _prepare_async_run(
         self,
@@ -330,6 +752,9 @@ class DatasetBuilder:
         shutdown_error_window: int = 10,
         disable_early_shutdown: bool = False,
         trace: bool = False,
+        precomputed_row_groups: list[tuple[int, int]] | None = None,
+        initial_actual_num_records: int = 0,
+        initial_total_num_batches: int = 0,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
         """Build a fully-wired scheduler and buffer manager for async generation.
 
@@ -352,24 +777,30 @@ class DatasetBuilder:
         for gen in generators:
             gen.log_pre_generation()
 
-        # Partition into row groups
-        row_groups: list[tuple[int, int]] = []
-        remaining = num_records
-        rg_id = 0
-        while remaining > 0:
-            size = min(buffer_size, remaining)
-            row_groups.append((rg_id, size))
-            remaining -= size
-            rg_id += 1
+        if precomputed_row_groups is not None:
+            row_groups = precomputed_row_groups
+        else:
+            row_groups = []
+            remaining = num_records
+            rg_id = 0
+            while remaining > 0:
+                size = min(buffer_size, remaining)
+                row_groups.append((rg_id, size))
+                remaining -= size
+                rg_id += 1
 
         tracker = CompletionTracker.with_graph(graph, row_groups)
-        buffer_manager = RowGroupBufferManager(self.artifact_storage)
+        buffer_manager = RowGroupBufferManager(
+            self.artifact_storage,
+            initial_actual_num_records=initial_actual_num_records,
+            initial_total_num_batches=initial_total_num_batches,
+        )
 
         # Pre-batch processor callback: runs after seed tasks complete for a row group.
-        # If it raises, the scheduler drops all rows in the row group (skips it).
+        # If it raises, the scheduler propagates the error as DatasetGenerationError (fail-fast).
         def on_seeds_complete(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_pre_batch_on_df(df)
+            df = self._processor_runner.run_pre_batch_on_df(df, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
             for ri in range(rg_size):
                 if buffer_manager.is_dropped(rg_id, ri) and not tracker.is_dropped(rg_id, ri):
@@ -378,7 +809,7 @@ class DatasetBuilder:
         # Post-batch processor callback: runs after all columns, before finalization.
         def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
+            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
 
         # Coarse upper bound: sums all registered aliases, not just those used
@@ -505,7 +936,7 @@ class DatasetBuilder:
         max_workers = self._resource_provider.run_config.non_inference_max_parallel_workers
         if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
-        if DATA_DESIGNER_ASYNC_ENGINE:
+        if self._use_async:
             logger.info("⚡ Using async engine for concurrent execution")
             self._fan_out_with_async(generator, max_workers=max_workers)
         else:

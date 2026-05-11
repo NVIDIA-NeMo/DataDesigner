@@ -162,6 +162,19 @@ h2 {
 
   .md-typeset__table > table {
     max-height: 60vh;
+    min-width: 100%;
+    width: max-content;
+  }
+
+  .md-typeset__table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .md-typeset__table code {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
   }
 
   .md-typeset__table > table thead {

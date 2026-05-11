@@ -11,6 +11,7 @@ from rich.theme import Theme
 
 DEFAULT_NUM_RECORDS = 10
 DEFAULT_DISPLAY_WIDTH = 110
+DATA_DESIGNER_PACKAGE_NAME = "data-designer"
 
 EPSILON = 1e-8
 REPORTING_PRECISION = 2
@@ -336,6 +337,12 @@ DEFAULT_REASONING_INFERENCE_PARAMS = {"temperature": 0.35, "top_p": 0.95}
 DEFAULT_VISION_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
 DEFAULT_EMBEDDING_INFERENCE_PARAMS = {"encoding_format": "float"}
 NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS = {"temperature": 1.0, "top_p": 1.0}
+NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS = {
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "extra_body": {"reasoning_effort": "medium"},
+}
+NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS = {"temperature": 0.60, "top_p": 0.95}
 GPT5_INFERENCE_PARAMS = {"extra_body": {"reasoning_effort": "medium"}}
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
@@ -344,8 +351,14 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
             "model": "nvidia/nemotron-3-nano-30b-a3b",
             "inference_parameters": NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS,
         },
-        "reasoning": {"model": "openai/gpt-oss-20b", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
-        "vision": {"model": "nvidia/nemotron-nano-12b-v2-vl", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
+        "reasoning": {
+            "model": "nvidia/nemotron-3-super-120b-a12b",
+            "inference_parameters": NEMOTRON_3_SUPER_120B_A12B_INFERENCE_PARAMS,
+        },
+        "vision": {
+            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            "inference_parameters": NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS,
+        },
         "embedding": {
             "model": "nvidia/llama-3.2-nv-embedqa-1b-v2",
             "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS | {"extra_body": {"input_type": "query"}},
@@ -363,7 +376,10 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
             "inference_parameters": NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS,
         },
         "reasoning": {"model": "openai/gpt-oss-20b", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
-        "vision": {"model": "nvidia/nemotron-nano-12b-v2-vl", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
+        "vision": {
+            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "inference_parameters": NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS,
+        },
         "embedding": {
             "model": "openai/text-embedding-3-large",
             "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS,
@@ -376,10 +392,11 @@ NEMOTRON_PERSONAS_DATASET_SIZES = {
     "en_US": "1.24 GB",
     "en_IN": "2.39 GB",
     "en_SG": "0.30 GB",
-    "fr_FR": "2.71 GB",
+    "fr_FR": "3.87 GB",
     "hi_Deva_IN": "4.14 GB",
     "hi_Latn_IN": "2.7 GB",
     "ja_JP": "1.69 GB",
+    "ko_KR": "2.66 GB",
     "pt_BR": "2.33 GB",
 }
 

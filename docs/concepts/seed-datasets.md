@@ -167,7 +167,7 @@ Path: {{ relative_path }}
 - `content` — decoded text contents of the matched file
 
 !!! tip "Custom Filesystem Readers"
-    If you need custom row construction, fan-out behavior, or expensive hydration logic for any directory-backed seed source, build a custom `FileSystemSeedReader` and pass it via `DataDesigner(seed_readers=[...])`. See the [FileSystemSeedReader Plugins](../plugins/filesystem_seed_reader.md) guide.
+    If you need custom row construction, fan-out behavior, or expensive hydration logic for any directory-backed seed source, build a custom `FileSystemSeedReader` and pass it via `DataDesigner(seed_readers=[...])`. For packaging and registration, see [Build Your Own](../plugins/build_your_own.md).
 
 !!! note "Encoding"
     `encoding="utf-8"` is the default. Set a different Python codec name if your files use another text encoding.
