@@ -1805,6 +1805,62 @@ def test_build_marks_post_generation_started_before_running_processors(
     assert metadata["post_generation_processed"] is False
 
 
+def test_build_resume_complete_dataset_runs_after_generation_when_no_marker(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Crash window: complete parquet files on disk + after-gen processors + no ``post_generation_state``.
+
+    Reproduces the gap between the final batch parquet write and the
+    ``post_generation_state="started"`` write: if the process crashes there, the
+    next ``resume=ALWAYS`` previously saw the dataset as ``already complete``,
+    set ``generated=False`` and skipped after-generation entirely. After this
+    fix, after-generation runs unconditionally on the on-disk dataset whenever
+    after-generation processors are configured, leaving "started" and "complete"
+    markers behind so the next resume short-circuits correctly.
+    """
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    after_gen_processor = create_mock_processor("after_gen", ["process_after_generation"])
+    builder.set_processor_runner([after_gen_processor])
+
+    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    after_gen_processor.process_after_generation.assert_called_once()
+    metadata = _json.loads((dataset_dir / "metadata.json").read_text())
+    assert metadata["post_generation_state"] == "complete"
+    assert metadata["post_generation_processed"] is True
+
+
+def test_build_resume_post_generation_processed_missing_target_raises_clearly(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """A post-processed dataset whose metadata lacks ``target_num_records`` raises a clear error.
+
+    Without the explicit guard, ``prior_target`` is ``None`` and the ``num_records <
+    prior_target`` comparison raises a raw ``TypeError``. Mirror ``_load_resume_state``
+    and surface a clear ``DatasetGenerationError`` for the missing required field.
+    """
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        buffer_size=2,
+        post_generation_processed=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="missing required field 'target_num_records'"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
 def test_build_resume_not_already_complete_when_extension_fits_in_slack(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):

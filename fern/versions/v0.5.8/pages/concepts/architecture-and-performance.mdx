@@ -186,6 +186,7 @@ Resume has a few important invariants:
 - `num_records` must be at least the original target; you may extend a run by requesting more records.
 - Runs with `allow_resize=True` columns are not resumable because row boundaries can change.
 - Once `process_after_generation()` has run, the dataset is considered terminal for resume. Re-running with the same target returns the existing dataset; extending requires a fresh run.
+- If a run crashed after every row group was written but before `process_after_generation()` could start, resume runs after-generation on the existing on-disk dataset (the parquet files are still clean) and marks it terminal afterwards. A crash _during_ `process_after_generation()` still raises — the parquet files may have been partially rewritten and starting fresh is the only safe option.
 
 The `DatasetCreationResults` returned by a resume invocation reflects the full dataset on disk for anything that reads the artifact directory (`load_dataset`, `count_records`, `load_analysis`, `export`, `push_to_hub`). Per-run observability — `task_traces`, model-usage logs, and telemetry events emitted during the call — is scoped to the resume invocation only; the original run's in-memory traces are not persisted across process boundaries.
 

@@ -323,12 +323,11 @@ class DatasetBuilder:
                 "start a new generation run."
             )
 
-        generated = True
         self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
         if self._use_async:
-            generated = self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
+            self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
         elif resume == ResumeMode.ALWAYS:
-            generated = self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
+            self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
         else:
             group_id = uuid.uuid4().hex
             self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
@@ -343,17 +342,29 @@ class DatasetBuilder:
                 )
             self.batch_manager.finish()
 
-        if generated:
-            has_after_generation_processors = self._processor_runner.has_processors_for(ProcessorStage.AFTER_GENERATION)
-            if has_after_generation_processors:
-                self.artifact_storage.update_metadata(
-                    {"post_generation_state": "started", "post_generation_processed": False}
-                )
+        # After-generation processors run unconditionally on the on-disk dataset
+        # (not gated on ``generated``). When resume sees every row group already
+        # on disk, ``_build_*`` returns ``False`` without writing the "started"
+        # marker; gating after-generation on ``generated`` would then leave a
+        # complete dataset with after-generation processors permanently unrun if
+        # the original process crashed in the narrow window between the final
+        # parquet write and the "started" marker write.
+        #
+        # The short-circuits inside ``_post_generation_processed_resume_result``
+        # cover the already-processed cases (``post_generation_processed`` /
+        # ``post_generation_state == "complete"`` → return early;
+        # ``post_generation_state == "started"`` → raise as ambiguous), so by
+        # the time we reach this point after-generation has demonstrably not
+        # been applied to the dataset on disk.
+        has_after_generation_processors = self._processor_runner.has_processors_for(ProcessorStage.AFTER_GENERATION)
+        if has_after_generation_processors:
+            self.artifact_storage.update_metadata(
+                {"post_generation_state": "started", "post_generation_processed": False}
+            )
             self._processor_runner.run_after_generation(buffer_size)
-            if has_after_generation_processors:
-                self.artifact_storage.update_metadata(
-                    {"post_generation_state": "complete", "post_generation_processed": True}
-                )
+            self.artifact_storage.update_metadata(
+                {"post_generation_state": "complete", "post_generation_processed": True}
+            )
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return self.artifact_storage.final_dataset_path
@@ -376,8 +387,10 @@ class DatasetBuilder:
 
         Raises:
             DatasetGenerationError: If after-generation processing started but did not
-                complete (parquet files may already be rewritten), or if the caller asked
-                for a different target than the one this terminal dataset was built for.
+                complete (parquet files may already be rewritten), if the terminal
+                metadata is missing required fields (``target_num_records``), or if the
+                caller asked for a different target than the one this terminal dataset
+                was built for.
         """
         if resume != ResumeMode.ALWAYS or not self.artifact_storage.metadata_file_path.exists():
             return None
@@ -399,6 +412,11 @@ class DatasetBuilder:
             return None
 
         prior_target = metadata.get("target_num_records")
+        if prior_target is None:
+            raise DatasetGenerationError(
+                "🛑 Cannot resume: metadata.json is missing required field 'target_num_records'. "
+                "Start a fresh run with resume=ResumeMode.NEVER, or restore a valid metadata.json."
+            )
         if num_records == prior_target:
             logger.warning("▶️ Dataset is already complete and post-processed; nothing to resume.")
             return self.artifact_storage.final_dataset_path
