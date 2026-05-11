@@ -16,6 +16,7 @@ from rich.text import Text
 from data_designer.cli.controllers.plugin_catalog_controller import PluginCatalogController
 from data_designer.cli.plugin_catalog import (
     CompatibilityResult,
+    InstalledPluginInfo,
     InstallPlan,
     PluginCatalogConfig,
     PluginCatalogEntry,
@@ -28,6 +29,8 @@ from data_designer.cli.plugin_catalog import (
 def controller(tmp_path: Path) -> PluginCatalogController:
     plugin_controller = PluginCatalogController(tmp_path)
     plugin_controller.catalog_service = MagicMock()
+    plugin_controller.catalog_service.get_runtime_plugin_entries.return_value = []
+    plugin_controller.catalog_service.suggest_entries.return_value = []
     plugin_controller.install_service = MagicMock()
     return plugin_controller
 
@@ -87,6 +90,30 @@ def test_run_search_mentions_hidden_incompatible_packages_when_visible_matches_a
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+def test_run_search_suggests_nearby_packages_when_no_entries_match(
+    mock_print_warning: MagicMock,
+    mock_print_info: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry(package_name="data-designer-github")
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.search_entries.side_effect = [[], []]
+    controller.catalog_service.suggest_entries.return_value = [entry]
+    controller.catalog_service.group_entries_by_package.return_value = {"data-designer-github": [entry]}
+
+    controller.run_search("github import", catalog_alias="local")
+
+    mock_print_warning.assert_called_once_with("No matching plugin packages found")
+    mock_print_info.assert_any_call("Closest package matches: data-designer-github")
+    mock_print_info.assert_any_call("Try fewer terms, a package alias, or a runtime plugin name.")
+    assert mock_console.print.call_count >= 1
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 def test_run_list_renders_package_first_catalog_table(
     mock_console: MagicMock,
     controller: PluginCatalogController,
@@ -135,6 +162,35 @@ def test_run_list_renders_package_first_catalog_table(
     narrow_console.print(printed_tables[0])
     assert "https://docs.example.test/plugins/data-designer-text-transform/" in rendered_output.getvalue()
     controller.catalog_service.group_entries_by_package.assert_called_once_with(package_entries)
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+def test_run_list_uses_vertical_layout_in_narrow_terminals(
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    mock_console.width = 80
+    package_entries = [
+        _entry(name="document-chunker", plugin_type="seed-reader", package_name="data-designer-retrieval-sdg"),
+        _entry(name="embedding-dedup", plugin_type="column-generator", package_name="data-designer-retrieval-sdg"),
+    ]
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.list_entries.return_value = package_entries
+    controller.catalog_service.group_entries_by_package.return_value = {
+        "data-designer-retrieval-sdg": package_entries,
+    }
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+
+    controller.run_list(catalog_alias="local")
+
+    printed_tables = [
+        call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
+    ]
+    assert printed_tables == []
+    mock_console.print.assert_any_call(
+        "  Runtime plugins: document-chunker (seed-reader), embedding-dedup (column-generator)"
+    )
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -225,14 +281,18 @@ def test_run_info_warns_when_install_plan_has_source_warning(
     assert mock_console.print.call_count >= 1
 
 
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
-def test_run_info_rejects_runtime_plugin_name_that_is_not_package_alias(
+def test_run_info_suggests_package_when_target_is_runtime_plugin_name(
     mock_print_error: MagicMock,
+    mock_print_info: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
+    entry = _entry(name="text-column", plugin_type="column-generator")
     catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = []
+    controller.catalog_service.get_runtime_plugin_entries.return_value = [entry]
 
     with pytest.raises(typer.Exit) as exc_info:
         controller.run_info("text-column", catalog_alias="local")
@@ -245,6 +305,10 @@ def test_run_info_rejects_runtime_plugin_name_that_is_not_package_alias(
         include_incompatible=True,
     )
     mock_print_error.assert_called_once_with("Plugin package or alias 'text-column' was not found in catalog 'local'")
+    mock_print_info.assert_any_call(
+        "'text-column' is a runtime plugin exposed by plugin package 'data-designer-text-transform'."
+    )
+    mock_print_info.assert_any_call("Use the package instead: data-designer plugin --catalog local info text-transform")
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -313,14 +377,18 @@ def test_run_install_blocks_incompatible_package(
     mock_console.print.assert_any_call("  - Data Designer 0.5.7 does not satisfy >=99.0")
 
 
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
-def test_run_install_rejects_runtime_plugin_name_as_target(
+def test_run_install_suggests_package_when_target_is_runtime_plugin_name(
     mock_print_error: MagicMock,
+    mock_print_info: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
+    entry = _entry(name="text-column", plugin_type="column-generator")
     catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = []
+    controller.catalog_service.get_runtime_plugin_entries.return_value = [entry]
 
     with pytest.raises(typer.Exit) as exc_info:
         controller.run_install("text-column", catalog_alias="local")
@@ -334,6 +402,12 @@ def test_run_install_rejects_runtime_plugin_name_as_target(
     )
     controller.install_service.build_install_plan.assert_not_called()
     mock_print_error.assert_called_once_with("Plugin package or alias 'text-column' was not found in catalog 'local'")
+    mock_print_info.assert_any_call(
+        "'text-column' is a runtime plugin exposed by plugin package 'data-designer-text-transform'."
+    )
+    mock_print_info.assert_any_call(
+        "Use the package instead: data-designer plugin --catalog local install text-transform"
+    )
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -353,8 +427,10 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     )
     controller.install_service.build_install_plan.return_value = _plan(catalog)
 
-    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
+    assert exc_info.value.exit_code == 1
     controller.install_service.build_install_plan.assert_called_once_with(entry, catalog, manager="auto")
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_points.assert_not_called()
@@ -362,14 +438,14 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     mock_console.print.assert_any_call("  Compatibility: [bold yellow]not compatible[/bold yellow]")
     mock_console.print.assert_any_call("    - Data Designer 0.5.7 does not satisfy >=99.0")
     mock_print_warning.assert_called_once_with(
-        "Dry run complete; no changes made. A real install would be blocked because compatibility checks failed."
+        "Dry run complete; no changes made. Install would be blocked because compatibility checks failed."
     )
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
-def test_run_install_dry_run_allows_incompatible_entry_for_inspection(
+def test_run_install_dry_run_renders_incompatible_entry_for_inspection(
     mock_print_warning: MagicMock,
     mock_print_error: MagicMock,
     mock_console: MagicMock,
@@ -385,8 +461,10 @@ def test_run_install_dry_run_allows_incompatible_entry_for_inspection(
     )
     controller.install_service.build_install_plan.return_value = _plan(catalog)
 
-    controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
 
+    assert exc_info.value.exit_code == 1
     controller.catalog_service.get_package_entries.assert_called_once_with(
         "data-designer-text-transform",
         "local",
@@ -397,7 +475,7 @@ def test_run_install_dry_run_allows_incompatible_entry_for_inspection(
     controller.install_service.install.assert_not_called()
     mock_print_error.assert_not_called()
     mock_print_warning.assert_called_once_with(
-        "Dry run complete; no changes made. A real install would be blocked because compatibility checks failed."
+        "Dry run complete; no changes made. Install would be blocked because compatibility checks failed."
     )
     assert mock_console.print.call_count >= 1
 
@@ -578,6 +656,36 @@ def test_run_uninstall_warns_when_entry_points_remain(
         "more declared runtime entry points. Restart the shell or check the package environment."
     )
     assert mock_console.print.call_count >= 1
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+def test_run_installed_renders_package_and_version_metadata(
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    controller.catalog_service.list_installed_plugins.return_value = [
+        InstalledPluginInfo(
+            name="github",
+            package_name="data-designer-github",
+            package_version="0.1.0",
+            entry_point_value="data_designer_github.plugin:plugin",
+        )
+    ]
+
+    controller.run_installed()
+
+    printed_tables = [
+        call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
+    ]
+    assert printed_tables
+    assert [column.header for column in printed_tables[0].columns] == [
+        "Runtime Plugin",
+        "Package",
+        "Version",
+        "Entry Point",
+    ]
+    assert list(printed_tables[0].columns[1].cells) == ["data-designer-github"]
+    assert list(printed_tables[0].columns[2].cells) == ["0.1.0"]
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")

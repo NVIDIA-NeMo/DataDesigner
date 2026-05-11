@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from importlib.metadata import EntryPoint
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -46,6 +47,24 @@ def test_search_entries_matches_package_description_name_and_type(tmp_path: Path
     assert [entry.name for entry in name_matches] == ["compatible-plugin"]
     assert [entry.name for entry in package_matches] == ["shared-column", "shared-processor"]
     assert [entry.name for entry in type_matches] == ["compatible-plugin"]
+
+
+def test_search_entries_matches_natural_language_synonyms(tmp_path: Path) -> None:
+    package = _package(
+        package_name="data-designer-github",
+        data_designer_specifier=">=0.5.7",
+        plugins=[_runtime_plugin(name="github", plugin_type="seed-reader")],
+    )
+    package["description"] = "GitHub and local git repository seed reader for Data Designer"
+    catalog_path = tmp_path / "plugins.json"
+    catalog_path.write_text(json.dumps({"schema_version": 2, "packages": [package]}))
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+
+    matches = service.search_entries("GitHub repo import", "local")
+
+    assert [entry.package.name for entry in matches] == ["data-designer-github"]
 
 
 def test_search_entries_ignores_install_docs_and_entry_point_metadata(tmp_path: Path) -> None:
@@ -239,6 +258,31 @@ def test_get_package_entries_does_not_resolve_runtime_plugin_name_that_is_not_pa
     assert service.get_package_entries("arithmetic", "local", include_incompatible=True) == []
 
 
+def test_get_runtime_plugin_entries_resolves_runtime_name_without_package_aliasing() -> None:
+    repository = Mock(spec=PluginCatalogRepository)
+    repository.load_catalog.return_value = PluginCatalog.model_validate(
+        {
+            "schema_version": 2,
+            "packages": [
+                _package(
+                    package_name="data-designer-retrieval-sdg",
+                    data_designer_specifier=">=0.5.7",
+                    plugins=[
+                        _runtime_plugin(name="document-chunker", plugin_type="seed-reader"),
+                        _runtime_plugin(name="embedding-dedup", plugin_type="column-generator"),
+                    ],
+                ),
+            ],
+        }
+    )
+    service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
+
+    entries = service.get_runtime_plugin_entries("document-chunker", "local", include_incompatible=True)
+
+    assert [entry.name for entry in entries] == ["document-chunker"]
+    assert entries[0].package.name == "data-designer-retrieval-sdg"
+
+
 def test_group_entries_by_package_groups_multi_plugin_packages(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
@@ -302,7 +346,31 @@ def test_list_installed_plugins_uses_entry_point_metadata_without_loading_plugin
     assert len(installed) == 1
     assert installed[0].name == "installed-plugin"
     assert installed[0].entry_point_value == "pkg.plugin:plugin"
+    assert installed[0].package_name is None
+    assert installed[0].package_version is None
     mock_entry_points.assert_called_once_with(group="data_designer.plugins")
+
+
+@patch("data_designer.cli.services.plugin_catalog_service.importlib.metadata.entry_points")
+def test_list_installed_plugins_includes_distribution_metadata_when_available(
+    mock_entry_points: Mock,
+    tmp_path: Path,
+) -> None:
+    mock_entry_points.return_value = [
+        SimpleNamespace(
+            name="github",
+            value="data_designer_github.plugin:plugin",
+            dist=SimpleNamespace(metadata={"Name": "data-designer-github"}, version="0.1.0"),
+        )
+    ]
+    service = PluginCatalogService(PluginCatalogRepository(tmp_path))
+
+    installed = service.list_installed_plugins()
+
+    assert len(installed) == 1
+    assert installed[0].name == "github"
+    assert installed[0].package_name == "data-designer-github"
+    assert installed[0].package_version == "0.1.0"
 
 
 def _repository_with_catalog(tmp_path: Path) -> PluginCatalogRepository:

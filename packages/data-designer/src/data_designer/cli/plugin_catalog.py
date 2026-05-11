@@ -247,6 +247,8 @@ class InstalledPluginInfo:
 
     name: str
     entry_point_value: str
+    package_name: str | None = None
+    package_version: str | None = None
 
 
 def get_default_plugin_catalog_url() -> str:

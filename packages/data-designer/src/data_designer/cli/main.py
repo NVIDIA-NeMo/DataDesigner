@@ -175,7 +175,7 @@ plugin_app = typer.Typer(
             "installed": {
                 "module": f"{_CMD}.plugin",
                 "attr": "installed_command",
-                "help": "List installed runtime plugin entry points",
+                "help": "List installed runtime plugins and their packages",
             },
         }
     ),
