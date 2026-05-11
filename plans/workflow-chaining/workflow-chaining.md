@@ -58,7 +58,7 @@ results["conversations"].load_dataset()  # stage 2 output
 results["judged"].load_dataset()         # final output
 ```
 
-`name` is required and is the durable identity for artifact lookup and resume. Reusing the same name across Python sessions lets `pipeline.run(resume=True)` find the previous `pipeline-metadata.json`.
+`name` is required and is the durable identity for artifact lookup and resume. Reusing the same name across Python sessions lets `pipeline.run(resume=ResumeMode.IF_POSSIBLE)` find the previous `pipeline-metadata.json`.
 
 **Convenience method on results (lightweight, for notebooks):**
 
@@ -109,10 +109,13 @@ pipeline.add_stage(
     "enriched",
     config_enrich,
     after=filter_high_quality,  # runs on stage output before next stage seeds from it
+    after_version="quality-filter-v1",
 )
 ```
 
 The callback receives the path to the completed stage's artifact directory (containing `parquet-files/`, `metadata.json`, etc.) and returns a path that the next stage will seed from. This keeps large DataFrames on disk and gives users full control.
+
+**Callback resume policy**: The pipeline does not hash arbitrary Python source or bytecode in v1. `after_version` is the explicit callback identity recorded in `pipeline-metadata.json` and included in the next stage's fingerprint. If `after` is set without `after_version`, that stage is treated as dirty on every resume so a changed callback cannot silently reuse stale transformed data.
 
 **Empty stage policy**: If a callback filters all rows (or a stage produces zero rows), the pipeline raises `DataDesignerPipelineError` by default. Stages can opt in to empty output with `allow_empty=True` on `add_stage()`, in which case the pipeline short-circuits and skips subsequent stages.
 
@@ -149,26 +152,32 @@ The pipeline creates each stage's `ArtifactStorage` with the stage directory as 
 Each stage produces durable parquet output before the next stage starts. This provides natural checkpoint boundaries:
 
 - If stage 3 of 4 fails, stages 1 and 2 are already on disk.
-- A `resume=True` flag on `pipeline.run()` skips completed stages.
-- Within a stage, batch-level resume (#525) can further reduce re-work.
+- `pipeline.run(resume=ResumeMode.IF_POSSIBLE)` skips compatible completed stages and resumes compatible partial stages.
+- Within a stage, batch/row-group resume from #526 can further reduce re-work.
+
+**Relationship to #526**: #526 is the fine-grained single-stage resume primitive. It resumes one `DataDesigner.create()` call from completed batches (sync) or row groups (async), but its compatibility check applies to the whole `DataDesignerConfig`. Pipeline resume adds a coarser stage graph above that primitive. A downstream config change invalidates only that stage and its descendants, so upstream generation can be reused instead of failing the whole-config compatibility check.
+
+Pipeline resume should decide stage compatibility before calling `DataDesigner.create()`. If a stage fingerprint matches and the stage is partial, the pipeline delegates to `create(..., resume=ResumeMode.ALWAYS)` for that stage. If a stage fingerprint changed, the pipeline invalidates that stage directory and descendants, then starts them fresh. It should not blindly pass `ResumeMode.IF_POSSIBLE` through to stage `create()`, because pipeline stage directories must remain deterministic under `artifacts/<pipeline-name>/`.
 
 **Resume safety**: Naive "skip if directory exists" is not sufficient. Configs, model settings, callbacks, or DD version may have changed between runs. Resume must compare a fingerprint of each stage's inputs against what's recorded in `pipeline-metadata.json`. The per-stage fingerprint composes:
 
-- `DataDesignerConfig.fingerprint()` (introduced in #587) — content-addressable sha256 over the data-relevant portion of the config
+- `DataDesignerConfig.fingerprint()` (introduced in #587) - content-addressable sha256 over the data-relevant portion of the config
 - `num_records` (requested)
+- `sampling_strategy`, `selection_strategy`, and `allow_empty`
+- `after_version` when `after` is configured; if omitted, the stage is always dirty on resume
 - DD version
 - Upstream stage fingerprint (the directly preceding stage's recorded fingerprint, so a change anywhere in the chain invalidates downstream stages)
 
 If any component changed, that stage and all downstream stages must re-run. This is a phase 3 concern but the metadata format in phase 1 should record enough information to support it.
 
-The connection to #525: chaining gives coarse (stage-level) checkpointing for free. #525 gives fine (batch-level) checkpointing within a stage. They are complementary.
+The connection to #526/#525: chaining gives workflow-level checkpointing and smaller invalidation boundaries. #526 gives fine-grained crash recovery within each stage. They are complementary, and Phase 3 should use #526 rather than inventing another intra-stage resume mechanism.
 
 #### Provenance
 
 `pipeline-metadata.json` records:
 - Pipeline name
 - Stage order, names, and configs used
-- Per-stage fingerprint for resume invalidation: `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, DD version, and the upstream stage fingerprint
+- Per-stage fingerprint for resume invalidation: `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, seed sampling/selection controls, `after_version`, DD version, and the upstream stage fingerprint
 - `num_records` requested vs actual per stage
 - Which stage's output seeded the next
 - Timestamp, duration, and DD version per stage
@@ -280,7 +289,7 @@ def keep_high_quality(stage_output_path: Path) -> Path:
 
 pipeline = dd.pipeline(name="filter-enrich")
 pipeline.add_stage("candidates", config_gen, num_records=5000)
-pipeline.add_stage("enriched", config_enrich, after=keep_high_quality)
+pipeline.add_stage("enriched", config_enrich, after=keep_high_quality, after_version="quality-filter-v1")
 results = pipeline.run()
 ```
 
@@ -304,7 +313,7 @@ results = pipeline.run()
 pipeline_v2 = dd.pipeline(name="gen-judge")
 pipeline_v2.add_stage("generated", config_gen, num_records=1000)
 pipeline_v2.add_stage("judged", config_judge_v2)
-results_v2 = pipeline_v2.run(resume=True)  # skips stage 1
+results_v2 = pipeline_v2.run(resume=ResumeMode.IF_POSSIBLE)  # skips stage 1
 ```
 
 ### 4. Interactive notebook chaining (lightweight, no pipeline)
@@ -354,11 +363,12 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 
 ### Phase 3: Stage-level resume
 
-- Add `resume=True` to `pipeline.run()`.
+- Add `resume: ResumeMode` to `pipeline.run()`, reusing the enum introduced by #526.
 - Read `pipeline-metadata.json` to detect completed stages.
 - Resolve the metadata path from the explicit pipeline name.
-- Compute each stage's fingerprint via `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, DD version, and upstream stage fingerprint; invalidate the stage and everything downstream on any mismatch.
-- Skip stages whose fingerprints match, seed next stage from last completed output.
+- Compute each stage's fingerprint via `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, seed sampling/selection controls, `after_version`, DD version, and upstream stage fingerprint; invalidate the stage and everything downstream on any mismatch.
+- Skip stages whose fingerprints match and are complete; for matching partial stages, call `DataDesigner.create(..., resume=ResumeMode.ALWAYS)` to use #526's batch/row-group resume.
+- For invalidated stages, clear or replace the deterministic stage directory before starting fresh so `ArtifactStorage` does not timestamp away from the pipeline layout.
 - Depends on artifact layout from phase 1.
 
 ### Phase 4: DAG-shaped stages with parallel branches
@@ -410,6 +420,6 @@ These were open in earlier drafts; recording the resolutions here so the design 
 ## Related issues
 
 - #447 - AsyncRunController refactor (partially superseded: pre-batch resize handling moves to pipeline level instead of controller level)
-- #525 - Resume interrupted runs (complementary: stage-level resume from pipeline, batch-level resume from #525)
+- #526 / #525 - Resume interrupted runs (single-stage batch/row-group resume primitive used by pipeline stage resume)
 - #462 - Progress bar and scheduler polish (independent)
 - #464 - Custom column retryable errors (independent)
