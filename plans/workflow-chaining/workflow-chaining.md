@@ -115,7 +115,7 @@ pipeline.add_stage(
 
 The callback receives the path to the completed stage's artifact directory (containing `parquet-files/`, `metadata.json`, etc.) and returns a path that the next stage will seed from. This keeps large DataFrames on disk and gives users full control.
 
-**Callback resume policy**: The pipeline does not hash arbitrary Python source or bytecode in v1. `after_version` is the explicit callback identity recorded in `pipeline-metadata.json` and included in the next stage's fingerprint. If `after` is set without `after_version`, that stage is treated as dirty on every resume so a changed callback cannot silently reuse stale transformed data.
+**Callback resume policy**: The pipeline does not hash arbitrary Python source or bytecode in v1. `after_version` is the explicit callback identity recorded in `pipeline-metadata.json` and included in the next stage's fingerprint. If `after` is set without `after_version`, that stage is treated as dirty on every resume so a changed callback cannot silently reuse stale transformed data. The resolved path returned by the callback is also recorded as the dependent stage's seed path; a stage seeded from callback output is skippable only if that recorded path still exists and is readable by `LocalFileSeedSource`.
 
 **Empty stage policy**: If a callback filters all rows (or a stage produces zero rows), the pipeline raises `DataDesignerPipelineError` by default. Stages can opt in to empty output with `allow_empty=True` on `add_stage()`, in which case the pipeline short-circuits and skips subsequent stages.
 
@@ -159,6 +159,8 @@ Each stage produces durable parquet output before the next stage starts. This pr
 
 Pipeline resume should decide stage compatibility before calling `DataDesigner.create()`. If a stage fingerprint matches and the stage is partial, the pipeline delegates to `create(..., resume=ResumeMode.ALWAYS)` for that stage. If a stage fingerprint changed, the pipeline invalidates that stage directory and descendants, then starts them fresh. It should not blindly pass `ResumeMode.IF_POSSIBLE` through to stage `create()`, because pipeline stage directories must remain deterministic under `artifacts/<pipeline-name>/`.
 
+If a stage's seed came from an `after` callback, a fingerprint match is necessary but not sufficient to skip it. Resume must also verify the recorded callback output path exists. If the path is missing, the dependent stage and its descendants are invalidated and the callback/stage boundary is re-run from the upstream stage output.
+
 **Resume safety**: Naive "skip if directory exists" is not sufficient. Configs, model settings, callbacks, or DD version may have changed between runs. Resume must compare a fingerprint of each stage's inputs against what's recorded in `pipeline-metadata.json`. The per-stage fingerprint composes:
 
 - `DataDesignerConfig.fingerprint()` (introduced in #587) - content-addressable sha256 over the data-relevant portion of the config
@@ -180,6 +182,7 @@ The connection to #526/#525: chaining gives workflow-level checkpointing and sma
 - Per-stage fingerprint for resume invalidation: `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, seed sampling/selection controls, `after_version`, DD version, and the upstream stage fingerprint
 - `num_records` requested vs actual per stage
 - Which stage's output seeded the next
+- Resolved seed path per stage, including callback output paths returned by `after`
 - Timestamp, duration, and DD version per stage
 
 #### Composability and the throttle invariant
@@ -368,6 +371,7 @@ result_2 = dd.create(config_2, num_records=200)  # explode: 50 -> 200
 - Resolve the metadata path from the explicit pipeline name.
 - Compute each stage's fingerprint via `DataDesignerConfig.fingerprint()` (#587) combined with `num_records`, seed sampling/selection controls, `after_version`, DD version, and upstream stage fingerprint; invalidate the stage and everything downstream on any mismatch.
 - Skip stages whose fingerprints match and are complete; for matching partial stages, call `DataDesigner.create(..., resume=ResumeMode.ALWAYS)` to use #526's batch/row-group resume.
+- Before skipping or resuming a stage seeded by `after`, validate the recorded callback output path exists and can seed `LocalFileSeedSource`; if missing, invalidate that stage and descendants.
 - For invalidated stages, clear or replace the deterministic stage directory before starting fresh so `ArtifactStorage` does not timestamp away from the pipeline layout.
 - Depends on artifact layout from phase 1.
 
