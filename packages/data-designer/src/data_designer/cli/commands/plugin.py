@@ -129,7 +129,10 @@ def install_command(
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Print the install plan without mutating the current environment.",
+        help=(
+            "Print the install plan without mutating the current environment. Exits 1 if compatibility would block "
+            "install."
+        ),
     ),
 ) -> None:
     """Install one Data Designer plugin package, then verify declared runtime entry points."""
@@ -194,7 +197,7 @@ def uninstall_command(
 
 
 def installed_command(ctx: typer.Context) -> None:
-    """List installed Data Designer runtime plugin entry points."""
+    """List installed Data Designer runtime plugins with package metadata."""
     _warn_if_parent_catalog_unused(ctx, "installed runtime plugins are discovered from the current Python environment")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_installed()

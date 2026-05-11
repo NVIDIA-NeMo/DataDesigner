@@ -7,12 +7,14 @@ import shlex
 from pathlib import Path
 
 import typer
+from packaging.utils import canonicalize_name
 from pydantic import ValidationError
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
 from data_designer.cli.plugin_catalog import (
+    DATA_DESIGNER_PLUGIN_PACKAGE_PREFIX,
     DEFAULT_PLUGIN_CATALOG_ALIAS,
     PLUGIN_CATALOG_ALIAS_PATTERN,
     CompatibilityResult,
@@ -35,6 +37,8 @@ from data_designer.cli.ui import (
     print_warning,
 )
 from data_designer.config.utils.constants import NordColor
+
+NARROW_CATALOG_LAYOUT_WIDTH = 100
 
 
 class PluginCatalogController:
@@ -117,6 +121,7 @@ class PluginCatalogController:
             catalog.alias,
             refresh=refresh,
             include_incompatible=True,
+            command_name="info",
         )
         entry = package_entries[0]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
@@ -176,6 +181,7 @@ class PluginCatalogController:
             catalog.alias,
             refresh=refresh,
             include_incompatible=True,
+            command_name="install",
         )
         entry = package_entries[0]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
@@ -210,9 +216,9 @@ class PluginCatalogController:
         if dry_run:
             if not compatibility.is_compatible:
                 print_warning(
-                    "Dry run complete; no changes made. A real install would be blocked because compatibility "
-                    "checks failed."
+                    "Dry run complete; no changes made. Install would be blocked because compatibility checks failed."
                 )
+                raise typer.Exit(code=1)
             else:
                 print_info("Dry run complete; no changes made")
             return
@@ -255,6 +261,7 @@ class PluginCatalogController:
             catalog.alias,
             refresh=refresh,
             include_incompatible=True,
+            command_name="uninstall",
         )
         entry = package_entries[0]
 
@@ -296,7 +303,7 @@ class PluginCatalogController:
             )
 
     def run_installed(self) -> None:
-        """List installed runtime plugin entry points without importing plugin modules."""
+        """List installed runtime plugins without importing plugin modules."""
         print_header("Installed Data Designer Runtime Plugins")
         installed_plugins = self.catalog_service.list_installed_plugins()
         if not installed_plugins:
@@ -408,6 +415,7 @@ class PluginCatalogController:
         *,
         refresh: bool,
         include_incompatible: bool,
+        command_name: str,
     ) -> list[PluginCatalogEntry]:
         try:
             package_entries = self.catalog_service.get_package_entries(
@@ -421,8 +429,43 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
         if not package_entries:
             print_error(f"Plugin package or alias {package_name!r} was not found in catalog {catalog_alias!r}")
+            self._display_runtime_plugin_recovery_hint(
+                package_name,
+                catalog_alias,
+                refresh=refresh,
+                include_incompatible=include_incompatible,
+                command_name=command_name,
+            )
             raise typer.Exit(code=1)
         return package_entries
+
+    def _display_runtime_plugin_recovery_hint(
+        self,
+        package_name: str,
+        catalog_alias: str,
+        *,
+        refresh: bool,
+        include_incompatible: bool,
+        command_name: str,
+    ) -> None:
+        try:
+            runtime_entries = self.catalog_service.get_runtime_plugin_entries(
+                package_name,
+                catalog_alias,
+                refresh=refresh,
+                include_incompatible=include_incompatible,
+            )
+        except (PluginCatalogError, OSError, ValueError):
+            return
+
+        if not runtime_entries:
+            return
+
+        entry = runtime_entries[0]
+        package_alias = _package_alias(entry.package.name) or entry.package.name
+        print_info(f"{package_name!r} is a runtime plugin exposed by plugin package {entry.package.name!r}.")
+        command = _plugin_package_command(command_name, package_alias, catalog_alias)
+        print_info(f"Use the package instead: {shlex.join(command)}")
 
     def _display_empty_list_state(self, catalog_alias: str, *, include_incompatible: bool) -> None:
         if include_incompatible:
@@ -460,8 +503,37 @@ class PluginCatalogController:
             return
 
         print_warning("No matching plugin packages found")
+        suggestions = self._suggest_entries(query, catalog_alias, include_incompatible=include_incompatible)
+        if suggestions:
+            package_names = [
+                package_entries[0].package.name
+                for package_entries in self.catalog_service.group_entries_by_package(suggestions).values()
+            ]
+            print_info(f"Closest package matches: {', '.join(package_names)}")
+        print_info("Try fewer terms, a package alias, or a runtime plugin name.")
+
+    def _suggest_entries(
+        self,
+        query: str,
+        catalog_alias: str,
+        *,
+        include_incompatible: bool,
+    ) -> list[PluginCatalogEntry]:
+        try:
+            return self.catalog_service.suggest_entries(
+                query,
+                catalog_alias,
+                refresh=False,
+                include_incompatible=include_incompatible,
+            )
+        except (PluginCatalogError, OSError, ValueError):
+            return []
 
     def _display_catalog_entries(self, entries: list[PluginCatalogEntry]) -> None:
+        if _console_width() < NARROW_CATALOG_LAYOUT_WIDTH:
+            self._display_catalog_entries_vertical(entries)
+            return
+
         table = Table(title="Catalog Plugin Packages", border_style=NordColor.NORD8.value)
         table.add_column("Package", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("Description", style=NordColor.NORD4.value)
@@ -482,15 +554,33 @@ class PluginCatalogController:
             )
         console.print(table)
 
+    def _display_catalog_entries_vertical(self, entries: list[PluginCatalogEntry]) -> None:
+        for index, package_entries in enumerate(self.catalog_service.group_entries_by_package(entries).values()):
+            entry = package_entries[0]
+            compatibility = self.catalog_service.evaluate_compatibility(entry)
+            docs_url = entry.docs.url if entry.docs is not None and entry.docs.url is not None else ""
+            if index:
+                console.print()
+            console.print(Text(entry.package.name, style=f"bold {NordColor.NORD14.value}"))
+            console.print(f"  Description: {entry.description}")
+            console.print(f"  Runtime plugins: {_format_runtime_plugins(package_entries)}")
+            console.print(f"  Compatible: {'yes' if compatibility.is_compatible else 'no'}")
+            if docs_url:
+                console.print(f"  Docs: {docs_url}")
+
     @staticmethod
     def _display_installed_plugins(installed_plugins: list[InstalledPluginInfo]) -> None:
         table = Table(title="Installed Runtime Plugins", border_style=NordColor.NORD8.value)
         table.add_column("Runtime Plugin", style=NordColor.NORD14.value, no_wrap=True)
+        table.add_column("Package", style=NordColor.NORD9.value, no_wrap=True)
+        table.add_column("Version", style=NordColor.NORD13.value, no_wrap=True)
         table.add_column("Entry Point", style=NordColor.NORD4.value)
 
         for plugin in installed_plugins:
             table.add_row(
                 plugin.name,
+                plugin.package_name or "",
+                plugin.package_version or "",
                 plugin.entry_point_value,
             )
         console.print(table)
@@ -524,6 +614,26 @@ def _target_description(mode: str, project_root: str | None) -> str:
 
 def _format_runtime_plugins(entries: list[PluginCatalogEntry]) -> str:
     return ", ".join(f"{entry.name} ({entry.plugin_type.value})" for entry in entries)
+
+
+def _package_alias(package_name: str) -> str | None:
+    canonical_package_name = canonicalize_name(package_name)
+    if not canonical_package_name.startswith(DATA_DESIGNER_PLUGIN_PACKAGE_PREFIX):
+        return None
+    return canonical_package_name.removeprefix(DATA_DESIGNER_PLUGIN_PACKAGE_PREFIX)
+
+
+def _plugin_package_command(command_name: str, package_alias: str, catalog_alias: str) -> list[str]:
+    command = ["data-designer", "plugin"]
+    if catalog_alias != DEFAULT_PLUGIN_CATALOG_ALIAS:
+        command.extend(["--catalog", catalog_alias])
+    command.extend([command_name, package_alias])
+    return command
+
+
+def _console_width() -> int:
+    width = getattr(console, "width", None)
+    return width if isinstance(width, int) else 120
 
 
 def _format_docs_link(docs_url: str | None) -> Text:

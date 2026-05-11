@@ -45,7 +45,7 @@ Plugin catalog commands use the same layering shape:
 | **Service** | Domain rules: package listing, compatibility checks, uv/pip install and uninstall commands, plugin discovery verification | `PluginCatalogService`, `PluginInstallService` |
 | **Repository** | File/cache I/O for catalog aliases and catalog documents | `PluginCatalogRepository` |
 
-The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`. `NVIDIA-NeMo/DataDesignerPlugins` defines the catalog format. Each catalog entry is an installable package with docs, install metadata, compatibility constraints, and one or more runtime plugins. Users install and uninstall packages, not individual runtime plugins. Commands that take a package name also accept the package alias from the `data-designer-{alias}` package-name pattern; for example, `data-designer-calculator` can be addressed as `calculator`.
+The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`. `NVIDIA-NeMo/DataDesignerPlugins` defines the catalog format. Each catalog entry is an installable package with docs, install metadata, compatibility constraints, and one or more runtime plugins. Users install and uninstall packages, not individual runtime plugins. Commands that take a package name also accept the package alias from the `data-designer-{alias}` package-name pattern; for example, `data-designer-calculator` can be addressed as `calculator`. If a user passes a runtime plugin name where a package is required, the CLI reports the package that owns that runtime plugin.
 
 ### Generation Commands
 
@@ -78,7 +78,7 @@ User invokes command (e.g., `data-designer config models`)
 ```
 User invokes command (e.g., `data-designer plugin list`)
   → Command function wires DATA_DESIGNER_HOME and catalog options
-  → PluginCatalogController resolves the catalog alias
+  → PluginCatalogController resolves the catalog alias and chooses table or narrow-terminal layout
   → PluginCatalogService loads packages and filters out incompatible packages by default
   → PluginCatalogRepository reads local config and cached/remote catalog JSON
 ```

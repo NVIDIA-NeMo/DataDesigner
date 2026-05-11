@@ -342,7 +342,7 @@ data-designer plugin info github
 # Install a plugin package from a catalog and verify Data Designer can discover its plugins
 data-designer plugin install github --yes
 
-# Preview without changing the current environment
+# Preview without changing the current environment. Exits 1 if compatibility would block install.
 data-designer plugin install github --dry-run
 
 # Uninstall a plugin package and verify Data Designer no longer discovers its plugins
@@ -356,7 +356,7 @@ data-designer plugin catalog add research https://github.com/acme/dd-plugins
 data-designer plugin catalog list
 data-designer plugin catalog remove research
 
-# List installed runtime plugin entry points without importing plugin modules
+# List installed runtime plugins with package and version metadata
 data-designer plugin installed
 ```
 
@@ -366,6 +366,12 @@ dependencies are installed normally, but the currently installed Data Designer
 packages (`data-designer`, `data-designer-config`, and `data-designer-engine`)
 are kept in place. This prevents a plugin dependency from upgrading,
 downgrading, or reinstalling Data Designer itself.
+
+Runtime plugin names shown by `plugin list`, `plugin search`, and
+`plugin installed` identify the plugin entry points Data Designer can load.
+Install, uninstall, and info commands take the plugin package name or package
+alias. If a user passes a runtime plugin name to one of those package commands,
+the CLI points them to the owning package.
 
 In an active virtual environment with a user `pyproject.toml`, `uv` uses
 `uv add` so the plugin package is recorded in the project. Otherwise the CLI
