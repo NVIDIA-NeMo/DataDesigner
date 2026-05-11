@@ -54,10 +54,15 @@ class DataDesignerConfig(ExportableConfigBase):
             if col.column_type != "sampler" or col.sampler_type != SamplerType.SUBCATEGORY:
                 continue
             parent = by_name.get(col.params.category)
-            if parent is not None and parent.column_type != "sampler":
+            if parent is not None and (parent.column_type != "sampler" or parent.sampler_type != SamplerType.CATEGORY):
+                if parent.column_type == "sampler":
+                    parent_sampler_type = getattr(parent.sampler_type, "value", parent.sampler_type)
+                    parent_type = f"sampler column with sampler_type='{parent_sampler_type}'"
+                else:
+                    parent_type = f"'{parent.column_type}' column"
                 raise ValueError(
-                    f"Subcategory column '{col.name}' has parent '{parent.name}', which is a "
-                    f"'{parent.column_type}' column. Subcategory parents must be sampler columns "
+                    f"Subcategory column '{col.name}' has parent '{parent.name}', which is a {parent_type}. "
+                    f"Subcategory parents must be sampler columns "
                     f"with sampler_type='category'."
                 )
         return self
