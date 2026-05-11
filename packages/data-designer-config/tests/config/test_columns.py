@@ -603,6 +603,60 @@ def test_allow_resize_inherited_by_subclasses() -> None:
     assert StubColumnConfig(name="test", allow_resize=True).allow_resize is True
 
 
+def test_get_model_aliases_empty_when_no_model_alias_field() -> None:
+    """Configs without a model_alias field return an empty list, not AttributeError."""
+    assert StubColumnConfig(name="test").get_model_aliases() == []
+
+
+def test_get_model_aliases_forwards_empty_string_for_fail_fast() -> None:
+    """An empty model_alias is surfaced so run_health_check fails fast at startup.
+
+    Empty strings are accepted by the config model and previously reached
+    ``run_health_check``, which raised ``No model config with alias '' found!``.
+    Only a truly missing attribute should skip the health check.
+    """
+    config = LLMTextColumnConfig(name="t", prompt=stub_prompt, model_alias="")
+    assert config.get_model_aliases() == [""]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        LLMTextColumnConfig(name="t", prompt=stub_prompt, model_alias=stub_model_alias),
+        LLMCodeColumnConfig(name="c", prompt=stub_prompt, code_lang=CodeLang.PYTHON, model_alias=stub_model_alias),
+        EmbeddingColumnConfig(name="e", target_column="text", model_alias=stub_model_alias),
+        ImageColumnConfig(name="i", prompt="Generate {{ x }}", model_alias=stub_model_alias),
+    ],
+    ids=["llm-text", "llm-code", "embedding", "image"],
+)
+def test_get_model_aliases_returns_primary_alias_for_builtins(config: SingleColumnConfig) -> None:
+    """Built-in model-backed configs return their primary model_alias by default."""
+    assert config.get_model_aliases() == [stub_model_alias]
+
+
+def test_get_model_aliases_can_be_overridden_for_multi_model_plugins() -> None:
+    """A plugin config with multiple model fields can override get_model_aliases()."""
+
+    class _PairwiseJudgeColumnConfig(SingleColumnConfig):
+        column_type: Literal["pairwise-judge-test"] = "pairwise-judge-test"
+        model_alias: str
+        judge_model_alias: str
+
+        @property
+        def required_columns(self) -> list[str]:
+            return []
+
+        @property
+        def side_effect_columns(self) -> list[str]:
+            return []
+
+        def get_model_aliases(self) -> list[str]:
+            return [self.model_alias, self.judge_model_alias]
+
+    config = _PairwiseJudgeColumnConfig(name="pj", model_alias="primary", judge_model_alias="judge")
+    assert config.get_model_aliases() == ["primary", "judge"]
+
+
 @pytest.mark.parametrize(
     ("dtype", "raw_value", "expected_value", "expected_type"),
     [
