@@ -39,6 +39,9 @@ from data_designer.cli.ui import (
 from data_designer.config.utils.constants import NordColor
 
 NARROW_CATALOG_LAYOUT_WIDTH = 100
+CATALOG_TABLE_ROW_LEADING = 1
+CHECKMARK = "✓"
+X_MARK = "x"
 
 
 class PluginCatalogController:
@@ -66,14 +69,15 @@ class PluginCatalogController:
         entries = self._list_entries_or_exit(catalog.alias, refresh=refresh, include_incompatible=include_incompatible)
 
         print_header("Data Designer Plugin Packages")
-        print_info(f"Catalog: {catalog.alias} ({catalog.url})")
         console.print()
 
         if not entries:
             self._display_empty_list_state(catalog.alias, include_incompatible=include_incompatible)
+            _print_catalog_reference(catalog)
             return
 
         self._display_catalog_entries(entries)
+        _print_catalog_reference(catalog)
 
     def run_search(
         self,
@@ -93,7 +97,6 @@ class PluginCatalogController:
         )
 
         print_header("Data Designer Plugin Package Search")
-        print_info(f"Catalog: {catalog.alias} ({catalog.url})")
         print_info(f"Query: {query}")
         console.print()
 
@@ -103,9 +106,11 @@ class PluginCatalogController:
                 catalog.alias,
                 include_incompatible=include_incompatible,
             )
+            _print_catalog_reference(catalog)
             return
 
         self._display_catalog_entries(entries)
+        _print_catalog_reference(catalog)
 
     def run_info(
         self,
@@ -530,15 +535,21 @@ class PluginCatalogController:
             return []
 
     def _display_catalog_entries(self, entries: list[PluginCatalogEntry]) -> None:
+        installed_plugins = self.catalog_service.list_installed_plugins()
         if _console_width() < NARROW_CATALOG_LAYOUT_WIDTH:
-            self._display_catalog_entries_vertical(entries)
+            self._display_catalog_entries_vertical(entries, installed_plugins)
             return
 
-        table = Table(title="Catalog Plugin Packages", border_style=NordColor.NORD8.value)
+        table = Table(
+            title="Catalog Plugin Packages",
+            border_style=NordColor.NORD8.value,
+            leading=CATALOG_TABLE_ROW_LEADING,
+        )
         table.add_column("Package", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("Description", style=NordColor.NORD4.value)
         table.add_column("Runtime Plugins", style=NordColor.NORD9.value)
-        table.add_column("Compatible", style=NordColor.NORD13.value, no_wrap=True)
+        table.add_column("Compatible", style=NordColor.NORD13.value, justify="center", no_wrap=True)
+        table.add_column("Installed", style=NordColor.NORD14.value, justify="center", no_wrap=True)
         table.add_column("Docs", style=NordColor.NORD7.value)
 
         for package_entries in self.catalog_service.group_entries_by_package(entries).values():
@@ -549,12 +560,17 @@ class PluginCatalogController:
                 entry.package.name,
                 entry.description,
                 _format_runtime_plugins(package_entries),
-                "yes" if compatibility.is_compatible else "no",
+                _format_compatibility_marker(compatibility),
+                _format_installed_marker(package_entries, installed_plugins),
                 _format_docs_link(docs_url),
             )
         console.print(table)
 
-    def _display_catalog_entries_vertical(self, entries: list[PluginCatalogEntry]) -> None:
+    def _display_catalog_entries_vertical(
+        self,
+        entries: list[PluginCatalogEntry],
+        installed_plugins: list[InstalledPluginInfo],
+    ) -> None:
         for index, package_entries in enumerate(self.catalog_service.group_entries_by_package(entries).values()):
             entry = package_entries[0]
             compatibility = self.catalog_service.evaluate_compatibility(entry)
@@ -564,7 +580,8 @@ class PluginCatalogController:
             console.print(Text(entry.package.name, style=f"bold {NordColor.NORD14.value}"))
             console.print(f"  Description: {entry.description}")
             console.print(f"  Runtime plugins: {_format_runtime_plugins(package_entries)}")
-            console.print(f"  Compatible: {'yes' if compatibility.is_compatible else 'no'}")
+            console.print(f"  Compatible: {_format_compatibility_marker(compatibility)}")
+            console.print(f"  Installed: {_format_installed_marker(package_entries, installed_plugins)}")
             if docs_url:
                 console.print(f"  Docs: {docs_url}")
 
@@ -606,6 +623,16 @@ def _display_commands(commands: list[list[str]]) -> None:
         console.print(f"    [bold]{shlex.join(command)}[/bold]")
 
 
+def _print_catalog_reference(catalog: PluginCatalogConfig) -> None:
+    console.print()
+    catalog_link = Text.assemble(
+        "  🗂️  Catalog: ",
+        (catalog.alias, Style(color=NordColor.NORD14.value, bold=True, link=catalog.url)),
+    )
+    console.print(catalog_link)
+    console.print()
+
+
 def _target_description(mode: str, project_root: str | None) -> str:
     if mode == "uv-project" and project_root is not None:
         return f"current uv project ({project_root})"
@@ -614,6 +641,31 @@ def _target_description(mode: str, project_root: str | None) -> str:
 
 def _format_runtime_plugins(entries: list[PluginCatalogEntry]) -> str:
     return ", ".join(f"{entry.name} ({entry.plugin_type.value})" for entry in entries)
+
+
+def _format_checkmark(value: bool) -> str:
+    return CHECKMARK if value else ""
+
+
+def _format_compatibility_marker(compatibility: CompatibilityResult) -> str:
+    return CHECKMARK if compatibility.is_compatible else X_MARK
+
+
+def _format_installed_marker(
+    package_entries: list[PluginCatalogEntry],
+    installed_plugins: list[InstalledPluginInfo],
+) -> str:
+    return _format_checkmark(_package_entries_are_installed(package_entries, installed_plugins))
+
+
+def _package_entries_are_installed(
+    package_entries: list[PluginCatalogEntry],
+    installed_plugins: list[InstalledPluginInfo],
+) -> bool:
+    installed_entry_points = {(plugin.name, plugin.entry_point_value) for plugin in installed_plugins}
+    return bool(package_entries) and all(
+        (entry.entry_point.name, entry.entry_point.value) in installed_entry_points for entry in package_entries
+    )
 
 
 def _package_alias(package_name: str) -> str | None:
