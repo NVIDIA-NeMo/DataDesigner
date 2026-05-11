@@ -28,11 +28,31 @@ that already appear in `known_issues`.
 
 ## Instructions
 
+### Turn budget
+
+This suite must finish before the `max_turns` limit. Do not attempt a
+repo-wide audit in one run.
+
+1. Read runner memory.
+2. Write `/tmp/audit-{{suite}}.md` immediately with the required headings and
+   empty tables. If the run is interrupted later, the workflow must still have
+   a usable partial report.
+3. Use targeted searches to find candidates, then read only the files needed
+   to verify a specific finding.
+4. Stop after either:
+   - 20 tool calls
+   - 2 new findings in a section
+   - all sections have been sampled
+5. Finalize the report, update runner memory, and stop. If no new findings
+   were verified, replace the report with `NO_FINDINGS`.
+
 ### 1. Docstring vs signature drift
 
 This repo uses Google-style docstrings (`Args:`, `Returns:`, `Raises:`).
-Scan public functions and methods in `packages/` for mismatches between the
-docstring and the actual function signature:
+Sample public functions and methods in `packages/` for mismatches between the
+docstring and the actual function signature. Do not scan every source file.
+Use `rg "Args:|Returns:|Raises:" packages/*/src/ --glob '*.py'` to find
+candidates, then inspect at most 5 high-value files:
 
 - Parameters in the `Args:` section that no longer exist in the signature
 - Parameters in the signature that are missing from `Args:`
@@ -55,14 +75,17 @@ Check links in these locations:
 - `docs/` - MkDocs content links, code references, cross-page links
 - `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md` - relative links
 
-For each link, verify the target file or anchor exists. Report broken links
-with the source file, line number, and broken target.
+Use targeted link extraction and inspect at most 10 candidate links. Prefer
+high-value docs and links changed recently. For each sampled link, verify the
+target file or anchor exists. Report broken links with the source file, line
+number, and broken target.
 
 ### 3. Architecture doc references
 
 The 10 files in `architecture/` reference specific classes, functions, files,
 and registries by name. These are high-value docs that agents and developers
-rely on for orientation. For each code reference:
+rely on for orientation. Sample at most 3 architecture files per run,
+prioritizing files changed recently. For each code reference:
 - Verify the referenced class, function, or module still exists at the stated
   location
 - If renamed or moved, flag with the old and new location
@@ -100,7 +123,7 @@ Review for accuracy against the current code:
 - Check that autodoc module paths point to modules that still exist.
 
 **Prioritize by risk of drift**: pages with the most code symbols referenced
-are most likely to be stale. Don't read every page - sample 5-10 high-value
+are most likely to be stale. Don't read every page - sample 3-5 high-value
 pages and flag patterns.
 
 ## Output format

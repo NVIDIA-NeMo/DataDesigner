@@ -176,6 +176,13 @@ jobs:
           # Build prompt: _runner.md + recipe body (strip YAML frontmatter)
           RUNNER_CTX=$(cat .agents/recipes/_runner.md)
           RECIPE_BODY=$(sed '1,/^---$/{ /^---$/,/^---$/d }' "${RECIPE_DIR}/recipe.md")
+          MAX_TURNS=$(awk -F': *' '
+            /^---$/ { section++; next }
+            section == 1 && $1 == "max_turns" { print $2; exit }
+            section == 2 { exit }
+          ' "${RECIPE_DIR}/recipe.md")
+          MAX_TURNS=${MAX_TURNS:-50}
+          echo "Using max turns: ${MAX_TURNS}"
 
           PROMPT=$(printf '%s\n\n%s\n' "${RUNNER_CTX}" "${RECIPE_BODY}" \
             | sed "s|{{suite}}|${SUITE}|g" \
@@ -185,7 +192,7 @@ jobs:
           stdbuf -oL -eL claude \
             --model "$AGENTIC_CI_MODEL" \
             -p "$PROMPT" \
-            --max-turns 50 \
+            --max-turns "$MAX_TURNS" \
             --output-format stream-json \
             --verbose \
             2>&1 | tee /tmp/claude-audit-log.txt
