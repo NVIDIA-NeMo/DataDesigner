@@ -88,7 +88,7 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[9].model == "openai/gpt-oss-20b"
     assert builtin_model_configs[9].provider == "openrouter"
     assert builtin_model_configs[10].alias == "openrouter-vision"
-    assert builtin_model_configs[10].model == "nvidia/nemotron-nano-12b-v2-vl"
+    assert builtin_model_configs[10].model == "nvidia/nemotron-nano-12b-v2-vl:free"
     assert builtin_model_configs[10].provider == "openrouter"
     assert builtin_model_configs[11].alias == "openrouter-embedding"
     assert builtin_model_configs[11].model == "openai/text-embedding-3-large"
