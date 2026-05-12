@@ -53,6 +53,8 @@ jobs:
         run: .venv/bin/mkdocs build
 
       - name: Check Fern docs
+        id: fern-check
+        continue-on-error: true
         run: make check-fern-docs
 
       - name: Skip hosted previews for fork PRs
@@ -60,7 +62,7 @@ jobs:
         run: echo "::notice::Skipping hosted docs previews because this PR comes from a fork."
 
       - name: Deploy Fern preview
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.pull_request.head.repo.full_name == github.repository && steps.fern-check.outcome == 'success'
         id: fern-preview
         continue-on-error: true
         env:
@@ -126,6 +128,10 @@ jobs:
             <!-- docs-preview -->
             **MkDocs preview:** ${{ steps.deploy.outcome == 'success' && steps.deploy.outputs.deployment-url || 'MkDocs preview failed; see workflow logs.' }}
 
-            **Fern preview:** ${{ steps.fern-preview.outcome == 'success' && steps.fern-preview.outputs.url || 'Fern preview failed; see workflow logs.' }}
+            **Fern preview:** ${{ steps.fern-preview.outcome == 'success' && steps.fern-preview.outputs.url || 'Fern preview failed or skipped; see workflow logs.' }}
 
             > Notebook tutorials are rendered without execution outputs in previews.
+
+      - name: Fail if Fern docs check failed
+        if: steps.fern-check.outcome == 'failure'
+        run: exit 1
