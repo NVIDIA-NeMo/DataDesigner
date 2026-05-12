@@ -42,7 +42,7 @@ Plugin catalog commands use the same layering shape:
 |-------|------|---------|
 | **Command** | Thin Typer entry, wires `DATA_DESIGNER_HOME` and command options | `plugin` subcommands (`list`, `search`, `info`, `install`, `uninstall`, `installed`, `catalog`) → `PluginCatalogController(DATA_DESIGNER_HOME)` |
 | **Controller** | UX flow: catalog tables, package metadata, compatibility display, install/uninstall confirmations | `PluginCatalogController` composes catalog + install services |
-| **Service** | Domain rules: package listing, compatibility checks, uv/pip install and uninstall commands, plugin discovery verification | `PluginCatalogService`, `PluginInstallService` |
+| **Service** | Domain rules: package listing, compatibility checks, uv/pip install and uninstall commands, runtime entry-point checks | `PluginCatalogService`, `PluginInstallService` |
 | **Repository** | File/cache I/O for catalog aliases and catalog documents | `PluginCatalogRepository` |
 
 The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json`. `NVIDIA-NeMo/DataDesignerPlugins` defines the catalog format. Each catalog entry is an installable package with docs, install metadata, compatibility constraints, and one or more runtime plugins. Users install and uninstall packages, not individual runtime plugins. Commands that take a package name also accept the package alias from the `data-designer-{alias}` package-name pattern; for example, `data-designer-calculator` can be addressed as `calculator`. If a user passes a runtime plugin name where a package is required, the CLI reports the package that owns that runtime plugin.
@@ -93,7 +93,7 @@ User invokes command (e.g., `data-designer plugin install calculator`)
     `pyproject.toml`; otherwise it installs into the current Python environment.
     Data Designer itself is already installed, so its packages are not reinstalled
     or replaced while installing plugin dependencies.
-  → PluginInstallService verifies Data Designer can discover the package's runtime plugins
+  → PluginInstallService verifies the package's runtime plugin entry points can load
 ```
 
 ```
@@ -102,7 +102,7 @@ User invokes command (e.g., `data-designer plugin uninstall calculator`)
   → PluginInstallService chooses uv or pip and builds the uninstall command.
     Active uv projects remove the dependency from project metadata and uninstall
     the package from the current environment.
-  → PluginInstallService verifies Data Designer no longer discovers the package's runtime plugins
+  → PluginInstallService verifies the package's runtime plugin entry-point metadata is removed
 ```
 
 ### Generation

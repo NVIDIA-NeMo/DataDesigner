@@ -9,6 +9,7 @@ from pathlib import Path
 import typer
 from packaging.utils import canonicalize_name
 from pydantic import ValidationError
+from rich.markup import escape
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
@@ -97,7 +98,7 @@ class PluginCatalogController:
         )
 
         print_header("Data Designer Plugin Package Search")
-        print_info(f"Query: {query}")
+        print_info(f"Query: {_escape_markup(query)}")
         console.print()
 
         if not entries:
@@ -131,20 +132,22 @@ class PluginCatalogController:
         entry = package_entries[0]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
-        print_header(f"Plugin Package: {entry.package.name}")
-        print_info(f"Catalog: {catalog.alias} ({catalog.url})")
-        console.print(f"  Runtime plugins: [bold]{_format_runtime_plugins(package_entries)}[/bold]")
+        print_header(f"Plugin Package: {_escape_markup(entry.package.name)}")
+        print_info(f"Catalog: {_escape_markup(catalog.alias)} ({_escape_markup(catalog.url)})")
+        console.print(f"  Runtime plugins: [bold]{_escape_markup(_format_runtime_plugins(package_entries))}[/bold]")
         self._display_compatibility(compatibility)
 
         try:
             plan = self.install_service.build_install_plan(entry, catalog)
-            console.print(f"  Requirement: [bold]{entry.install.requirement}[/bold]")
+            console.print(f"  Requirement: [bold]{_escape_markup(entry.install.requirement)}[/bold]")
             if entry.install.index_url is not None:
-                console.print(f"  Index URL: [bold]{entry.install.index_url}[/bold]")
-            console.print(f"  Install target: [bold]{_target_description(plan.install_mode, plan.project_root)}[/bold]")
+                console.print(f"  Index URL: [bold]{_escape_markup(entry.install.index_url)}[/bold]")
+            console.print(
+                f"  Install target: [bold]{_escape_markup(_target_description(plan.install_mode, plan.project_root))}[/bold]"
+            )
             if plan.data_designer_protection is not None:
-                console.print(f"  Data Designer: [bold]{plan.data_designer_protection}[/bold]")
-            console.print(f"  Install command: [bold]{shlex.join(plan.command)}[/bold]")
+                console.print(f"  Data Designer: [bold]{_escape_markup(plan.data_designer_protection)}[/bold]")
+            console.print(f"  Install command: [bold]{_escape_markup(shlex.join(plan.command))}[/bold]")
             if plan.source_warning is not None:
                 print_warning(plan.source_warning)
         except ValueError as e:
@@ -194,7 +197,7 @@ class PluginCatalogController:
         if not compatibility.is_compatible and not dry_run:
             print_error(f"Plugin package {entry.package.name!r} is not compatible with this environment")
             for reason in compatibility.reasons:
-                console.print(f"  - {reason}")
+                console.print(Text.assemble("  - ", reason))
             raise typer.Exit(code=1)
 
         try:
@@ -204,15 +207,17 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         print_header("Install Data Designer Plugin Package")
-        console.print(f"  Package: [bold]{entry.package.name}[/bold]")
-        console.print(f"  Catalog: [bold]{catalog.alias}[/bold] ({catalog.url})")
-        console.print(f"  Requirement: [bold]{entry.install.requirement}[/bold]")
+        console.print(f"  Package: [bold]{_escape_markup(entry.package.name)}[/bold]")
+        console.print(f"  Catalog: [bold]{_escape_markup(catalog.alias)}[/bold] ({_escape_markup(catalog.url)})")
+        console.print(f"  Requirement: [bold]{_escape_markup(entry.install.requirement)}[/bold]")
         if entry.install.index_url is not None:
-            console.print(f"  Index URL: [bold]{entry.install.index_url}[/bold]")
-        console.print(f"  Install target: [bold]{_target_description(plan.install_mode, plan.project_root)}[/bold]")
+            console.print(f"  Index URL: [bold]{_escape_markup(entry.install.index_url)}[/bold]")
+        console.print(
+            f"  Install target: [bold]{_escape_markup(_target_description(plan.install_mode, plan.project_root))}[/bold]"
+        )
         if plan.data_designer_protection is not None:
-            console.print(f"  Data Designer: [bold]{plan.data_designer_protection}[/bold]")
-        console.print(f"  Command: [bold]{shlex.join(plan.command)}[/bold]")
+            console.print(f"  Data Designer: [bold]{_escape_markup(plan.data_designer_protection)}[/bold]")
+        console.print(f"  Command: [bold]{_escape_markup(shlex.join(plan.command))}[/bold]")
         self._display_compatibility(compatibility)
 
         if plan.source_warning is not None:
@@ -242,11 +247,11 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         if self.install_service.verify_entry_points(package_entries):
-            print_success(f"Plugin package {entry.package.name!r} installed and runtime entry points verified")
+            print_success(f"Plugin package {entry.package.name!r} installed and runtime entry points loaded")
         else:
             print_warning(
-                f"Plugin package {entry.package.name!r} was installed, but Data Designer did not discover every "
-                "declared runtime entry point. Restart the shell or check the package entry point metadata."
+                f"Plugin package {entry.package.name!r} was installed, but Data Designer could not load every "
+                "declared runtime entry point. Restart the shell or check the package code and entry point metadata."
             )
 
     def run_uninstall(
@@ -277,9 +282,11 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         print_header("Uninstall Data Designer Plugin Package")
-        console.print(f"  Package: [bold]{entry.package.name}[/bold]")
-        console.print(f"  Catalog: [bold]{catalog.alias}[/bold] ({catalog.url})")
-        console.print(f"  Uninstall target: [bold]{_target_description(plan.uninstall_mode, plan.project_root)}[/bold]")
+        console.print(f"  Package: [bold]{_escape_markup(entry.package.name)}[/bold]")
+        console.print(f"  Catalog: [bold]{_escape_markup(catalog.alias)}[/bold] ({_escape_markup(catalog.url)})")
+        console.print(
+            f"  Uninstall target: [bold]{_escape_markup(_target_description(plan.uninstall_mode, plan.project_root))}[/bold]"
+        )
         _display_commands(plan.commands or [plan.command])
 
         if dry_run:
@@ -331,8 +338,8 @@ class PluginCatalogController:
 
         for catalog in catalogs:
             table.add_row(
-                catalog.alias,
-                catalog.url,
+                _escape_markup(catalog.alias),
+                _escape_markup(catalog.url),
             )
         console.print(table)
 
@@ -557,9 +564,9 @@ class PluginCatalogController:
             compatibility = self.catalog_service.evaluate_compatibility(entry)
             docs_url = entry.docs.url if entry.docs is not None and entry.docs.url is not None else ""
             table.add_row(
-                entry.package.name,
-                entry.description,
-                _format_runtime_plugins(package_entries),
+                _escape_markup(entry.package.name),
+                _escape_markup(entry.description),
+                _escape_markup(_format_runtime_plugins(package_entries)),
                 _format_compatibility_marker(compatibility),
                 _format_installed_marker(package_entries, installed_plugins),
                 _format_docs_link(docs_url),
@@ -578,12 +585,12 @@ class PluginCatalogController:
             if index:
                 console.print()
             console.print(Text(entry.package.name, style=f"bold {NordColor.NORD14.value}"))
-            console.print(f"  Description: {entry.description}")
-            console.print(f"  Runtime plugins: {_format_runtime_plugins(package_entries)}")
+            console.print(f"  Description: {_escape_markup(entry.description)}")
+            console.print(f"  Runtime plugins: {_escape_markup(_format_runtime_plugins(package_entries))}")
             console.print(f"  Compatible: {_format_compatibility_marker(compatibility)}")
             console.print(f"  Installed: {_format_installed_marker(package_entries, installed_plugins)}")
             if docs_url:
-                console.print(f"  Docs: {docs_url}")
+                console.print(f"  Docs: {_escape_markup(docs_url)}")
 
     @staticmethod
     def _display_installed_plugins(installed_plugins: list[InstalledPluginInfo]) -> None:
@@ -595,10 +602,10 @@ class PluginCatalogController:
 
         for plugin in installed_plugins:
             table.add_row(
-                plugin.name,
-                plugin.package_name or "",
-                plugin.package_version or "",
-                plugin.entry_point_value,
+                _escape_markup(plugin.name),
+                _escape_markup(plugin.package_name or ""),
+                _escape_markup(plugin.package_version or ""),
+                _escape_markup(plugin.entry_point_value),
             )
         console.print(table)
 
@@ -610,17 +617,17 @@ class PluginCatalogController:
 
         console.print("  Compatibility: [bold yellow]not compatible[/bold yellow]")
         for reason in compatibility.reasons:
-            console.print(f"    - {reason}")
+            console.print(Text.assemble("    - ", reason))
 
 
 def _display_commands(commands: list[list[str]]) -> None:
     if len(commands) == 1:
-        console.print(f"  Command: [bold]{shlex.join(commands[0])}[/bold]")
+        console.print(f"  Command: [bold]{_escape_markup(shlex.join(commands[0]))}[/bold]")
         return
 
     console.print("  Commands:")
     for command in commands:
-        console.print(f"    [bold]{shlex.join(command)}[/bold]")
+        console.print(f"    [bold]{_escape_markup(shlex.join(command))}[/bold]")
 
 
 def _print_catalog_reference(catalog: PluginCatalogConfig) -> None:
@@ -641,6 +648,10 @@ def _target_description(mode: str, project_root: str | None) -> str:
 
 def _format_runtime_plugins(entries: list[PluginCatalogEntry]) -> str:
     return ", ".join(f"{entry.name} ({entry.plugin_type.value})" for entry in entries)
+
+
+def _escape_markup(value: object) -> str:
+    return escape(str(value))
 
 
 def _format_checkmark(value: bool) -> str:

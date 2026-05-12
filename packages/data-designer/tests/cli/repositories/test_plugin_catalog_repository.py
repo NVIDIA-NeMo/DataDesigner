@@ -498,6 +498,44 @@ def test_load_catalog_rejects_duplicate_runtime_plugin_names(tmp_path: Path) -> 
         repository.load_catalog("local", refresh=True)
 
 
+def test_load_catalog_rejects_runtime_plugin_names_with_duplicate_enum_keys(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        packages=[
+            _package_entry(
+                package_name="data-designer-one",
+                plugins=[_runtime_plugin("foo-bar", entry_point_name="first-entry")],
+            ),
+            _package_entry(
+                package_name="data-designer-two",
+                plugins=[_runtime_plugin("foo_bar", entry_point_name="second-entry")],
+            ),
+        ],
+    )
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="enum-key normalization to 'FOO_BAR'"):
+        repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_runtime_plugin_names_that_cannot_be_enum_keys(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        packages=[
+            _package_entry(
+                package_name="data-designer-one",
+                plugins=[_runtime_plugin("1bad-plugin")],
+            ),
+        ],
+    )
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="must be a valid Python identifier"):
+        repository.load_catalog("local", refresh=True)
+
+
 def test_load_catalog_rejects_duplicate_canonical_package_names(tmp_path: Path) -> None:
     catalog_path = _write_catalog(
         tmp_path,

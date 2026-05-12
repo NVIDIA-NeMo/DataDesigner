@@ -11,7 +11,7 @@ The CLI provides an interactive interface for managing:
 - **Tool Configs**: Tool definitions used by configured models and workflows
 - **Managed Assets**: Persona dataset downloads under the Data Designer home directory
 - **Plugin Catalogs**: Catalog aliases for finding Data Designer plugin packages
-- **Plugin Packages**: Install and uninstall packages from catalogs, check version compatibility first, and verify Data Designer can discover the plugins they provide
+- **Plugin Packages**: Install and uninstall packages from catalogs, check version compatibility first, and verify runtime entry points after install
 
 Configuration files and CLI-managed state are stored in `~/.data-designer/` by default.
 
@@ -94,7 +94,7 @@ The CLI follows a **layered architecture** pattern, separating concerns into dis
   - `model_service.py`: Model configuration business logic
   - `provider_service.py`: Provider business logic
   - `plugin_catalog_service.py`: Plugin catalog loading, search, compatibility checks, and installed plugin listing
-  - `plugin_install_service.py`: Chooses and runs uv or pip commands for installing/uninstalling plugin packages, keeps installed Data Designer packages in place, and verifies installed plugins
+  - `plugin_install_service.py`: Chooses and runs uv or pip commands for installing/uninstalling plugin packages, keeps installed Data Designer packages in place, and checks runtime entry points
   - `tool_service.py`: Tool configuration business logic
 
 **Key Methods**:
@@ -339,13 +339,13 @@ data-designer plugin --catalog research search transform
 # Show package metadata, compatibility, docs, and the install command
 data-designer plugin info github
 
-# Install a plugin package from a catalog and verify Data Designer can discover its plugins
+# Install a plugin package from a catalog and verify its runtime entry points can load
 data-designer plugin install github --yes
 
 # Preview without changing the current environment. Exits 1 if compatibility would block install.
 data-designer plugin install github --dry-run
 
-# Uninstall a plugin package and verify Data Designer no longer discovers its plugins
+# Uninstall a plugin package and verify its runtime entry-point metadata is removed
 data-designer plugin uninstall github --yes
 
 # Preview without changing the current environment
@@ -368,7 +368,7 @@ are kept in place. This prevents a plugin dependency from upgrading,
 downgrading, or reinstalling Data Designer itself.
 
 Runtime plugin names shown by `plugin list`, `plugin search`, and
-`plugin installed` identify the plugin entry points Data Designer can load.
+`plugin installed` identify the registered plugin entry points.
 Install, uninstall, and info commands take the plugin package name or package
 alias. If a user passes a runtime plugin name to one of those package commands,
 the CLI points them to the owning package.
