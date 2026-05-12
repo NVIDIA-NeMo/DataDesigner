@@ -223,6 +223,9 @@ def test_app_help_keeps_config_and_plugin_commands_reachable() -> None:
     assert "install" in plugin_result.output
     assert "uninstall" in plugin_result.output
     assert "catalog" in plugin_result.output
+    assert "install strategy" in plugin_result.output
+    assert "installed plugin packages" in plugin_result.output
+    assert "runtime plugins and their packages" not in plugin_result.output
 
 
 def test_no_args_help_exits_successfully_for_lazy_groups() -> None:
