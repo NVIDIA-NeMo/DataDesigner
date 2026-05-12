@@ -137,11 +137,11 @@ def test_plugin_catalog_add_command_delegates_to_controller(mock_ctrl_cls: Magic
     )
 
 
-@patch("data_designer.cli.commands.plugin.print_info")
+@patch("data_designer.cli.commands.plugin.print_warning")
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")
 def test_plugin_installed_warns_when_parent_catalog_is_unused(
     mock_ctrl_cls: MagicMock,
-    mock_print_info: MagicMock,
+    mock_print_warning: MagicMock,
 ) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
@@ -149,17 +149,17 @@ def test_plugin_installed_warns_when_parent_catalog_is_unused(
     result = runner.invoke(app, ["plugin", "--catalog", "research", "installed"])
 
     assert result.exit_code == 0
-    mock_print_info.assert_called_once_with(
+    mock_print_warning.assert_called_once_with(
         "Ignoring --catalog 'research'; installed runtime plugins are discovered from the current Python environment."
     )
     mock_ctrl.run_installed.assert_called_once_with()
 
 
-@patch("data_designer.cli.commands.plugin.print_info")
+@patch("data_designer.cli.commands.plugin.print_warning")
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")
 def test_plugin_catalog_list_warns_when_parent_catalog_is_unused(
     mock_ctrl_cls: MagicMock,
-    mock_print_info: MagicMock,
+    mock_print_warning: MagicMock,
 ) -> None:
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
@@ -167,7 +167,7 @@ def test_plugin_catalog_list_warns_when_parent_catalog_is_unused(
     result = runner.invoke(app, ["plugin", "--catalog", "research", "catalog", "list"])
 
     assert result.exit_code == 0
-    mock_print_info.assert_called_once_with(
+    mock_print_warning.assert_called_once_with(
         "Ignoring --catalog 'research'; catalog management commands operate on aliases directly."
     )
     mock_ctrl.run_catalog_list.assert_called_once_with()

@@ -33,7 +33,6 @@ from data_designer.cli.ui import (
     display_config_preview,
     print_error,
     print_header,
-    print_info,
     print_success,
     print_warning,
 )
@@ -98,7 +97,7 @@ class PluginCatalogController:
         )
 
         print_header("Data Designer Plugin Package Search")
-        print_info(f"Query: {_escape_markup(query)}")
+        _print_query_reference(query)
         console.print()
 
         if not entries:
@@ -133,7 +132,7 @@ class PluginCatalogController:
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
         print_header(f"Plugin Package: {_escape_markup(entry.package.name)}")
-        print_info(f"Catalog: {_escape_markup(catalog.alias)} ({_escape_markup(catalog.url)})")
+        _print_catalog_detail(catalog)
         console.print(f"  Runtime plugins: [bold]{_escape_markup(_format_runtime_plugins(package_entries))}[/bold]")
         self._display_compatibility(compatibility)
 
@@ -230,14 +229,14 @@ class PluginCatalogController:
                 )
                 raise typer.Exit(code=1)
             else:
-                print_info("Dry run complete; no changes made")
+                print_success("Dry run complete; no changes made")
             return
 
         if not yes and not confirm_action(
             f"Install this package into the {_target_description(plan.install_mode, plan.project_root)}?",
             default=False,
         ):
-            print_info("No changes made")
+            _print_guidance("No changes made")
             return
 
         try:
@@ -293,14 +292,14 @@ class PluginCatalogController:
             print_warning(plan.source_warning)
 
         if dry_run:
-            print_info("Dry run complete; no changes made")
+            print_success("Dry run complete; no changes made")
             return
 
         if not yes and not confirm_action(
             f"Uninstall this package from the {_target_description(plan.uninstall_mode, plan.project_root)}?",
             default=False,
         ):
-            print_info("No changes made")
+            _print_guidance("No changes made")
             return
 
         try:
@@ -369,7 +368,7 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         print_success(f"Plugin catalog {catalog.alias!r} added")
-        print_info(f"Catalog: {catalog.url}")
+        _print_catalog_detail(catalog)
 
     def run_catalog_remove(self, *, alias: str) -> None:
         """Remove a plugin catalog alias."""
@@ -478,9 +477,9 @@ class PluginCatalogController:
 
         entry = runtime_entries[0]
         package_alias = _package_alias(entry.package.name) or entry.package.name
-        print_info(f"{package_name!r} is a runtime plugin exposed by plugin package {entry.package.name!r}.")
+        _print_guidance(f"{package_name!r} is a runtime plugin exposed by plugin package {entry.package.name!r}.")
         command = _plugin_package_command(command_name, package_alias, catalog_alias)
-        print_info(f"Use the package instead: {shlex.join(command)}")
+        _print_guidance(f"Use the package instead: {shlex.join(command)}")
 
     def _display_empty_list_state(self, catalog_alias: str, *, include_incompatible: bool) -> None:
         if include_incompatible:
@@ -490,7 +489,7 @@ class PluginCatalogController:
         all_entries = self._list_entries_or_exit(catalog_alias, refresh=False, include_incompatible=True)
         if all_entries:
             print_warning("No compatible plugin packages found")
-            print_info("Incompatible catalog packages are hidden. Use --include-incompatible to show them.")
+            _print_guidance("Incompatible catalog packages are hidden. Use --include-incompatible to show them.")
             return
 
         print_warning("No plugin packages found")
@@ -514,7 +513,9 @@ class PluginCatalogController:
         )
         if all_matches:
             print_warning("No compatible plugin packages matched")
-            print_info("Matching incompatible catalog packages are hidden. Use --include-incompatible to show them.")
+            _print_guidance(
+                "Matching incompatible catalog packages are hidden. Use --include-incompatible to show them."
+            )
             return
 
         print_warning("No matching plugin packages found")
@@ -524,8 +525,8 @@ class PluginCatalogController:
                 package_entries[0].package.name
                 for package_entries in self.catalog_service.group_entries_by_package(suggestions).values()
             ]
-            print_info(f"Closest package matches: {', '.join(package_names)}")
-        print_info("Try fewer terms, a package alias, or a runtime plugin name.")
+            _print_guidance(f"Closest package matches: {', '.join(package_names)}")
+        _print_guidance("Try fewer terms, a package alias, or a runtime plugin name.")
 
     def _suggest_entries(
         self,
@@ -641,6 +642,26 @@ def _print_catalog_reference(catalog: PluginCatalogConfig) -> None:
     )
     console.print(catalog_link)
     console.print()
+
+
+def _print_catalog_detail(catalog: PluginCatalogConfig) -> None:
+    catalog_text = Text.assemble(
+        "  🗂️  Catalog: ",
+        (catalog.alias, Style(color=NordColor.NORD14.value, bold=True, link=catalog.url)),
+    )
+    console.print(catalog_text)
+
+
+def _print_query_reference(query: str) -> None:
+    query_text = Text.assemble(
+        "  🔎  Query: ",
+        (query, Style(color=NordColor.NORD14.value, bold=True)),
+    )
+    console.print(query_text)
+
+
+def _print_guidance(message: str) -> None:
+    console.print(f"  {message}")
 
 
 def _target_description(mode: str, project_root: str | None) -> str:
