@@ -518,7 +518,7 @@ def _data_designer_protection_args(
     data_designer_version = versions[DATA_DESIGNER_DISTRIBUTION_NAME]
     if mode == "uv-environment":
         return (
-            ["--constraints", "-"],
+            ["--constraint", "-"],
             f"using installed {DATA_DESIGNER_DISTRIBUTION_NAME} {data_designer_version}; "
             "uv will keep Data Designer packages pinned",
             _data_designer_constraint_text(versions),

@@ -121,7 +121,7 @@ def test_build_auto_install_plan_chooses_uv_when_available(mock_which: Mock) -> 
         "install",
         "--python",
         sys.executable,
-        "--constraints",
+        "--constraint",
         "-",
         "--default-index",
         "https://pypi.org/simple/",
@@ -205,7 +205,7 @@ def test_build_auto_install_plan_does_not_use_uv_add_without_active_virtualenv(
     plan = service.build_install_plan(entry, catalog, manager="auto")
 
     assert plan.install_mode == "uv-environment"
-    assert plan.command[:6] == ["uv", "pip", "install", "--python", sys.executable, "--constraints"]
+    assert plan.command[:6] == ["uv", "pip", "install", "--python", sys.executable, "--constraint"]
     mock_which.assert_called_once_with("uv")
 
 
@@ -523,7 +523,7 @@ def test_build_uv_install_plan_targets_current_python_and_adds_catalog_index(moc
         "install",
         "--python",
         sys.executable,
-        "--constraints",
+        "--constraint",
         "-",
         "--default-index",
         "https://pypi.org/simple/",
@@ -707,7 +707,7 @@ def test_install_passes_uv_constraints_over_stdin(mock_which: Mock) -> None:
         "install",
         "--python",
         sys.executable,
-        "--constraints",
+        "--constraint",
         "-",
         "data-designer-template",
     ]
