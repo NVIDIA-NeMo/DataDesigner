@@ -17,6 +17,7 @@ from data_designer.cli.services.plugin_install_service import PIP_EXTRA_INDEX_SO
 from data_designer.plugins.plugin import Plugin, PluginType
 
 DATA_DESIGNER_VERSION = "0.5.10"
+PIP_VERSION_PROBE = [sys.executable, "-m", "pip", "--version"]
 
 
 @pytest.fixture(autouse=True)
@@ -318,7 +319,63 @@ def test_build_auto_install_plan_uses_pip_with_warning_when_uv_is_too_old(
     assert "Auto mode will use pip for this plan" in message
     assert "--manager pip" not in message
     mock_which.assert_called_once_with("uv")
+    assert mock_run.call_count == 2
+    assert [call.args[0] for call in mock_run.call_args_list] == [
+        ["/usr/bin/uv", "--version"],
+        PIP_VERSION_PROBE,
+    ]
+
+
+@patch(
+    "data_designer.cli.services.plugin_install_service.subprocess.run",
+    return_value=SimpleNamespace(returncode=1, stdout="", stderr="No module named pip"),
+)
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value=None)
+def test_build_auto_install_plan_raises_when_uv_and_pip_are_unavailable(
+    mock_which: Mock,
+    mock_run: Mock,
+) -> None:
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    with pytest.raises(ValueError) as exc_info:
+        service.build_install_plan(entry, catalog, manager="auto")
+
+    message = str(exc_info.value)
+    assert "could not find uv on PATH" in message
+    assert "pip" in message
+    assert "No module named pip" in message
+    mock_which.assert_called_once_with("uv")
     mock_run.assert_called_once()
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_install_plan_raises_when_old_uv_fallback_lacks_pip(mock_which: Mock) -> None:
+    def run_package_manager_probe(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        if command == ["/usr/bin/uv", "--version"]:
+            return SimpleNamespace(returncode=0, stdout="uv 0.7.22\n", stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="No module named pip")
+
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    with (
+        patch(
+            "data_designer.cli.services.plugin_install_service.subprocess.run",
+            side_effect=run_package_manager_probe,
+        ) as mock_run,
+        pytest.raises(ValueError) as exc_info,
+    ):
+        service.build_install_plan(entry, catalog, manager="auto")
+
+    message = str(exc_info.value)
+    assert "Found uv 0.7.22" in message
+    assert "needs pip fallback" in message
+    assert "No module named pip" in message
+    mock_which.assert_called_once_with("uv")
+    assert mock_run.call_count == 2
 
 
 def test_build_pip_uninstall_plan_uses_package_name_not_install_requirement() -> None:
@@ -395,7 +452,11 @@ def test_build_auto_uninstall_plan_uses_pip_with_warning_when_uv_is_too_old(
     assert "uv >= 0.10.0" in message
     assert "Auto mode will use pip for this plan" in message
     mock_which.assert_called_once_with("uv")
-    mock_run.assert_called_once()
+    assert mock_run.call_count == 2
+    assert [call.args[0] for call in mock_run.call_args_list] == [
+        ["/usr/bin/uv", "--version"],
+        PIP_VERSION_PROBE,
+    ]
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
@@ -504,6 +565,24 @@ def test_build_uv_install_plan_raises_when_uv_is_unavailable(mock_which: Mock) -
         service.build_install_plan(entry, catalog, manager="uv")
 
     mock_which.assert_called_once_with("uv")
+
+
+@patch(
+    "data_designer.cli.services.plugin_install_service.subprocess.run",
+    return_value=SimpleNamespace(returncode=1, stdout="", stderr="No module named pip"),
+)
+def test_build_pip_install_plan_raises_when_pip_is_unavailable(mock_run: Mock) -> None:
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    with pytest.raises(ValueError) as exc_info:
+        service.build_install_plan(entry, catalog, manager="pip")
+
+    message = str(exc_info.value)
+    assert "pip was requested" in message
+    assert "No module named pip" in message
+    mock_run.assert_called_once()
 
 
 @patch(
