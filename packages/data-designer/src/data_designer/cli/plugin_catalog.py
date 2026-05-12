@@ -11,6 +11,7 @@ from packaging.markers import InvalidMarker, Marker
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import InvalidName, canonicalize_name
+from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field
 
 from data_designer.plugins.plugin import PluginType
@@ -220,6 +221,7 @@ class InstallPlan:
     command: list[str]
     manager: str
     catalog_alias: str
+    requirement: str | None = None
     source_warning: str | None = None
     data_designer_protection: str | None = None
     data_designer_version: str | None = None
@@ -253,9 +255,54 @@ class InstalledPluginInfo:
     package_version: str | None = None
 
 
+@dataclass(frozen=True)
+class PluginPackageInstallRequest:
+    """Catalog package lookup plus an optional resolver version specifier."""
+
+    package: str
+    version_specifier: str | None = None
+
+
+def parse_plugin_package_install_request(
+    package: str,
+    *,
+    version: str | None = None,
+) -> PluginPackageInstallRequest:
+    """Parse an install target as a package name or alias with an optional version."""
+    try:
+        requirement = Requirement(package)
+    except InvalidRequirement as e:
+        raise ValueError(
+            f"Invalid plugin package {package!r}. Expected a package name or package alias, optionally with a "
+            "version specifier such as 'github==0.1.0'."
+        ) from e
+
+    if requirement.url is not None or requirement.extras or requirement.marker is not None:
+        raise ValueError(
+            "Plugin package install targets must be catalog package names or package aliases, optionally with a "
+            "version specifier such as 'github==0.1.0'."
+        )
+
+    version_specifier = str(requirement.specifier) or None
+    if version is not None:
+        if version_specifier is not None:
+            raise ValueError("Specify a plugin package version either in PACKAGE or with --version, not both.")
+        version_specifier = _exact_version_specifier(version)
+
+    return PluginPackageInstallRequest(package=requirement.name, version_specifier=version_specifier)
+
+
 def get_default_plugin_catalog_url() -> str:
     """Return the built-in plugin catalog URL, honoring a local override for QA/staging."""
     return os.getenv(DEFAULT_PLUGIN_CATALOG_URL_ENV_VAR, DEFAULT_PLUGIN_CATALOG_URL)
+
+
+def _exact_version_specifier(version: str) -> str:
+    try:
+        parsed_version = Version(version)
+    except InvalidVersion as e:
+        raise ValueError(f"Invalid plugin package version {version!r}: {e}") from e
+    return f"=={parsed_version}"
 
 
 def validate_plugin_catalog_payload(payload: object, *, source: str) -> None:

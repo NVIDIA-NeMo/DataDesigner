@@ -59,7 +59,30 @@ def test_plugin_install_command_delegates_to_controller(mock_ctrl_cls: MagicMock
         catalog_alias=None,
         refresh=False,
         manager="pip",
+        version=None,
         yes=True,
+        dry_run=True,
+    )
+
+
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_plugin_install_command_delegates_version_to_controller(mock_ctrl_cls: MagicMock) -> None:
+    mock_ctrl = MagicMock()
+    mock_ctrl_cls.return_value = mock_ctrl
+
+    result = runner.invoke(
+        app,
+        ["plugin", "install", "github", "--version", "0.1.0", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    mock_ctrl.run_install.assert_called_once_with(
+        "github",
+        catalog_alias=None,
+        refresh=False,
+        manager="auto",
+        version="0.1.0",
+        yes=False,
         dry_run=True,
     )
 
@@ -100,6 +123,7 @@ def test_plugin_install_help_uses_package_first_wording() -> None:
     assert result.exit_code == 0
     assert "PACKAGE" in result.output
     assert "Plugin package name or package alias" in result.output
+    assert "--version" in result.output
     assert "runtime plugin name" not in result.output
     assert "Print the install plan" in result.output
 

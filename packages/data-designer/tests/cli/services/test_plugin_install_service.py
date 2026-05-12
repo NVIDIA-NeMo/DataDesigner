@@ -61,6 +61,7 @@ def test_build_pip_install_plan_uses_requirement_and_extra_index() -> None:
         "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
         "data-designer-template",
     ]
+    assert plan.requirement == "data-designer-template"
     assert plan.temporary_file is not None
     assert plan.temporary_file.filename == "data-designer-constraint.txt"
     assert plan.temporary_file.content == (
@@ -81,6 +82,38 @@ def test_build_pip_install_plan_uses_requirement_and_extra_index() -> None:
     assert plan.source_warning == PIP_EXTRA_INDEX_SOURCE_WARNING
 
 
+def test_build_pip_install_plan_applies_version_specifier() -> None:
+    entry = _entry(
+        package_name="data-designer-github",
+        install={
+            "requirement": "data-designer-github",
+            "index_url": "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        },
+    )
+    catalog = PluginCatalogConfig(
+        alias="nvidia", url="https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json"
+    )
+    service = PluginInstallService()
+
+    plan = service.build_install_plan(entry, catalog, manager="pip", version_specifier="==0.1.0")
+
+    assert plan.command == [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--constraint",
+        "<temporary-data-designer-constraint-file>",
+        "--extra-index-url",
+        "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        "data-designer-github==0.1.0",
+    ]
+    assert plan.requirement == "data-designer-github==0.1.0"
+    assert plan.source_description == (
+        "data-designer-github==0.1.0 via https://nvidia-nemo.github.io/DataDesignerPlugins/simple/"
+    )
+
+
 def test_build_direct_reference_install_plan_uses_requirement_verbatim() -> None:
     requirement = (
         "data-designer-template @ "
@@ -95,6 +128,19 @@ def test_build_direct_reference_install_plan_uses_requirement_verbatim() -> None
     assert plan.command[-1] == requirement
     assert "--extra-index-url" not in plan.command
     assert plan.source_warning is None
+
+
+def test_build_install_plan_rejects_version_for_direct_reference() -> None:
+    requirement = (
+        "data-designer-template @ "
+        "git+https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git@data-designer-template/v0.1.0"
+    )
+    entry = _entry(package_name="data-designer-template", install={"requirement": requirement})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    with pytest.raises(ValueError, match="direct reference"):
+        service.build_install_plan(entry, catalog, manager="pip", version_specifier="==0.1.1")
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")

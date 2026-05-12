@@ -480,6 +480,133 @@ def test_run_install_dry_run_renders_plan_without_installing(
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_success")
+def test_run_install_accepts_version_specifier_in_package_argument(
+    mock_print_success: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry(package_name="data-designer-github")
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.install_service.build_install_plan.return_value = _plan(
+        catalog,
+        package_name="data-designer-github",
+        requirement="data-designer-github==0.1.0",
+    )
+
+    controller.run_install("github==0.1.0", catalog_alias="local", dry_run=True)
+
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "github",
+        "local",
+        refresh=False,
+        include_incompatible=True,
+    )
+    controller.install_service.build_install_plan.assert_called_once_with(
+        entry,
+        catalog,
+        manager="auto",
+        version_specifier="==0.1.0",
+    )
+    mock_console.print.assert_any_call("  Requirement: [bold]data-designer-github==0.1.0[/bold]")
+    mock_print_success.assert_any_call("Dry run complete; no changes made")
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_success")
+def test_run_install_accepts_exact_version_option(
+    mock_print_success: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry(package_name="data-designer-github")
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.install_service.build_install_plan.return_value = _plan(
+        catalog,
+        package_name="data-designer-github",
+        requirement="data-designer-github==0.1.0",
+    )
+
+    controller.run_install("github", catalog_alias="local", version="0.1.0", dry_run=True)
+
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "github",
+        "local",
+        refresh=False,
+        include_incompatible=True,
+    )
+    controller.install_service.build_install_plan.assert_called_once_with(
+        entry,
+        catalog,
+        manager="auto",
+        version_specifier="==0.1.0",
+    )
+    mock_console.print.assert_any_call("  Requirement: [bold]data-designer-github==0.1.0[/bold]")
+    mock_print_success.assert_any_call("Dry run complete; no changes made")
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
+def test_run_install_rejects_conflicting_version_inputs(
+    mock_print_error: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_install("github==0.1.0", version="0.1.1", dry_run=True)
+
+    assert exc_info.value.exit_code == 1
+    mock_print_error.assert_called_once_with(
+        "Specify a plugin package version either in PACKAGE or with --version, not both."
+    )
+    controller.catalog_service.get_catalog.assert_not_called()
+    controller.install_service.build_install_plan.assert_not_called()
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_success")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+def test_run_install_versioned_dry_run_warns_instead_of_blocking_on_catalog_compatibility(
+    mock_print_warning: MagicMock,
+    mock_print_success: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry(package_name="data-designer-github")
+    catalog = _catalog()
+    plan = _plan(catalog, package_name="data-designer-github", requirement="data-designer-github==0.1.0")
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
+        False,
+        ["Data Designer 0.5.7 does not satisfy >=99.0"],
+    )
+    controller.install_service.build_install_plan.return_value = plan
+
+    controller.run_install("github==0.1.0", catalog_alias="local", dry_run=True)
+
+    controller.install_service.build_install_plan.assert_called_once_with(
+        entry,
+        catalog,
+        manager="auto",
+        version_specifier="==0.1.0",
+    )
+    controller.install_service.install.assert_not_called()
+    controller.install_service.verify_entry_points.assert_not_called()
+    mock_console.print.assert_any_call("  Compatibility: [bold yellow]not compatible[/bold yellow]")
+    mock_print_warning.assert_called_once_with(
+        "Catalog compatibility metadata may describe the catalog's default package version, not the requested version. "
+        "Data Designer packages remain pinned during install; the package manager will fail if the requested plugin "
+        "version cannot use the installed Data Designer version."
+    )
+    mock_print_success.assert_any_call("Dry run complete; no changes made")
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
 def test_run_install_blocks_incompatible_package(
     mock_print_error: MagicMock,
@@ -545,6 +672,36 @@ def test_run_install_suggests_package_when_target_is_runtime_plugin_name(
     )
     mock_console.print.assert_any_call(
         "  Use the package instead: data-designer plugin --catalog local install text-transform"
+    )
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
+def test_run_install_preserves_version_in_runtime_plugin_recovery_hint(
+    mock_print_error: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry(name="text-column", plugin_type="column-generator")
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = []
+    controller.catalog_service.get_runtime_plugin_entries.return_value = [entry]
+
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_install("text-column==0.1.0", catalog_alias="local")
+
+    assert exc_info.value.exit_code == 1
+    controller.catalog_service.get_package_entries.assert_called_once_with(
+        "text-column",
+        "local",
+        refresh=False,
+        include_incompatible=True,
+    )
+    controller.install_service.build_install_plan.assert_not_called()
+    mock_print_error.assert_called_once_with("Plugin package or alias 'text-column' was not found in catalog 'local'")
+    mock_console.print.assert_any_call(
+        "  Use the package instead: data-designer plugin --catalog local install text-transform==0.1.0"
     )
 
 
@@ -892,17 +1049,20 @@ def _catalog() -> PluginCatalogConfig:
 def _plan(
     catalog: PluginCatalogConfig,
     *,
+    package_name: str = "data-designer-text-transform",
+    requirement: str | None = None,
     source_warning: str | None = None,
     data_designer_protection: str | None = None,
     manager: str = "pip",
     install_mode: str = "pip-environment",
 ) -> InstallPlan:
     return InstallPlan(
-        package_name="data-designer-text-transform",
-        source_description="data-designer-text-transform",
-        command=["python", "-m", "pip", "install", "data-designer-text-transform"],
+        package_name=package_name,
+        source_description=requirement or package_name,
+        command=["python", "-m", "pip", "install", requirement or package_name],
         manager=manager,
         catalog_alias=catalog.alias,
+        requirement=requirement,
         source_warning=source_warning,
         data_designer_protection=data_designer_protection,
         data_designer_version="0.5.10",
