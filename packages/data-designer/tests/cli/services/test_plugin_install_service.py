@@ -14,6 +14,7 @@ import pytest
 
 from data_designer.cli.plugin_catalog import PluginCatalogConfig, PluginCatalogEntry
 from data_designer.cli.services.plugin_install_service import PIP_EXTRA_INDEX_SOURCE_WARNING, PluginInstallService
+from data_designer.plugins.plugin import Plugin, PluginType
 
 DATA_DESIGNER_VERSION = "0.5.10"
 
@@ -615,8 +616,8 @@ def test_verify_entry_point_invalidates_caches_and_checks_declared_entry_point(
         install={"requirement": "data-designer-template"},
     )
     mock_entry_points.return_value = [
-        SimpleNamespace(name="other-plugin", value="other_package.plugin:plugin"),
-        SimpleNamespace(name="text-transform", value="data_designer_template.plugin:plugin"),
+        _installed_entry_point("other-plugin", "other_package.plugin:plugin"),
+        _installed_entry_point("text-transform", "data_designer_template.plugin:plugin"),
     ]
     service = PluginInstallService()
 
@@ -635,7 +636,7 @@ def test_verify_entry_points_fails_when_name_matches_but_value_differs(mock_entr
         install={"requirement": "data-designer-template"},
     )
     mock_entry_points.return_value = [
-        SimpleNamespace(name="text-transform", value="other_package.plugin:plugin"),
+        _installed_entry_point("text-transform", "other_package.plugin:plugin"),
     ]
     service = PluginInstallService()
 
@@ -661,8 +662,8 @@ def test_verify_entry_points_succeeds_when_all_declared_entries_match(mock_entry
         ),
     ]
     mock_entry_points.return_value = [
-        SimpleNamespace(name="text-profiler", value="data_designer_profiler.plugin:plugin"),
-        SimpleNamespace(name="text-transform", value="data_designer_template.plugin:plugin"),
+        _installed_entry_point("text-profiler", "data_designer_profiler.plugin:plugin"),
+        _installed_entry_point("text-transform", "data_designer_template.plugin:plugin"),
     ]
     service = PluginInstallService()
 
@@ -688,18 +689,16 @@ def test_verify_entry_points_requires_every_declared_entry_point(mock_entry_poin
         ),
     ]
     mock_entry_points.return_value = [
-        SimpleNamespace(name="document-chunker", value="data_designer_retrieval_sdg.chunker:plugin")
+        _installed_entry_point("document-chunker", "data_designer_retrieval_sdg.chunker:plugin")
     ]
     service = PluginInstallService()
 
     assert service.verify_entry_points(entries) is False
 
 
-@patch("data_designer.cli.services.plugin_install_service.subprocess.run")
 @patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
 def test_verify_entry_points_fails_when_matching_entry_point_cannot_load(
     mock_entry_points: Mock,
-    mock_run: Mock,
 ) -> None:
     entry = _entry(
         package_name="data-designer-template",
@@ -709,13 +708,36 @@ def test_verify_entry_points_fails_when_matching_entry_point_cannot_load(
         install={"requirement": "data-designer-template"},
     )
     mock_entry_points.return_value = [
-        SimpleNamespace(name="smoke-broken", value="missing_package.plugin:plugin"),
+        _installed_entry_point(
+            "smoke-broken",
+            "missing_package.plugin:plugin",
+            load_side_effect=ModuleNotFoundError("No module named missing_package"),
+        ),
     ]
-    mock_run.return_value = SimpleNamespace(returncode=1, stdout="", stderr="No module named missing_package")
     service = PluginInstallService()
 
     assert service.verify_entry_points([entry]) is False
-    mock_run.assert_called_once()
+
+
+@patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
+def test_verify_entry_points_fails_when_matching_entry_point_loads_non_plugin(mock_entry_points: Mock) -> None:
+    entry = _entry(
+        package_name="data-designer-template",
+        plugin_name="smoke-broken",
+        entry_point_name="smoke-broken",
+        entry_point_value="data_designer_template.plugin:plugin",
+        install={"requirement": "data-designer-template"},
+    )
+    mock_entry_points.return_value = [
+        _installed_entry_point(
+            "smoke-broken",
+            "data_designer_template.plugin:plugin",
+            load_result=object(),
+        ),
+    ]
+    service = PluginInstallService()
+
+    assert service.verify_entry_points([entry]) is False
 
 
 @patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
@@ -736,17 +758,16 @@ def test_verify_entry_points_verifies_multi_runtime_package_entries(mock_entry_p
             install={"requirement": "data-designer-retrieval-sdg"},
         ),
     ]
-    distribution = SimpleNamespace(metadata={"Name": "data-designer-retrieval-sdg"})
     mock_entry_points.return_value = [
-        SimpleNamespace(
+        _installed_entry_point(
             name="embedding-dedup",
             value="data_designer_retrieval_sdg.dedup:plugin",
-            dist=distribution,
+            package_name="data-designer-retrieval-sdg",
         ),
-        SimpleNamespace(
+        _installed_entry_point(
             name="document-chunker",
             value="data_designer_retrieval_sdg.chunker:plugin",
-            dist=distribution,
+            package_name="data-designer-retrieval-sdg",
         ),
     ]
     service = PluginInstallService()
@@ -792,6 +813,33 @@ def test_verify_entry_points_removed_fails_when_declared_entry_still_exists(mock
     service = PluginInstallService()
 
     assert service.verify_entry_points_removed([entry]) is False
+
+
+def _installed_entry_point(
+    name: str,
+    value: str,
+    *,
+    package_name: str | None = None,
+    load_result: object | None = None,
+    load_side_effect: BaseException | None = None,
+) -> SimpleNamespace:
+    def load() -> object:
+        if load_side_effect is not None:
+            raise load_side_effect
+        return load_result if load_result is not None else _loaded_plugin()
+
+    entry_point = SimpleNamespace(name=name, value=value, load=load)
+    if package_name is not None:
+        entry_point.dist = SimpleNamespace(metadata={"Name": package_name})
+    return entry_point
+
+
+def _loaded_plugin() -> Plugin:
+    return Plugin.model_construct(
+        impl_qualified_name="data_designer_template.plugin.TextTransform",
+        config_qualified_name="data_designer_template.plugin.TextTransformConfig",
+        plugin_type=PluginType.PROCESSOR,
+    )
 
 
 def _entry(
