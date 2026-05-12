@@ -96,16 +96,24 @@ def _category_builder(model_configs: list[ModelConfig]) -> DataDesignerConfigBui
     return builder
 
 
-def _copy_builder(model_configs: list[ModelConfig]) -> DataDesignerConfigBuilder:
+def _expression_builder(model_configs: list[ModelConfig], name: str, expr: str) -> DataDesignerConfigBuilder:
     builder = DataDesignerConfigBuilder(model_configs=model_configs)
-    builder.add_column(ExpressionColumnConfig(name="category_copy", expr="{{ category }}"))
+    builder.add_column(ExpressionColumnConfig(name=name, expr=expr))
     return builder
+
+
+def _copy_builder(model_configs: list[ModelConfig]) -> DataDesignerConfigBuilder:
+    return _expression_builder(model_configs, "category_copy", "{{ category }}")
 
 
 def _seeded_builder(model_configs: list[ModelConfig], rows: list[dict]) -> DataDesignerConfigBuilder:
     builder = DataDesignerConfigBuilder(model_configs=model_configs)
     builder.with_seed_dataset(DataFrameSeedSource(df=lazy.pd.DataFrame(rows)))
     return builder
+
+
+def _load_workflow_metadata(artifact_path: Path, workflow_name: str) -> dict:
+    return json.loads((artifact_path / workflow_name / "workflow-metadata.json").read_text())
 
 
 def test_dataset_creation_results_to_config_builder_columns(
@@ -169,7 +177,7 @@ def test_composite_workflow_runs_linear_stages_with_disk_handoff(
     assert (stub_artifact_path / "linear-chain" / "stage-0-base").is_dir()
     assert (stub_artifact_path / "linear-chain" / "stage-1-copy").is_dir()
 
-    metadata = json.loads((stub_artifact_path / "linear-chain" / "workflow-metadata.json").read_text())
+    metadata = _load_workflow_metadata(stub_artifact_path, "linear-chain")
     assert [stage["status"] for stage in metadata["stages"]] == ["completed", "completed"]
     assert metadata["stages"][1]["seeded_from_stage"] == "base"
     assert metadata["stages"][1]["depends_on"] == ["base"]
@@ -211,7 +219,7 @@ def test_composite_workflow_callback_output_controls_next_stage_default_count(
 
     assert results["base"].count_records() == 3
     assert results["copy"].count_records() == 1
-    metadata = json.loads((stub_artifact_path / "callback-chain" / "workflow-metadata.json").read_text())
+    metadata = _load_workflow_metadata(stub_artifact_path, "callback-chain")
     assert metadata["stages"][0]["output_records"] == 1
     assert metadata["stages"][1]["num_records_requested"] == 1
 
@@ -324,11 +332,8 @@ def test_composite_workflow_runs_three_real_async_stages(
     stage_1 = _seeded_builder(stub_model_configs, [{"name": "Ada"}, {"name": "Linus"}])
     stage_1.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }} persona"))
 
-    stage_2 = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    stage_2.add_column(ExpressionColumnConfig(name="prompt_seed", expr="{{ persona }} prompt"))
-
-    stage_3 = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    stage_3.add_column(ExpressionColumnConfig(name="final_label", expr="{{ prompt_seed }} final"))
+    stage_2 = _expression_builder(stub_model_configs, "prompt_seed", "{{ persona }} prompt")
+    stage_3 = _expression_builder(stub_model_configs, "final_label", "{{ prompt_seed }} final")
 
     workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="three-stage")
     workflow.add_stage("personas", stage_1, num_records=2)
@@ -369,8 +374,7 @@ def test_composite_workflow_callback_can_expand_rows_between_real_async_stages(
         expanded.to_parquet(output_path / "data.parquet", index=False)
         return output_path
 
-    stage_2 = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    stage_2.add_column(ExpressionColumnConfig(name="message", expr="{{ persona }} turn {{ turn }}"))
+    stage_2 = _expression_builder(stub_model_configs, "message", "{{ persona }} turn {{ turn }}")
 
     workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="expand")
     workflow.add_stage("personas", stage_1, num_records=2, on_success=expand, on_success_version="expand-turns")
@@ -395,8 +399,7 @@ def test_composite_workflow_does_not_forward_dropped_processor_columns(
     stage_1.add_column(ExpressionColumnConfig(name="public_name", expr="{{ name }}"))
     stage_1.add_processor(DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"]))
 
-    stage_2 = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    stage_2.add_column(ExpressionColumnConfig(name="copied_name", expr="{{ public_name }}"))
+    stage_2 = _expression_builder(stub_model_configs, "copied_name", "{{ public_name }}")
 
     workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="drop-processor")
     workflow.add_stage("redacted", stage_1, num_records=1)
@@ -420,8 +423,7 @@ def test_composite_workflow_can_seed_from_processor_output_callback(
     def use_processor_output(stage_path: Path) -> Path:
         return stage_path / "processors-files" / "compact"
 
-    stage_2 = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    stage_2.add_column(ExpressionColumnConfig(name="final", expr="{{ compact_name }} final"))
+    stage_2 = _expression_builder(stub_model_configs, "final", "{{ compact_name }} final")
 
     workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
         name="processor-callback"
@@ -494,8 +496,7 @@ def test_composite_workflow_export_defaults_to_final_stage(
     data_designer.create = MagicMock(side_effect=fake_create)
     first = _seeded_builder(stub_model_configs, [{"stage": "first"}])
     first.add_column(ExpressionColumnConfig(name="stage_copy", expr="{{ stage }}"))
-    last = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    last.add_column(ExpressionColumnConfig(name="stage_final", expr="{{ stage }}"))
+    last = _expression_builder(stub_model_configs, "stage_final", "{{ stage }}")
 
     workflow = data_designer.compose_workflow(name="export-final")
     workflow.add_stage("first", first, num_records=1)
@@ -545,8 +546,7 @@ def test_composite_workflow_push_to_hub_defaults_to_final_stage(
     monkeypatch.setattr("data_designer.interface.results.HuggingFaceHubClient", StubHubClient)
     first = _seeded_builder(stub_model_configs, [{"stage": "first"}])
     first.add_column(ExpressionColumnConfig(name="stage_copy", expr="{{ stage }}"))
-    last = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    last.add_column(ExpressionColumnConfig(name="stage_final", expr="{{ stage }}"))
+    last = _expression_builder(stub_model_configs, "stage_final", "{{ stage }}")
 
     workflow = data_designer.compose_workflow(name="push-final")
     workflow.add_stage("first", first, num_records=1)
