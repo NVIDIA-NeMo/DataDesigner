@@ -259,10 +259,17 @@ def _resolve_install_target(
     uv_path = shutil.which("uv") if manager in {"auto", "uv"} else None
     if manager == "auto":
         if uv_path is None:
-            return _InstallTarget(manager="pip", mode="pip-environment")
-        uv_warning = _uv_plugin_install_error(uv_path, auto_fallback=True)
+            return _pip_install_target(unavailable_context="Auto mode could not find uv on PATH and needs pip fallback")
+        uv_warning = _uv_plugin_install_error(uv_path)
         if uv_warning is not None:
-            return _InstallTarget(manager="pip", mode="pip-environment", warning=uv_warning)
+            pip_error = _pip_install_error()
+            if pip_error is not None:
+                raise ValueError(f"{uv_warning}\n\nAuto mode needs pip fallback, but {pip_error}")
+            return _InstallTarget(
+                manager="pip",
+                mode="pip-environment",
+                warning=f"{uv_warning}\n\n{_uv_recovery_message(auto_fallback=True)}",
+            )
         return _uv_install_target(working_dir, active_virtualenv)
 
     if manager == "uv":
@@ -271,11 +278,18 @@ def _resolve_install_target(
                 "uv was requested for plugin package installation, but it is not available on PATH. "
                 "Install uv or pass --manager pip to use pip."
             )
-        uv_error = _uv_plugin_install_error(uv_path, auto_fallback=False)
+        uv_error = _uv_plugin_install_error(uv_path)
         if uv_error is not None:
-            raise ValueError(uv_error)
+            raise ValueError(f"{uv_error}\n\n{_uv_recovery_message(auto_fallback=False)}")
         return _uv_install_target(working_dir, active_virtualenv)
 
+    return _pip_install_target(unavailable_context="pip was requested for plugin package installation")
+
+
+def _pip_install_target(*, unavailable_context: str) -> _InstallTarget:
+    pip_error = _pip_install_error()
+    if pip_error is not None:
+        raise ValueError(f"{unavailable_context}, but {pip_error}")
     return _InstallTarget(manager="pip", mode="pip-environment")
 
 
@@ -333,7 +347,28 @@ def _has_active_virtualenv(active_virtualenv: bool | None) -> bool:
     return sys.prefix != getattr(sys, "base_prefix", sys.prefix) or bool(os.getenv("VIRTUAL_ENV"))
 
 
-def _uv_plugin_install_error(uv_path: str, *, auto_fallback: bool) -> str | None:
+def _pip_install_error() -> str | None:
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "--version"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"pip is not available for {sys.executable!r}: {e}."
+
+    if result.returncode == 0:
+        return None
+
+    output = (result.stderr or result.stdout).strip()
+    details = f": {output}" if output else ""
+    return f"`{sys.executable} -m pip --version` exited with status {result.returncode}{details}."
+
+
+def _uv_plugin_install_error(uv_path: str) -> str | None:
     try:
         result = subprocess.run(
             [uv_path, "--version"],
@@ -344,29 +379,23 @@ def _uv_plugin_install_error(uv_path: str, *, auto_fallback: bool) -> str | None
             timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
-        return f"Unable to verify uv at {uv_path!r}: {e}. {_uv_recovery_message(auto_fallback=auto_fallback)}"
+        return f"Unable to verify uv at {uv_path!r}: {e}."
 
     output = (result.stdout or result.stderr).strip()
     if result.returncode != 0:
         details = f": {output}" if output else ""
-        return (
-            f"Unable to verify uv at {uv_path!r}; uv --version exited with status {result.returncode}{details}. "
-            f"{_uv_recovery_message(auto_fallback=auto_fallback)}"
-        )
+        return f"Unable to verify uv at {uv_path!r}; uv --version exited with status {result.returncode}{details}."
 
     uv_version = _parse_uv_version(output)
     if uv_version is None:
         return (
             f"Unable to parse uv version from {output!r}; Data Designer plugin package commands with uv require "
-            f"uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}. {_uv_recovery_message(auto_fallback=auto_fallback)}"
+            f"uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}."
         )
     if uv_version < UV_PLUGIN_INSTALL_MIN_VERSION:
         return (
             f"Found uv {uv_version}, but Data Designer plugin package commands with uv require "
-            f"uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}.\n\n"
-            "Upgrade uv:\n"
-            "  uv self update\n\n"
-            f"{_uv_recovery_message(auto_fallback=auto_fallback)}"
+            f"uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}."
         )
     return None
 

@@ -379,4 +379,5 @@ installs into the current Python environment with `uv pip install` or `pip`.
 Plugin package commands that use `uv` require `uv >= 0.10.0`; auto mode uses
 `pip` when `uv` is not on `PATH` or does not meet that version requirement. If
 an older `uv` is present, the CLI includes a warning in the plan and tells the
-user how to upgrade. `pip` remains supported for pip-only environments.
+user how to upgrade. The CLI verifies that `python -m pip` works before
+returning a pip-backed plan. `pip` remains supported for pip-only environments.
