@@ -45,7 +45,7 @@ DATA_DESIGNER_DISTRIBUTION_NAMES = (
 DATA_DESIGNER_PROJECT_NAMES = (*DATA_DESIGNER_DISTRIBUTION_NAMES, "data-designer-workspace")
 PIP_DATA_DESIGNER_CONSTRAINT_FILE_NAME = "data-designer-constraint.txt"
 DATA_DESIGNER_CONSTRAINT_PLACEHOLDER = "<temporary-data-designer-constraint-file>"
-UV_PLUGIN_INSTALL_MIN_VERSION = Version("0.6.0")
+UV_PLUGIN_INSTALL_MIN_VERSION = Version("0.10.0")
 
 try:
     import tomllib
@@ -132,6 +132,7 @@ class PluginInstallService:
             command=commands[0],
             manager=target.manager,
             catalog_alias=catalog.alias,
+            source_warning=target.warning,
             commands=commands,
             uninstall_mode=target.mode,
             project_root=str(target.project_root) if target.project_root is not None else None,
@@ -256,32 +257,37 @@ def _resolve_install_target(
         raise ValueError(f"Unsupported plugin installer {manager!r}. Expected 'auto', 'uv', or 'pip'.")
 
     uv_path = shutil.which("uv") if manager in {"auto", "uv"} else None
-    uv_error = _uv_plugin_install_error(uv_path) if uv_path is not None else None
     if manager == "auto":
         if uv_path is None:
             return _InstallTarget(manager="pip", mode="pip-environment")
-        if uv_error is not None:
-            return _InstallTarget(
-                manager="pip",
-                mode="pip-environment",
-                warning=f"{uv_error}; falling back to pip.",
-            )
-        project_root = _project_root_for_uv_add(working_dir, active_virtualenv)
-        if project_root is not None:
-            return _InstallTarget(manager="uv", mode="uv-project", project_root=project_root)
-        return _InstallTarget(manager="uv", mode="uv-environment")
+        uv_warning = _uv_plugin_install_error(uv_path, auto_fallback=True)
+        if uv_warning is not None:
+            return _InstallTarget(manager="pip", mode="pip-environment", warning=uv_warning)
+        return _uv_install_target(working_dir, active_virtualenv)
 
     if manager == "uv":
         if uv_path is None:
-            raise ValueError("uv was requested for plugin package installation, but it is not available on PATH")
+            raise ValueError(
+                "uv was requested for plugin package installation, but it is not available on PATH. "
+                "Install uv or pass --manager pip to use pip."
+            )
+        uv_error = _uv_plugin_install_error(uv_path, auto_fallback=False)
         if uv_error is not None:
-            raise ValueError(f"{uv_error}. Use --manager pip or update uv.")
-        project_root = _project_root_for_uv_add(working_dir, active_virtualenv)
-        if project_root is not None:
-            return _InstallTarget(manager="uv", mode="uv-project", project_root=project_root)
-        return _InstallTarget(manager="uv", mode="uv-environment")
+            raise ValueError(uv_error)
+        return _uv_install_target(working_dir, active_virtualenv)
 
     return _InstallTarget(manager="pip", mode="pip-environment")
+
+
+def _uv_install_target(
+    working_dir: Path,
+    active_virtualenv: bool | None,
+) -> _InstallTarget:
+    project_root = _project_root_for_uv_add(working_dir, active_virtualenv)
+    if project_root is not None:
+        return _InstallTarget(manager="uv", mode="uv-project", project_root=project_root)
+
+    return _InstallTarget(manager="uv", mode="uv-environment")
 
 
 def _base_command(target: _InstallTarget) -> list[str]:
@@ -327,7 +333,7 @@ def _has_active_virtualenv(active_virtualenv: bool | None) -> bool:
     return sys.prefix != getattr(sys, "base_prefix", sys.prefix) or bool(os.getenv("VIRTUAL_ENV"))
 
 
-def _uv_plugin_install_error(uv_path: str) -> str | None:
+def _uv_plugin_install_error(uv_path: str, *, auto_fallback: bool) -> str | None:
     try:
         result = subprocess.run(
             [uv_path, "--version"],
@@ -338,22 +344,37 @@ def _uv_plugin_install_error(uv_path: str) -> str | None:
             timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
-        return f"Unable to verify uv at {uv_path!r}: {e}"
+        return f"Unable to verify uv at {uv_path!r}: {e}. {_uv_recovery_message(auto_fallback=auto_fallback)}"
 
     output = (result.stdout or result.stderr).strip()
     if result.returncode != 0:
         details = f": {output}" if output else ""
-        return f"Unable to verify uv at {uv_path!r}; `uv --version` exited with status {result.returncode}{details}"
+        return (
+            f"Unable to verify uv at {uv_path!r}; uv --version exited with status {result.returncode}{details}. "
+            f"{_uv_recovery_message(auto_fallback=auto_fallback)}"
+        )
 
     uv_version = _parse_uv_version(output)
     if uv_version is None:
         return (
-            f"Unable to parse uv version from {output!r}; plugin package installs require "
-            f"uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}"
+            f"Unable to parse uv version from {output!r}; Data Designer plugin package commands with uv require "
+            f"uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}. {_uv_recovery_message(auto_fallback=auto_fallback)}"
         )
     if uv_version < UV_PLUGIN_INSTALL_MIN_VERSION:
-        return f"Found uv {uv_version}, but plugin package installs require uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}"
+        return (
+            f"Found uv {uv_version}, but Data Designer plugin package commands with uv require "
+            f"uv >= {UV_PLUGIN_INSTALL_MIN_VERSION}.\n\n"
+            "Upgrade uv:\n"
+            "  uv self update\n\n"
+            f"{_uv_recovery_message(auto_fallback=auto_fallback)}"
+        )
     return None
+
+
+def _uv_recovery_message(*, auto_fallback: bool) -> str:
+    if auto_fallback:
+        return "Auto mode will use pip for this plan. Upgrade uv with `uv self update` to use uv."
+    return "Upgrade uv with `uv self update` or pass --manager pip to use pip."
 
 
 def _parse_uv_version(output: str) -> Version | None:
@@ -467,10 +488,10 @@ def _data_designer_protection_args(
     data_designer_version = versions[DATA_DESIGNER_DISTRIBUTION_NAME]
     if mode == "uv-environment":
         return (
-            ["--excludes", "-"],
+            ["--constraints", "-"],
             f"using installed {DATA_DESIGNER_DISTRIBUTION_NAME} {data_designer_version}; "
-            "uv will not resolve Data Designer packages",
-            "".join(f"{distribution_name}\n" for distribution_name in DATA_DESIGNER_DISTRIBUTION_NAMES),
+            "uv will keep Data Designer packages pinned",
+            _data_designer_constraint_text(versions),
             None,
         )
 
@@ -498,14 +519,18 @@ def _data_designer_protection_args(
 
 
 def _data_designer_constraint_file(versions: dict[str, str]) -> InstallCommandTemporaryFile:
-    constraints = "\n".join(
-        f"{distribution_name}=={versions[distribution_name]}" for distribution_name in DATA_DESIGNER_DISTRIBUTION_NAMES
-    )
     return InstallCommandTemporaryFile(
         placeholder=DATA_DESIGNER_CONSTRAINT_PLACEHOLDER,
         filename=PIP_DATA_DESIGNER_CONSTRAINT_FILE_NAME,
-        content=f"# Data Designer is provided by the active CLI environment.\n{constraints}\n",
+        content=f"# Data Designer is provided by the active CLI environment.\n{_data_designer_constraint_text(versions)}",
     )
+
+
+def _data_designer_constraint_text(versions: dict[str, str]) -> str:
+    constraints = "\n".join(
+        f"{distribution_name}=={versions[distribution_name]}" for distribution_name in DATA_DESIGNER_DISTRIBUTION_NAMES
+    )
+    return f"{constraints}\n"
 
 
 @contextmanager

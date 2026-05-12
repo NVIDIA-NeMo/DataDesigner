@@ -28,7 +28,7 @@ def mock_data_designer_version() -> Iterator[None]:
         ),
         patch(
             "data_designer.cli.services.plugin_install_service.subprocess.run",
-            return_value=SimpleNamespace(returncode=0, stdout="uv 0.6.0\n", stderr=""),
+            return_value=SimpleNamespace(returncode=0, stdout="uv 0.10.0\n", stderr=""),
         ),
     ):
         yield
@@ -119,7 +119,7 @@ def test_build_auto_install_plan_chooses_uv_when_available(mock_which: Mock) -> 
         "install",
         "--python",
         sys.executable,
-        "--excludes",
+        "--constraints",
         "-",
         "--default-index",
         "https://pypi.org/simple/",
@@ -127,11 +127,15 @@ def test_build_auto_install_plan_chooses_uv_when_available(mock_which: Mock) -> 
         "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
         "data-designer-template",
     ]
-    assert plan.command_stdin == "data-designer\ndata-designer-config\ndata-designer-engine\n"
+    assert plan.command_stdin == (
+        f"data-designer=={DATA_DESIGNER_VERSION}\n"
+        f"data-designer-config=={DATA_DESIGNER_VERSION}\n"
+        f"data-designer-engine=={DATA_DESIGNER_VERSION}\n"
+    )
     assert plan.temporary_file is None
     assert (
         plan.data_designer_protection
-        == f"using installed data-designer {DATA_DESIGNER_VERSION}; uv will not resolve Data Designer packages"
+        == f"using installed data-designer {DATA_DESIGNER_VERSION}; uv will keep Data Designer packages pinned"
     )
     assert plan.source_warning is None
     mock_which.assert_called_once_with("uv")
@@ -198,7 +202,7 @@ def test_build_auto_install_plan_does_not_use_uv_add_without_active_virtualenv(
     plan = service.build_install_plan(entry, catalog, manager="auto")
 
     assert plan.install_mode == "uv-environment"
-    assert plan.command[:6] == ["uv", "pip", "install", "--python", sys.executable, "--excludes"]
+    assert plan.command[:6] == ["uv", "pip", "install", "--python", sys.executable, "--constraints"]
     mock_which.assert_called_once_with("uv")
 
 
@@ -281,13 +285,15 @@ def test_build_auto_install_plan_chooses_pip_when_uv_is_unavailable(mock_which: 
     mock_which.assert_called_once_with("uv")
 
 
-@patch("data_designer.cli.services.plugin_install_service._uv_plugin_install_error")
+@patch(
+    "data_designer.cli.services.plugin_install_service.subprocess.run",
+    return_value=SimpleNamespace(returncode=0, stdout="uv 0.7.22\n", stderr=""),
+)
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
-def test_build_auto_install_plan_falls_back_to_pip_when_uv_is_too_old(
+def test_build_auto_install_plan_uses_pip_with_warning_when_uv_is_too_old(
     mock_which: Mock,
-    mock_uv_error: Mock,
+    mock_run: Mock,
 ) -> None:
-    mock_uv_error.return_value = "Found uv 0.5.0, but plugin package installs require uv >= 0.6.0"
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService()
@@ -296,11 +302,23 @@ def test_build_auto_install_plan_falls_back_to_pip_when_uv_is_too_old(
 
     assert plan.manager == "pip"
     assert plan.install_mode == "pip-environment"
-    assert plan.source_warning == (
-        "Found uv 0.5.0, but plugin package installs require uv >= 0.6.0; falling back to pip."
-    )
+    assert plan.command == [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--constraint",
+        "<temporary-data-designer-constraint-file>",
+        "data-designer-template",
+    ]
+    message = plan.source_warning or ""
+    assert "Found uv 0.7.22" in message
+    assert "uv >= 0.10.0" in message
+    assert "uv self update" in message
+    assert "Auto mode will use pip for this plan" in message
+    assert "--manager pip" not in message
     mock_which.assert_called_once_with("uv")
-    mock_uv_error.assert_called_once_with("/usr/bin/uv")
+    mock_run.assert_called_once()
 
 
 def test_build_pip_uninstall_plan_uses_package_name_not_install_requirement() -> None:
@@ -345,6 +363,39 @@ def test_build_auto_uninstall_plan_chooses_uv_when_available(mock_which: Mock) -
     assert plan.manager == "uv"
     assert plan.uninstall_mode == "uv-environment"
     mock_which.assert_called_once_with("uv")
+
+
+@patch(
+    "data_designer.cli.services.plugin_install_service.subprocess.run",
+    return_value=SimpleNamespace(returncode=0, stdout="uv 0.7.22\n", stderr=""),
+)
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_uninstall_plan_uses_pip_with_warning_when_uv_is_too_old(
+    mock_which: Mock,
+    mock_run: Mock,
+) -> None:
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService()
+
+    plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+
+    assert plan.manager == "pip"
+    assert plan.uninstall_mode == "pip-environment"
+    assert plan.command == [
+        sys.executable,
+        "-m",
+        "pip",
+        "uninstall",
+        "--yes",
+        "data-designer-template",
+    ]
+    message = plan.source_warning or ""
+    assert "Found uv 0.7.22" in message
+    assert "uv >= 0.10.0" in message
+    assert "Auto mode will use pip for this plan" in message
+    mock_which.assert_called_once_with("uv")
+    mock_run.assert_called_once()
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
@@ -409,7 +460,7 @@ def test_build_uv_install_plan_targets_current_python_and_adds_catalog_index(moc
         "install",
         "--python",
         sys.executable,
-        "--excludes",
+        "--constraints",
         "-",
         "--default-index",
         "https://pypi.org/simple/",
@@ -417,7 +468,11 @@ def test_build_uv_install_plan_targets_current_python_and_adds_catalog_index(moc
         "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
         "data-designer-template",
     ]
-    assert plan.command_stdin == "data-designer\ndata-designer-config\ndata-designer-engine\n"
+    assert plan.command_stdin == (
+        f"data-designer=={DATA_DESIGNER_VERSION}\n"
+        f"data-designer-config=={DATA_DESIGNER_VERSION}\n"
+        f"data-designer-engine=={DATA_DESIGNER_VERSION}\n"
+    )
     assert plan.temporary_file is None
 
 
@@ -451,22 +506,29 @@ def test_build_uv_install_plan_raises_when_uv_is_unavailable(mock_which: Mock) -
     mock_which.assert_called_once_with("uv")
 
 
-@patch("data_designer.cli.services.plugin_install_service._uv_plugin_install_error")
+@patch(
+    "data_designer.cli.services.plugin_install_service.subprocess.run",
+    return_value=SimpleNamespace(returncode=0, stdout="uv 0.7.22\n", stderr=""),
+)
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
 def test_build_uv_install_plan_raises_when_uv_is_too_old(
     mock_which: Mock,
-    mock_uv_error: Mock,
+    mock_run: Mock,
 ) -> None:
-    mock_uv_error.return_value = "Found uv 0.5.0, but plugin package installs require uv >= 0.6.0"
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService()
 
-    with pytest.raises(ValueError, match="plugin package installs require uv >= 0.6.0"):
+    with pytest.raises(ValueError) as exc_info:
         service.build_install_plan(entry, catalog, manager="uv")
 
+    message = str(exc_info.value)
+    assert "Found uv 0.7.22" in message
+    assert "uv >= 0.10.0" in message
+    assert "uv self update" in message
+    assert "--manager pip" in message
     mock_which.assert_called_once_with("uv")
-    mock_uv_error.assert_called_once_with("/usr/bin/uv")
+    mock_run.assert_called_once()
 
 
 def test_build_install_plan_requires_installed_data_designer_version() -> None:
@@ -543,7 +605,7 @@ def test_install_materializes_pip_constraint_as_temporary_file() -> None:
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
-def test_install_passes_uv_exclude_over_stdin(mock_which: Mock) -> None:
+def test_install_passes_uv_constraints_over_stdin(mock_which: Mock) -> None:
     seen: dict[str, list[str] | str | None] = {}
 
     def runner(command: list[str], stdin_text: str | None) -> int:
@@ -564,11 +626,15 @@ def test_install_passes_uv_exclude_over_stdin(mock_which: Mock) -> None:
         "install",
         "--python",
         sys.executable,
-        "--excludes",
+        "--constraints",
         "-",
         "data-designer-template",
     ]
-    assert seen["stdin_text"] == "data-designer\ndata-designer-config\ndata-designer-engine\n"
+    assert seen["stdin_text"] == (
+        f"data-designer=={DATA_DESIGNER_VERSION}\n"
+        f"data-designer-config=={DATA_DESIGNER_VERSION}\n"
+        f"data-designer-engine=={DATA_DESIGNER_VERSION}\n"
+    )
     mock_which.assert_called_once_with("uv")
 
 

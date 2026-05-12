@@ -289,6 +289,9 @@ class PluginCatalogController:
         )
         _display_commands(plan.commands or [plan.command])
 
+        if plan.source_warning is not None:
+            print_warning(plan.source_warning)
+
         if dry_run:
             print_info("Dry run complete; no changes made")
             return

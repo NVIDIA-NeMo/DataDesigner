@@ -683,6 +683,28 @@ def test_run_uninstall_dry_run_renders_plan_without_uninstalling(
     mock_print_info.assert_any_call("Dry run complete; no changes made")
 
 
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+def test_run_uninstall_warns_when_plan_has_source_warning(
+    mock_print_warning: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.install_service.build_uninstall_plan.return_value = _uninstall_plan(
+        catalog,
+        source_warning="old uv warning",
+    )
+
+    controller.run_uninstall("data-designer-text-transform", catalog_alias="local", dry_run=True)
+
+    mock_print_warning.assert_called_once_with("old uv warning")
+    assert mock_console.print.call_count >= 1
+
+
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
 def test_run_uninstall_wraps_plan_error(
     mock_print_error: MagicMock,
@@ -838,12 +860,13 @@ def _plan(
     )
 
 
-def _uninstall_plan(catalog: PluginCatalogConfig) -> UninstallPlan:
+def _uninstall_plan(catalog: PluginCatalogConfig, *, source_warning: str | None = None) -> UninstallPlan:
     return UninstallPlan(
         package_name="data-designer-text-transform",
         command=["python", "-m", "pip", "uninstall", "--yes", "data-designer-text-transform"],
         manager="pip",
         catalog_alias=catalog.alias,
+        source_warning=source_warning,
     )
 
 
