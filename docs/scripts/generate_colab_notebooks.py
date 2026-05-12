@@ -48,8 +48,42 @@ try:
 except userdata.SecretNotFoundError:
     os.environ["NVIDIA_API_KEY"] = getpass.getpass("Enter your NVIDIA API key: ")"""
 
+# Optional per-file Colab setup cells, injected immediately after the standard
+# install + NVIDIA_API_KEY cells. Used by tutorials that need additional Colab
+# bootstrapping (e.g. NGC CLI install + NGC_API_KEY for the Nemotron-Personas
+# tutorial).
+NGC_CLI_INSTALL_CELL = """\
+%%capture
+import os
 
-def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]:
+# Install the NGC CLI (used by `data-designer download personas` to fetch the
+# managed Nemotron-Personas dataset). Pinned to a known-good version; bump as
+# needed when NGC publishes new releases.
+!wget -q --no-cache "https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/3.164.0/files/ngccli_linux.zip" -O /tmp/ngccli_linux.zip
+!unzip -q -o /tmp/ngccli_linux.zip -d /tmp
+!chmod u+x /tmp/ngc-cli/ngc
+os.environ["PATH"] = f"/tmp/ngc-cli:{os.environ['PATH']}\""""
+
+NGC_API_KEY_CELL = """\
+import getpass
+import os
+
+from google.colab import userdata
+
+try:
+    os.environ["NGC_API_KEY"] = userdata.get("NGC_API_KEY")
+except userdata.SecretNotFoundError:
+    os.environ["NGC_API_KEY"] = getpass.getpass("Enter your NGC API key: ")"""
+
+ADDITIONAL_SETUP_CELLS: dict[str, list[str]] = {
+    "7-nemotron-personas.py": [NGC_CLI_INSTALL_CELL, NGC_API_KEY_CELL],
+}
+
+
+def create_colab_setup_cells(
+    additional_dependencies: str,
+    additional_setup_cell_sources: list[str] | None = None,
+) -> list[NotebookNode]:
     """Create the Colab-specific setup cells to inject before imports."""
     cells = []
     cells += [new_markdown_cell(source=COLAB_SETUP_MARKDOWN)]
@@ -60,6 +94,10 @@ def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]
     cells += [new_code_cell(source=install_cell)]
 
     cells += [new_code_cell(source=COLAB_API_KEY_CELL)]
+
+    if additional_setup_cell_sources:
+        cells += [new_code_cell(source=src) for src in additional_setup_cell_sources]
+
     return cells
 
 
@@ -89,6 +127,7 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
     cells = notebook.cells
 
     additional_dependencies = ADDITIONAL_DEPENDENCIES.get(source_path.name, "")
+    additional_setup_cells = ADDITIONAL_SETUP_CELLS.get(source_path.name)
 
     # Find where to insert Colab setup (before "Import the essentials")
     import_idx = find_import_section_index(cells)
@@ -98,7 +137,7 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
         import_idx = 1
 
     # Insert Colab setup cells before the import section
-    colab_cells = create_colab_setup_cells(additional_dependencies)
+    colab_cells = create_colab_setup_cells(additional_dependencies, additional_setup_cells)
     processed_cells = cells[:import_idx] + colab_cells + cells[import_idx:]
 
     badge_source = COLAB_BADGE_TEMPLATE.format(filename=f"{source_path.stem}.ipynb")
