@@ -82,10 +82,12 @@ help:
 	@echo "  generate-fern-notebooks-with-outputs - Full pipeline: execute notebooks (needs API key), colabify, convert to Fern"
 	@echo "  generate-fern-api-reference - Generate local Fern API reference with py2fern"
 	@echo "  generate-fern-api-reference-native - Generate Fern API reference with Fern CLI (requires auth)"
+	@echo "  install-docs-deps        - Install docs and notebook dependencies"
 	@echo "  prepare-fern-release VERSION=X.Y.Z - Add Fern version files before cutting a release"
 	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
 	@echo "  check-fern-docs           - Generate local Fern artifacts and run fern check"
+	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
 	@echo "  serve-docs-locally        - Serve legacy MkDocs documentation locally"
 	@echo "  check-license-headers     - Check if all files have license headers"
@@ -485,9 +487,13 @@ FERN ?= npx -y fern-api@$(FERN_VERSION)
 DOCS_CERTS = SSL_CERT_FILE=$$($(DOCS_PYTHON) -c "import certifi; print(certifi.where())") \
              REQUESTS_CA_BUNDLE=$$($(DOCS_PYTHON) -c "import certifi; print(certifi.where())")
 
-serve-docs-locally:
-	@echo "📝 Building and serving docs (Python $(DOCS_PYTHON_VERSION))..."
+install-docs-deps:
+	@echo "📦 Installing docs dependencies (Python $(DOCS_PYTHON_VERSION))..."
 	uv sync --python $(DOCS_PYTHON_VERSION) --all-packages --group docs --group notebooks
+
+serve-docs-locally:
+	@$(MAKE) install-docs-deps
+	@echo "📝 Building and serving docs (Python $(DOCS_PYTHON_VERSION))..."
 	$(DOCS_MKDOCS) serve --livereload
 
 generate-fern-api-reference:
@@ -517,7 +523,14 @@ prepare-fern-docs: generate-fern-api-reference generate-fern-notebooks
 check-fern-docs: prepare-fern-docs
 	cd fern && $(FERN) check
 
-serve-fern-docs-locally: prepare-fern-docs
+check-fern-docs-locally:
+	@$(MAKE) install-docs-deps
+	@$(MAKE) check-fern-docs
+	@echo "✅ Fern docs check complete"
+
+serve-fern-docs-locally:
+	@$(MAKE) install-docs-deps
+	@$(MAKE) prepare-fern-docs
 	cd fern && PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true $(FERN) docs dev
 
 convert-execute-notebooks:
@@ -729,14 +742,14 @@ clean-test-coverage:
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
         build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
-        check-fern-docs check-fern-release-version check-license-headers \
+        check-fern-docs check-fern-docs-locally check-fern-release-version check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \
         format format-check format-check-config format-check-engine format-check-interface \
         format-config format-engine format-interface \
         generate-colab-notebooks generate-fern-api-reference generate-fern-api-reference-native generate-fern-notebooks generate-fern-notebooks-with-outputs help \
-        install install-dev install-dev-notebooks install-dev-recipes \
+        install install-dev install-dev-notebooks install-dev-recipes install-docs-deps \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
         perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-docs-locally serve-fern-docs-locally show-versions \
         health-checks \

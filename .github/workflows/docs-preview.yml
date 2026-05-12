@@ -21,7 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -86,55 +85,28 @@ jobs:
       - name: Check Fern docs
         run: make check-fern-docs
 
-      - name: Skip hosted previews for fork PRs
-        if: github.event.pull_request.head.repo.full_name != github.repository
-        run: echo "::notice::Skipping hosted docs previews because this PR comes from a fork."
-
-      - name: Deploy Fern preview
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        id: fern-preview
-        continue-on-error: true
-        env:
-          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+      - name: Write preview metadata
         run: |
-          if [ -z "$FERN_TOKEN" ]; then
-            echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern preview docs."
-            exit 1
-          fi
+          mkdir -p preview-metadata
 
-          cd fern
-          npx -y fern-api@$(jq -r .version fern.config.json) generate --docs --preview --id pr-${{ github.event.pull_request.number }} --force --no-prompt
-          echo "url=https://nvidia-preview-pr-${{ github.event.pull_request.number }}.docs.buildwithfern.com/nemo/datadesigner" >> "$GITHUB_OUTPUT"
+          jq -n \
+            --arg pr_number "${{ github.event.pull_request.number }}" \
+            --arg head_repo_full_name "${{ github.event.pull_request.head.repo.full_name }}" \
+            --arg repository "${{ github.repository }}" \
+            --arg head_sha "${{ github.event.pull_request.head.sha }}" \
+            '{
+              pr_number: $pr_number,
+              head_repo_full_name: $head_repo_full_name,
+              repository: $repository,
+              head_sha: $head_sha
+            }' > preview-metadata/pr.json
 
-      - name: Deploy to Cloudflare Pages
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        id: deploy
-        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site/ --project-name=dd-docs-preview --branch=pr-${{ github.event.pull_request.number }}
-
-      - name: Find existing comment
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4
-        id: find-comment
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: "github-actions[bot]"
-          body-includes: "<!-- docs-preview -->"
-
-      - name: Post or update PR comment
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
-        with:
-          comment-id: ${{ steps.find-comment.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          edit-mode: replace
-          body: |
-            <!-- docs-preview -->
-            **MkDocs preview:** ${{ steps.deploy.outputs.deployment-url }}
-
-            **Fern preview:** ${{ steps.fern-preview.outputs.url }}
-
-            > Notebook tutorials are placeholder-only in previews.
+          name: docs-preview
+          path: |
+            site
+            fern
+            preview-metadata
+          retention-days: 7
