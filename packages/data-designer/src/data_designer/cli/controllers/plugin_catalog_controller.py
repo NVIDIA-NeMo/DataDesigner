@@ -134,21 +134,16 @@ class PluginCatalogController:
         compatibility = self.catalog_service.evaluate_compatibility(entry)
 
         print_header(f"Plugin Package: {_escape_markup(entry.package.name)}")
-        _print_catalog_detail(catalog)
-        console.print(f"  Runtime plugins: [bold]{_escape_markup(_format_runtime_plugins(package_entries))}[/bold]")
-        self._display_compatibility(compatibility)
 
         try:
             plan = self.install_service.build_install_plan(entry, catalog)
-            console.print(f"  Requirement: [bold]{_escape_markup(entry.install.requirement)}[/bold]")
-            if entry.install.index_url is not None:
-                console.print(f"  Index URL: [bold]{_escape_markup(entry.install.index_url)}[/bold]")
-            console.print(f"  Install strategy: [bold]{_escape_markup(_install_strategy_description(plan))}[/bold]")
-            if plan.data_designer_version is not None:
-                console.print(f"  data-designer version: [bold]{_escape_markup(plan.data_designer_version)}[/bold]")
+            self._display_package_install_metadata(entry, package_entries, catalog, compatibility, plan)
             if plan.source_warning is not None:
                 print_warning(plan.source_warning)
         except ValueError as e:
+            _print_catalog_detail(catalog)
+            console.print(f"  Runtime plugins: [bold]{_escape_markup(_format_runtime_plugins(package_entries))}[/bold]")
+            self._display_compatibility(compatibility)
             print_warning(str(e))
 
         console.print()
@@ -208,18 +203,7 @@ class PluginCatalogController:
             raise typer.Exit(code=1)
 
         print_header("Install Data Designer Plugin Package")
-        console.print(f"  Package: [bold]{_escape_markup(entry.package.name)}[/bold]")
-        console.print(f"  Catalog: [bold]{_escape_markup(catalog.alias)}[/bold] ({_escape_markup(catalog.url)})")
-        console.print(f"  Requirement: [bold]{_escape_markup(plan.requirement or entry.install.requirement)}[/bold]")
-        if entry.install.index_url is not None:
-            console.print(f"  Index URL: [bold]{_escape_markup(entry.install.index_url)}[/bold]")
-        console.print(
-            f"  Install target: [bold]{_escape_markup(_target_description(plan.install_mode, plan.project_root))}[/bold]"
-        )
-        if plan.data_designer_protection is not None:
-            console.print(f"  Data Designer: [bold]{_escape_markup(plan.data_designer_protection)}[/bold]")
-        console.print(f"  Command: [bold]{_escape_markup(shlex.join(plan.command))}[/bold]")
-        self._display_compatibility(compatibility)
+        self._display_package_install_metadata(entry, package_entries, catalog, compatibility, plan)
 
         if is_versioned_install and not compatibility.is_compatible:
             print_warning(_versioned_install_compatibility_warning())
@@ -630,6 +614,24 @@ class PluginCatalogController:
         console.print("  Compatibility: [bold yellow]not compatible[/bold yellow]")
         for reason in compatibility.reasons:
             console.print(Text.assemble("    - ", reason))
+
+    @staticmethod
+    def _display_package_install_metadata(
+        entry: PluginCatalogEntry,
+        package_entries: list[PluginCatalogEntry],
+        catalog: PluginCatalogConfig,
+        compatibility: CompatibilityResult,
+        plan: InstallPlan,
+    ) -> None:
+        _print_catalog_detail(catalog)
+        console.print(f"  Runtime plugins: [bold]{_escape_markup(_format_runtime_plugins(package_entries))}[/bold]")
+        PluginCatalogController._display_compatibility(compatibility)
+        console.print(f"  Requirement: [bold]{_escape_markup(plan.requirement or entry.install.requirement)}[/bold]")
+        if entry.install.index_url is not None:
+            console.print(f"  Index URL: [bold]{_escape_markup(entry.install.index_url)}[/bold]")
+        console.print(f"  Install strategy: [bold]{_escape_markup(_install_strategy_description(plan))}[/bold]")
+        if plan.data_designer_version is not None:
+            console.print(f"  data-designer version: [bold]{_escape_markup(plan.data_designer_version)}[/bold]")
 
 
 def _display_commands(commands: list[list[str]]) -> None:
