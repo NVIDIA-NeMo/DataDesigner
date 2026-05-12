@@ -7,6 +7,7 @@ import importlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from data_designer.engine.storage.artifact_storage import ResumeMode  # noqa: F401
     from data_designer.interface.data_designer import DataDesigner  # noqa: F401
     from data_designer.interface.errors import (  # noqa: F401
         DataDesignerEarlyShutdownError,
@@ -21,6 +22,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataDesignerGenerationError": ("data_designer.interface.errors", "DataDesignerGenerationError"),
     "DataDesignerProfilingError": ("data_designer.interface.errors", "DataDesignerProfilingError"),
     "DatasetCreationResults": ("data_designer.interface.results", "DatasetCreationResults"),
+    "ResumeMode": ("data_designer.engine.storage.artifact_storage", "ResumeMode"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())

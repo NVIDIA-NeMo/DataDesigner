@@ -376,7 +376,10 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
             "inference_parameters": NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS,
         },
         "reasoning": {"model": "openai/gpt-oss-20b", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
-        "vision": {"model": "nvidia/nemotron-nano-12b-v2-vl", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
+        "vision": {
+            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "inference_parameters": NEMOTRON_3_NANO_OMNI_30B_A3B_REASONING_INFERENCE_PARAMS,
+        },
         "embedding": {
             "model": "openai/text-embedding-3-large",
             "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS,
