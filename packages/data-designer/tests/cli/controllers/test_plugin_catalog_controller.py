@@ -145,7 +145,7 @@ def test_run_list_renders_package_first_catalog_table(
         "Docs",
     ]
     assert list(printed_tables[0].columns[1].cells) == ["Transform text records"]
-    assert list(printed_tables[0].columns[3].cells) == ["✓"]
+    assert list(printed_tables[0].columns[3].cells) == ["yes"]
     assert list(printed_tables[0].columns[4].cells) == ["✓"]
     docs_cell = list(printed_tables[0].columns[5].cells)[0]
     assert isinstance(docs_cell, Text)
@@ -217,7 +217,7 @@ def test_run_list_leaves_installed_column_empty_when_runtime_entry_points_are_mi
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-def test_run_list_marks_incompatible_packages_with_x(
+def test_run_list_marks_incompatible_packages_with_no(
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
@@ -238,7 +238,7 @@ def test_run_list_marks_incompatible_packages_with_x(
     printed_tables = [
         call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
     ]
-    assert list(printed_tables[0].columns[3].cells) == ["x"]
+    assert list(printed_tables[0].columns[3].cells) == ["no"]
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -269,7 +269,7 @@ def test_run_list_uses_vertical_layout_in_narrow_terminals(
         call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
     ]
     assert printed_tables == []
-    mock_console.print.assert_any_call("  Compatible: ✓")
+    mock_console.print.assert_any_call("  Compatible: yes")
     mock_console.print.assert_any_call("  Installed: ✓")
     mock_console.print.assert_any_call(
         "  Runtime plugins: document-chunker (seed-reader), embedding-dedup (column-generator)"
