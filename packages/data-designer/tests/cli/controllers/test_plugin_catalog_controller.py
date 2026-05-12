@@ -472,10 +472,16 @@ def test_run_install_dry_run_renders_plan_without_installing(
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_points.assert_not_called()
     mock_print_success.assert_any_call("Dry run complete; no changes made")
-    mock_console.print.assert_any_call(
-        "  Data Designer: [bold]pinned installed Data Designer packages; data-designer 0.5.10[/bold]"
+    mock_console.print.assert_any_call("  Runtime plugins: [bold]text-transform (processor)[/bold]")
+    mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
+    mock_console.print.assert_any_call("  data-designer version: [bold]0.5.10[/bold]")
+    assert all(
+        "Data Designer:" not in str(call_args.args[0])
+        and "Install target:" not in str(call_args.args[0])
+        and "Command:" not in str(call_args.args[0])
+        for call_args in mock_console.print.call_args_list
+        if call_args.args
     )
-    assert all("Runtime plugins" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list)
     assert mock_console.print.call_count >= 1
 
 
@@ -729,7 +735,10 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     controller.install_service.build_install_plan.assert_called_once_with(entry, catalog, manager="auto")
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_points.assert_not_called()
-    mock_console.print.assert_any_call("  Command: [bold]python -m pip install data-designer-text-transform[/bold]")
+    mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
+    assert all(
+        "Command:" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list if call_args.args
+    )
     mock_console.print.assert_any_call("  Compatibility: [bold yellow]not compatible[/bold yellow]")
     reason_lines = [
         call.args[0].plain for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Text)
