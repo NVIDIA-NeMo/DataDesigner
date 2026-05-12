@@ -281,7 +281,7 @@ def _validate_plugin_catalog_payload(payload: object) -> None:
         raise PluginCatalogError("catalog document has invalid packages; expected a list")
 
     package_names: dict[str, str] = {}
-    runtime_names: dict[str, tuple[str, str]] = {}
+    runtime_names: dict[str, tuple[str, str, str]] = {}
     for index, raw_package in enumerate(packages):
         validated_plugins = _validate_catalog_package(raw_package, index)
         package_name = validated_plugins[0][0]
@@ -295,15 +295,22 @@ def _validate_plugin_catalog_payload(payload: object) -> None:
         package_names[canonical_package_name] = package_name
 
         for package_name, plugin_name, entry_point_name in validated_plugins:
-            previous = runtime_names.get(plugin_name)
+            runtime_key = _runtime_plugin_enum_key(plugin_name)
+            previous = runtime_names.get(runtime_key)
             if previous is not None:
-                previous_package, previous_entry_point_name = previous
+                previous_package, previous_plugin_name, previous_entry_point_name = previous
+                if previous_plugin_name == plugin_name:
+                    raise PluginCatalogError(
+                        f"duplicate runtime plugin name {plugin_name!r} from "
+                        f"{previous_package!r} entry point {previous_entry_point_name!r} and "
+                        f"{package_name!r} entry point {entry_point_name!r}"
+                    )
                 raise PluginCatalogError(
-                    f"duplicate runtime plugin name {plugin_name!r} from "
-                    f"{previous_package!r} entry point {previous_entry_point_name!r} and "
-                    f"{package_name!r} entry point {entry_point_name!r}"
+                    f"runtime plugin name {plugin_name!r} from {package_name!r} entry point {entry_point_name!r} "
+                    f"collides with {previous_plugin_name!r} from {previous_package!r} entry point "
+                    f"{previous_entry_point_name!r} after enum-key normalization to {runtime_key!r}"
                 )
-            runtime_names[plugin_name] = (package_name, entry_point_name)
+            runtime_names[runtime_key] = (package_name, plugin_name, entry_point_name)
 
 
 def _validate_catalog_package(raw_package: object, index: int) -> list[tuple[str, str, str]]:
@@ -371,7 +378,7 @@ def _validate_catalog_plugin(raw_plugin: object, *, package_name: str, context: 
             f"{_format_catalog_choices(SUPPORTED_PLUGIN_TYPE_VALUES)}"
         )
 
-    plugin_name = _required_catalog_string(f"{context}.name", plugin["name"])
+    plugin_name = _catalog_runtime_plugin_name(f"{context}.name", plugin["name"])
     entry_point_group = _required_catalog_string(f"{context}.entry_point.group", entry_point["group"])
     if entry_point_group != PLUGIN_ENTRY_POINT_GROUP:
         raise PluginCatalogError(
@@ -380,6 +387,22 @@ def _validate_catalog_plugin(raw_plugin: object, *, package_name: str, context: 
     entry_point_name = _required_catalog_string(f"{context}.entry_point.name", entry_point["name"])
     _required_catalog_string(f"{context}.entry_point.value", entry_point["value"])
     return package_name, plugin_name, entry_point_name
+
+
+def _catalog_runtime_plugin_name(context: str, value: object) -> str:
+    plugin_name = _required_catalog_string(context, value)
+    _runtime_plugin_enum_key(plugin_name)
+    return plugin_name
+
+
+def _runtime_plugin_enum_key(plugin_name: str) -> str:
+    enum_key = plugin_name.replace("-", "_").upper()
+    if not enum_key.isidentifier():
+        raise PluginCatalogError(
+            f"runtime plugin name {plugin_name!r} is invalid; converted enum key {enum_key!r} "
+            "must be a valid Python identifier"
+        )
+    return enum_key
 
 
 def _validate_install_metadata(package_name: str, context: str, install: dict[str, object]) -> None:

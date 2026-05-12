@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import json
 import os
 import shutil
 import subprocess
@@ -45,6 +46,56 @@ DATA_DESIGNER_PROJECT_NAMES = (*DATA_DESIGNER_DISTRIBUTION_NAMES, "data-designer
 PIP_DATA_DESIGNER_CONSTRAINT_FILE_NAME = "data-designer-constraint.txt"
 DATA_DESIGNER_CONSTRAINT_PLACEHOLDER = "<temporary-data-designer-constraint-file>"
 UV_PLUGIN_INSTALL_MIN_VERSION = Version("0.6.0")
+ENTRY_POINT_LOAD_CHECK_TIMEOUT_SECONDS = 30
+_ENTRY_POINT_LOAD_CHECK_SCRIPT = """
+from __future__ import annotations
+
+import importlib.metadata
+import json
+import sys
+
+from packaging.utils import canonicalize_name
+
+from data_designer.cli.plugin_catalog import PLUGIN_ENTRY_POINT_GROUP
+from data_designer.plugins.plugin import Plugin
+
+
+def _distribution_name(entry_point: importlib.metadata.EntryPoint) -> str | None:
+    distribution = getattr(entry_point, "dist", None)
+    if distribution is None:
+        return None
+    metadata = getattr(distribution, "metadata", None)
+    if metadata is None:
+        return None
+    name = metadata.get("Name")
+    return name if isinstance(name, str) and name else None
+
+
+expected_entries = json.loads(sys.stdin.read())
+installed_entry_points = list(importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP))
+for expected_entry in expected_entries:
+    expected_name = expected_entry["name"]
+    expected_value = expected_entry["value"]
+    expected_package = expected_entry["package"]
+    for installed_entry_point in installed_entry_points:
+        if installed_entry_point.name != expected_name or installed_entry_point.value != expected_value:
+            continue
+        distribution_name = _distribution_name(installed_entry_point)
+        if distribution_name is not None and canonicalize_name(distribution_name) != canonicalize_name(expected_package):
+            continue
+        try:
+            plugin = installed_entry_point.load()
+        except BaseException as error:
+            print(f"Failed to load entry point {expected_name!r}: {error}", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(plugin, Plugin):
+            print(f"Entry point {expected_name!r} did not load a Data Designer Plugin", file=sys.stderr)
+            sys.exit(1)
+        break
+    else:
+        print(f"Entry point {expected_name!r} was not installed", file=sys.stderr)
+        sys.exit(1)
+"""
 
 try:
     import tomllib
@@ -159,23 +210,26 @@ class PluginInstallService:
                 raise RuntimeError(f"Plugin package uninstaller exited with status {return_code}")
 
     def verify_entry_point(self, entry: PluginCatalogEntry) -> bool:
-        """Verify the runtime plugin's declared entry point is installed."""
+        """Verify the runtime plugin's declared entry point is installed and loadable."""
         return self.verify_entry_points([entry])
 
     def verify_entry_points(self, entries: list[PluginCatalogEntry]) -> bool:
-        """Verify every declared runtime entry point for an installed catalog package."""
+        """Verify every declared runtime entry point for an installed catalog package can load."""
         if not entries:
             return False
 
         importlib.invalidate_caches()
         installed_entry_points = list(importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP))
-        return all(
+        if not all(
             any(
                 _installed_entry_point_matches(installed_entry_point, entry)
                 for installed_entry_point in installed_entry_points
             )
             for entry in entries
-        )
+        ):
+            return False
+
+        return _entry_points_are_loadable(entries)
 
     def verify_entry_points_removed(self, entries: list[PluginCatalogEntry]) -> bool:
         """Verify every declared runtime entry point for a catalog package is no longer installed."""
@@ -214,6 +268,30 @@ def _installed_entry_point_matches(
     if distribution_name is None:
         return True
     return canonicalize_name(distribution_name) == canonicalize_name(entry.package.name)
+
+
+def _entry_points_are_loadable(entries: list[PluginCatalogEntry]) -> bool:
+    expected_entries = [
+        {
+            "name": entry.entry_point.name,
+            "value": entry.entry_point.value,
+            "package": entry.package.name,
+        }
+        for entry in entries
+    ]
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _ENTRY_POINT_LOAD_CHECK_SCRIPT],
+            check=False,
+            input=json.dumps(expected_entries),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=ENTRY_POINT_LOAD_CHECK_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 def _entry_point_distribution_name(installed_entry_point: importlib.metadata.EntryPoint) -> str | None:

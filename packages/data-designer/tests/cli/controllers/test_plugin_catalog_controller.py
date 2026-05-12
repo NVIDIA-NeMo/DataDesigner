@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 import typer
+from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
@@ -169,6 +170,28 @@ def test_run_list_renders_package_first_catalog_table(
     )
 
     controller.catalog_service.group_entries_by_package.assert_called_once_with(package_entries)
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+def test_run_list_escapes_catalog_markup_in_table(
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry(description="[link=https://evil.test]click[/link]")
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.list_entries.return_value = [entry]
+    controller.catalog_service.group_entries_by_package.return_value = {
+        "data-designer-text-transform": [entry],
+    }
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+
+    controller.run_list(catalog_alias="local", include_incompatible=True)
+
+    printed_tables = [
+        call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
+    ]
+    assert list(printed_tables[0].columns[1].cells) == [escape("[link=https://evil.test]click[/link]")]
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -440,7 +463,10 @@ def test_run_install_blocks_incompatible_package(
     mock_print_error.assert_called_once_with(
         "Plugin package 'data-designer-text-transform' is not compatible with this environment"
     )
-    mock_console.print.assert_any_call("  - Data Designer 0.5.7 does not satisfy >=99.0")
+    reason_lines = [
+        call.args[0].plain for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Text)
+    ]
+    assert "  - Data Designer 0.5.7 does not satisfy >=99.0" in reason_lines
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
@@ -502,7 +528,10 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     controller.install_service.verify_entry_points.assert_not_called()
     mock_console.print.assert_any_call("  Command: [bold]python -m pip install data-designer-text-transform[/bold]")
     mock_console.print.assert_any_call("  Compatibility: [bold yellow]not compatible[/bold yellow]")
-    mock_console.print.assert_any_call("    - Data Designer 0.5.7 does not satisfy >=99.0")
+    reason_lines = [
+        call.args[0].plain for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Text)
+    ]
+    assert "    - Data Designer 0.5.7 does not satisfy >=99.0" in reason_lines
     mock_print_warning.assert_called_once_with(
         "Dry run complete; no changes made. Install would be blocked because compatibility checks failed."
     )
@@ -590,7 +619,7 @@ def test_run_install_reports_success_when_verification_finds_entry_point(
     controller.install_service.install.assert_called_once_with(plan)
     controller.install_service.verify_entry_points.assert_called_once_with([entry])
     mock_print_success.assert_called_once_with(
-        "Plugin package 'data-designer-text-transform' installed and runtime entry points verified"
+        "Plugin package 'data-designer-text-transform' installed and runtime entry points loaded"
     )
     assert mock_console.print.call_count >= 1
 
@@ -616,8 +645,8 @@ def test_run_install_warns_when_verification_misses_entry_point(
     controller.install_service.install.assert_called_once_with(plan)
     controller.install_service.verify_entry_points.assert_called_once_with([entry])
     mock_print_warning.assert_called_once_with(
-        "Plugin package 'data-designer-text-transform' was installed, but Data Designer did not discover every "
-        "declared runtime entry point. Restart the shell or check the package entry point metadata."
+        "Plugin package 'data-designer-text-transform' was installed, but Data Designer could not load every "
+        "declared runtime entry point. Restart the shell or check the package code and entry point metadata."
     )
     assert mock_console.print.call_count >= 1
 
@@ -823,12 +852,13 @@ def _entry(
     name: str = "text-transform",
     plugin_type: str = "processor",
     package_name: str = "data-designer-text-transform",
+    description: str = "Transform text records",
 ) -> PluginCatalogEntry:
     return PluginCatalogEntry.model_validate(
         {
             "name": name,
             "plugin_type": plugin_type,
-            "description": "Transform text records",
+            "description": description,
             "package": {
                 "name": package_name,
             },

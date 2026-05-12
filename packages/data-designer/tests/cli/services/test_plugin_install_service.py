@@ -695,6 +695,29 @@ def test_verify_entry_points_requires_every_declared_entry_point(mock_entry_poin
     assert service.verify_entry_points(entries) is False
 
 
+@patch("data_designer.cli.services.plugin_install_service.subprocess.run")
+@patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
+def test_verify_entry_points_fails_when_matching_entry_point_cannot_load(
+    mock_entry_points: Mock,
+    mock_run: Mock,
+) -> None:
+    entry = _entry(
+        package_name="data-designer-template",
+        plugin_name="smoke-broken",
+        entry_point_name="smoke-broken",
+        entry_point_value="missing_package.plugin:plugin",
+        install={"requirement": "data-designer-template"},
+    )
+    mock_entry_points.return_value = [
+        SimpleNamespace(name="smoke-broken", value="missing_package.plugin:plugin"),
+    ]
+    mock_run.return_value = SimpleNamespace(returncode=1, stdout="", stderr="No module named missing_package")
+    service = PluginInstallService()
+
+    assert service.verify_entry_points([entry]) is False
+    mock_run.assert_called_once()
+
+
 @patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
 def test_verify_entry_points_verifies_multi_runtime_package_entries(mock_entry_points: Mock) -> None:
     entries = [
