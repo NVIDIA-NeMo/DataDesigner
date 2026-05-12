@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import click
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app
@@ -110,32 +111,35 @@ def test_plugin_uninstall_command_delegates_to_controller(mock_ctrl_cls: MagicMo
 
 def test_plugin_info_help_uses_package_argument() -> None:
     result = runner.invoke(app, ["plugin", "info", "--help"])
+    output = click.unstyle(result.output)
 
     assert result.exit_code == 0
-    assert "PACKAGE" in result.output
-    assert "Plugin package name or package alias" in result.output
-    assert "runtime plugin name" not in result.output
+    assert "PACKAGE" in output
+    assert "Plugin package name or package alias" in output
+    assert "runtime plugin name" not in output
 
 
 def test_plugin_install_help_uses_package_first_wording() -> None:
     result = runner.invoke(app, ["plugin", "install", "--help"])
+    output = click.unstyle(result.output)
 
     assert result.exit_code == 0
-    assert "PACKAGE" in result.output
-    assert "Plugin package name or package alias" in result.output
-    assert "--version" in result.output
-    assert "runtime plugin name" not in result.output
-    assert "Print the install plan" in result.output
+    assert "PACKAGE" in output
+    assert "Plugin package name or package alias" in output
+    assert "--version" in output
+    assert "runtime plugin name" not in output
+    assert "Print the install plan" in output
 
 
 def test_plugin_uninstall_help_uses_package_first_wording() -> None:
     result = runner.invoke(app, ["plugin", "uninstall", "--help"])
+    output = click.unstyle(result.output)
 
     assert result.exit_code == 0
-    assert "PACKAGE" in result.output
-    assert "Plugin package name or package alias" in result.output
-    assert "runtime plugin name" not in result.output
-    assert "Print the uninstall plan" in result.output
+    assert "PACKAGE" in output
+    assert "Plugin package name or package alias" in output
+    assert "runtime plugin name" not in output
+    assert "Print the uninstall plan" in output
 
 
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")
