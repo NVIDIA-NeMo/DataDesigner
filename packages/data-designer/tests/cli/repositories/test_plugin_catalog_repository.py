@@ -277,6 +277,7 @@ def test_load_catalog_accepts_schema_v2_package_catalog(tmp_path: Path) -> None:
         packages=[
             _package_entry(
                 package_name="data-designer-index-package",
+                version="0.2.0",
                 plugins=[
                     _runtime_plugin("index-column", plugin_type="column-generator"),
                     _runtime_plugin("index-processor", plugin_type="processor"),
@@ -325,6 +326,8 @@ def test_load_catalog_accepts_schema_v2_package_catalog(tmp_path: Path) -> None:
         "git-plugin",
         "url-plugin",
     ]
+    assert catalog.packages[0].version == "0.2.0"
+    assert catalog.plugins[0].package.version == "0.2.0"
     assert catalog.plugins[0].install.index_url == "https://docs.example.test/simple/"
 
 
@@ -477,6 +480,16 @@ def test_load_catalog_rejects_unexpected_schema_v2_fields(tmp_path: Path) -> Non
         repository.load_catalog("local", refresh=True)
 
 
+def test_load_catalog_rejects_invalid_package_version(tmp_path: Path) -> None:
+    package = _package_entry(version="not-a-version")
+    catalog_path = _write_catalog(tmp_path, packages=[package])
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="invalid catalog packages\\[0\\]\\.version"):
+        repository.load_catalog("local", refresh=True)
+
+
 def test_load_catalog_rejects_duplicate_runtime_plugin_names(tmp_path: Path) -> None:
     catalog_path = _write_catalog(
         tmp_path,
@@ -604,10 +617,11 @@ def _catalog_payload(
 def _package_entry(
     *,
     package_name: str = "data-designer-text-transform",
+    version: str | None = None,
     plugins: list[dict] | None = None,
     install: dict | None = None,
 ) -> dict:
-    return {
+    package = {
         "name": package_name,
         "description": f"{package_name} package",
         "install": install
@@ -628,6 +642,9 @@ def _package_entry(
         },
         "plugins": plugins if plugins is not None else [_runtime_plugin("text-transform")],
     }
+    if version is not None:
+        package["version"] = version
+    return package
 
 
 def _runtime_plugin(

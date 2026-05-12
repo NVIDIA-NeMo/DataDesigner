@@ -33,6 +33,7 @@ def controller(tmp_path: Path) -> PluginCatalogController:
     plugin_controller.catalog_service.get_runtime_plugin_entries.return_value = []
     plugin_controller.catalog_service.suggest_entries.return_value = []
     plugin_controller.catalog_service.list_installed_plugins.return_value = []
+    plugin_controller.catalog_service.get_package_current_version.return_value = None
     plugin_controller.install_service = MagicMock()
     return plugin_controller
 
@@ -129,6 +130,7 @@ def test_run_list_renders_package_first_catalog_table(
         InstalledPluginInfo(name="text-column", entry_point_value="data_designer_text_transform.plugin:plugin"),
         InstalledPluginInfo(name="text-processor", entry_point_value="data_designer_text_transform.plugin:plugin"),
     ]
+    controller.catalog_service.get_package_current_version.return_value = "0.2.0"
 
     controller.run_list(catalog_alias="local", include_incompatible=True)
 
@@ -140,23 +142,28 @@ def test_run_list_renders_package_first_catalog_table(
     assert printed_tables[0].leading == 1
     assert [column.header for column in printed_tables[0].columns] == [
         "Package",
+        "Version",
         "Description",
         "Runtime Plugins",
-        "Compatible",
+        "Compatibility",
         "Installed",
         "Docs",
     ]
-    assert list(printed_tables[0].columns[1].cells) == ["Transform text records"]
-    assert list(printed_tables[0].columns[3].cells) == ["yes"]
-    assert list(printed_tables[0].columns[4].cells) == ["✓"]
-    docs_cell = list(printed_tables[0].columns[5].cells)[0]
+    assert list(printed_tables[0].columns[1].cells) == ["0.2.0"]
+    assert list(printed_tables[0].columns[2].cells) == ["Transform text records"]
+    compatibility_cell = list(printed_tables[0].columns[4].cells)[0]
+    assert isinstance(compatibility_cell, Text)
+    assert compatibility_cell.plain == "data-designer>=0.5.7 ✓"
+    assert compatibility_cell.style == "bold green"
+    assert list(printed_tables[0].columns[5].cells) == ["✓"]
+    docs_cell = list(printed_tables[0].columns[6].cells)[0]
     assert isinstance(docs_cell, Text)
     assert docs_cell.plain == "docs"
     assert docs_cell.style is not None
     assert docs_cell.style.link == "https://docs.example.test/plugins/data-designer-text-transform/"
     catalog_footer = mock_console.print.call_args_list[-2].args[0]
     assert isinstance(catalog_footer, Text)
-    assert catalog_footer.plain == "  🗂️  Catalog: local"
+    assert catalog_footer.plain == "  Catalog: local"
     catalog_footer_spans = catalog_footer.spans
     assert catalog_footer_spans
     assert catalog_footer_spans[0].style is not None
@@ -187,7 +194,7 @@ def test_run_list_escapes_catalog_markup_in_table(
     printed_tables = [
         call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
     ]
-    assert list(printed_tables[0].columns[1].cells) == [escape("[link=https://evil.test]click[/link]")]
+    assert list(printed_tables[0].columns[2].cells) == [escape("[link=https://evil.test]click[/link]")]
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -215,15 +222,15 @@ def test_run_list_leaves_installed_column_empty_when_runtime_entry_points_are_mi
     printed_tables = [
         call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
     ]
-    assert list(printed_tables[0].columns[4].cells) == [""]
+    assert list(printed_tables[0].columns[5].cells) == [""]
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-def test_run_list_marks_incompatible_packages_with_no(
+def test_run_list_marks_incompatible_packages_with_data_designer_condition(
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
-    entry = _entry()
+    entry = _entry(data_designer_requirement="data-designer>=99.0", data_designer_specifier=">=99.0")
     catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.list_entries.return_value = [entry]
@@ -240,7 +247,10 @@ def test_run_list_marks_incompatible_packages_with_no(
     printed_tables = [
         call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
     ]
-    assert list(printed_tables[0].columns[3].cells) == ["no"]
+    compatibility_cell = list(printed_tables[0].columns[4].cells)[0]
+    assert isinstance(compatibility_cell, Text)
+    assert compatibility_cell.plain == "data-designer>=99.0 x"
+    assert compatibility_cell.style == "bold yellow"
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -264,6 +274,7 @@ def test_run_list_uses_vertical_layout_in_narrow_terminals(
         InstalledPluginInfo(name="document-chunker", entry_point_value="data_designer_text_transform.plugin:plugin"),
         InstalledPluginInfo(name="embedding-dedup", entry_point_value="data_designer_text_transform.plugin:plugin"),
     ]
+    controller.catalog_service.get_package_current_version.return_value = "0.1.0"
 
     controller.run_list(catalog_alias="local")
 
@@ -271,7 +282,8 @@ def test_run_list_uses_vertical_layout_in_narrow_terminals(
         call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
     ]
     assert printed_tables == []
-    mock_console.print.assert_any_call("  Compatible: yes")
+    mock_console.print.assert_any_call("  Version: 0.1.0")
+    mock_console.print.assert_any_call("  Compatibility: data-designer>=0.5.7 ✓")
     mock_console.print.assert_any_call("  Installed: ✓")
     mock_console.print.assert_any_call(
         "  Runtime plugins: document-chunker (seed-reader), embedding-dedup (column-generator)"
@@ -293,12 +305,14 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = package_entries
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.catalog_service.get_package_current_version.return_value = "0.2.0"
     controller.install_service.build_install_plan.return_value = _plan(catalog)
 
     controller.run_info("text-transform", catalog_alias="local")
 
+    mock_console.print.assert_any_call("  Version: [bold]0.2.0[/bold]")
     mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
-    mock_console.print.assert_any_call("  data-designer version: [bold]0.5.10[/bold]")
+    mock_console.print.assert_any_call("  Compatibility: [bold green]data-designer>=0.5.7 ✓[/bold green]")
     assert all(
         "Install command" not in str(call_args.args[0])
         for call_args in mock_console.print.call_args_list
@@ -313,6 +327,7 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     assert metadata["package"] == {
         "name": "data-designer-text-transform",
         "description": "Transform text records",
+        "version": "0.2.0",
     }
     assert metadata["install"] == {
         "requirement": "data-designer-text-transform",
@@ -378,7 +393,11 @@ def test_run_info_renders_uv_install_strategy_without_exact_command(
     controller.run_info("text-transform", catalog_alias="local")
 
     mock_console.print.assert_any_call(f"  Install strategy: [bold]{expected_strategy}[/bold]")
-    mock_console.print.assert_any_call("  data-designer version: [bold]0.5.10[/bold]")
+    assert all(
+        "data-designer version:" not in str(call_args.args[0])
+        for call_args in mock_console.print.call_args_list
+        if call_args.args
+    )
     assert all(
         "Install command" not in str(call_args.args[0])
         for call_args in mock_console.print.call_args_list
@@ -473,11 +492,11 @@ def test_run_install_dry_run_renders_plan_without_installing(
     mock_print_success.assert_any_call("Dry run complete; no changes made")
     mock_console.print.assert_any_call("  Runtime plugins: [bold]text-transform (processor)[/bold]")
     mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
-    mock_console.print.assert_any_call("  data-designer version: [bold]0.5.10[/bold]")
     assert all(
         "Data Designer:" not in str(call_args.args[0])
         and "Install target:" not in str(call_args.args[0])
         and "Command:" not in str(call_args.args[0])
+        and "data-designer version:" not in str(call_args.args[0])
         for call_args in mock_console.print.call_args_list
         if call_args.args
     )
@@ -581,7 +600,11 @@ def test_run_install_versioned_dry_run_warns_instead_of_blocking_on_catalog_comp
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
-    entry = _entry(package_name="data-designer-github")
+    entry = _entry(
+        package_name="data-designer-github",
+        data_designer_requirement="data-designer>=99.0",
+        data_designer_specifier=">=99.0",
+    )
     catalog = _catalog()
     plan = _plan(catalog, package_name="data-designer-github", requirement="data-designer-github==0.1.0")
     controller.catalog_service.get_catalog.return_value = catalog
@@ -602,7 +625,7 @@ def test_run_install_versioned_dry_run_warns_instead_of_blocking_on_catalog_comp
     )
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_points.assert_not_called()
-    mock_console.print.assert_any_call("  Compatibility: [bold yellow]not compatible[/bold yellow]")
+    mock_console.print.assert_any_call("  Compatibility: [bold yellow]data-designer>=99.0 x[/bold yellow]")
     mock_print_warning.assert_called_once_with(
         "Catalog compatibility metadata may describe the catalog's default package version, not the requested version. "
         "Data Designer packages remain pinned during install; the package manager will fail if the requested plugin "
@@ -620,7 +643,11 @@ def test_run_install_versioned_real_install_warns_instead_of_blocking_on_catalog
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
-    entry = _entry(package_name="data-designer-github")
+    entry = _entry(
+        package_name="data-designer-github",
+        data_designer_requirement="data-designer>=99.0",
+        data_designer_specifier=">=99.0",
+    )
     catalog = _catalog()
     plan = _plan(catalog, package_name="data-designer-github", requirement="data-designer-github==0.1.0")
     controller.catalog_service.get_catalog.return_value = catalog
@@ -690,7 +717,11 @@ def test_run_install_versioned_dry_run_uses_local_catalog_and_real_services(tmp_
     mock_console.print.assert_any_call("  Runtime plugins: [bold]github (processor)[/bold]")
     mock_console.print.assert_any_call("  Requirement: [bold]data-designer-github==0.1.0[/bold]")
     mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
-    mock_console.print.assert_any_call("  data-designer version: [bold]0.5.10[/bold]")
+    assert all(
+        "data-designer version:" not in str(call_args.args[0])
+        for call_args in mock_console.print.call_args_list
+        if call_args.args
+    )
     mock_print_success.assert_any_call("Dry run complete; no changes made")
 
 
@@ -701,7 +732,7 @@ def test_run_install_blocks_incompatible_package(
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
-    entry = _entry()
+    entry = _entry(data_designer_requirement="data-designer>=99.0", data_designer_specifier=">=99.0")
     catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -800,7 +831,7 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
-    entry = _entry()
+    entry = _entry(data_designer_requirement="data-designer>=99.0", data_designer_specifier=">=99.0")
     catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -821,7 +852,7 @@ def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     assert all(
         "Command:" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list if call_args.args
     )
-    mock_console.print.assert_any_call("  Compatibility: [bold yellow]not compatible[/bold yellow]")
+    mock_console.print.assert_any_call("  Compatibility: [bold yellow]data-designer>=99.0 x[/bold yellow]")
     reason_lines = [
         call.args[0].plain for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Text)
     ]
@@ -840,7 +871,7 @@ def test_run_install_dry_run_renders_incompatible_entry_for_inspection(
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
-    entry = _entry()
+    entry = _entry(data_designer_requirement="data-designer>=99.0", data_designer_specifier=">=99.0")
     catalog = _catalog()
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
@@ -1181,6 +1212,8 @@ def _entry(
     plugin_type: str = "processor",
     package_name: str = "data-designer-text-transform",
     description: str = "Transform text records",
+    data_designer_requirement: str = "data-designer>=0.5.7",
+    data_designer_specifier: str = ">=0.5.7",
 ) -> PluginCatalogEntry:
     return PluginCatalogEntry.model_validate(
         {
@@ -1202,8 +1235,8 @@ def _entry(
             "compatibility": {
                 "python": {"specifier": ">=3.10"},
                 "data_designer": {
-                    "requirement": "data-designer>=0.5.7",
-                    "specifier": ">=0.5.7",
+                    "requirement": data_designer_requirement,
+                    "specifier": data_designer_specifier,
                     "marker": None,
                 },
             },

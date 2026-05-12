@@ -283,6 +283,82 @@ def test_get_runtime_plugin_entries_resolves_runtime_name_without_package_aliasi
     assert entries[0].package.name == "data-designer-retrieval-sdg"
 
 
+def test_get_package_current_version_prefers_catalog_metadata() -> None:
+    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7")
+    entry_data = _entry(
+        name="alpha",
+        plugin_type="processor",
+        package_name="data-designer-alpha",
+        data_designer_specifier=">=0.5.7",
+    )
+    entry_data["package"]["version"] = "0.3.0"
+    entry = PluginCatalogEntry.model_validate(entry_data)
+
+    assert service.get_package_current_version(entry) == "0.3.0"
+
+
+def test_get_package_current_version_uses_exact_requirement_version() -> None:
+    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7")
+    entry_data = _entry(
+        name="alpha",
+        plugin_type="processor",
+        package_name="data-designer-alpha",
+        data_designer_specifier=">=0.5.7",
+    )
+    entry_data["install"]["requirement"] = "data-designer-alpha==0.2.0"
+    entry = PluginCatalogEntry.model_validate(entry_data)
+
+    assert service.get_package_current_version(entry) == "0.2.0"
+
+
+@patch("data_designer.cli.services.plugin_catalog_service.urlopen")
+def test_get_package_current_version_reads_package_index(
+    mock_urlopen: Mock,
+) -> None:
+    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7")
+    entry = PluginCatalogEntry.model_validate(
+        _entry(
+            name="alpha",
+            plugin_type="processor",
+            package_name="data-designer-alpha",
+            data_designer_specifier=">=0.5.7",
+        )
+    )
+    mock_urlopen.return_value = _RemoteResponse(
+        b"""
+        <html><body>
+          <a href="https://packages.example.test/data_designer_alpha-0.1.0-py3-none-any.whl">data_designer_alpha-0.1.0-py3-none-any.whl</a>
+          <a href="../../data_designer_alpha-0.2.0.tar.gz#sha256=abc">data_designer_alpha-0.2.0.tar.gz</a>
+          <a href="../../unrelated-9.9.9-py3-none-any.whl">unrelated-9.9.9-py3-none-any.whl</a>
+        </body></html>
+        """
+    )
+
+    assert service.get_package_current_version(entry) == "0.2.0"
+    assert service.get_package_current_version(entry) == "0.2.0"
+    request = mock_urlopen.call_args.args[0]
+    assert request.full_url == "https://docs.example.test/simple/data-designer-alpha/"
+    mock_urlopen.assert_called_once()
+
+
+@patch("data_designer.cli.services.plugin_catalog_service.urlopen", side_effect=OSError("offline"))
+def test_get_package_current_version_returns_none_when_index_is_unavailable(
+    mock_urlopen: Mock,
+) -> None:
+    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7")
+    entry = PluginCatalogEntry.model_validate(
+        _entry(
+            name="alpha",
+            plugin_type="processor",
+            package_name="data-designer-alpha",
+            data_designer_specifier=">=0.5.7",
+        )
+    )
+
+    assert service.get_package_current_version(entry) is None
+    mock_urlopen.assert_called_once()
+
+
 def test_group_entries_by_package_groups_multi_plugin_packages(tmp_path: Path) -> None:
     repository = _repository_with_catalog(tmp_path)
     service = PluginCatalogService(repository, python_version="3.11.0", data_designer_version="0.5.7")
@@ -451,6 +527,21 @@ def _runtime_plugin(*, name: str, plugin_type: str) -> dict:
             "value": f"data_designer_{name.replace('-', '_')}.plugin:plugin",
         },
     }
+
+
+class _RemoteResponse:
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+
+    def __enter__(self) -> "_RemoteResponse":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        return None
+
+    def read(self, size: int = -1) -> bytes:
+        _ = size
+        return self._content
 
 
 def _entry(

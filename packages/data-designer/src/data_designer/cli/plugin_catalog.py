@@ -38,6 +38,7 @@ CATALOG_PACKAGE_KEYS = {
     "name",
     "plugins",
 }
+CATALOG_PACKAGE_OPTIONAL_KEYS = {"version"}
 CATALOG_PLUGIN_KEYS = {"entry_point", "name", "plugin_type"}
 CATALOG_ENTRY_POINT_KEYS = {"group", "name", "value"}
 CATALOG_COMPATIBILITY_KEYS = {"data_designer", "python"}
@@ -78,6 +79,7 @@ class PluginPackageInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    version: str | None = None
 
 
 class PluginEntryPointInfo(BaseModel):
@@ -138,6 +140,7 @@ class PluginCatalogPackage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    version: str | None = None
     description: str = Field(min_length=1)
     install: PluginInstallInfo
     compatibility: PluginCompatibility
@@ -146,7 +149,7 @@ class PluginCatalogPackage(BaseModel):
 
     def entries(self) -> list[PluginCatalogEntry]:
         """Flatten nested runtime plugins while preserving package-level metadata."""
-        package = PluginPackageInfo(name=self.name)
+        package = PluginPackageInfo(name=self.name, version=self.version)
         return [
             PluginCatalogEntry(
                 name=plugin.name,
@@ -362,7 +365,12 @@ def _validate_plugin_catalog_payload(payload: object) -> None:
 
 def _validate_catalog_package(raw_package: object, index: int) -> list[tuple[str, str, str]]:
     context = f"catalog packages[{index}]"
-    package = _required_catalog_object(context, raw_package, CATALOG_PACKAGE_KEYS)
+    package = _required_catalog_object(
+        context,
+        raw_package,
+        CATALOG_PACKAGE_KEYS,
+        optional_keys=CATALOG_PACKAGE_OPTIONAL_KEYS,
+    )
     compatibility = _required_catalog_object(
         f"{context}.compatibility",
         package["compatibility"],
@@ -382,6 +390,8 @@ def _validate_catalog_package(raw_package: object, index: int) -> list[tuple[str
     docs = _required_catalog_object(f"{context}.docs", package["docs"], CATALOG_DOCS_KEYS)
 
     package_name = _catalog_package_name(f"{context}.name", package["name"])
+    if "version" in package:
+        _catalog_package_version(package_name, f"{context}.version", package["version"])
     _required_catalog_string(f"{context}.description", package["description"])
     _catalog_version_specifier(
         package_name,
@@ -486,21 +496,31 @@ def _required_catalog_object(
     context: str,
     value: object,
     expected_keys: set[str] | None = None,
+    *,
+    optional_keys: set[str] | None = None,
 ) -> dict[str, object]:
     if not isinstance(value, dict):
         raise PluginCatalogError(f"{context} is invalid; expected an object")
     if expected_keys is not None:
-        _validate_catalog_object_keys(context, value, expected_keys)
+        _validate_catalog_object_keys(context, value, expected_keys, optional_keys or set())
     return value
 
 
-def _validate_catalog_object_keys(context: str, value: dict[str, object], expected_keys: set[str]) -> None:
+def _validate_catalog_object_keys(
+    context: str,
+    value: dict[str, object],
+    expected_keys: set[str],
+    optional_keys: set[str],
+) -> None:
     keys = set(value)
-    if keys != expected_keys:
+    missing_keys = expected_keys - keys
+    extra_keys = keys - expected_keys - optional_keys
+    if missing_keys or extra_keys:
         # Catalog v2 is strict by design: additive wire-schema changes should bump
         # schema_version so older CLIs do not silently ignore new fields.
+        optional_text = f"; optional {{{_format_catalog_keys(optional_keys)}}}" if optional_keys else ""
         raise PluginCatalogError(
-            f"{context} has invalid fields; expected {{{_format_catalog_keys(expected_keys)}}}, "
+            f"{context} has invalid fields; expected {{{_format_catalog_keys(expected_keys)}{optional_text}}}, "
             f"got {{{_format_catalog_keys(keys)}}}"
         )
 
@@ -526,6 +546,15 @@ def _catalog_package_name(context: str, value: object) -> str:
     except InvalidName as e:
         raise PluginCatalogError(f"{context} {package_name!r} is invalid; expected a valid package name") from e
     return package_name
+
+
+def _catalog_package_version(package_name: str, context: str, value: object) -> str:
+    version = _required_catalog_string(context, value)
+    try:
+        parsed_version = Version(version)
+    except InvalidVersion as e:
+        raise PluginCatalogError(f"package {package_name!r} has invalid {context} {version!r}: {e}") from e
+    return str(parsed_version)
 
 
 def _catalog_version_specifier(package_name: str, context: str, value: object) -> str:

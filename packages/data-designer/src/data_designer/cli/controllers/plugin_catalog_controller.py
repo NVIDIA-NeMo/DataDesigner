@@ -44,6 +44,7 @@ from data_designer.config.utils.constants import NordColor
 NARROW_CATALOG_LAYOUT_WIDTH = 100
 CATALOG_TABLE_ROW_LEADING = 1
 CHECKMARK = "✓"
+INCOMPATIBLE_MARKER = "x"
 
 
 class PluginCatalogController:
@@ -142,17 +143,23 @@ class PluginCatalogController:
                 print_warning(plan.source_warning)
         except ValueError as e:
             _print_catalog_detail(catalog)
+            if package_version := self.catalog_service.get_package_current_version(entry):
+                console.print(f"  Version: [bold]{_escape_markup(package_version)}[/bold]")
             console.print(f"  Runtime plugins: [bold]{_escape_markup(_format_runtime_plugins(package_entries))}[/bold]")
-            self._display_compatibility(compatibility)
+            self._display_compatibility(entry, compatibility)
             print_warning(str(e))
+
+        package_metadata = {
+            "name": entry.package.name,
+            "description": entry.description,
+        }
+        if package_version := self.catalog_service.get_package_current_version(entry):
+            package_metadata["version"] = package_version
 
         console.print()
         display_config_preview(
             {
-                "package": {
-                    "name": entry.package.name,
-                    "description": entry.description,
-                },
+                "package": package_metadata,
                 "install": entry.install.model_dump(mode="json", exclude_none=True),
                 "compatibility": entry.compatibility.model_dump(mode="json", exclude_none=True),
                 "docs": entry.docs.model_dump(mode="json", exclude_none=True),
@@ -549,9 +556,10 @@ class PluginCatalogController:
             leading=CATALOG_TABLE_ROW_LEADING,
         )
         table.add_column("Package", style=NordColor.NORD14.value, no_wrap=True)
+        table.add_column("Version", style=NordColor.NORD13.value, no_wrap=True)
         table.add_column("Description", style=NordColor.NORD4.value)
         table.add_column("Runtime Plugins", style=NordColor.NORD9.value)
-        table.add_column("Compatible", style=NordColor.NORD13.value, justify="center", no_wrap=True)
+        table.add_column("Compatibility", no_wrap=True)
         table.add_column("Installed", style=NordColor.NORD14.value, justify="center", no_wrap=True)
         table.add_column("Docs", style=NordColor.NORD7.value)
 
@@ -561,9 +569,10 @@ class PluginCatalogController:
             docs_url = entry.docs.url if entry.docs is not None and entry.docs.url is not None else ""
             table.add_row(
                 _escape_markup(entry.package.name),
+                _escape_markup(self.catalog_service.get_package_current_version(entry) or ""),
                 _escape_markup(entry.description),
                 _escape_markup(_format_runtime_plugins(package_entries)),
-                _format_compatibility_value(compatibility),
+                _format_compatibility_text(entry, compatibility),
                 _format_installed_marker(package_entries, installed_plugins),
                 _format_docs_link(docs_url),
             )
@@ -581,9 +590,11 @@ class PluginCatalogController:
             if index:
                 console.print()
             console.print(Text(entry.package.name, style=f"bold {NordColor.NORD14.value}"))
+            if package_version := self.catalog_service.get_package_current_version(entry):
+                console.print(f"  Version: {_escape_markup(package_version)}")
             console.print(f"  Description: {_escape_markup(entry.description)}")
             console.print(f"  Runtime plugins: {_escape_markup(_format_runtime_plugins(package_entries))}")
-            console.print(f"  Compatible: {_format_compatibility_value(compatibility)}")
+            console.print(f"  Compatibility: {_format_compatibility_value(entry, compatibility)}")
             console.print(f"  Installed: {_format_installed_marker(package_entries, installed_plugins)}")
             if docs_url:
                 console.print(f"  Docs: {_escape_markup(docs_url)}")
@@ -604,17 +615,17 @@ class PluginCatalogController:
         console.print(table)
 
     @staticmethod
-    def _display_compatibility(compatibility: CompatibilityResult) -> None:
+    def _display_compatibility(entry: PluginCatalogEntry, compatibility: CompatibilityResult) -> None:
+        compatibility_value = _format_compatibility_value(entry, compatibility)
+        style = "bold green" if compatibility.is_compatible else "bold yellow"
+        console.print(f"  Compatibility: [{style}]{_escape_markup(compatibility_value)}[/{style}]")
         if compatibility.is_compatible:
-            console.print("  Compatibility: [bold green]compatible[/bold green]")
             return
-
-        console.print("  Compatibility: [bold yellow]not compatible[/bold yellow]")
         for reason in compatibility.reasons:
             console.print(Text.assemble("    - ", reason))
 
-    @staticmethod
     def _display_package_install_metadata(
+        self,
         entry: PluginCatalogEntry,
         package_entries: list[PluginCatalogEntry],
         catalog: PluginCatalogConfig,
@@ -622,14 +633,18 @@ class PluginCatalogController:
         plan: InstallPlan,
     ) -> None:
         _print_catalog_detail(catalog)
+        package_version = self.catalog_service.get_package_current_version(
+            entry,
+            requirement=plan.requirement or entry.install.requirement,
+        )
+        if package_version is not None:
+            console.print(f"  Version: [bold]{_escape_markup(package_version)}[/bold]")
         console.print(f"  Runtime plugins: [bold]{_escape_markup(_format_runtime_plugins(package_entries))}[/bold]")
-        PluginCatalogController._display_compatibility(compatibility)
+        PluginCatalogController._display_compatibility(entry, compatibility)
         console.print(f"  Requirement: [bold]{_escape_markup(plan.requirement or entry.install.requirement)}[/bold]")
         if entry.install.index_url is not None:
             console.print(f"  Index URL: [bold]{_escape_markup(entry.install.index_url)}[/bold]")
         console.print(f"  Install strategy: [bold]{_escape_markup(_install_strategy_description(plan))}[/bold]")
-        if plan.data_designer_version is not None:
-            console.print(f"  data-designer version: [bold]{_escape_markup(plan.data_designer_version)}[/bold]")
 
 
 def _display_commands(commands: list[list[str]]) -> None:
@@ -645,7 +660,7 @@ def _display_commands(commands: list[list[str]]) -> None:
 def _print_catalog_reference(catalog: PluginCatalogConfig) -> None:
     console.print()
     catalog_link = Text.assemble(
-        "  🗂️  Catalog: ",
+        "  Catalog: ",
         (catalog.alias, Style(color=NordColor.NORD14.value, bold=True, link=catalog.url)),
     )
     console.print(catalog_link)
@@ -654,7 +669,7 @@ def _print_catalog_reference(catalog: PluginCatalogConfig) -> None:
 
 def _print_catalog_detail(catalog: PluginCatalogConfig) -> None:
     catalog_text = Text.assemble(
-        "  🗂️  Catalog: ",
+        "  Catalog: ",
         (catalog.alias, Style(color=NordColor.NORD14.value, bold=True, link=catalog.url)),
     )
     console.print(catalog_text)
@@ -702,8 +717,24 @@ def _format_checkmark(value: bool) -> str:
     return CHECKMARK if value else ""
 
 
-def _format_compatibility_value(compatibility: CompatibilityResult) -> str:
-    return "yes" if compatibility.is_compatible else "no"
+def _format_compatibility_value(entry: PluginCatalogEntry, compatibility: CompatibilityResult) -> str:
+    marker = CHECKMARK if compatibility.is_compatible else INCOMPATIBLE_MARKER
+    return f"{_data_designer_compatibility_condition(entry)} {marker}"
+
+
+def _format_compatibility_text(entry: PluginCatalogEntry, compatibility: CompatibilityResult) -> Text:
+    style = "bold green" if compatibility.is_compatible else "bold yellow"
+    return Text(_format_compatibility_value(entry, compatibility), style=style)
+
+
+def _data_designer_compatibility_condition(entry: PluginCatalogEntry) -> str:
+    data_designer_compatibility = entry.compatibility.data_designer
+    if data_designer_compatibility.requirement is not None:
+        return data_designer_compatibility.requirement
+    condition = f"data-designer{data_designer_compatibility.specifier}"
+    if data_designer_compatibility.marker is not None:
+        return f"{condition}; {data_designer_compatibility.marker}"
+    return condition
 
 
 def _parse_install_request_or_exit(package_name: str, *, version: str | None) -> PluginPackageInstallRequest:

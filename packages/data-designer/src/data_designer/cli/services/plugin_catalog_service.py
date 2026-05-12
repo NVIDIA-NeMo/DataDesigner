@@ -8,10 +8,22 @@ import platform
 import re
 from collections import defaultdict
 from collections.abc import Iterable
+from html.parser import HTMLParser
+from pathlib import PurePosixPath
+from urllib.error import URLError
+from urllib.parse import unquote, urljoin, urlparse
+from urllib.request import Request, urlopen
 
 from packaging.markers import InvalidMarker, Marker
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.utils import canonicalize_name
+from packaging.utils import (
+    InvalidSdistFilename,
+    InvalidWheelFilename,
+    canonicalize_name,
+    parse_sdist_filename,
+    parse_wheel_filename,
+)
 from packaging.version import InvalidVersion, Version
 
 from data_designer.cli.plugin_catalog import (
@@ -39,6 +51,7 @@ class PluginCatalogService:
         self.repository = repository
         self.python_version = python_version or platform.python_version()
         self.data_designer_version = data_designer_version or _get_installed_data_designer_version()
+        self._package_current_version_cache: dict[tuple[str, str, str, str], str | None] = {}
 
     def list_entries(
         self,
@@ -155,6 +168,22 @@ class PluginCatalogService:
             package_name: sorted(items, key=lambda item: item.name) for package_name, items in grouped_entries.items()
         }
 
+    def get_package_current_version(self, entry: PluginCatalogEntry, *, requirement: str | None = None) -> str | None:
+        """Return the catalog package version selected by the entry metadata or package index."""
+        resolved_requirement = requirement or entry.install.requirement
+        cache_key = (
+            canonicalize_name(entry.package.name),
+            entry.package.version or "",
+            resolved_requirement,
+            entry.install.index_url or "",
+        )
+        if cache_key not in self._package_current_version_cache:
+            self._package_current_version_cache[cache_key] = _resolve_package_current_version(
+                entry,
+                requirement=resolved_requirement,
+            )
+        return self._package_current_version_cache[cache_key]
+
     def evaluate_compatibility(self, entry: PluginCatalogEntry) -> CompatibilityResult:
         """Evaluate whether a catalog entry is compatible with the local environment."""
         compatibility = entry.compatibility
@@ -258,6 +287,126 @@ def _get_installed_data_designer_version() -> str | None:
         return None
 
 
+def _resolve_package_current_version(entry: PluginCatalogEntry, *, requirement: str) -> str | None:
+    if entry.package.version is not None:
+        return entry.package.version
+
+    requirement_version = _package_version_from_requirement(requirement, entry.package.name)
+    if requirement_version is not None:
+        return requirement_version
+
+    if entry.install.index_url is None:
+        return None
+    return _latest_simple_index_version(entry.install.index_url, entry.package.name)
+
+
+def _package_version_from_requirement(requirement_text: str, package_name: str) -> str | None:
+    try:
+        requirement = Requirement(requirement_text)
+    except InvalidRequirement:
+        return None
+
+    if canonicalize_name(requirement.name) != canonicalize_name(package_name):
+        return None
+
+    if requirement.url is not None:
+        return _package_version_from_distribution_url(requirement.url, package_name)
+
+    parsed_versions = []
+    for specifier in requirement.specifier:
+        if specifier.operator != "==" or "*" in specifier.version:
+            continue
+        try:
+            parsed_versions.append(Version(specifier.version))
+        except InvalidVersion:
+            return None
+    if len(parsed_versions) == 1:
+        return str(parsed_versions[0])
+    return None
+
+
+def _package_version_from_distribution_url(url: str, package_name: str) -> str | None:
+    filename = PurePosixPath(unquote(urlparse(url).path)).name
+    version = _package_version_from_distribution_filename(filename, package_name)
+    if version is None:
+        return None
+    return str(version)
+
+
+def _latest_simple_index_version(index_url: str, package_name: str) -> str | None:
+    project_url = urljoin(f"{index_url.rstrip('/')}/", f"{canonicalize_name(package_name)}/")
+    request = Request(
+        project_url,
+        headers={"Accept": "text/html, application/vnd.pypi.simple.v1+html"},
+    )
+    try:
+        with urlopen(request, timeout=SIMPLE_INDEX_VERSION_FETCH_TIMEOUT_SECONDS) as response:
+            content = response.read(SIMPLE_INDEX_MAX_BYTES + 1)
+    except (URLError, OSError, ValueError):
+        return None
+
+    if len(content) > SIMPLE_INDEX_MAX_BYTES:
+        return None
+
+    parser = _SimpleIndexPackageFileParser()
+    parser.feed(content.decode("utf-8", errors="replace"))
+    versions = [
+        version
+        for filename in parser.filenames
+        if (version := _package_version_from_distribution_filename(filename, package_name)) is not None
+    ]
+    if not versions:
+        return None
+    return str(max(versions))
+
+
+def _package_version_from_distribution_filename(filename: str, package_name: str) -> Version | None:
+    try:
+        if filename.endswith(".whl"):
+            name, version, _build, _tags = parse_wheel_filename(filename)
+            parsed_name = canonicalize_name(name)
+        elif filename.endswith((".tar.gz", ".zip")):
+            name, version = parse_sdist_filename(filename)
+            parsed_name = canonicalize_name(name)
+        else:
+            return None
+    except (InvalidSdistFilename, InvalidVersion, InvalidWheelFilename):
+        return None
+
+    if parsed_name != canonicalize_name(package_name):
+        return None
+    return version
+
+
+class _SimpleIndexPackageFileParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.filenames: list[str] = []
+        self._inside_link = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        self._inside_link = True
+        for name, value in attrs:
+            if name.lower() == "href" and value:
+                self._add_candidate(value)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "a":
+            self._inside_link = False
+
+    def handle_data(self, data: str) -> None:
+        if self._inside_link:
+            self._add_candidate(data)
+
+    def _add_candidate(self, value: str) -> None:
+        path = urlparse(value.strip()).path
+        filename = PurePosixPath(unquote(path)).name
+        if filename:
+            self.filenames.append(filename)
+
+
 SEARCH_SYNONYMS = {
     "chunk": ("chunker", "chunking", "document chunker"),
     "dedup": ("dedupe", "deduplicate", "deduplication"),
@@ -273,6 +422,8 @@ SEARCH_SYNONYMS = {
 }
 
 SEARCH_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_.-]+")
+SIMPLE_INDEX_VERSION_FETCH_TIMEOUT_SECONDS = 3
+SIMPLE_INDEX_MAX_BYTES = 512 * 1024
 
 
 def _tokenize(value: str) -> list[str]:

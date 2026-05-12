@@ -336,7 +336,7 @@ data-designer plugin list
 # Search a specific catalog
 data-designer plugin --catalog research search transform
 
-# Show package metadata, compatibility, docs, and the install strategy
+# Show package version, compatibility, docs, and the install strategy
 data-designer plugin info github
 
 # Install a plugin package from a catalog and verify its runtime entry points can load
