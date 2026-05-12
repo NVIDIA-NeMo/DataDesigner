@@ -116,4 +116,4 @@ jobs:
 
             **Fern preview:** ${{ steps.fern-preview.outcome == 'success' && steps.fern-preview.outputs.url || 'Fern preview failed; see workflow logs.' }}
 
-            > Notebook tutorials are placeholder-only in previews.
+            > Notebook tutorials are rendered without execution outputs in previews.

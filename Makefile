@@ -576,7 +576,7 @@ generate-fern-notebooks:
 		name=$$(basename "$$src" .py); \
 		if [ -f "docs/notebooks/$$name.ipynb" ]; then \
 			input="docs/notebooks/$$name.ipynb"; \
-			source_label="executed"; \
+			source_label="notebook"; \
 		else \
 			input="$$tmp_dir/$$name.ipynb"; \
 			source_label="source"; \

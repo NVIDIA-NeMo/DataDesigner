@@ -34,53 +34,21 @@ jobs:
         run: uv python install 3.11
 
       - name: Install docs dependencies
-        run: uv sync --all-packages --group docs
+        run: uv sync --all-packages --group docs --group notebooks
 
-      - name: Create notebook stubs
+      - name: Create preview notebooks
         run: |
           mkdir -p docs/notebooks
           cp docs/notebook_source/_README.md docs/notebooks/README.md
+          cp docs/notebook_source/_pyproject.toml docs/notebooks/pyproject.toml
 
           for src in docs/notebook_source/*.py; do
             name=$(basename "$src" .py)
-            cat > "docs/notebooks/${name}.ipynb" <<'STUB'
-          {
-            "cells": [
-              {
-                "cell_type": "markdown",
-                "metadata": {},
-                "source": [
-                  "# Notebook preview not available\n",
-                  "\n",
-                  "Tutorial notebooks are built during the release process and are not\n",
-                  "included in PR previews. Run the notebook locally with:\n",
-                  "\n",
-                  "```bash\n",
-                  "make convert-execute-notebooks\n",
-                  "make serve-docs-locally\n",
-                  "```"
-                ]
-              }
-            ],
-            "metadata": {
-              "kernelspec": {
-                "display_name": "Python 3",
-                "language": "python",
-                "name": "python3"
-              },
-              "language_info": {
-                "name": "python",
-                "version": "3.11.0"
-              }
-            },
-            "nbformat": 4,
-            "nbformat_minor": 5
-          }
-          STUB
+            .venv/bin/jupytext --to ipynb --output "docs/notebooks/${name}.ipynb" "$src"
           done
 
       - name: Build docs
-        run: uv run mkdocs build
+        run: .venv/bin/mkdocs build
 
       - name: Check Fern docs
         run: make check-fern-docs

@@ -71,6 +71,8 @@ INLINE_DATA_URI_RE = re.compile(
     r"data:image/(png|jpe?g);base64,([A-Za-z0-9+/=\s]+?)(?=[\"'\s)])",
     re.IGNORECASE,
 )
+STYLE_ATTR_RE = re.compile(r'style="([^"]*color:[^"]*)"')
+COLOR_DECL_RE = re.compile(r"(?<!-)color:\s*([^;]+)")
 
 
 def get_language(metadata: dict) -> str:
@@ -85,7 +87,24 @@ def highlight_code(source: str, language: str) -> str | None:
     except ClassNotFound:
         return None
     formatter = HtmlFormatter(noclasses=True, style="friendly", nowrap=True)
-    return highlight(source, lexer, formatter)
+    return add_fern_highlight_vars(highlight(source, lexer, formatter))
+
+
+def add_fern_highlight_vars(html: str) -> str:
+    def replace_style(match: re.Match[str]) -> str:
+        style = match.group(1)
+        if "--shiki-light" in style:
+            return match.group(0)
+
+        color_match = COLOR_DECL_RE.search(style)
+        if color_match is None:
+            return match.group(0)
+
+        color = color_match.group(1).strip()
+        style = COLOR_DECL_RE.sub("color: var(--shiki-light)", style, count=1)
+        return f'style="--shiki-light: {color}; --shiki-dark: {color}; {style}"'
+
+    return STYLE_ATTR_RE.sub(replace_style, html)
 
 
 def _join_source(source: list | str | None) -> str:
