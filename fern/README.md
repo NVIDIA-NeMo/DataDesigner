@@ -138,20 +138,32 @@ fern/
 
 ## Common commands
 
+Primary local commands:
+
+| Command | Purpose |
+|---------|---------|
+| `make check-fern-docs-locally` | Install docs dependencies, generate Fern artifacts, and run `fern check` |
+| `make serve-fern-docs-locally` | Generate local Fern artifacts and serve local docs |
+| `make generate-fern-notebooks-with-outputs` | Full notebook pipeline: execute (needs `NVIDIA_API_KEY`) → colabify → convert |
+| `make prepare-fern-release VERSION=X.Y.Z` | Add Fern version files before cutting a release |
+| `make check-fern-release-version VERSION=X.Y.Z` | Verify Fern release metadata exists before publishing |
+
+Support and CI targets:
+
+| Command | Purpose |
+|---------|---------|
+| `make install-docs-deps` | Install docs and notebook dependencies |
+| `make generate-fern-api-reference` | Generate local Fern API reference with `py2fern` |
+| `make generate-fern-api-reference-native` | Generate Fern API reference with Fern CLI (requires Fern auth) |
+| `make generate-fern-notebooks` | Refresh gitignored notebook output from `docs/notebook_source/*.py` |
+| `make prepare-fern-docs` | Generate local Fern artifacts |
+| `make check-fern-docs` | Generate local Fern artifacts and run `fern check` |
+
+Raw Fern CLI commands, normally wrapped by Make:
+
 | Command | Purpose |
 |---------|---------|
 | `fern docs dev` | Local preview at `http://localhost:3000` |
 | `fern check` | Validate `docs.yml` and MDX |
 | `fern docs md generate` | Generate library API docs with Fern CLI (requires Fern auth) |
 | `fern generate --docs --preview` | Hosted preview on `*.docs.buildwithfern.com` (needs Fern token) |
-| `make install-docs-deps` | Install docs and notebook dependencies |
-| `make generate-fern-api-reference` | Generate local Fern API reference with `py2fern` |
-| `make generate-fern-api-reference-native` | Generate Fern API reference with Fern CLI (requires Fern auth) |
-| `make prepare-fern-release VERSION=X.Y.Z` | Add Fern version files before cutting a release |
-| `make check-fern-release-version VERSION=X.Y.Z` | Verify Fern release metadata exists before publishing |
-| `make prepare-fern-docs` | Generate local Fern artifacts |
-| `make check-fern-docs` | Generate local Fern artifacts and run `fern check` |
-| `make check-fern-docs-locally` | Install docs dependencies, generate Fern artifacts, and run `fern check` |
-| `make serve-fern-docs-locally` | Generate local Fern artifacts and serve local docs |
-| `make generate-fern-notebooks` | Refresh gitignored notebook output from `docs/notebook_source/*.py` |
-| `make generate-fern-notebooks-with-outputs` | Full notebook pipeline: execute (needs `NVIDIA_API_KEY`) → colabify → convert |
