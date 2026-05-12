@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -291,10 +293,7 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = package_entries
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
-    controller.install_service.build_install_plan.return_value = _plan(
-        catalog,
-        data_designer_protection="uv will keep Data Designer packages pinned",
-    )
+    controller.install_service.build_install_plan.return_value = _plan(catalog)
 
     controller.run_info("text-transform", catalog_alias="local")
 
@@ -455,7 +454,7 @@ def test_run_install_dry_run_renders_plan_without_installing(
 ) -> None:
     entry = _entry()
     catalog = _catalog()
-    plan = _plan(catalog, data_designer_protection="pinned installed Data Designer packages; data-designer 0.5.10")
+    plan = _plan(catalog)
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = [entry]
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
@@ -609,6 +608,89 @@ def test_run_install_versioned_dry_run_warns_instead_of_blocking_on_catalog_comp
         "Data Designer packages remain pinned during install; the package manager will fail if the requested plugin "
         "version cannot use the installed Data Designer version."
     )
+    mock_print_success.assert_any_call("Dry run complete; no changes made")
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_success")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+def test_run_install_versioned_real_install_warns_instead_of_blocking_on_catalog_compatibility(
+    mock_print_warning: MagicMock,
+    mock_print_success: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry(package_name="data-designer-github")
+    catalog = _catalog()
+    plan = _plan(catalog, package_name="data-designer-github", requirement="data-designer-github==0.1.0")
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
+        False,
+        ["Data Designer 0.5.7 does not satisfy >=99.0"],
+    )
+    controller.install_service.build_install_plan.return_value = plan
+    controller.install_service.verify_entry_points.return_value = True
+
+    controller.run_install("github==0.1.0", catalog_alias="local", yes=True)
+
+    controller.install_service.build_install_plan.assert_called_once_with(
+        entry,
+        catalog,
+        manager="auto",
+        version_specifier="==0.1.0",
+    )
+    controller.install_service.install.assert_called_once_with(plan)
+    controller.install_service.verify_entry_points.assert_called_once_with([entry])
+    mock_print_warning.assert_called_once_with(
+        "Catalog compatibility metadata may describe the catalog's default package version, not the requested version. "
+        "Data Designer packages remain pinned during install; the package manager will fail if the requested plugin "
+        "version cannot use the installed Data Designer version."
+    )
+    mock_print_success.assert_called_once_with(
+        "Plugin package 'data-designer-github' installed and runtime entry points loaded"
+    )
+    assert mock_console.print.call_count >= 1
+
+
+def test_run_install_versioned_dry_run_uses_local_catalog_and_real_services(tmp_path: Path) -> None:
+    catalog_file = tmp_path / "plugins.json"
+    catalog_file.write_text(
+        json.dumps(
+            _catalog_payload(
+                package_name="data-designer-github",
+                runtime_plugin_name="github",
+                install_requirement="data-designer-github",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("data_designer.cli.controllers.plugin_catalog_controller.console") as mock_console,
+        patch("data_designer.cli.controllers.plugin_catalog_controller.print_success") as mock_print_success,
+        patch(
+            "data_designer.cli.services.plugin_catalog_service.importlib.metadata.version",
+            return_value="0.5.10",
+        ),
+        patch(
+            "data_designer.cli.services.plugin_install_service.importlib.metadata.version",
+            return_value="0.5.10",
+        ),
+        patch(
+            "data_designer.cli.services.plugin_install_service.subprocess.run",
+            return_value=SimpleNamespace(returncode=0, stdout="pip 24.0\n", stderr=""),
+        ),
+    ):
+        plugin_controller = PluginCatalogController(tmp_path / "data-designer-home")
+        plugin_controller.catalog_service.add_catalog("local", str(catalog_file))
+
+        plugin_controller.run_install("github==0.1.0", catalog_alias="local", manager="pip", dry_run=True, refresh=True)
+
+    mock_console.print.assert_any_call("  Runtime plugins: [bold]github (processor)[/bold]")
+    mock_console.print.assert_any_call("  Requirement: [bold]data-designer-github==0.1.0[/bold]")
+    mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
+    mock_console.print.assert_any_call("  data-designer version: [bold]0.5.10[/bold]")
     mock_print_success.assert_any_call("Dry run complete; no changes made")
 
 
@@ -1068,19 +1150,16 @@ def _plan(
     package_name: str = "data-designer-text-transform",
     requirement: str | None = None,
     source_warning: str | None = None,
-    data_designer_protection: str | None = None,
     manager: str = "pip",
     install_mode: str = "pip-environment",
 ) -> InstallPlan:
     return InstallPlan(
         package_name=package_name,
-        source_description=requirement or package_name,
         command=["python", "-m", "pip", "install", requirement or package_name],
         manager=manager,
         catalog_alias=catalog.alias,
         requirement=requirement,
         source_warning=source_warning,
-        data_designer_protection=data_designer_protection,
         data_designer_version="0.5.10",
         install_mode=install_mode,
     )
@@ -1133,3 +1212,46 @@ def _entry(
             },
         }
     )
+
+
+def _catalog_payload(
+    *,
+    package_name: str,
+    runtime_plugin_name: str,
+    install_requirement: str,
+) -> dict[str, object]:
+    return {
+        "schema_version": 2,
+        "packages": [
+            {
+                "name": package_name,
+                "description": "GitHub repository reader",
+                "install": {
+                    "requirement": install_requirement,
+                    "index_url": "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+                },
+                "compatibility": {
+                    "python": {"specifier": ">=3.10"},
+                    "data_designer": {
+                        "requirement": "data-designer>=0.5.7",
+                        "specifier": ">=0.5.7",
+                        "marker": None,
+                    },
+                },
+                "docs": {
+                    "url": f"https://docs.example.test/plugins/{package_name}/",
+                },
+                "plugins": [
+                    {
+                        "name": runtime_plugin_name,
+                        "plugin_type": "processor",
+                        "entry_point": {
+                            "group": "data_designer.plugins",
+                            "name": runtime_plugin_name,
+                            "value": "data_designer_github.plugin:plugin",
+                        },
+                    }
+                ],
+            }
+        ],
+    }

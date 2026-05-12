@@ -217,13 +217,11 @@ class InstallPlan:
     """Resolved package-manager command for installing one plugin package."""
 
     package_name: str
-    source_description: str
     command: list[str]
     manager: str
     catalog_alias: str
     requirement: str | None = None
     source_warning: str | None = None
-    data_designer_protection: str | None = None
     data_designer_version: str | None = None
     command_stdin: str | None = None
     temporary_file: InstallCommandTemporaryFile | None = None

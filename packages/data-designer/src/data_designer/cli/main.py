@@ -160,7 +160,7 @@ plugin_app = typer.Typer(
             "info": {
                 "module": f"{_CMD}.plugin",
                 "attr": "info_command",
-                "help": "Show plugin package metadata and install plan",
+                "help": "Show plugin package metadata and install strategy",
             },
             "install": {
                 "module": f"{_CMD}.plugin",
@@ -175,7 +175,7 @@ plugin_app = typer.Typer(
             "installed": {
                 "module": f"{_CMD}.plugin",
                 "attr": "installed_command",
-                "help": "List installed runtime plugins and their packages",
+                "help": "List installed plugin packages and their runtime plugins",
             },
         }
     ),

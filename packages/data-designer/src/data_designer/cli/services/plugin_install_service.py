@@ -94,11 +94,11 @@ class PluginInstallService:
             active_virtualenv=self._active_virtualenv,
         )
         data_designer_versions = _installed_data_designer_distribution_versions()
-        protection_args, data_designer_protection, command_stdin, temporary_file = _data_designer_protection_args(
+        protection_args, command_stdin, temporary_file = _data_designer_protection_args(
             target.mode,
             data_designer_versions,
         )
-        install_args, install_requirement, source_description, source_warning = _install_args_for_entry(
+        install_args, install_requirement, source_warning = _install_args_for_entry(
             entry,
             target,
             version_specifier=version_specifier,
@@ -106,13 +106,11 @@ class PluginInstallService:
         command = _base_command(target) + protection_args + install_args
         return InstallPlan(
             package_name=entry.package.name,
-            source_description=source_description,
             command=command,
             manager=target.manager,
             catalog_alias=catalog.alias,
             requirement=install_requirement,
             source_warning=_combine_warnings(target.warning, source_warning),
-            data_designer_protection=data_designer_protection,
             data_designer_version=data_designer_versions[DATA_DESIGNER_DISTRIBUTION_NAME],
             command_stdin=command_stdin,
             temporary_file=temporary_file,
@@ -520,13 +518,10 @@ def _installed_data_designer_distribution_versions() -> dict[str, str]:
 def _data_designer_protection_args(
     mode: str,
     versions: dict[str, str],
-) -> tuple[list[str], str, str | None, InstallCommandTemporaryFile | None]:
-    data_designer_version = versions[DATA_DESIGNER_DISTRIBUTION_NAME]
+) -> tuple[list[str], str | None, InstallCommandTemporaryFile | None]:
     if mode == "uv-environment":
         return (
             ["--constraint", "-"],
-            f"using installed {DATA_DESIGNER_DISTRIBUTION_NAME} {data_designer_version}; "
-            "uv will keep Data Designer packages pinned",
             _data_designer_constraint_text(versions),
             None,
         )
@@ -540,15 +535,12 @@ def _data_designer_protection_args(
                     for item in ("--no-install-package", distribution_name)
                 ],
             ],
-            f"using installed {DATA_DESIGNER_DISTRIBUTION_NAME} {data_designer_version}; "
-            "uv will not install Data Designer packages",
             None,
             None,
         )
 
     return (
         ["--constraint", DATA_DESIGNER_CONSTRAINT_PLACEHOLDER],
-        f"pinned installed Data Designer packages; {DATA_DESIGNER_DISTRIBUTION_NAME} {data_designer_version}",
         None,
         _data_designer_constraint_file(versions),
     )
@@ -588,7 +580,7 @@ def _install_args_for_entry(
     target: _InstallTarget,
     *,
     version_specifier: str | None,
-) -> tuple[list[str], str, str, str | None]:
+) -> tuple[list[str], str, str | None]:
     requirement = _install_requirement_for_entry(entry, version_specifier=version_specifier)
     index_url = entry.install.index_url
     if target.mode == "uv-project":
@@ -596,22 +588,20 @@ def _install_args_for_entry(
         if index_url is not None:
             args.extend(["--index", index_url])
         args.append(requirement)
-        return args, requirement, _source_description(requirement, index_url), None
+        return args, requirement, None
 
     if index_url is None:
-        return [requirement], requirement, requirement, None
+        return [requirement], requirement, None
 
     if target.manager == "uv":
         return (
             ["--default-index", PYPI_SIMPLE_INDEX_URL, "--index", index_url, requirement],
             requirement,
-            f"{requirement} via {index_url}",
             None,
         )
     return (
         ["--extra-index-url", index_url, requirement],
         requirement,
-        f"{requirement} via {index_url}",
         PIP_EXTRA_INDEX_SOURCE_WARNING,
     )
 
@@ -633,14 +623,10 @@ def _install_requirement_for_entry(entry: PluginCatalogEntry, *, version_specifi
         )
 
     extras = f"[{','.join(sorted(parsed_requirement.extras))}]" if parsed_requirement.extras else ""
+    specifiers = [specifier for specifier in (str(parsed_requirement.specifier), version_specifier) if specifier]
+    combined_specifier = ",".join(specifiers)
     marker = f"; {parsed_requirement.marker}" if parsed_requirement.marker is not None else ""
-    return f"{entry.package.name}{extras}{version_specifier}{marker}"
-
-
-def _source_description(requirement: str, index_url: str | None) -> str:
-    if index_url is None:
-        return requirement
-    return f"{requirement} via {index_url}"
+    return f"{entry.package.name}{extras}{combined_specifier}{marker}"
 
 
 def _combine_warnings(*warnings: str | None) -> str | None:

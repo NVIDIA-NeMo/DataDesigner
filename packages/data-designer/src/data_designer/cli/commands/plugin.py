@@ -86,7 +86,7 @@ def info_command(
         help="Fetch the catalog even when a fresh cache entry exists.",
     ),
 ) -> None:
-    """Show metadata, compatibility, docs, and install plan for one plugin package."""
+    """Show metadata, compatibility, docs, and install strategy for one plugin package."""
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_info(
         package,

@@ -71,14 +71,7 @@ def test_build_pip_install_plan_uses_requirement_and_extra_index() -> None:
         f"data-designer-engine=={DATA_DESIGNER_VERSION}\n"
     )
     assert plan.command_stdin is None
-    assert (
-        plan.data_designer_protection
-        == f"pinned installed Data Designer packages; data-designer {DATA_DESIGNER_VERSION}"
-    )
     assert plan.data_designer_version == DATA_DESIGNER_VERSION
-    assert plan.source_description == (
-        "data-designer-template via https://nvidia-nemo.github.io/DataDesignerPlugins/simple/"
-    )
     assert plan.source_warning == PIP_EXTRA_INDEX_SOURCE_WARNING
 
 
@@ -109,9 +102,44 @@ def test_build_pip_install_plan_applies_version_specifier() -> None:
         "data-designer-github==0.1.0",
     ]
     assert plan.requirement == "data-designer-github==0.1.0"
-    assert plan.source_description == (
-        "data-designer-github==0.1.0 via https://nvidia-nemo.github.io/DataDesignerPlugins/simple/"
+
+
+def test_build_pip_install_plan_preserves_catalog_specifier_for_versioned_install() -> None:
+    entry = _entry(
+        package_name="data-designer-github",
+        install={
+            "requirement": "data-designer-github>=0.2",
+            "index_url": "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        },
     )
+    catalog = PluginCatalogConfig(
+        alias="nvidia", url="https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json"
+    )
+    service = PluginInstallService()
+
+    plan = service.build_install_plan(entry, catalog, manager="pip", version_specifier="==0.1.0")
+
+    assert plan.command[-1] == "data-designer-github>=0.2,==0.1.0"
+    assert plan.requirement == "data-designer-github>=0.2,==0.1.0"
+
+
+def test_build_pip_install_plan_preserves_catalog_extras_and_marker_for_versioned_install() -> None:
+    entry = _entry(
+        package_name="data-designer-github",
+        install={
+            "requirement": 'data-designer-github[cli]>=0.1; python_version >= "3.10"',
+            "index_url": "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        },
+    )
+    catalog = PluginCatalogConfig(
+        alias="nvidia", url="https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json"
+    )
+    service = PluginInstallService()
+
+    plan = service.build_install_plan(entry, catalog, manager="pip", version_specifier="==0.2.0")
+
+    assert plan.command[-1] == 'data-designer-github[cli]>=0.1,==0.2.0; python_version >= "3.10"'
+    assert plan.requirement == 'data-designer-github[cli]>=0.1,==0.2.0; python_version >= "3.10"'
 
 
 def test_build_direct_reference_install_plan_uses_requirement_verbatim() -> None:
@@ -181,10 +209,6 @@ def test_build_auto_install_plan_chooses_uv_when_available(mock_which: Mock) -> 
         f"data-designer-engine=={DATA_DESIGNER_VERSION}\n"
     )
     assert plan.temporary_file is None
-    assert (
-        plan.data_designer_protection
-        == f"using installed data-designer {DATA_DESIGNER_VERSION}; uv will keep Data Designer packages pinned"
-    )
     assert plan.data_designer_version == DATA_DESIGNER_VERSION
     assert plan.source_warning is None
     mock_which.assert_called_once_with("uv")
@@ -230,10 +254,6 @@ def test_build_auto_install_plan_uses_uv_add_for_active_project(mock_which: Mock
     ]
     assert plan.command_stdin is None
     assert plan.temporary_file is None
-    assert (
-        plan.data_designer_protection
-        == f"using installed data-designer {DATA_DESIGNER_VERSION}; uv will not install Data Designer packages"
-    )
     assert plan.source_warning is None
     mock_which.assert_called_once_with("uv")
 
@@ -583,6 +603,84 @@ def test_build_uv_install_plan_targets_current_python_and_adds_catalog_index(moc
         f"data-designer-engine=={DATA_DESIGNER_VERSION}\n"
     )
     assert plan.temporary_file is None
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_uv_install_plan_applies_version_specifier(mock_which: Mock) -> None:
+    entry = _entry(
+        package_name="data-designer-template",
+        install={
+            "requirement": "data-designer-template",
+            "index_url": "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        },
+    )
+    catalog = PluginCatalogConfig(
+        alias="nvidia", url="https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json"
+    )
+    service = PluginInstallService()
+
+    plan = service.build_install_plan(entry, catalog, manager="uv", version_specifier="==0.1.0")
+
+    assert plan.command == [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        sys.executable,
+        "--constraint",
+        "-",
+        "--default-index",
+        "https://pypi.org/simple/",
+        "--index",
+        "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        "data-designer-template==0.1.0",
+    ]
+    assert plan.requirement == "data-designer-template==0.1.0"
+    assert plan.command_stdin == (
+        f"data-designer=={DATA_DESIGNER_VERSION}\n"
+        f"data-designer-config=={DATA_DESIGNER_VERSION}\n"
+        f"data-designer-engine=={DATA_DESIGNER_VERSION}\n"
+    )
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_uv_add_plan_applies_version_specifier(mock_which: Mock, tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    entry = _entry(
+        package_name="data-designer-template",
+        install={
+            "requirement": "data-designer-template",
+            "index_url": "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        },
+    )
+    catalog = PluginCatalogConfig(
+        alias="nvidia", url="https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json"
+    )
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    plan = service.build_install_plan(entry, catalog, manager="uv", version_specifier="==0.1.0")
+
+    assert plan.command == [
+        "uv",
+        "add",
+        "--project",
+        str(tmp_path),
+        "--active",
+        "--no-install-project",
+        "--no-install-package",
+        "data-designer",
+        "--no-install-package",
+        "data-designer-config",
+        "--no-install-package",
+        "data-designer-engine",
+        "--index",
+        "https://nvidia-nemo.github.io/DataDesignerPlugins/simple/",
+        "data-designer-template==0.1.0",
+    ]
+    assert plan.requirement == "data-designer-template==0.1.0"
+    assert plan.command_stdin is None
+    mock_which.assert_called_once_with("uv")
 
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
