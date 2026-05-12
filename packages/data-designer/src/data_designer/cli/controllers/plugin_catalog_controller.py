@@ -157,12 +157,8 @@ class PluginCatalogController:
                     "description": entry.description,
                 },
                 "install": entry.install.model_dump(mode="json", exclude_none=True),
-                "compatibility": (
-                    entry.compatibility.model_dump(mode="json", exclude_none=True)
-                    if entry.compatibility is not None
-                    else None
-                ),
-                "docs": entry.docs.model_dump(mode="json", exclude_none=True) if entry.docs is not None else None,
+                "compatibility": entry.compatibility.model_dump(mode="json", exclude_none=True),
+                "docs": entry.docs.model_dump(mode="json", exclude_none=True),
                 "plugins": [_runtime_plugin_metadata(plugin) for plugin in package_entries],
             },
             "Plugin Metadata",
