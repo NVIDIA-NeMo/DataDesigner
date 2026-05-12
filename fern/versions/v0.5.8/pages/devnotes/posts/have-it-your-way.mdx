@@ -69,6 +69,8 @@ The first plugin boundaries match the places where real projects most often need
 
 These boundaries are intentionally narrow. A plugin should own the behavior that is specific to your use case. Data Designer should keep owning the pipeline responsibilities: validation, dependency resolution, batching, model calls, logging, previews, output handling. That split lets custom components use the normal workflow without moving orchestration into the project.
 
+What about [custom columns](/concepts/custom-columns)? Start with a custom column when you are prototyping column-generator behavior or need a one-off column that only one project uses. Custom columns keep the logic in a Python function inside the config, with declared dependencies and optional model access. When that logic needs a stable config schema, tests, packaging, docs, or reuse across teams, promote it to a column generator plugin.
+
 ---
 
 ## Author a Plugin: From Glue Code to Seed Reader
