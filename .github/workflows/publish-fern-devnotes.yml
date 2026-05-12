@@ -69,4 +69,10 @@ jobs:
           fi
 
           cd fern
-          npx -y fern-api@$(jq -r .version fern.config.json) generate --docs --no-prompt
+          fern_version=$(jq -r .version fern.config.json)
+          if [[ ! "$fern_version" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-.][0-9A-Za-z]+)*$ ]]; then
+            echo "::error::Invalid Fern version in fern.config.json: $fern_version"
+            exit 1
+          fi
+
+          npx -y "fern-api@$fern_version" generate --docs --no-prompt
