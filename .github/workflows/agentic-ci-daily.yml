@@ -119,11 +119,11 @@ jobs:
         run: |
           make install-dev
           echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
-          .venv/bin/python -c "
+          .venv/bin/python - <<'PY' 2>/dev/null || echo "  (version check skipped)"
           from data_designer.config._version import __version__ as cv
           from data_designer.engine._version import __version__ as ev
           print(f'  config: {cv}  engine: {ev}')
-          " 2>/dev/null || echo "  (version check skipped)"
+          PY
 
       - name: Install graphify
         if: matrix.suite == 'structure'
@@ -269,10 +269,9 @@ jobs:
         # suite additionally gets AST-based docstring-only enforcement on
         # .py edits (no non-docstring/non-comment lines may change).
         id: scope_gate
-        # Belt-and-suspenders: also check snapshot succeeded. The fix step
-        # already gates on snapshot, so if we got here the snapshot ran,
-        # but be explicit so a future condition refactor cannot regress.
-        if: steps.fix.outcome == 'success' && steps.snapshot.outcome == 'success'
+        # Run even if the fix step failed after opening a PR. The snapshot
+        # is the only hard precondition for identifying newly-open attempts.
+        if: always() && steps.snapshot.outcome == 'success'
         env:
           SUITE: ${{ matrix.suite }}
           GH_TOKEN: ${{ github.token }}
@@ -322,12 +321,10 @@ jobs:
             # local HEAD — HEAD may not match what was pushed if the agent
             # left the working tree in an unexpected state.
             if [ -n "$BRANCH" ]; then
-              git fetch --depth=50 origin "$BRANCH" 2>/dev/null || true
-              if git rev-parse --verify "refs/remotes/origin/$BRANCH" >/dev/null 2>&1; then
-                DIFF_REF="origin/$BRANCH"
+              if git fetch --depth=50 origin "$BRANCH" 2>/dev/null; then
+                DIFF_REF="FETCH_HEAD"
               else
-                echo "::warning::origin/$BRANCH not fetchable; falling back to HEAD"
-                DIFF_REF="HEAD"
+                REASONS="${REASONS}- origin/$BRANCH was not fetchable for scope validation\n"
               fi
             fi
 
@@ -347,7 +344,7 @@ jobs:
                 ;;
             esac
 
-            if [ -n "$BRANCH" ]; then
+            if [ -n "$DIFF_REF" ]; then
               mapfile -t FILE_ARR < <(git diff --name-only "origin/main...$DIFF_REF")
               FILE_COUNT=${#FILE_ARR[@]}
               if [ "$FILE_COUNT" -gt 0 ]; then
@@ -508,7 +505,7 @@ jobs:
               echo "::warning::No PR number or branch available for cleanup"
             fi
 
-            FINDING_ID="$FINDING_ID" python3 -c "
+            FINDING_ID="$FINDING_ID" python3 - <<'PY'
           import json, os
           finding_id = os.environ['FINDING_ID']
           path = '.agentic-ci-state/runner-state.json'
@@ -525,7 +522,7 @@ jobs:
           with open(tmp, 'w') as f:
               json.dump(state, f, indent=2)
           os.replace(tmp, path)
-          "
+          PY
 
           done < <(echo "$OPEN_ENTRIES" | jq -c '.[]')
 
@@ -540,7 +537,7 @@ jobs:
         # where the per-package test target passed against the *old*
         # lockfile but the proposed dep does not actually resolve.
         id: lockfile_gate
-        if: matrix.suite == 'dependencies' && steps.fix.outcome == 'success' && steps.scope_gate.outcome == 'success'
+        if: always() && matrix.suite == 'dependencies' && steps.snapshot.outcome == 'success' && steps.scope_gate.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -567,11 +564,37 @@ jobs:
 
           echo "Verifying dependencies lockfile for ${OPEN_COUNT} new open attempted_fix entries."
           REJECTED=0
+          BASE_REF=$(git rev-parse HEAD)
+
+          abandon_open_attempt() {
+            local finding_id="$1"
+            local marker="$2"
+            FINDING_ID="$finding_id" MARKER="$marker" python3 - <<'PY'
+          import json, os
+          finding_id = os.environ['FINDING_ID']
+          marker = os.environ['MARKER']
+          path = '.agentic-ci-state/runner-state.json'
+          with open(path) as f:
+              state = json.load(f)
+          for entry in state.get('attempted_fixes', []):
+              if entry.get('id') != finding_id:
+                  continue
+              attempts = entry.get('attempts') or []
+              if attempts and attempts[-1].get('outcome') == 'open':
+                  attempts[-1]['outcome'] = 'abandoned'
+                  attempts[-1][marker] = True
+          tmp = path + '.tmp'
+          with open(tmp, 'w') as f:
+              json.dump(state, f, indent=2)
+          os.replace(tmp, path)
+          PY
+          }
 
           while IFS= read -r OPEN; do
             PR_NUMBER=$(echo "$OPEN" | jq -r '.attempts | last | .pr_number // empty')
             BRANCH=$(echo "$OPEN" | jq -r '.attempts | last | .branch // empty')
             FINDING_ID=$(echo "$OPEN" | jq -r '.id')
+            CHECKOUT_REASON=""
 
             # Verify against the actually-pushed branch, not local HEAD.
             if [ -z "$BRANCH" ] && [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
@@ -580,10 +603,29 @@ jobs:
                 echo "::warning::Open attempt had no branch; recovered $BRANCH from PR #$PR_NUMBER."
               fi
             fi
-            if [ -n "$BRANCH" ]; then
-              git fetch --depth=50 origin "$BRANCH" 2>/dev/null || true
-              git checkout --force --detach "refs/remotes/origin/$BRANCH" 2>/dev/null \
-                || echo "::warning::Could not checkout origin/$BRANCH; verifying current tree"
+            git checkout --force --detach "$BASE_REF" >/dev/null 2>&1 || true
+            if [ -z "$BRANCH" ]; then
+              CHECKOUT_REASON="open attempt has no branch and could not be recovered from PR ${PR_NUMBER:-unknown}"
+            elif ! git fetch --depth=50 origin "$BRANCH" 2>/dev/null; then
+              CHECKOUT_REASON="origin/$BRANCH was not fetchable for lockfile verification"
+            elif ! git checkout --force --detach FETCH_HEAD 2>/dev/null; then
+              CHECKOUT_REASON="origin/$BRANCH could not be checked out for lockfile verification"
+            fi
+
+            if [ -n "$CHECKOUT_REASON" ]; then
+              REJECTED=1
+              echo "::error::${CHECKOUT_REASON}"
+              if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+                MSG="Closed by workflow lockfile verification. ${CHECKOUT_REASON}; refusing to validate the previous working tree."
+                gh pr close "$PR_NUMBER" --comment "$MSG" --delete-branch || \
+                  echo "::warning::gh pr close failed"
+              elif [ -n "$BRANCH" ]; then
+                git push origin --delete "$BRANCH" || true
+              else
+                echo "::warning::No PR number or branch available for cleanup"
+              fi
+              abandon_open_attempt "$FINDING_ID" "lockfile_checkout_failed"
+              continue
             fi
 
             if make install-dev 2>&1 | tee /tmp/install-dev-verify.log; then
@@ -604,24 +646,7 @@ jobs:
               echo "::warning::No PR number or branch available for cleanup"
             fi
 
-            FINDING_ID="$FINDING_ID" python3 -c "
-          import json, os
-          finding_id = os.environ['FINDING_ID']
-          path = '.agentic-ci-state/runner-state.json'
-          with open(path) as f:
-              state = json.load(f)
-          for entry in state.get('attempted_fixes', []):
-              if entry.get('id') != finding_id:
-                  continue
-              attempts = entry.get('attempts') or []
-              if attempts and attempts[-1].get('outcome') == 'open':
-                  attempts[-1]['outcome'] = 'abandoned'
-                  attempts[-1]['lockfile_verification_failed'] = True
-          tmp = path + '.tmp'
-          with open(tmp, 'w') as f:
-              json.dump(state, f, indent=2)
-          os.replace(tmp, path)
-          "
+            abandon_open_attempt "$FINDING_ID" "lockfile_verification_failed"
 
           done < <(echo "$OPEN_ENTRIES" | jq -c '.[]')
 
@@ -637,7 +662,7 @@ jobs:
           AUDIT_OUTCOME: ${{ steps.audit.outcome }}
         run: |
           # Always validate state before cache save/post-job handling.
-          python3 -c "
+          python3 - <<'PY'
           import json, datetime, os
           try:
               with open('.agentic-ci-state/runner-state.json') as f:
@@ -653,7 +678,7 @@ jobs:
           state['suite'] = os.environ['SUITE']
           with open('.agentic-ci-state/runner-state.json', 'w') as f:
               json.dump(state, f, indent=2)
-          "
+          PY
 
       - name: Upload agent log
         # Always upload: for autonomous PR generation, the most interesting

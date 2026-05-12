@@ -80,6 +80,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -o pipefail
+          rm -f /tmp/issue-triage-report.md /tmp/issue-triage-report-*.md /tmp/claude-triage-log.txt
 
           RUNNER_CTX=$(cat .agents/recipes/_runner.md)
           RECIPE_BODY=$(cat .agents/recipes/issue-triage/recipe.md \
@@ -125,10 +126,13 @@ jobs:
           # stream if any unrelated today-dated bot comment lacks the
           # triage marker (e.g. from another automated workflow).
           TODAY=$(date -u +%Y-%m-%d)
-          SEEN_PARTS=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
-            --paginate \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${TODAY}\")) | select(.body | test(\"agentic-ci-issue-triage:[0-9]+/${EXPECTED_PARTS}\")) | .body | capture(\"agentic-ci-issue-triage:(?<i>[0-9]+)/${EXPECTED_PARTS}\") | .i" \
-            2>/dev/null | sort -u)
+          if ! SEEN_PARTS=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
+              --paginate \
+              --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${TODAY}\")) | select(.body | test(\"agentic-ci-issue-triage:[0-9]+/${EXPECTED_PARTS}\")) | .body | capture(\"agentic-ci-issue-triage:(?<i>[0-9]+)/${EXPECTED_PARTS}\") | .i" \
+              2>/dev/null | sort -u); then
+            echo "::warning::Could not inspect existing triage comments; treating all generated parts as missing."
+            SEEN_PARTS=""
+          fi
 
           MISSING=()
           for i in $(seq 1 "${EXPECTED_PARTS}"); do

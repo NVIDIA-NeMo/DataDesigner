@@ -97,9 +97,11 @@ code-quality and unset elsewhere) controls draft-PR mode.
 
 - `abandoned` means the recipe could not produce a PR (tests failed,
   conflict, lint failed, allowlist rejected, etc.).
-- Reconcile against open PRs (`gh pr list`) at the start of each fix
-  run to recover from crashes that left state un-updated. The
-  reconciliation algorithm: list open PRs whose bodies contain the
+- Reconcile at the start of each fix run. First refresh existing latest
+  `open` attempts that have a `pr_number`: query the PR and flip the
+  attempt to `merged` or `closed` if it is no longer open. Then recover
+  from crashes that left state un-updated: list open PRs (`gh pr list`)
+  whose bodies contain the
   `<!-- agentic-ci finding=<id> suite=<suite> -->` marker, parse out
   each `<id>`, and back-fill any missing `attempted_fixes` entries with
   `outcome: "open"` and the parsed `pr_number` and `branch`.
@@ -182,8 +184,9 @@ The fix phase of every eligible recipe follows these steps. Suite recipes
 declare only the parts that vary (eligible categories, branch type,
 `test_required`, suite-specific quirks).
 
-1. Reconcile `attempted_fixes` against open PRs (`gh pr list`) to recover
-   any state lost to a prior crash.
+1. Reconcile `attempted_fixes`: refresh recorded open PRs to
+   `merged`/`closed` when appropriate, then scan open PRs (`gh pr list`)
+   to recover any state lost to a prior crash.
 2. Filter `fix_backlog`: drop entries whose latest attempt is `open` or
    `merged`; surface two-strike entries in the report's
    `Repeatedly-failed fix attempts` section and drop them from selection.
