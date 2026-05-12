@@ -41,7 +41,6 @@ from data_designer.config.utils.constants import NordColor
 NARROW_CATALOG_LAYOUT_WIDTH = 100
 CATALOG_TABLE_ROW_LEADING = 1
 CHECKMARK = "✓"
-X_MARK = "x"
 
 
 class PluginCatalogController:
@@ -571,7 +570,7 @@ class PluginCatalogController:
                 _escape_markup(entry.package.name),
                 _escape_markup(entry.description),
                 _escape_markup(_format_runtime_plugins(package_entries)),
-                _format_compatibility_marker(compatibility),
+                _format_compatibility_value(compatibility),
                 _format_installed_marker(package_entries, installed_plugins),
                 _format_docs_link(docs_url),
             )
@@ -591,7 +590,7 @@ class PluginCatalogController:
             console.print(Text(entry.package.name, style=f"bold {NordColor.NORD14.value}"))
             console.print(f"  Description: {_escape_markup(entry.description)}")
             console.print(f"  Runtime plugins: {_escape_markup(_format_runtime_plugins(package_entries))}")
-            console.print(f"  Compatible: {_format_compatibility_marker(compatibility)}")
+            console.print(f"  Compatible: {_format_compatibility_value(compatibility)}")
             console.print(f"  Installed: {_format_installed_marker(package_entries, installed_plugins)}")
             if docs_url:
                 console.print(f"  Docs: {_escape_markup(docs_url)}")
@@ -682,8 +681,8 @@ def _format_checkmark(value: bool) -> str:
     return CHECKMARK if value else ""
 
 
-def _format_compatibility_marker(compatibility: CompatibilityResult) -> str:
-    return CHECKMARK if compatibility.is_compatible else X_MARK
+def _format_compatibility_value(compatibility: CompatibilityResult) -> str:
+    return "yes" if compatibility.is_compatible else "no"
 
 
 def _format_installed_marker(
