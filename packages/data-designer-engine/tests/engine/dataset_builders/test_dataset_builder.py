@@ -21,7 +21,7 @@ from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
-from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, _ConfigCompatibility
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.models.errors import (
     FormattedLLMErrorMessage,
@@ -33,6 +33,7 @@ from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.seed_reader import DataFrameSeedReader
+from data_designer.engine.storage.artifact_storage import ResumeMode
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -322,6 +323,61 @@ def test_dataset_builder_build_method_basic_flow(
     stub_batch_manager.start.assert_called_once_with(num_records=100, buffer_size=50)
     stub_batch_manager.finish.assert_called_once()
     assert result_path == stub_resource_provider.artifact_storage.final_dataset_path
+
+
+def test_run_model_health_check_collects_aliases_from_get_model_aliases(
+    stub_resource_provider,
+    stub_model_configs,
+) -> None:
+    """The health check pings every alias returned by each config's get_model_aliases().
+
+    Regression test for #606: secondary aliases on multi-model plugin configs (returned via
+    get_model_aliases()) must be passed to run_health_check(), not just the primary
+    model_alias field.
+    """
+    stub_resource_provider.model_registry.run_health_check = Mock()
+
+    @custom_column_generator(model_aliases=["custom-model-a", "custom-model-b"])
+    def gen_with_two_models(row: dict, generator_params, models) -> dict:
+        del generator_params, models
+        return row
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(name="seed_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
+    config_builder.add_column(LLMTextColumnConfig(name="builtin_llm_col", prompt="x", model_alias="builtin-model"))
+    config_builder.add_column(CustomColumnConfig(name="custom_col", generator_function=gen_with_two_models))
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    builder._run_model_health_check_if_needed()
+
+    stub_resource_provider.model_registry.run_health_check.assert_called_once()
+    (called_aliases,), _ = stub_resource_provider.model_registry.run_health_check.call_args
+    assert set(called_aliases) == {"builtin-model", "custom-model-a", "custom-model-b"}
+
+
+def test_run_model_health_check_skips_when_no_model_aliases(
+    stub_resource_provider,
+    stub_model_configs,
+) -> None:
+    """Configs with no model aliases (e.g. samplers only) skip the health check entirely."""
+    stub_resource_provider.model_registry.run_health_check = Mock()
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(name="seed_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    builder._run_model_health_check_if_needed()
+
+    stub_resource_provider.model_registry.run_health_check.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -993,6 +1049,63 @@ def test_allow_resize_multiple_batches(
     assert len(df) == expected_total_rows
 
 
+def test_resume_rejects_allow_resize_columns(stub_resource_provider, stub_model_configs, seed_data_setup, tmp_path):
+    """Resume is rejected when allow_resize=True would make batch boundaries ambiguous."""
+    artifact_path = tmp_path / "artifacts"
+    artifact_path.mkdir()
+    _write_metadata(
+        artifact_path / "dataset",
+        target_num_records=5,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+    )
+
+    stub_resource_provider.artifact_storage = _ArtifactStorage(artifact_path=artifact_path, resume=ResumeMode.ALWAYS)
+    columns = _resize_columns("cell_x2")
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+
+    with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
+        builder.build(num_records=5, resume=ResumeMode.ALWAYS)
+
+
+def test_if_possible_allows_allow_resize_when_starting_fresh(
+    stub_resource_provider, stub_model_configs, seed_data_setup
+):
+    """IF_POSSIBLE with allow_resize=True starts fresh when there is no checkpoint to resume."""
+    columns = _resize_columns("cell_x2")
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+
+    final_path = builder.build(num_records=5, resume=ResumeMode.IF_POSSIBLE)
+
+    df = lazy.pd.read_parquet(final_path)
+    assert len(df) == 10
+
+
+def test_if_possible_allows_allow_resize_when_config_is_incompatible(
+    stub_resource_provider, stub_model_configs, seed_data_setup, tmp_path
+):
+    """IF_POSSIBLE with allow_resize=True starts fresh when an existing dataset is incompatible."""
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    sentinel = dataset_dir / "important_file.txt"
+    sentinel.write_text("precious data")
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+    columns = _resize_columns("cell_x2")
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
+        final_path = builder.build(num_records=5, resume=ResumeMode.IF_POSSIBLE)
+
+    assert storage.resume == ResumeMode.NEVER
+    assert sentinel.exists()
+    assert final_path != dataset_dir / "parquet-files"
+    df = lazy.pd.read_parquet(final_path)
+    assert len(df) == 10
+
+
 # skip metadata preservation tests
 
 
@@ -1433,3 +1546,1068 @@ def test_skip_row_count_preserved_across_pipeline(stub_resource_provider, stub_m
 
     assert len(result) == 5, "Skip must not change the row count"
     assert result["seed_id"].tolist() == [1, 2, 3, 4, 5]
+
+
+# ---------------------------------------------------------------------------
+# Resume mechanism tests
+# ---------------------------------------------------------------------------
+
+
+import json as _json
+from pathlib import Path as _Path
+
+from data_designer.engine.storage.artifact_storage import ArtifactStorage as _ArtifactStorage
+
+
+def _write_metadata(dataset_dir: _Path, **fields) -> None:
+    """Write a metadata.json into an existing dataset folder."""
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    (dataset_dir / "sentinel.txt").write_text("x")  # make folder non-empty for resolved_dataset_name
+    (dataset_dir / "metadata.json").write_text(_json.dumps(fields))
+
+
+def _write_parquet_files(
+    parquet_dir: _Path, row_group_ids: list[int], row_counts: dict[int, int] | None = None
+) -> None:
+    """Create batch_*.parquet files for the given row group IDs.
+
+    Both engines now derive ``num_completed_batches`` and ``actual_num_records`` from
+    these files at resume time, so any test that exercises the resume progress path
+    must seed the dataset directory with matching parquet files in addition to
+    ``metadata.json``.
+    """
+    parquet_dir.mkdir(parents=True, exist_ok=True)
+    for rg_id in row_group_ids:
+        count = row_counts.get(rg_id, 2) if row_counts is not None else 2
+        lazy.pd.DataFrame({"value": list(range(count))}).to_parquet(
+            parquet_dir / f"batch_{rg_id:05d}.parquet", index=False
+        )
+
+
+def _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, *, buffer_size: int = 2):
+    """Return a DatasetBuilder whose ArtifactStorage has resume=ResumeMode.ALWAYS."""
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.ALWAYS)
+    stub_resource_provider.artifact_storage = storage
+    stub_resource_provider.run_config = RunConfig(buffer_size=buffer_size)
+    return DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+
+def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
+    """resume=True when only the folder exists (no metadata.json) logs an info message and starts fresh.
+
+    This covers the case where a run was interrupted before any batch completed — the
+    folder was created by _write_builder_config but metadata.json was never written.
+    Previously this raised DatasetGenerationError; now it silently restarts from batch 0.
+    """
+    # Pre-create the folder with content so resolved_dataset_name(resume=True) returns "dataset"
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "builder_config.json").write_text("{}")  # non-empty, no metadata
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+    with caplog.at_level(logging.INFO):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder, "_run_batch"):
+                with patch.object(builder.batch_manager, "finish"):
+                    # resume=False is set internally; build dispatches to the normal (non-resume) path
+                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    assert any("interrupted before any batch completed" in record.message for record in caplog.records)
+
+
+def test_build_resume_raises_when_num_records_below_actual(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=ALWAYS raises when num_records is less than what has already been generated."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=10,
+        buffer_size=2,
+        num_completed_batches=3,
+        actual_num_records=6,
+    )
+    # Six records on disk drive the actual_num_records check; metadata is informational only.
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="num_records=4 is less than the 6 records already generated"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_raises_when_num_records_below_original_target(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """resume=ALWAYS raises when num_records is between actual and original target (negative extension_records)."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=10,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="num_records=7 is less than the original target"):
+        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_allows_larger_num_records(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
+    """resume=ALWAYS succeeds when num_records > original target (extending the dataset)."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with caplog.at_level(logging.WARNING):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            # 6 > 4 already generated → not already complete, should start generating
+            # Here we just verify it does NOT raise on the num_records check
+            with patch.object(builder, "_build_with_resume", return_value=True):
+                builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_raises_on_buffer_size_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=True raises when buffer_size differs from the original run."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=3)
+    with pytest.raises(DatasetGenerationError, match="buffer_size=3 does not match"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_raises_on_corrupt_metadata(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=ALWAYS raises clearly when metadata.json was partially written."""
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "sentinel.txt").write_text("x")
+    (dataset_dir / "metadata.json").write_text("{not valid json")
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="metadata.json is corrupt"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_always_raises_on_config_mismatch(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """resume=ALWAYS raises DatasetGenerationError when the stored config fingerprint differs."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
+        with pytest.raises(DatasetGenerationError, match="does not match the config used"):
+            builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_logs_warning_when_already_complete(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """resume=True on a fully-complete dataset logs a warning and returns without generating."""
+    dataset_dir = tmp_path / "dataset"
+    # 4 records, 2 per batch = 2 batches; both row groups on disk → already done
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with caplog.at_level(logging.WARNING):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    assert any("already complete" in record.message for record in caplog.records)
+
+
+def test_build_resume_already_complete_does_not_run_after_generation_processors(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """When already complete, run_after_generation must NOT be called (would destroy the dataset)."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    mock_after.assert_not_called()
+
+
+def test_build_resume_post_generation_processed_same_target_returns_existing_path(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """A post-processed completed dataset is a no-op when requested target matches."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+        post_generation_processed=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with patch.object(builder, "_initialize_generators_and_graph") as mock_initialize:
+        result = builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    assert result == builder.artifact_storage.final_dataset_path
+    mock_initialize.assert_not_called()
+
+
+def test_build_resume_post_generation_processed_extension_raises(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """A post-processed dataset cannot be extended via resume."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+        post_generation_processed=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="Extending would mix pre- and post-processor records"):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_post_generation_processed_smaller_target_raises(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """A post-processed dataset cannot be resumed with a smaller target than already generated."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+        post_generation_processed=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="num_records=2 is less than the 4 records"):
+        builder.build(num_records=2, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_post_generation_started_raises(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """A dataset with an interrupted after-generation processor cannot be resumed."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+        post_generation_state="started",
+        post_generation_processed=False,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="started but did not complete"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_marks_post_generation_started_before_running_processors(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """The crash-recovery marker is durable before after-generation processors mutate final parquet files."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+        with patch.object(builder, "_build_with_resume", return_value=True):
+            with patch.object(builder._processor_runner, "has_processors_for", return_value=True):
+                with patch.object(builder._processor_runner, "run_after_generation", side_effect=RuntimeError("boom")):
+                    with pytest.raises(RuntimeError, match="boom"):
+                        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    metadata = _json.loads((dataset_dir / "metadata.json").read_text())
+    assert metadata["post_generation_state"] == "started"
+    assert metadata["post_generation_processed"] is False
+
+
+def test_build_resume_complete_dataset_runs_after_generation_when_no_marker(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Crash window: complete parquet files on disk + after-gen processors + no ``post_generation_state``.
+
+    Reproduces the gap between the final batch parquet write and the
+    ``post_generation_state="started"`` write: if the process crashes there, the
+    next ``resume=ALWAYS`` previously saw the dataset as ``already complete``,
+    set ``generated=False`` and skipped after-generation entirely. After this
+    fix, after-generation runs unconditionally on the on-disk dataset whenever
+    after-generation processors are configured, leaving "started" and "complete"
+    markers behind so the next resume short-circuits correctly.
+    """
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    after_gen_processor = create_mock_processor("after_gen", ["process_after_generation"])
+    builder.set_processor_runner([after_gen_processor])
+
+    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    after_gen_processor.process_after_generation.assert_called_once()
+    metadata = _json.loads((dataset_dir / "metadata.json").read_text())
+    assert metadata["post_generation_state"] == "complete"
+    assert metadata["post_generation_processed"] is True
+
+
+def test_build_resume_post_generation_processed_missing_target_raises_clearly(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """A post-processed dataset whose metadata lacks ``target_num_records`` raises a clear error.
+
+    Without the explicit guard, ``prior_target`` is ``None`` and the ``num_records <
+    prior_target`` comparison raises a raw ``TypeError``. Mirror ``_load_resume_state``
+    and surface a clear ``DatasetGenerationError`` for the missing required field.
+    """
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        buffer_size=2,
+        post_generation_processed=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="missing required field 'target_num_records'"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_not_already_complete_when_extension_fits_in_slack(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Non-aligned extension fitting in the last group's slack must not falsely trigger 'already complete'.
+
+    original_target=5, buffer_size=2 → 3 batches [2,2,1]; extending to num_records=6:
+    ceil(6/2)=3 == num_completed_batches=3 used to trigger the false 'already complete' branch.
+    Correct total_batches = 3 + ceil(1/2) = 4, so batch 3 (1 record) must be scheduled.
+    """
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    # Three row groups [2, 2, 1] on disk so the unified resume path sees 3 completed batches.
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    with patch.object(builder, "_run_batch") as mock_run_batch:
+        with patch.object(builder.batch_manager, "finish"):
+            with patch.object(builder, "_run_model_health_check_if_needed"):
+                builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    mock_run_batch.assert_called_once()
+    assert mock_run_batch.call_args.kwargs["current_batch_number"] == 3
+
+
+def test_build_resume_recovers_progress_from_disk_when_metadata_lags(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """Sync resume uses parquet files on disk as the source of truth for progress.
+
+    Crash window: ``move_partial_result_to_final_file_path`` succeeded for batch 1 but
+    ``write_metadata`` had not yet committed the matching ``num_completed_batches`` /
+    ``actual_num_records`` update. Before unification, sync took the stale metadata
+    counters at face value and re-generated batch 1, double-counting records. After
+    unification, both engines derive progress from ``parquet-files/batch_*.parquet``,
+    so this scenario resolves to "already complete" and skips redundant generation.
+    """
+    dataset_dir = tmp_path / "dataset"
+    # Metadata lags — claims only 1 batch / 2 records committed.
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+    # Filesystem truth — both row groups written before the crash.
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with caplog.at_level(logging.WARNING):
+        with patch.object(builder, "_run_batch") as mock_run_batch:
+            with patch.object(builder.batch_manager, "finish"):
+                with patch.object(builder, "_run_model_health_check_if_needed"):
+                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    mock_run_batch.assert_not_called()
+    assert any("already complete" in record.message for record in caplog.records)
+
+
+def test_build_resume_raises_on_non_contiguous_batch_ids_under_sync(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Sync resume rejects non-contiguous parquet IDs (likely written by an incompatible engine).
+
+    The sync engine writes batches sequentially, so a hole between batch 0 and batch 2
+    can only mean external mutation or data written by a different engine (e.g. the
+    async engine, which can complete row groups out of order). Letting sync proceed
+    would silently re-generate batch 1 with stale row counters; raising surfaces the
+    inconsistency loudly.
+    """
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 2])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="non-contiguous"):
+        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+
+# ---------------------------------------------------------------------------
+# Async resume via _build_async tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_async_resume_logs_warning_when_already_complete(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """Async resume on a fully-complete dataset logs a warning and returns without running."""
+    dataset_dir = tmp_path / "dataset"
+    # 4 records at buffer_size=2 → 2 row groups (IDs 0 and 1)
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    with caplog.at_level(logging.WARNING):
+        with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+            with patch.object(builder, "_run_model_health_check_if_needed"):
+                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    assert any("already complete" in record.message for record in caplog.records)
+
+
+def test_build_async_resume_starts_fresh_without_metadata(
+    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
+):
+    """Async resume with no metadata.json logs an info message and starts fresh.
+
+    Previously this raised DatasetGenerationError; now it silently restarts from row group 0.
+    The log is emitted in build() before dispatching to _build_async, so mocking _build_async
+    does not suppress the message.
+    """
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "builder_config.json").write_text("{}")
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+
+    with caplog.at_level(logging.INFO):
+        with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+            with patch.object(builder, "_run_model_health_check_if_needed"):
+                with patch.object(builder, "_build_async", return_value=True) as mock_async:
+                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    # _build_async is called with resume=NEVER because the no-metadata path resets the mode
+    _, kwargs = mock_async.call_args
+    assert kwargs.get("resume") == ResumeMode.NEVER
+    assert any("interrupted before any batch completed" in record.message for record in caplog.records)
+
+
+def test_build_async_resume_already_complete_does_not_run_after_generation_processors(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Async resume: when already complete, run_after_generation must NOT be called."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
+                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    mock_after.assert_not_called()
+
+
+def test_find_completed_row_groups_used_for_initial_total_batches(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """initial_total_num_batches uses filesystem count, not metadata count.
+
+    Simulates the crash window: 2 parquet files exist on disk but metadata still
+    records num_completed_batches=1 (write_metadata crashed after the second
+    row group was moved to parquet-files/ but before metadata was updated).
+    Verifies that _find_completed_row_groups() (= 2) is used, not metadata (= 1).
+    """
+    dataset_dir = tmp_path / "dataset"
+    # Metadata lags — says only 1 batch completed
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+    # Filesystem truth — 2 row groups already written
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    # Both row groups are on disk → dataset is already complete → generated=False
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
+                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    # Already complete based on filesystem count (2 files ≥ 2 row groups) — no generation needed
+    mock_after.assert_not_called()
+
+
+def test_initial_actual_num_records_from_filesystem_in_crash_window(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """initial_actual_num_records is derived from filesystem, not stale metadata.
+
+    Crash window scenario: row groups 0 and 1 are on disk but metadata only records
+    num_completed_batches=1 / actual_num_records=2 (write_metadata crashed after
+    the second row group was written but before it updated the file).
+
+    With 6 records and buffer_size=2 (3 row groups total), the correct
+    initial_actual_num_records is 4 (groups 0+1), not 2 (stale metadata value).
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    # Metadata lags — says only 1 batch completed with 2 records
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+    # Filesystem truth — 2 row groups already written (ids 0 and 1)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        captured["initial_total_num_batches"] = kwargs.get("initial_total_num_batches", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 6
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    # asyncio and ensure_async_engine_loop are lazy-imported in dataset_builder only when
+    # DATA_DESIGNER_ASYNC_ENGINE=True at module load time.  Inject them for the duration
+    # of this test so _build_async can proceed past the early-return path.
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    # Filesystem says 2 groups done (IDs 0+1) → 2+2 = 4 records, not stale metadata value 2
+    assert captured["initial_actual_num_records"] == 4
+    assert captured["initial_total_num_batches"] == 2
+
+
+def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_group(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Partial salvaged row groups count persisted parquet rows, not requested group size."""
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=1, actual_num_records=2)
+    # Row group 1 was salvaged with only one surviving row.
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1], row_counts={1: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        captured["initial_total_num_batches"] = kwargs.get("initial_total_num_batches", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_scheduler.early_shutdown = False
+        mock_scheduler.partial_row_groups = ()
+        mock_scheduler.first_non_retryable_error = None
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 6
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    assert captured["initial_actual_num_records"] == 3
+    assert captured["initial_total_num_batches"] == 2
+
+
+def test_build_async_resume_initial_actual_num_records_uses_original_target(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """initial_actual_num_records uses the original target_num_records, not the new num_records.
+
+    When extending a non-aligned run (original num_records=5, buffer_size=2 → row groups [2,2,1]),
+    all 3 row groups completed. Resuming with num_records=7 must not use the new target in the
+    formula: min(2, 7-2*2)=min(2,3)=2 would give 6, but the actual data is 5 records.
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    # Original run: 5 records, buffer_size=2, all 3 row groups done
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 7
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            # Extend the dataset: new target is 7, original was 5
+                            builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+
+    # Row groups [2, 2, 1] from original 5-record run: 2+2+1=5, not 2+2+2=6
+    assert captured["initial_actual_num_records"] == 5
+
+
+def test_build_async_resume_initial_actual_num_records_extension_crash_window(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Extension row groups on disk use new num_records in the size formula, not original target.
+
+    Crash window: original run had num_records=5, buffer_size=2 (row groups [2,2,1], all done).
+    Extension starts with num_records=9; row group 3 (2 records) is written to disk but
+    write_metadata crashes before updating the file. On resume, completed_ids={0,1,2,3}
+    while metadata still reports target_num_records=5.
+
+    Correct count: groups 0,1 → 2+2; group 2 (last original, non-aligned) → 1; group 3
+    (extension) → min(2, 9-6)=2. Total = 7, not 4 (which the unguarded formula gives,
+    since min(2, 5-6) = -1).
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3], row_counts={2: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 9
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+
+    # 2+2+1 (original) + 2 (extension group 3) = 7, not 4 (which unguarded formula gives)
+    assert captured["initial_actual_num_records"] == 7
+
+
+def test_build_async_resume_stale_original_target_after_incremental_metadata_write(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """original_target_num_records stays immutable even after an incremental metadata write.
+
+    Scenario: original run had num_records=5, buffer_size=2 (row groups [2,2,1], all done).
+    Extension to num_records=9 starts; row group 3 (2 records) completes and finalize_row_group
+    writes metadata with target_num_records=9. Crash before row group 4.
+
+    On second resume, metadata now shows target_num_records=9. Without the fix, original_target
+    would be read as 9, making num_original_groups=5 and producing wrong _rg_size values.
+    With the fix, original_target_num_records=5 is preserved in metadata, giving the correct
+    initial_actual_num_records=7 (2+2+1 original + 2 extension).
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    # Metadata reflects a post-incremental-write state: target updated to 9, original still 5
+    _write_metadata(
+        dataset_dir,
+        target_num_records=9,
+        original_target_num_records=5,
+        buffer_size=2,
+        num_completed_batches=4,
+        actual_num_records=7,
+    )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2, 3], row_counts={2: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["initial_actual_num_records"] = kwargs.get("initial_actual_num_records", 0)
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 9
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+
+    # original_target=5 → groups 0,1 → 2+2; group 2 → 1; group 3 (ext) → min(2,9-6)=2. Total=7
+    assert captured["initial_actual_num_records"] == 7
+
+
+def test_build_async_resume_skip_row_groups_contains_completed_ids(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """precomputed_row_groups passed to _prepare_async_run excludes already-completed row groups.
+
+    Verifies the skip mechanism so the scheduler never re-generates a row group that
+    already has a parquet file on disk.  6 records, buffer_size=2 → 3 row groups total;
+    row groups 0 and 2 already on disk → only row group 1 should be scheduled.
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    # 6 records, buffer_size=2 → 3 row groups total; row groups 0 and 2 already on disk
+    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 2])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["precomputed_row_groups"] = kwargs.get("precomputed_row_groups")
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 6
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    # Only rg_id=1 remains; rg_id=0 and rg_id=2 are already on disk
+    assert captured["precomputed_row_groups"] == [(1, 2)]
+
+
+def test_build_async_resume_extension_non_aligned_row_group_sizes(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Extension row groups get the correct size when the original run was non-aligned.
+
+    Original run: num_records=5, buffer_size=2 → row groups [2, 2, 1], all completed.
+    Extending to num_records=7: the loop previously deducted 2 for rg_id=2 (instead of 1),
+    leaving remaining=1 so rg_id=3 received size 1 instead of 2.  7 records were never
+    generated; only 6 reached the dataset and a false partial-completion warning fired.
+
+    After the fix, precomputed_row_groups must be [(3, 2)], not [(3, 1)].
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["precomputed_row_groups"] = kwargs.get("precomputed_row_groups")
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 7
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+
+    # rg_id=3 should have 2 records (7-5=2 extension records, buffer_size=2), not 1
+    assert captured["precomputed_row_groups"] == [(3, 2)]
+
+
+def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """Non-aligned extension fitting in the last group's slack must not falsely trigger 'already complete'.
+
+    original_target=5, buffer_size=2 → 3 row groups; extending to num_records=6:
+    ceil(6/2)=3 == len(completed_ids)=3 used to trigger the false 'already complete' branch.
+    Correct total_row_groups = 3 + ceil(1/2) = 4, so _prepare_async_run must be called.
+    """
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+
+    def capturing_prepare(*args, **kwargs):
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 6
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare:
+                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+
+    # _prepare_async_run must be called — the dataset is NOT already complete
+    mock_prepare.assert_called_once()
+
+
+def test_if_possible_incompatible_config_does_not_overwrite_existing_dataset(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """IF_POSSIBLE + incompatible config must NOT resolve to the existing dataset directory.
+
+    Bug: _check_resume_config_compatibility() used base_dataset_path, triggering the
+    resolved_dataset_name cached_property while artifact_storage.resume was still IF_POSSIBLE.
+    The property cached the existing directory name; after resume was reset to NEVER locally,
+    artifact_storage.resume was never updated, so _write_builder_config() still wrote into the
+    old directory.
+
+    Fix: _check_resume_config_compatibility() uses artifact_path/dataset_name directly and
+    build() syncs artifact_storage.resume = NEVER before the first real access to base_dataset_path.
+    """
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    sentinel = dataset_dir / "important_file.txt"
+    sentinel.write_text("precious data")
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    # Simulate incompatible config and mock out all I/O so build() does not actually generate data
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder, "_run_mcp_tool_check_if_needed"):
+                with patch.object(builder, "_write_builder_config"):
+                    with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+                        with patch.object(builder.batch_manager, "start"):
+                            with patch.object(builder.batch_manager, "finish"):
+                                with patch.object(builder._processor_runner, "run_after_generation"):
+                                    builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+
+    # artifact_storage.resume must be downgraded to NEVER so resolved_dataset_name uses NEVER semantics
+    assert storage.resume == ResumeMode.NEVER
+
+    # resolved_dataset_name has not been cached yet (compat check bypassed base_dataset_path,
+    # _write_builder_config was mocked). Accessing it now must give a timestamped name.
+    assert sentinel.exists(), "Existing dataset directory must not be touched"
+    assert storage.resolved_dataset_name != "dataset", (
+        "resolved_dataset_name must be a new timestamped directory, not the existing one"
+    )
+
+
+def test_if_possible_incompatible_config_refreshes_media_storage_path(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """After IF_POSSIBLE → NEVER downgrade, _media_storage must point to the new timestamped dir.
+
+    Bug: validate_folder_names initialises MediaStorage with base_dataset_path at Pydantic
+    construction time (while resume=IF_POSSIBLE), caching the original directory name.
+    After the cache pop and resume=NEVER, base_dataset_path resolves to a new timestamped
+    directory, but _media_storage.base_path still holds the old path — producing broken
+    image references for image-column datasets.
+
+    Fix: refresh_media_storage_path() is called after the cache pop.
+    """
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "existing_file.parquet").write_text("data")  # non-empty dir triggers NEVER→timestamp
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+
+    # Trigger validate_folder_names so _media_storage is initialised with IF_POSSIBLE semantics
+    # (non-empty dir + IF_POSSIBLE → resolved_dataset_name returns "dataset", not timestamped)
+    original_media_base = storage.media_storage.base_path
+
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
+        with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder, "_run_mcp_tool_check_if_needed"):
+                with patch.object(builder, "_write_builder_config"):
+                    with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+                        with patch.object(builder.batch_manager, "start"):
+                            with patch.object(builder.batch_manager, "finish"):
+                                with patch.object(builder._processor_runner, "run_after_generation"):
+                                    builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+
+    new_media_base = storage.media_storage.base_path
+    assert new_media_base != original_media_base, (
+        "media_storage.base_path must be updated to the new timestamped directory after IF_POSSIBLE → NEVER downgrade"
+    )
+    assert new_media_base == storage.base_dataset_path, (
+        "media_storage.base_path must match base_dataset_path after downgrade"
+    )
+
+
+def test_if_possible_starts_fresh_when_no_existing_directory(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """IF_POSSIBLE on a first-ever run (no dataset directory) must start fresh, not raise.
+
+    Bug: _check_resume_config_compatibility returned True when config_path did not exist,
+    which caused IF_POSSIBLE to upgrade to ALWAYS. resolved_dataset_name then raised
+    ArtifactStorageError because ALWAYS requires an existing directory.
+
+    Fix: return False when the dataset directory itself is absent.
+    """
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(builder, "_run_mcp_tool_check_if_needed"):
+            with patch.object(builder, "_write_builder_config"):
+                with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+                    with patch.object(builder.batch_manager, "start"):
+                        with patch.object(builder.batch_manager, "finish"):
+                            with patch.object(builder._processor_runner, "run_after_generation"):
+                                builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+
+    assert storage.resume == ResumeMode.NEVER
+
+
+def test_if_possible_starts_fresh_when_directory_is_empty(stub_resource_provider, stub_test_config_builder, tmp_path):
+    """IF_POSSIBLE on an empty dataset directory must start fresh, not raise.
+
+    Edge case: a prior run crashed in the window between mkdir and the first file write
+    inside _write_builder_config, leaving an empty directory. _check_resume_config_compatibility
+    previously returned True (config file absent → assume compatible), causing IF_POSSIBLE to
+    upgrade to ALWAYS, which then raised ArtifactStorageError because the directory is empty.
+
+    Fix: treat an empty directory the same as a missing one — return False.
+    """
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()  # empty — no files written yet
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(builder, "_run_mcp_tool_check_if_needed"):
+            with patch.object(builder, "_write_builder_config"):
+                with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
+                    with patch.object(builder.batch_manager, "start"):
+                        with patch.object(builder.batch_manager, "finish"):
+                            with patch.object(builder._processor_runner, "run_after_generation"):
+                                builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+
+    assert storage.resume == ResumeMode.NEVER

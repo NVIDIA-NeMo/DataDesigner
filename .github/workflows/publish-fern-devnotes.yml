@@ -1,0 +1,89 @@
+name: Publish Fern devnotes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/devnotes/**"
+      - "fern/assets/**"
+      - "fern/components/Authors.tsx"
+      - "fern/components/BlogCard.tsx"
+      - "fern/components/devnotes/**"
+      - "fern/docs.yml"
+      - "fern/styles/authors.css"
+      - "fern/styles/blog-card.css"
+      - "fern/versions/*.yml"
+      - "fern/versions/**/pages/devnotes/**"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    env:
+      FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.9.5"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install docs dependencies
+        run: uv sync --python 3.13 --all-packages --group docs --group notebooks
+
+      - name: Reuse notebooks from last successful docs build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p docs/notebooks
+
+          download_notebooks() {
+            workflow="$1"
+            shift
+
+            last_run_id=$(gh run list --workflow "$workflow" --status success "$@" --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
+            if [ -n "$last_run_id" ] && gh run download "$last_run_id" --name notebooks --dir docs/notebooks; then
+              echo "::notice::Downloaded notebooks from $workflow run $last_run_id"
+              exit 0
+            fi
+          }
+
+          for workflow in build-fern-docs.yml build-docs.yml; do
+            download_notebooks "$workflow" --event release
+          done
+
+          for workflow in build-fern-docs.yml build-docs.yml; do
+            download_notebooks "$workflow" --event workflow_dispatch --branch main
+          done
+
+          echo "::error::No successful docs build run with notebook artifacts found."
+          exit 1
+
+      - name: Check Fern docs
+        run: make check-fern-docs
+
+      - name: Publish Fern docs
+        run: |
+          if [ -z "$FERN_TOKEN" ]; then
+            echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern docs."
+            exit 1
+          fi
+
+          cd fern
+          fern_version=$(jq -r .version fern.config.json)
+          if [[ ! "$fern_version" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-.][0-9A-Za-z]+)*$ ]]; then
+            echo "::error::Invalid Fern version in fern.config.json: $fern_version"
+            exit 1
+          fi
+
+          npx -y "fern-api@$fern_version" generate --docs --no-prompt

@@ -48,18 +48,26 @@ try:
 except userdata.SecretNotFoundError:
     os.environ["NVIDIA_API_KEY"] = getpass.getpass("Enter your NVIDIA API key: ")"""
 
+COLAB_INJECT_METADATA = "nemo_colab_inject"
+
+
+def mark_colab_injected(cell: NotebookNode) -> NotebookNode:
+    """Mark cells generated only for Colab."""
+    cell.metadata[COLAB_INJECT_METADATA] = True
+    return cell
+
 
 def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]:
     """Create the Colab-specific setup cells to inject before imports."""
     cells = []
-    cells += [new_markdown_cell(source=COLAB_SETUP_MARKDOWN)]
+    cells += [mark_colab_injected(new_markdown_cell(source=COLAB_SETUP_MARKDOWN))]
 
     install_cell = COLAB_INSTALL_CELL
     if additional_dependencies:
         install_cell += f" {additional_dependencies}"
-    cells += [new_code_cell(source=install_cell)]
+    cells += [mark_colab_injected(new_code_cell(source=install_cell))]
 
-    cells += [new_code_cell(source=COLAB_API_KEY_CELL)]
+    cells += [mark_colab_injected(new_code_cell(source=COLAB_API_KEY_CELL))]
     return cells
 
 
@@ -102,7 +110,7 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
     processed_cells = cells[:import_idx] + colab_cells + cells[import_idx:]
 
     badge_source = COLAB_BADGE_TEMPLATE.format(filename=f"{source_path.stem}.ipynb")
-    notebook.cells = [new_markdown_cell(source=badge_source)] + processed_cells
+    notebook.cells = [mark_colab_injected(new_markdown_cell(source=badge_source))] + processed_cells
     return notebook
 
 

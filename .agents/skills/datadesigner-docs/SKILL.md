@@ -12,7 +12,7 @@ description: >
 
 Unified skill for adding, updating, moving, and removing pages on the NeMo Data Designer Fern docs site.
 
-Production URL: **`docs.nvidia.com/nemo/datadesigner`** (see `instances` in [`fern/docs.yml`](../../../fern/docs.yml)). Source of truth for everything user-facing is `fern/`.
+Current URL: **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`** (see `instances` in [`fern/docs.yml`](../../../fern/docs.yml)). Source of truth for everything user-facing is `fern/`.
 
 ## Scope Rule
 
@@ -20,26 +20,23 @@ Production URL: **`docs.nvidia.com/nemo/datadesigner`** (see `instances` in [`fe
 
 ## Versioning Model: Floating Latest
 
-DataDesigner uses a **floating-latest pointer** (matches NeMo Curator). One canonical MDX tree backs both the "Latest" tab and the current frozen train.
+DataDesigner currently has Fern-native version entries backed by one shared migrated MDX tree. `latest` is a real rolling nav file; `v0.5.9` and `v0.5.8` are release nav files. All currently reuse `v0.5.8/pages/`.
 
 ```
 fern/versions/
-├── latest.yml          ← Unix symlink → v0.5.8.yml
-├── v0.5.8.yml          ← real nav file (paths point at ./v0.5.8/pages/...)
-└── v0.5.8/pages/       ← single canonical MDX tree
+├── latest.yml          ← rolling nav file (reuses ./v0.5.8/pages/...)
+├── v0.5.9.yml          ← release nav file (reuses ./v0.5.8/pages/...)
+├── v0.5.8.yml          ← release nav file (reuses ./v0.5.8/pages/...)
+└── v0.5.8/pages/       ← shared migrated MDX tree
 ```
 
-`docs.yml` registers both `slug: latest` and `slug: v0.5.8`. When you edit a page, **you only edit the v0.5.8 copy** — the symlink means `latest` automatically tracks. No mirror step.
+`docs.yml` registers `slug: latest`, `slug: v0.5.9`, and `slug: v0.5.8`. When you edit shared docs, edit `v0.5.8/pages/`. Add version-specific page copies only when content diverges.
 
-When a new release ships (e.g. v0.5.9):
+Dev Notes are rolling release: `latest.yml` can include posts from `main` that are not in the release nav yet. Frozen release navs (`v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point.
 
-1. `cp -R fern/versions/v0.5.8 fern/versions/v0.5.9`
-2. `cp fern/versions/v0.5.8.yml fern/versions/v0.5.9.yml`
-3. `sed -i '' 's|./v0.5.8/pages/|./v0.5.9/pages/|g' fern/versions/v0.5.9.yml`
-4. `ln -sf v0.5.9.yml fern/versions/latest.yml` (re-target the symlink)
-5. Add a `v0.5.9` entry to `docs.yml`'s `versions:` list and update the `latest` entry's `display-name`.
+Released versions older than `v0.5.8` remain on the legacy MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. `docs.yml` redirects `/nemo/datadesigner/v<version>/...` to those archives for versions without a real Fern tree.
 
-Old `v0.5.8` then renders unchanged from its frozen tree at `/v0.5.8/...`. The published site at `/latest/...` follows the symlink to `v0.5.9`.
+For future Fern-native releases, add a version YAML that reuses shared pages by default. Copy only pages that need version-specific content.
 
 ## Layout at a Glance
 
@@ -59,20 +56,21 @@ fern/
 │   ├── TrajectoryViewer.tsx   ← multi-turn tool-call traces (research dev notes)
 │   ├── BadgeLinks.tsx         ← header shields (license, github, etc.)
 │   ├── Tag.tsx, CustomCard.tsx, CustomFooter.tsx
-│   ├── notebooks/             ← per-tutorial *.json + *.ts (MDX import target)
+│   ├── notebooks/             ← gitignored per-tutorial *.json + *.ts output
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
 ├── code-reference/            ← gitignored; populated by `fern docs md generate`
 └── versions/
-    ├── latest.yml -> v0.5.8.yml
+    ├── latest.yml             ← rolling navigation tree
+    ├── v0.5.9.yml             ← release navigation tree, reuses v0.5.8/pages/
     ├── v0.5.8.yml             ← navigation tree
-    └── v0.5.8/pages/          ← MDX content
+    └── v0.5.8/pages/          ← shared MDX content
 ```
 
 ## URL Routing Rules
 
-Fern's URL is computed from the **section/page titles in `v0.5.8.yml`**, not the file path:
+Fern's URL is computed from the **section/page titles in the active version YAML**, not the file path:
 
 ```
 File system                                           Published URL
@@ -88,7 +86,7 @@ Rules:
 - **Page title → kebab-case slug**: `page: Text-to-SQL for Nemotron Super` → `text-to-sql-for-nemotron-super` (the filename `text-to-sql.mdx` is irrelevant for routing).
 - **Subdirectories in the file path are dropped** — `devnotes/posts/foo.mdx` becomes `/dev-notes/<page-title>` (no `/posts/`).
 
-When in doubt, recompute by walking the page's position in `v0.5.8.yml` and slugifying each title.
+When in doubt, recompute by walking the page's position in the active version YAML and slugifying each title.
 
 ## Operations
 
@@ -116,7 +114,7 @@ When in doubt, recompute by walking the page's position in `v0.5.8.yml` and slug
    ```
 
 4. The URL becomes `/<section-slug>/<page-title-slug>`. Update any cross-references in other MDX accordingly.
-5. **Do not edit `latest.yml`** — it's the symlink and auto-tracks.
+5. If the page is a rolling Dev Note that should appear before the next release, add it to `latest.yml` only.
 
 ### Update a Page
 
@@ -261,11 +259,13 @@ layout: overview             # optional — only on landing pages
 ---
 ```
 
-Do **not** add `position:` (we use explicit nav order in `v0.5.8.yml`), `date:`, or `authors:` to frontmatter — Fern's runtime treats `authors:` as a JSX scope variable and explodes when a component tries to reference it. For dev notes, see "Dev Notes" below.
+Do **not** add `position:` (we use explicit nav order in the version YAML), `date:`, or `authors:` to frontmatter — Fern's runtime treats `authors:` as a JSX scope variable and explodes when a component tries to reference it. For dev notes, see "Dev Notes" below.
 
 ## Dev Notes (Blog Posts)
 
 Dev notes live under `fern/versions/v0.5.8/pages/devnotes/posts/`. They use the dev-notes kit components: **`<Authors>`, `<MetricsTable>`, `<TrajectoryViewer>`, `<ExpandableCode>`, `<CustomCard>`** (sources in `fern/components/`, CSS in `fern/styles/`).
+
+For rolling posts on `main`, add the page and card to `latest.yml` first. Add the same nav entry to a release YAML only when that post is part of that release.
 
 ### Authors Byline
 
@@ -364,26 +364,27 @@ docs/notebook_source/*.py            (jupytext format — canonical source, edit
         │ make convert-execute-notebooks      # jupytext --execute (needs NVIDIA_API_KEY)
         ▼
 docs/notebooks/*.ipynb               (executed; outputs captured)
-        │ make generate-colab-notebooks       # injects "Open in Colab" badge
+        │
+        │ make generate-fern-notebooks         # per-file prefers executed docs/notebooks/
+        │                                      # otherwise converts notebook_source/*.py directly
         ▼
-docs/colab_notebooks/*.ipynb         (committed; for "Open in Colab" links)
-        │ make generate-fern-notebooks         # auto-prefers docs/notebooks/ when present
-        ▼
-fern/components/notebooks/*.{json,ts}
+fern/components/notebooks/*.{json,ts} (gitignored; generated before preview/publish)
 ```
 
-The `.ts` is what the wrapper MDX imports — Fern's bundler doesn't follow `.json` imports cleanly.
+`docs/colab_notebooks/*.ipynb` is a separate committed output for "Open in Colab" links. It is generated by `make generate-colab-notebooks`, but it is not a Fern docs build input.
+
+The `.ts` is what the wrapper MDX imports. Fern's bundler doesn't follow `.json` imports cleanly.
 
 ### Make Targets
 
 | Command | When |
 |---------|------|
-| `make generate-fern-notebooks` | Notebook prose changed, no need to re-execute. Auto-detects `docs/notebooks/` (executed) vs `docs/colab_notebooks/` (un-executed snapshots). |
+| `make generate-fern-notebooks` | Notebook prose changed, no need to re-execute. Per file, prefers `docs/notebooks/` (executed) and falls back to converting `docs/notebook_source/*.py` directly. |
 | `make generate-fern-notebooks-with-outputs` | Notebook code changed, want fresh outputs. Needs `NVIDIA_API_KEY` (and `OPENROUTER_API_KEY` for image notebooks 5–6). |
 
-Both targets pin to `DOCS_PYTHON ?= 3.13` because `pyarrow` lacks Python 3.14 wheels. Override via `DOCS_PYTHON=3.12 make ...`.
+Install notebook docs dependencies first with `make install-dev-notebooks`. Docs setup pins to `DOCS_PYTHON_VERSION ?= 3.13` because `pyarrow` lacks Python 3.14 wheels. Override via `DOCS_PYTHON_VERSION=3.12 make ...`.
 
-The `convert-execute-notebooks` step loops per-file with `|| failed=...`, so one notebook missing an API key won't kill the others — failures are reported at the end and the chain continues with whatever succeeded.
+The `convert-execute-notebooks` step loops per file so one notebook missing an API key does not prevent later notebooks from running. Any failure is reported after the loop and the make target exits non-zero.
 
 ### Wrapper Page
 
@@ -408,13 +409,13 @@ The converter (`fern/scripts/ipynb-to-fern-json.py`) **auto-strips the leading C
 
 ## Python API Reference (`libraries:`)
 
-`docs.yml` declares a `libraries:` block pointing at `packages/data-designer-config/src/data_designer/config`. Generated output lands at `fern/code-reference/data-designer/` — **gitignored**. To populate locally:
+`docs.yml` declares a `libraries:` block pointing at `packages/data-designer-config/src/data_designer/config`. Local generation uses `py2fern` against that same source. Generated output lands at `fern/code-reference/data-designer/` - **gitignored**. To populate locally:
 
 ```bash
-cd fern && fern docs md generate
+make generate-fern-api-reference
 ```
 
-No FERN_TOKEN required. Re-run when the upstream Python source changes.
+This does not require Fern auth. Re-run when the upstream Python source changes. If you need to compare with Fern's native generator, use `make generate-fern-api-reference-native` with Fern auth.
 
 The generated tree is wired into the nav via `versions/v0.5.8.yml`'s "Code Reference > Python API" folder entry (`folder: ../code-reference/data-designer`). The nav also includes prose pages under "Topic Overviews" — those are conceptual landings that link to the auto-generated reference.
 
@@ -466,7 +467,7 @@ fern docs dev       # localhost:3000 hot-reload preview
 To generate the API reference for local preview:
 
 ```bash
-cd fern && fern docs md generate    # populates fern/code-reference/ (gitignored)
+make generate-fern-api-reference    # py2fern; populates fern/code-reference/ (gitignored)
 ```
 
 If the "Python API" sidebar folder is empty, you forgot this step.
@@ -484,32 +485,7 @@ When the team adds a Fern preview workflow (modeled after Gym's `fern-docs-previ
 
 ## Cutting a New Version Train
 
-When a release ships (e.g. `v0.5.9`):
-
-1. Copy `fern/versions/v0.5.8/` → `fern/versions/v0.5.9/` (frozen snapshot).
-2. Copy `fern/versions/v0.5.8.yml` → `fern/versions/v0.5.9.yml` and rewrite `./v0.5.8/pages/` → `./v0.5.9/pages/` paths.
-3. Re-target the symlink: `ln -sf v0.5.9.yml fern/versions/latest.yml`.
-4. Add to `fern/docs.yml`:
-
-   ```yaml
-   versions:
-     - display-name: "Latest · v0.5.9"
-       path: versions/latest.yml
-       slug: latest
-       availability: stable
-     - display-name: "v0.5.9"
-       path: versions/v0.5.9.yml
-       slug: v0.5.9
-       availability: stable
-     - display-name: "v0.5.8"
-       path: versions/v0.5.8.yml
-       slug: v0.5.8
-       availability: stable
-   ```
-
-5. Add v0.5.9-specific redirect entries (`/nemo/datadesigner/v0.5.9/:path*/index.html` → `/nemo/datadesigner/v0.5.9/:path*` etc.).
-
-The `v0.5.8` tree continues to render at frozen URLs.
+Do not copy page trees by hand. Add a new version YAML that reuses shared pages by default; copy only pages that need version-specific content. If that becomes tedious, add a build-time materialization script before `fern generate --docs`.
 
 ## Debugging
 
@@ -523,8 +499,8 @@ The `v0.5.8` tree continues to render at frozen URLs.
 | "Something went wrong!" runtime error | A custom component is throwing — check `<Authors ids={authors} />` (use literal array) or `<ExpandableCode>` (currently broken in SSR) |
 | Notebook page renders raw `<a href=colab...>` HTML | `.ts` was generated before the colab-strip improvement; re-run `make generate-fern-notebooks` |
 | Notebook page has no cell outputs | Ran without `NVIDIA_API_KEY` or `convert-execute-notebooks` failed; run `make generate-fern-notebooks-with-outputs` |
-| `URLError: [SSL: CERTIFICATE_VERIFY_FAILED]` during notebook execution | `DOCS_CERTS` not propagated; ensure you're invoking via the make target, not raw `uv run` |
-| `Failed to build pyarrow==X` from source | `DOCS_PYTHON` resolved to 3.14+; override with `DOCS_PYTHON=3.13 make ...` (or just rely on the default) |
+| `URLError: [SSL: CERTIFICATE_VERIFY_FAILED]` during notebook execution | `DOCS_CERTS` not propagated; ensure you're invoking via the make target, not raw Python |
+| `Failed to build pyarrow==X` from source | `DOCS_PYTHON_VERSION` resolved to 3.14+; override with `DOCS_PYTHON_VERSION=3.13 make ...` (or just rely on the default) |
 | Cards on landing all link to the same wrong URL | `href` not matching Fern's slugified-title rule — recompute as `/<section-slug>/<page-title-slug>` |
 | Image broken in preview, file exists at `fern/assets/...` | Reference uses relative `../assets/...` — change to absolute `/assets/...` (relative paths break across version slugs) |
 

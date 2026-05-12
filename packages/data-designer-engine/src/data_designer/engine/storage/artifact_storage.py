@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from datetime import datetime
 from functools import cached_property
@@ -38,6 +39,12 @@ class BatchStage(StrEnum):
     PROCESSORS_OUTPUTS = "processors_outputs_path"
 
 
+class ResumeMode(StrEnum):
+    NEVER = "never"
+    ALWAYS = "always"
+    IF_POSSIBLE = "if_possible"
+
+
 class ArtifactStorage(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -47,7 +54,9 @@ class ArtifactStorage(BaseModel):
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
+    resume: ResumeMode = ResumeMode.NEVER
     _media_storage: MediaStorage = PrivateAttr(default=None)
+    _metadata_defaults: dict[str, object] = PrivateAttr(default_factory=dict)
 
     @property
     def media_storage(self) -> MediaStorage:
@@ -67,12 +76,19 @@ class ArtifactStorage(BaseModel):
     def resolved_dataset_name(self) -> str:
         dataset_path = self.artifact_path / self.dataset_name
         if dataset_path.exists() and len(list(dataset_path.iterdir())) > 0:
+            if self.resume in (ResumeMode.ALWAYS, ResumeMode.IF_POSSIBLE):
+                return self.dataset_name
             new_dataset_name = f"{self.dataset_name}_{datetime.now().strftime('%m-%d-%Y_%H%M%S')}"
             logger.info(
                 f"📂 Dataset path {str(dataset_path)!r} already exists. Dataset from this session"
                 f"\n\t\t     will be saved to {str(self.artifact_path / new_dataset_name)!r} instead."
             )
             return new_dataset_name
+        if self.resume == ResumeMode.ALWAYS:
+            raise ArtifactStorageError(
+                f"🛑 Cannot resume: no existing dataset found at {str(dataset_path)!r}. "
+                "Run without resume=ResumeMode.ALWAYS to start a new generation."
+            )
         return self.dataset_name
 
     @property
@@ -144,6 +160,16 @@ class ArtifactStorage(BaseModel):
         """
         self._media_storage.mode = mode
 
+    def refresh_media_storage_path(self) -> None:
+        """Re-point MediaStorage to the current base_dataset_path.
+
+        Must be called after popping the resolved_dataset_name cache so that
+        _media_storage.base_path and .images_dir reflect the updated directory.
+        """
+        images_subdir = self._media_storage.images_dir.name
+        self._media_storage.base_path = self.base_dataset_path
+        self._media_storage.images_dir = self.base_dataset_path / images_subdir
+
     @staticmethod
     def mkdir_if_needed(path: Path | str) -> Path:
         """Create the directory if it does not exist."""
@@ -203,6 +229,11 @@ class ArtifactStorage(BaseModel):
                 )
             df = lazy.pd.concat([df, df_dropped], axis=1)
         return df
+
+    def clear_partial_results(self) -> None:
+        """Remove any in-flight partial results left over from an interrupted run."""
+        if self.partial_results_path.exists():
+            shutil.rmtree(self.partial_results_path)
 
     def move_partial_result_to_final_file_path(self, batch_number: int) -> Path:
         partial_result_path = self.create_batch_file_path(batch_number, batch_stage=BatchStage.PARTIAL_RESULT)
@@ -290,6 +321,10 @@ class ArtifactStorage(BaseModel):
         with open(self.metadata_file_path, "r") as file:
             return json.load(file)
 
+    def set_metadata_defaults(self, defaults: dict[str, object]) -> None:
+        """Persist fields that should be included in every metadata write."""
+        self._metadata_defaults.update(defaults)
+
     def write_metadata(self, metadata: dict) -> Path:
         """Write metadata to the metadata.json file.
 
@@ -300,8 +335,16 @@ class ArtifactStorage(BaseModel):
             Path to the written metadata file.
         """
         self.mkdir_if_needed(self.base_dataset_path)
-        with open(self.metadata_file_path, "w") as file:
-            json.dump(metadata, file, indent=2, sort_keys=True)
+        metadata = {**self._metadata_defaults, **metadata}
+        tmp_path = self.metadata_file_path.with_name(f"{self.metadata_file_path.name}.tmp.{os.getpid()}")
+        try:
+            with open(tmp_path, "w") as file:
+                json.dump(metadata, file, indent=2, sort_keys=True)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(tmp_path, self.metadata_file_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
         return self.metadata_file_path
 
     def update_metadata(self, updates: dict) -> Path:

@@ -1,0 +1,114 @@
+name: Build Fern docs
+
+on:
+  workflow_dispatch:
+    inputs:
+      use_cache:
+        description: "Use cached notebooks for unchanged sources"
+        type: boolean
+        default: true
+      release_tag:
+        description: "Release tag to validate and publish. Defaults to the latest published release."
+        type: string
+        required: false
+  release:
+    types:
+      - published
+
+permissions: {}
+
+jobs:
+  check-release-version:
+    if: github.event_name != 'release' || github.event.release.prerelease != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Find release tag
+        id: release-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            RELEASE_TAG="$EVENT_RELEASE_TAG"
+          elif [ -n "$INPUT_RELEASE_TAG" ]; then
+            RELEASE_TAG="$INPUT_RELEASE_TAG"
+          else
+            RELEASE_TAG=$(gh release view --json tagName -q .tagName)
+            if [ -z "$RELEASE_TAG" ]; then
+              echo "::error::Could not find the latest published release tag."
+              exit 1
+            fi
+          fi
+
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check Fern release version
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
+        run: python3 fern/scripts/fern-release-version.py check --version "$RELEASE_TAG"
+
+  build-notebooks:
+    needs: check-release-version
+    uses: ./.github/workflows/build-notebooks.yml
+    permissions:
+      actions: read
+      contents: write
+    with:
+      use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
+    secrets: inherit
+
+  publish:
+    needs:
+      - check-release-version
+      - build-notebooks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.9.5"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install docs dependencies
+        run: uv sync --python 3.13 --all-packages --group docs --group notebooks
+
+      - name: Download executed notebooks
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: notebooks
+          path: docs/notebooks
+
+      - name: Check Fern docs
+        run: make check-fern-docs
+
+      - name: Publish Fern docs
+        run: |
+          if [ -z "$FERN_TOKEN" ]; then
+            echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern docs."
+            exit 1
+          fi
+
+          cd fern
+          fern_version=$(jq -r .version fern.config.json)
+          if [[ ! "$fern_version" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-.][0-9A-Za-z]+)*$ ]]; then
+            echo "::error::Invalid Fern version in fern.config.json: $fern_version"
+            exit 1
+          fi
+
+          npx -y "fern-api@$fern_version" generate --docs --no-prompt
