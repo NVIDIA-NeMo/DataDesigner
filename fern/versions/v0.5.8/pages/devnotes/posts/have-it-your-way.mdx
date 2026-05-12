@@ -1,0 +1,252 @@
+---
+title: "Have It Your Way"
+description: "A plugin framework for the custom pieces every real project ends up needing."
+---
+
+import { Authors } from "@/components/Authors";
+
+# Have It Your Way: Customizing Data Designer with Plugins
+
+<Authors ids={["jgreco", "etramel"]} />
+
+*A plugin framework for the custom pieces every real project ends up needing*
+
+![Data Designer plugin extensions](/assets/have-it-your-way/data-designer-plugins-hero.png)
+
+Data Designer is built around a simple idea: describe the dataset you want, and let the framework handle execution. A config points to seed data, defines generated columns, picks models, and shapes the final records - no orchestration code required. [Data Designer plugins](/plugins/overview) keep that promise when a project needs something custom.
+
+{/* more */}
+
+What does "something custom" actually look like? Picture a robotics team sitting on a pile of [Isaac Sim](https://developer.nvidia.com/isaac/sim)-generated warehouse runs, trying to turn robot poses, camera views, and event metadata into instruction data. With an internal simulation-log plugin, the user-facing part can still be this small:
+
+```bash
+uv pip install data-designer-isaac-logs
+```
+
+```python
+from data_designer_isaac_logs.config import IsaacRunSeedSource
+from data_designer_isaac_logs.config import RobotSFTProcessor
+from data_designer_isaac_logs.config import WarehouseEventLabelColumnConfig
+
+config_builder.with_seed_dataset(
+    IsaacRunSeedSource(
+        run_dir="s3://warehouse-sim/rare-events/",
+        streams=("robot_pose", "overhead_rgb", "event_log"),
+        max_events=10_000,
+    )
+)
+config_builder.add_column(
+    WarehouseEventLabelColumnConfig(
+        name="safety_instruction",
+        pose_column="robot_pose",
+        event_log_column="event_log",
+    )
+)
+config_builder.add_processor(RobotSFTProcessor(output_column="messages"))
+```
+
+That is the point of plugins: install a package, import its config classes, and keep the workflow declarative. The Isaac run reader, event labeler, and trainer-format processor own the custom parsing, labeling, validation, and export shape, while Data Designer still handles discovery, dependency ordering, model calls, previews, and output.
+
+---
+
+## Customization Is the Normal Case
+
+![A confused engineer trying to fit custom building blocks into the wrong framework slots](/assets/have-it-your-way/customization-blocks-confusion.png)
+
+The mess usually starts innocently. A team defines a Data Designer config, then discovers that its seed data lives in an internal layout, its generated column needs a domain simulator, and its trainer expects a slightly different record shape. Someone writes a small reader beside the notebook. Someone patches a generator into a project folder. Someone adds a cleanup script after preview because the final export has one more organization-specific rule. Each choice is reasonable because every project has its own corpus, policy, ontology, simulator, and training stack.
+
+The problem is that the custom behavior now lives around Data Designer instead of inside the Data Designer workflow. It is harder to validate, harder to share, harder to version, and easier to lose. Plugins give that bespoke work a clean package boundary: a name, typed config, runtime implementation, entry point, and tests that travel together. Users still declare the dataset they want, but the local reader, domain generator, or trainer-format processor becomes a normal Data Designer component instead of another layer of glue.
+
+---
+
+## Where Plugins Fit
+
+The first plugin boundaries match the places where real projects most often need customization.
+
+- **Seed reader plugins** bring new source systems into Data Designer. Use them for databases, document stores, object stores, internal APIs, file collections, or corpus layouts that need custom hydration before generation can begin.
+- **Column generator plugins** create new column types. Use them when a value should be produced during generation and should participate in dependency ordering like any other column. This is the right place for simulators, domain libraries, retrieval-backed generation, deterministic rule systems, or custom model-backed generation.
+- **Processor plugins** transform records before or after generation. Use them for redaction, cleanup, deduplication, export views, organization-specific schemas, or training formats that should not be hidden inside prompts.
+
+These boundaries are intentionally narrow. A plugin should own the behavior that is specific to your use case. Data Designer should keep owning the pipeline responsibilities: validation, dependency resolution, batching, model calls, logging, previews, output handling. That split lets custom components use the normal workflow without moving orchestration into the project.
+
+---
+
+## Author a Plugin: From Glue Code to Seed Reader
+
+Consider a markdown seed reader. The one-off version might be a helper function that walks a directory, splits files into sections, returns a DataFrame, and then gets copied into the next project that needs it. That can work for one project. It becomes a problem when the reader needs options, tests, documentation, versioning, or reuse across teams. At that point, the helper has become a capability whether or not it is packaged like one.
+
+A plugin packages that same helper as a small Python project:
+
+- A user-facing config class describes the options.
+- An implementation class does the work.
+- A `Plugin` object connects the config to the implementation.
+- An entry point registers the plugin with Data Designer.
+
+The config class declares the user-facing options. For a directory-backed reader, Data Designer's `FileSystemSeedSource` already has fields for `path`, `file_pattern`, and `recursive`; we just need to define the seed type discriminator:
+
+```python
+# config.py
+from __future__ import annotations
+
+from typing import Literal
+
+from data_designer.config.seed_source import FileSystemSeedSource
+
+
+class MarkdownSectionSeedSource(FileSystemSeedSource):
+    """Configure the markdown sections seed reader."""
+
+    seed_type: Literal["markdown-sections"] = "markdown-sections"
+```
+
+The implementation class is where the old helper code should move. For a filesystem seed reader, Data Designer gives you a small interface instead of a blank page: implement `build_manifest(...)` to build a cheap index of candidate inputs, and implement `hydrate_row(...)` to turn each selected manifest row into one or more dataset rows. That split matters because Data Designer can sample, shuffle, partition, and batch against the lightweight manifest before paying the cost of reading files, parsing sections, or calling project-specific libraries. The parser can still be a normal helper function; the reader class is the framework boundary.
+
+```python
+# impl.py
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, ClassVar
+
+from data_designer.engine.resources.seed_reader import (
+    FileSystemSeedReader,
+    SeedReaderFileSystemContext,
+)
+
+from data_designer_markdown_sections.config import MarkdownSectionSeedSource
+
+
+class MarkdownSectionSeedReader(FileSystemSeedReader[MarkdownSectionSeedSource]):
+    output_columns: ClassVar[list[str]] = [
+        "relative_path",
+        "file_name",
+        "section_index",
+        "section_header",
+        "section_content",
+    ]
+
+    def build_manifest(
+        self,
+        *,
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [
+            {"relative_path": relative_path, "file_name": Path(relative_path).name}
+            for relative_path in matched_paths
+        ]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, Any],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        relative_path = str(manifest_row["relative_path"])
+        file_name = str(manifest_row["file_name"])
+        with context.fs.open(relative_path, "r", encoding="utf-8") as handle:
+            markdown_text = handle.read()
+
+        return [
+            {
+                "relative_path": relative_path,
+                "file_name": file_name,
+                "section_index": section_index,
+                "section_header": section_header,
+                "section_content": section_content,
+            }
+            for section_index, (section_header, section_content) in enumerate(
+                extract_markdown_sections(markdown_text)
+            )
+        ]
+```
+
+The same rule applies to column generators and processors: choose the closest base class, keep options on the config object, implement the narrow runtime method, and leave orchestration out of the plugin.
+
+Two small files connect the plugin to Data Designer: a `Plugin` descriptor that names the config and implementation, and a Python entry point that exposes them at install time:
+
+```python
+# plugin.py
+from data_designer.plugins import Plugin, PluginType
+
+plugin = Plugin(
+    config_qualified_name="data_designer_markdown_sections.config.MarkdownSectionSeedSource",
+    impl_qualified_name="data_designer_markdown_sections.impl.MarkdownSectionSeedReader",
+    plugin_type=PluginType.SEED_READER,
+)
+```
+
+```toml
+# pyproject.toml
+[project.entry-points."data_designer.plugins"]
+markdown-sections = "data_designer_markdown_sections.plugin:plugin"
+```
+
+After that, users do not import engine internals or run registration code. They import the config class and use it:
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+from data_designer_markdown_sections.config import MarkdownSectionSeedSource
+
+builder = dd.DataDesignerConfigBuilder()
+builder.with_seed_dataset(
+    MarkdownSectionSeedSource(
+        path="docs/",
+        file_pattern="*.md",
+    )
+)
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="question",
+        model_alias="nvidia-text",
+        prompt="Write a question about this section: {{ section_content }}",
+    )
+)
+
+results = DataDesigner().preview(builder, num_records=5)
+```
+
+No custom orchestration. No separate DataFrame preparation step. The reader is part of the Data Designer workflow.
+
+---
+
+## Start Local, Share When Useful
+
+A plugin does not need to start as a public package. Most should start locally. Start with a local Python package and install it in editable mode:
+
+```bash
+uv pip install -e .
+```
+
+That is enough for Data Designer to discover the entry point. You can iterate on the config class and implementation while testing the plugin in a real preview loop. When the shape stabilizes, the same package can move to an internal index, a GitHub repo, or PyPI.
+
+This is useful inside teams. A data platform group can maintain seed readers for internal systems. An applied science group can maintain generators for its domain. A training group can maintain processors that emit exactly the record shapes its trainers consume. Everyone else installs a package and uses typed configs in the same workflow they already know.
+
+It is useful for the broader community too. If you build a plugin that should be discoverable by other Data Designer users, publish it and follow the instructions in [Available Plugin List](/plugins/available-plugin-list) to request a catalog listing.
+
+---
+
+## A Repository for First-Party Plugins
+
+We recently created [NVIDIA-NeMo/DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins), a dedicated repository for NVIDIA-maintained plugins. It is where we will publish first-party plugin packages, recommended packaging examples, and plugin-specific docs as the catalog grows.
+
+The split keeps the core Data Designer repo focused on the framework: the config API, engine execution, model integration, validation behavior, and stable plugin interface. Plugin packages can depend on optional libraries, target narrower use cases, and move at a different release pace, while still installing separately and using the same plugin interface once installed.
+
+---
+
+## Where to Go Next
+
+Interested in building your own plugin? Here are some resources to get you started:
+
+1. [Plugins overview](/plugins/overview) - learn how plugins fit into Data Designer
+2. [Example Plugin](/plugins/example-plugin) - follow the package shape for a column generator plugin
+3. [Markdown Section Seed Reader recipe](/recipes/plugin-development/markdown-section-seed-reader-plugin) - study the complete version of the example from this post
+4. [Available Plugin List](/plugins/available-plugin-list) - browse the catalog and learn how to submit your own plugin
+5. [DataDesignerPlugins on GitHub](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) - explore first-party plugin packages
+
+Moving plugins out of experimental mode means Data Designer no longer has to predict every customization users will need. The framework provides the pipeline. Plugins supply the custom pieces.
