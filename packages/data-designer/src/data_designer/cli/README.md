@@ -336,7 +336,7 @@ data-designer plugin list
 # Search a specific catalog
 data-designer plugin --catalog research search transform
 
-# Show package metadata, compatibility, docs, and the install command
+# Show package metadata, compatibility, docs, and the install strategy
 data-designer plugin info github
 
 # Install a plugin package from a catalog and verify its runtime entry points can load
@@ -359,7 +359,7 @@ data-designer plugin catalog add research https://github.com/acme/dd-plugins
 data-designer plugin catalog list
 data-designer plugin catalog remove research
 
-# List installed runtime plugins with package and version metadata
+# List installed plugin packages with their runtime plugins
 data-designer plugin installed
 ```
 
@@ -371,10 +371,10 @@ are kept in place. This prevents a plugin dependency from upgrading,
 downgrading, or reinstalling Data Designer itself.
 
 Runtime plugin names shown by `plugin list`, `plugin search`, and
-`plugin installed` identify the registered plugin entry points.
-Install, uninstall, and info commands take the plugin package name or package
-alias. If a user passes a runtime plugin name to one of those package commands,
-the CLI points them to the owning package.
+`plugin installed` identify the registered entry points provided by a plugin
+package. Install, uninstall, and info commands take the plugin package name or
+package alias. If a user passes a runtime plugin name to one of those package
+commands, the CLI points them to the owning package.
 
 In an active virtual environment with a user `pyproject.toml`, `uv` uses
 `uv add` so the plugin package is recorded in the project. Otherwise the CLI

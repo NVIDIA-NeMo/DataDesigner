@@ -174,7 +174,7 @@ def test_plugin_installed_warns_when_parent_catalog_is_unused(
 
     assert result.exit_code == 0
     mock_print_warning.assert_called_once_with(
-        "Ignoring --catalog 'research'; installed runtime plugins are discovered from the current Python environment."
+        "Ignoring --catalog 'research'; installed plugin packages are discovered from the current Python environment."
     )
     mock_ctrl.run_installed.assert_called_once_with()
 

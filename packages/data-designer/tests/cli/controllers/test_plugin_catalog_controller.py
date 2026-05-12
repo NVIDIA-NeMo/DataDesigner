@@ -994,11 +994,17 @@ def test_run_installed_renders_package_and_version_metadata(
 ) -> None:
     controller.catalog_service.list_installed_plugins.return_value = [
         InstalledPluginInfo(
-            name="github",
-            package_name="data-designer-github",
+            name="document-chunker",
+            package_name="data-designer-retrieval-sdg",
             package_version="0.1.0",
-            entry_point_value="data_designer_github.plugin:plugin",
-        )
+            entry_point_value="data_designer_retrieval_sdg.plugins:document_chunker_plugin",
+        ),
+        InstalledPluginInfo(
+            name="embedding-dedup",
+            package_name="data-designer-retrieval-sdg",
+            package_version="0.1.0",
+            entry_point_value="data_designer_retrieval_sdg.plugins:embedding_dedup_plugin",
+        ),
     ]
 
     controller.run_installed()
@@ -1007,14 +1013,15 @@ def test_run_installed_renders_package_and_version_metadata(
         call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
     ]
     assert printed_tables
+    assert printed_tables[0].title == "Installed Plugin Packages"
     assert [column.header for column in printed_tables[0].columns] == [
-        "Runtime Plugin",
         "Package",
         "Version",
-        "Entry Point",
+        "Runtime Plugins",
     ]
-    assert list(printed_tables[0].columns[1].cells) == ["data-designer-github"]
-    assert list(printed_tables[0].columns[2].cells) == ["0.1.0"]
+    assert list(printed_tables[0].columns[0].cells) == ["data-designer-retrieval-sdg"]
+    assert list(printed_tables[0].columns[1].cells) == ["0.1.0"]
+    assert list(printed_tables[0].columns[2].cells) == ["document-chunker, embedding-dedup"]
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
