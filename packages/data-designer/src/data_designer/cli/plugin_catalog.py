@@ -236,6 +236,7 @@ class UninstallPlan:
     command: list[str]
     manager: str
     catalog_alias: str
+    source_warning: str | None = None
     commands: list[list[str]] | None = None
     uninstall_mode: str = "environment"
     project_root: str | None = None
