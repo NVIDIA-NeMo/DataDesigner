@@ -74,6 +74,7 @@ def test_build_pip_install_plan_uses_requirement_and_extra_index() -> None:
         plan.data_designer_protection
         == f"pinned installed Data Designer packages; data-designer {DATA_DESIGNER_VERSION}"
     )
+    assert plan.data_designer_version == DATA_DESIGNER_VERSION
     assert plan.source_description == (
         "data-designer-template via https://nvidia-nemo.github.io/DataDesignerPlugins/simple/"
     )
@@ -138,6 +139,7 @@ def test_build_auto_install_plan_chooses_uv_when_available(mock_which: Mock) -> 
         plan.data_designer_protection
         == f"using installed data-designer {DATA_DESIGNER_VERSION}; uv will keep Data Designer packages pinned"
     )
+    assert plan.data_designer_version == DATA_DESIGNER_VERSION
     assert plan.source_warning is None
     mock_which.assert_called_once_with("uv")
 
