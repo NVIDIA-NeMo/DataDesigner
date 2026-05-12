@@ -85,6 +85,7 @@ class PluginInstallService:
         catalog: PluginCatalogConfig,
         *,
         manager: str = "auto",
+        version_specifier: str | None = None,
     ) -> InstallPlan:
         """Build the exact package-manager command for one catalog entry."""
         target = _resolve_install_target(
@@ -97,7 +98,11 @@ class PluginInstallService:
             target.mode,
             data_designer_versions,
         )
-        install_args, source_description, source_warning = _install_args_for_entry(entry, target)
+        install_args, install_requirement, source_description, source_warning = _install_args_for_entry(
+            entry,
+            target,
+            version_specifier=version_specifier,
+        )
         command = _base_command(target) + protection_args + install_args
         return InstallPlan(
             package_name=entry.package.name,
@@ -105,6 +110,7 @@ class PluginInstallService:
             command=command,
             manager=target.manager,
             catalog_alias=catalog.alias,
+            requirement=install_requirement,
             source_warning=_combine_warnings(target.warning, source_warning),
             data_designer_protection=data_designer_protection,
             data_designer_version=data_designer_versions[DATA_DESIGNER_DISTRIBUTION_NAME],
@@ -577,30 +583,58 @@ def _materialized_install_command(plan: InstallPlan) -> Iterator[tuple[list[str]
         yield command, plan.command_stdin
 
 
-def _install_args_for_entry(entry: PluginCatalogEntry, target: _InstallTarget) -> tuple[list[str], str, str | None]:
-    requirement = entry.install.requirement
+def _install_args_for_entry(
+    entry: PluginCatalogEntry,
+    target: _InstallTarget,
+    *,
+    version_specifier: str | None,
+) -> tuple[list[str], str, str, str | None]:
+    requirement = _install_requirement_for_entry(entry, version_specifier=version_specifier)
     index_url = entry.install.index_url
     if target.mode == "uv-project":
         args = ["--raw"] if index_url is None and _requirement_is_direct_reference(requirement) else []
         if index_url is not None:
             args.extend(["--index", index_url])
         args.append(requirement)
-        return args, _source_description(requirement, index_url), None
+        return args, requirement, _source_description(requirement, index_url), None
 
     if index_url is None:
-        return [requirement], requirement, None
+        return [requirement], requirement, requirement, None
 
     if target.manager == "uv":
         return (
             ["--default-index", PYPI_SIMPLE_INDEX_URL, "--index", index_url, requirement],
+            requirement,
             f"{requirement} via {index_url}",
             None,
         )
     return (
         ["--extra-index-url", index_url, requirement],
+        requirement,
         f"{requirement} via {index_url}",
         PIP_EXTRA_INDEX_SOURCE_WARNING,
     )
+
+
+def _install_requirement_for_entry(entry: PluginCatalogEntry, *, version_specifier: str | None) -> str:
+    requirement = entry.install.requirement
+    if version_specifier is None:
+        return requirement
+
+    try:
+        parsed_requirement = Requirement(requirement)
+    except InvalidRequirement as e:  # pragma: no cover - catalog validation catches this earlier.
+        raise ValueError(f"Catalog install requirement {requirement!r} is invalid: {e}") from e
+
+    if parsed_requirement.url is not None:
+        raise ValueError(
+            f"Cannot install a specific version for plugin package {entry.package.name!r} because the catalog "
+            "install requirement is a direct reference."
+        )
+
+    extras = f"[{','.join(sorted(parsed_requirement.extras))}]" if parsed_requirement.extras else ""
+    marker = f"; {parsed_requirement.marker}" if parsed_requirement.marker is not None else ""
+    return f"{entry.package.name}{extras}{version_specifier}{marker}"
 
 
 def _source_description(requirement: str, index_url: str | None) -> str:

@@ -342,8 +342,11 @@ data-designer plugin info github
 # Install a plugin package from a catalog and verify its runtime entry points can load
 data-designer plugin install github --yes
 
+# Install a specific plugin package version from the catalog package index
+data-designer plugin install github --version 0.1.0 --yes
+
 # Preview without changing the current environment. Exits 1 if compatibility would block install.
-data-designer plugin install github --dry-run
+data-designer plugin install github==0.1.0 --dry-run
 
 # Uninstall a plugin package and verify its runtime entry-point metadata is removed
 data-designer plugin uninstall github --yes

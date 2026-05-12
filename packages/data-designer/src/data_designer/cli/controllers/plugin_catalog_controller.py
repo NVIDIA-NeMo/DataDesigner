@@ -24,6 +24,8 @@ from data_designer.cli.plugin_catalog import (
     PluginCatalogConfig,
     PluginCatalogEntry,
     PluginCatalogError,
+    PluginPackageInstallRequest,
+    parse_plugin_package_install_request,
 )
 from data_designer.cli.repositories.plugin_catalog_repository import PluginCatalogRepository
 from data_designer.cli.services.plugin_catalog_service import PluginCatalogService
@@ -171,29 +173,36 @@ class PluginCatalogController:
         catalog_alias: str | None = None,
         refresh: bool = False,
         manager: str = "auto",
+        version: str | None = None,
         yes: bool = False,
         dry_run: bool = False,
     ) -> None:
         """Install one plugin package from the catalog."""
+        package_request = _parse_install_request_or_exit(package_name, version=version)
         catalog = self._get_catalog_or_exit(catalog_alias)
         package_entries = self._get_package_entries_or_exit(
-            package_name,
+            package_request.package,
             catalog.alias,
             refresh=refresh,
             include_incompatible=True,
             command_name="install",
+            version_specifier=package_request.version_specifier,
         )
         entry = package_entries[0]
         compatibility = self.catalog_service.evaluate_compatibility(entry)
+        is_versioned_install = package_request.version_specifier is not None
 
-        if not compatibility.is_compatible and not dry_run:
+        if not compatibility.is_compatible and not dry_run and not is_versioned_install:
             print_error(f"Plugin package {entry.package.name!r} is not compatible with this environment")
             for reason in compatibility.reasons:
                 console.print(Text.assemble("  - ", reason))
             raise typer.Exit(code=1)
 
         try:
-            plan = self.install_service.build_install_plan(entry, catalog, manager=manager)
+            plan_kwargs = {"manager": manager}
+            if package_request.version_specifier is not None:
+                plan_kwargs["version_specifier"] = package_request.version_specifier
+            plan = self.install_service.build_install_plan(entry, catalog, **plan_kwargs)
         except ValueError as e:
             print_error(f"Failed to build plugin install plan: {e}")
             raise typer.Exit(code=1)
@@ -201,7 +210,7 @@ class PluginCatalogController:
         print_header("Install Data Designer Plugin Package")
         console.print(f"  Package: [bold]{_escape_markup(entry.package.name)}[/bold]")
         console.print(f"  Catalog: [bold]{_escape_markup(catalog.alias)}[/bold] ({_escape_markup(catalog.url)})")
-        console.print(f"  Requirement: [bold]{_escape_markup(entry.install.requirement)}[/bold]")
+        console.print(f"  Requirement: [bold]{_escape_markup(plan.requirement or entry.install.requirement)}[/bold]")
         if entry.install.index_url is not None:
             console.print(f"  Index URL: [bold]{_escape_markup(entry.install.index_url)}[/bold]")
         console.print(
@@ -212,17 +221,19 @@ class PluginCatalogController:
         console.print(f"  Command: [bold]{_escape_markup(shlex.join(plan.command))}[/bold]")
         self._display_compatibility(compatibility)
 
+        if is_versioned_install and not compatibility.is_compatible:
+            print_warning(_versioned_install_compatibility_warning())
+
         if plan.source_warning is not None:
             print_warning(plan.source_warning)
 
         if dry_run:
-            if not compatibility.is_compatible:
+            if not compatibility.is_compatible and not is_versioned_install:
                 print_warning(
                     "Dry run complete; no changes made. Install would be blocked because compatibility checks failed."
                 )
                 raise typer.Exit(code=1)
-            else:
-                print_success("Dry run complete; no changes made")
+            print_success("Dry run complete; no changes made")
             return
 
         if not yes and not confirm_action(
@@ -423,6 +434,7 @@ class PluginCatalogController:
         refresh: bool,
         include_incompatible: bool,
         command_name: str,
+        version_specifier: str | None = None,
     ) -> list[PluginCatalogEntry]:
         try:
             package_entries = self.catalog_service.get_package_entries(
@@ -442,6 +454,7 @@ class PluginCatalogController:
                 refresh=refresh,
                 include_incompatible=include_incompatible,
                 command_name=command_name,
+                version_specifier=version_specifier,
             )
             raise typer.Exit(code=1)
         return package_entries
@@ -454,6 +467,7 @@ class PluginCatalogController:
         refresh: bool,
         include_incompatible: bool,
         command_name: str,
+        version_specifier: str | None = None,
     ) -> None:
         try:
             runtime_entries = self.catalog_service.get_runtime_plugin_entries(
@@ -471,7 +485,8 @@ class PluginCatalogController:
         entry = runtime_entries[0]
         package_alias = _package_alias(entry.package.name) or entry.package.name
         _print_guidance(f"{package_name!r} is a runtime plugin exposed by plugin package {entry.package.name!r}.")
-        command = _plugin_package_command(command_name, package_alias, catalog_alias)
+        command_package = f"{package_alias}{version_specifier}" if version_specifier is not None else package_alias
+        command = _plugin_package_command(command_name, command_package, catalog_alias)
         _print_guidance(f"Use the package instead: {shlex.join(command)}")
 
     def _display_empty_list_state(self, catalog_alias: str, *, include_incompatible: bool) -> None:
@@ -689,6 +704,22 @@ def _format_checkmark(value: bool) -> str:
 
 def _format_compatibility_value(compatibility: CompatibilityResult) -> str:
     return "yes" if compatibility.is_compatible else "no"
+
+
+def _parse_install_request_or_exit(package_name: str, *, version: str | None) -> PluginPackageInstallRequest:
+    try:
+        return parse_plugin_package_install_request(package_name, version=version)
+    except ValueError as e:
+        print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+def _versioned_install_compatibility_warning() -> str:
+    return (
+        "Catalog compatibility metadata may describe the catalog's default package version, not the requested version. "
+        "Data Designer packages remain pinned during install; the package manager will fail if the requested plugin "
+        "version cannot use the installed Data Designer version."
+    )
 
 
 def _format_installed_marker(

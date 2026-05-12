@@ -98,7 +98,7 @@ def info_command(
 def install_command(
     ctx: typer.Context,
     package: str = typer.Argument(
-        help="Plugin package name or package alias from the catalog.",
+        help="Plugin package name or package alias from the catalog. May include a version specifier.",
         metavar="PACKAGE",
     ),
     catalog: str | None = typer.Option(
@@ -119,6 +119,11 @@ def install_command(
             "Package manager to use. auto prefers uv; uv adds to the active project when one is detected; "
             "pip mutates the environment."
         ),
+    ),
+    version: str | None = typer.Option(
+        None,
+        "--version",
+        help="Exact plugin package version to install.",
     ),
     yes: bool = typer.Option(
         False,
@@ -142,6 +147,7 @@ def install_command(
         catalog_alias=_resolve_catalog_alias(ctx, catalog),
         refresh=refresh,
         manager=manager,
+        version=version,
         yes=yes,
         dry_run=dry_run,
     )
