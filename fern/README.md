@@ -59,7 +59,7 @@ make serve-fern-docs-locally
 
 ## CI and publishing
 
-Fern publishing mirrors the MkDocs split during migration:
+Fern publishing runs alongside MkDocs during migration:
 
 - `.github/workflows/build-fern-docs.yml` runs on release publication or manual dispatch. It builds executed notebooks, runs `make check-fern-docs`, and publishes Fern.
 - `.github/workflows/publish-fern-devnotes.yml` runs on `main` when Dev Notes or Fern Dev Notes assets change, plus manual dispatch. It reuses the last docs notebook artifact, runs `make check-fern-docs`, and publishes Fern.
