@@ -291,10 +291,25 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     controller.catalog_service.get_catalog.return_value = catalog
     controller.catalog_service.get_package_entries.return_value = package_entries
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
-    controller.install_service.build_install_plan.return_value = _plan(catalog)
+    controller.install_service.build_install_plan.return_value = _plan(
+        catalog,
+        data_designer_protection="uv will keep Data Designer packages pinned",
+    )
 
     controller.run_info("text-transform", catalog_alias="local")
 
+    mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
+    mock_console.print.assert_any_call("  data-designer version: [bold]0.5.10[/bold]")
+    assert all(
+        "Install command" not in str(call_args.args[0])
+        for call_args in mock_console.print.call_args_list
+        if call_args.args
+    )
+    assert all(
+        "Data Designer:" not in str(call_args.args[0])
+        for call_args in mock_console.print.call_args_list
+        if call_args.args
+    )
     metadata = mock_display_config_preview.call_args.args[0]
     assert metadata["package"] == {
         "name": "data-designer-text-transform",
@@ -336,6 +351,41 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     )
     mock_display_config_preview.assert_called_once()
     assert mock_console.print.call_count >= 1
+
+
+@pytest.mark.parametrize(
+    ("install_mode", "expected_strategy"),
+    [
+        ("uv-environment", "uv pip install"),
+        ("uv-project", "uv add"),
+    ],
+)
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.display_config_preview")
+def test_run_info_renders_uv_install_strategy_without_exact_command(
+    mock_display_config_preview: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+    install_mode: str,
+    expected_strategy: str,
+) -> None:
+    entry = _entry()
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.install_service.build_install_plan.return_value = _plan(catalog, manager="uv", install_mode=install_mode)
+
+    controller.run_info("text-transform", catalog_alias="local")
+
+    mock_console.print.assert_any_call(f"  Install strategy: [bold]{expected_strategy}[/bold]")
+    mock_console.print.assert_any_call("  data-designer version: [bold]0.5.10[/bold]")
+    assert all(
+        "Install command" not in str(call_args.args[0])
+        for call_args in mock_console.print.call_args_list
+        if call_args.args
+    )
+    mock_display_config_preview.assert_called_once()
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
@@ -844,15 +894,19 @@ def _plan(
     *,
     source_warning: str | None = None,
     data_designer_protection: str | None = None,
+    manager: str = "pip",
+    install_mode: str = "pip-environment",
 ) -> InstallPlan:
     return InstallPlan(
         package_name="data-designer-text-transform",
         source_description="data-designer-text-transform",
         command=["python", "-m", "pip", "install", "data-designer-text-transform"],
-        manager="pip",
+        manager=manager,
         catalog_alias=catalog.alias,
         source_warning=source_warning,
         data_designer_protection=data_designer_protection,
+        data_designer_version="0.5.10",
+        install_mode=install_mode,
     )
 
 

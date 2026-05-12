@@ -20,6 +20,7 @@ from data_designer.cli.plugin_catalog import (
     PLUGIN_CATALOG_ALIAS_PATTERN,
     CompatibilityResult,
     InstalledPluginInfo,
+    InstallPlan,
     PluginCatalogConfig,
     PluginCatalogEntry,
     PluginCatalogError,
@@ -140,12 +141,9 @@ class PluginCatalogController:
             console.print(f"  Requirement: [bold]{_escape_markup(entry.install.requirement)}[/bold]")
             if entry.install.index_url is not None:
                 console.print(f"  Index URL: [bold]{_escape_markup(entry.install.index_url)}[/bold]")
-            console.print(
-                f"  Install target: [bold]{_escape_markup(_target_description(plan.install_mode, plan.project_root))}[/bold]"
-            )
-            if plan.data_designer_protection is not None:
-                console.print(f"  Data Designer: [bold]{_escape_markup(plan.data_designer_protection)}[/bold]")
-            console.print(f"  Install command: [bold]{_escape_markup(shlex.join(plan.command))}[/bold]")
+            console.print(f"  Install strategy: [bold]{_escape_markup(_install_strategy_description(plan))}[/bold]")
+            if plan.data_designer_version is not None:
+                console.print(f"  data-designer version: [bold]{_escape_markup(plan.data_designer_version)}[/bold]")
             if plan.source_warning is not None:
                 print_warning(plan.source_warning)
         except ValueError as e:
@@ -667,6 +665,18 @@ def _target_description(mode: str, project_root: str | None) -> str:
     if mode == "uv-project" and project_root is not None:
         return f"current uv project ({project_root})"
     return "current Python environment"
+
+
+def _install_strategy_description(plan: InstallPlan) -> str:
+    if plan.install_mode == "uv-project":
+        return "uv add"
+    if plan.install_mode == "uv-environment":
+        return "uv pip install"
+    if plan.manager == "pip":
+        return "pip install"
+    if plan.manager == "uv":
+        return "uv pip install"
+    return plan.manager
 
 
 def _format_runtime_plugins(entries: list[PluginCatalogEntry]) -> str:

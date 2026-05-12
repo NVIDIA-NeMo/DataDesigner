@@ -222,6 +222,7 @@ class InstallPlan:
     catalog_alias: str
     source_warning: str | None = None
     data_designer_protection: str | None = None
+    data_designer_version: str | None = None
     command_stdin: str | None = None
     temporary_file: InstallCommandTemporaryFile | None = None
     install_mode: str = "environment"

@@ -107,6 +107,7 @@ class PluginInstallService:
             catalog_alias=catalog.alias,
             source_warning=_combine_warnings(target.warning, source_warning),
             data_designer_protection=data_designer_protection,
+            data_designer_version=data_designer_versions[DATA_DESIGNER_DISTRIBUTION_NAME],
             command_stdin=command_stdin,
             temporary_file=temporary_file,
             install_mode=target.mode,
