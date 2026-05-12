@@ -47,12 +47,23 @@ jobs:
         run: |
           mkdir -p docs/notebooks
 
-          for workflow in build-fern-docs.yml build-docs.yml; do
-            LAST_RUN_ID=$(gh run list --workflow "$workflow" --status success --branch main --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
-            if [ -n "$LAST_RUN_ID" ] && gh run download "$LAST_RUN_ID" --name notebooks --dir docs/notebooks; then
-              echo "::notice::Downloaded notebooks from $workflow run $LAST_RUN_ID"
+          download_notebooks() {
+            workflow="$1"
+            shift
+
+            last_run_id=$(gh run list --workflow "$workflow" --status success "$@" --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
+            if [ -n "$last_run_id" ] && gh run download "$last_run_id" --name notebooks --dir docs/notebooks; then
+              echo "::notice::Downloaded notebooks from $workflow run $last_run_id"
               exit 0
             fi
+          }
+
+          for workflow in build-fern-docs.yml build-docs.yml; do
+            download_notebooks "$workflow" --event release
+          done
+
+          for workflow in build-fern-docs.yml build-docs.yml; do
+            download_notebooks "$workflow" --event workflow_dispatch --branch main
           done
 
           echo "::error::No successful docs build run with notebook artifacts found."

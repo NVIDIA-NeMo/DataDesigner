@@ -19,6 +19,7 @@ permissions: {}
 
 jobs:
   check-release-version:
+    if: github.event_name != 'release' || github.event.release.prerelease != true
     runs-on: ubuntu-latest
     permissions:
       contents: read
