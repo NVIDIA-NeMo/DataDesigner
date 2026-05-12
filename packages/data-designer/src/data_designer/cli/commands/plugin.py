@@ -7,7 +7,7 @@ import click
 import typer
 
 from data_designer.cli.controllers.plugin_catalog_controller import PluginCatalogController
-from data_designer.cli.ui import print_info
+from data_designer.cli.ui import print_warning
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 
@@ -258,4 +258,4 @@ def _parent_catalog_alias(ctx: typer.Context) -> str | None:
 def _warn_if_parent_catalog_unused(ctx: typer.Context, reason: str) -> None:
     catalog_alias = _parent_catalog_alias(ctx)
     if catalog_alias is not None:
-        print_info(f"Ignoring --catalog {catalog_alias!r}; {reason}.")
+        print_warning(f"Ignoring --catalog {catalog_alias!r}; {reason}.")

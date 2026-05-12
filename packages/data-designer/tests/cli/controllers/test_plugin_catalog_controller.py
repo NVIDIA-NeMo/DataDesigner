@@ -36,11 +36,9 @@ def controller(tmp_path: Path) -> PluginCatalogController:
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
 def test_run_list_mentions_hidden_incompatible_packages_when_visible_list_is_empty(
     mock_print_warning: MagicMock,
-    mock_print_info: MagicMock,
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
@@ -56,18 +54,16 @@ def test_run_list_mentions_hidden_incompatible_packages_when_visible_list_is_emp
         call("local", refresh=False, include_incompatible=True),
     ]
     mock_print_warning.assert_called_once_with("No compatible plugin packages found")
-    mock_print_info.assert_any_call(
-        "Incompatible catalog packages are hidden. Use --include-incompatible to show them."
+    mock_console.print.assert_any_call(
+        "  Incompatible catalog packages are hidden. Use --include-incompatible to show them."
     )
     assert mock_console.print.call_count >= 1
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
 def test_run_search_mentions_hidden_incompatible_packages_when_visible_matches_are_empty(
     mock_print_warning: MagicMock,
-    mock_print_info: MagicMock,
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
@@ -83,18 +79,16 @@ def test_run_search_mentions_hidden_incompatible_packages_when_visible_matches_a
         call("text", "local", refresh=False, include_incompatible=True),
     ]
     mock_print_warning.assert_called_once_with("No compatible plugin packages matched")
-    mock_print_info.assert_any_call(
-        "Matching incompatible catalog packages are hidden. Use --include-incompatible to show them."
+    mock_console.print.assert_any_call(
+        "  Matching incompatible catalog packages are hidden. Use --include-incompatible to show them."
     )
     assert mock_console.print.call_count >= 1
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
 def test_run_search_suggests_nearby_packages_when_no_entries_match(
     mock_print_warning: MagicMock,
-    mock_print_info: MagicMock,
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
@@ -108,8 +102,8 @@ def test_run_search_suggests_nearby_packages_when_no_entries_match(
     controller.run_search("github import", catalog_alias="local")
 
     mock_print_warning.assert_called_once_with("No matching plugin packages found")
-    mock_print_info.assert_any_call("Closest package matches: data-designer-github")
-    mock_print_info.assert_any_call("Try fewer terms, a package alias, or a runtime plugin name.")
+    mock_console.print.assert_any_call("  Closest package matches: data-designer-github")
+    mock_console.print.assert_any_call("  Try fewer terms, a package alias, or a runtime plugin name.")
     assert mock_console.print.call_count >= 1
 
 
@@ -370,11 +364,11 @@ def test_run_info_warns_when_install_plan_has_source_warning(
     assert mock_console.print.call_count >= 1
 
 
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
 def test_run_info_suggests_package_when_target_is_runtime_plugin_name(
     mock_print_error: MagicMock,
-    mock_print_info: MagicMock,
+    mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry(name="text-column", plugin_type="column-generator")
@@ -394,16 +388,18 @@ def test_run_info_suggests_package_when_target_is_runtime_plugin_name(
         include_incompatible=True,
     )
     mock_print_error.assert_called_once_with("Plugin package or alias 'text-column' was not found in catalog 'local'")
-    mock_print_info.assert_any_call(
-        "'text-column' is a runtime plugin exposed by plugin package 'data-designer-text-transform'."
+    mock_console.print.assert_any_call(
+        "  'text-column' is a runtime plugin exposed by plugin package 'data-designer-text-transform'."
     )
-    mock_print_info.assert_any_call("Use the package instead: data-designer plugin --catalog local info text-transform")
+    mock_console.print.assert_any_call(
+        "  Use the package instead: data-designer plugin --catalog local info text-transform"
+    )
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_success")
 def test_run_install_dry_run_renders_plan_without_installing(
-    mock_print_info: MagicMock,
+    mock_print_success: MagicMock,
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
@@ -425,7 +421,7 @@ def test_run_install_dry_run_renders_plan_without_installing(
     )
     controller.install_service.install.assert_not_called()
     controller.install_service.verify_entry_points.assert_not_called()
-    mock_print_info.assert_any_call("Dry run complete; no changes made")
+    mock_print_success.assert_any_call("Dry run complete; no changes made")
     mock_console.print.assert_any_call(
         "  Data Designer: [bold]pinned installed Data Designer packages; data-designer 0.5.10[/bold]"
     )
@@ -469,11 +465,11 @@ def test_run_install_blocks_incompatible_package(
     assert "  - Data Designer 0.5.7 does not satisfy >=99.0" in reason_lines
 
 
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
 def test_run_install_suggests_package_when_target_is_runtime_plugin_name(
     mock_print_error: MagicMock,
-    mock_print_info: MagicMock,
+    mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
     entry = _entry(name="text-column", plugin_type="column-generator")
@@ -494,11 +490,11 @@ def test_run_install_suggests_package_when_target_is_runtime_plugin_name(
     )
     controller.install_service.build_install_plan.assert_not_called()
     mock_print_error.assert_called_once_with("Plugin package or alias 'text-column' was not found in catalog 'local'")
-    mock_print_info.assert_any_call(
-        "'text-column' is a runtime plugin exposed by plugin package 'data-designer-text-transform'."
+    mock_console.print.assert_any_call(
+        "  'text-column' is a runtime plugin exposed by plugin package 'data-designer-text-transform'."
     )
-    mock_print_info.assert_any_call(
-        "Use the package instead: data-designer plugin --catalog local install text-transform"
+    mock_console.print.assert_any_call(
+        "  Use the package instead: data-designer plugin --catalog local install text-transform"
     )
 
 
@@ -652,9 +648,9 @@ def test_run_install_warns_when_verification_misses_entry_point(
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_info")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_success")
 def test_run_uninstall_dry_run_renders_plan_without_uninstalling(
-    mock_print_info: MagicMock,
+    mock_print_success: MagicMock,
     mock_console: MagicMock,
     controller: PluginCatalogController,
 ) -> None:
@@ -680,7 +676,7 @@ def test_run_uninstall_dry_run_renders_plan_without_uninstalling(
         "  Command: [bold]python -m pip uninstall --yes data-designer-text-transform[/bold]"
     )
     assert all("Runtime plugins" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list)
-    mock_print_info.assert_any_call("Dry run complete; no changes made")
+    mock_print_success.assert_any_call("Dry run complete; no changes made")
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
