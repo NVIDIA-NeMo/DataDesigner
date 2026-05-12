@@ -305,11 +305,11 @@ class PluginCatalogController:
             )
 
     def run_installed(self) -> None:
-        """List installed runtime plugins without importing plugin modules."""
-        print_header("Installed Data Designer Runtime Plugins")
+        """List installed plugin packages without importing plugin modules."""
+        print_header("Installed Data Designer Plugin Packages")
         installed_plugins = self.catalog_service.list_installed_plugins()
         if not installed_plugins:
-            print_warning("No installed Data Designer runtime plugins were discovered")
+            print_warning("No installed Data Designer plugin packages were discovered")
             return
         self._display_installed_plugins(installed_plugins)
 
@@ -590,18 +590,16 @@ class PluginCatalogController:
 
     @staticmethod
     def _display_installed_plugins(installed_plugins: list[InstalledPluginInfo]) -> None:
-        table = Table(title="Installed Runtime Plugins", border_style=NordColor.NORD8.value)
-        table.add_column("Runtime Plugin", style=NordColor.NORD14.value, no_wrap=True)
-        table.add_column("Package", style=NordColor.NORD9.value, no_wrap=True)
+        table = Table(title="Installed Plugin Packages", border_style=NordColor.NORD8.value)
+        table.add_column("Package", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("Version", style=NordColor.NORD13.value, no_wrap=True)
-        table.add_column("Entry Point", style=NordColor.NORD4.value)
+        table.add_column("Runtime Plugins", style=NordColor.NORD9.value)
 
-        for plugin in installed_plugins:
+        for package_name, package_version, package_plugins in _group_installed_plugins_by_package(installed_plugins):
             table.add_row(
-                _escape_markup(plugin.name),
-                _escape_markup(plugin.package_name or ""),
-                _escape_markup(plugin.package_version or ""),
-                _escape_markup(plugin.entry_point_value),
+                _escape_markup(package_name),
+                _escape_markup(package_version),
+                _escape_markup(", ".join(plugin.name for plugin in package_plugins)),
             )
         console.print(table)
 
@@ -739,6 +737,21 @@ def _package_entries_are_installed(
     return bool(package_entries) and all(
         (entry.entry_point.name, entry.entry_point.value) in installed_entry_points for entry in package_entries
     )
+
+
+def _group_installed_plugins_by_package(
+    installed_plugins: list[InstalledPluginInfo],
+) -> list[tuple[str, str, list[InstalledPluginInfo]]]:
+    groups: dict[tuple[str, str], list[InstalledPluginInfo]] = {}
+    for plugin in installed_plugins:
+        package_name = plugin.package_name or "unknown"
+        package_version = plugin.package_version or ""
+        groups.setdefault((package_name, package_version), []).append(plugin)
+
+    return [
+        (package_name, package_version, sorted(package_plugins, key=lambda plugin: plugin.name))
+        for (package_name, package_version), package_plugins in sorted(groups.items())
+    ]
 
 
 def _package_alias(package_name: str) -> str | None:

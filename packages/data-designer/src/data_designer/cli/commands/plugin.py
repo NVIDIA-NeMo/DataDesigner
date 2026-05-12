@@ -203,8 +203,8 @@ def uninstall_command(
 
 
 def installed_command(ctx: typer.Context) -> None:
-    """List installed Data Designer runtime plugins with package metadata."""
-    _warn_if_parent_catalog_unused(ctx, "installed runtime plugins are discovered from the current Python environment")
+    """List installed Data Designer plugin packages with runtime plugin metadata."""
+    _warn_if_parent_catalog_unused(ctx, "installed plugin packages are discovered from the current Python environment")
     controller = PluginCatalogController(DATA_DESIGNER_HOME)
     controller.run_installed()
 
