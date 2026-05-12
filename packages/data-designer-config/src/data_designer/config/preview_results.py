@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 
 if TYPE_CHECKING:
@@ -41,3 +42,15 @@ class PreviewResults(WithRecordSamplerMixin):
         self.dataset_metadata: DatasetMetadata | None = dataset_metadata
         self.task_traces: list[Any] | None = task_traces
         self._config_builder = config_builder
+
+    def to_config_builder(self, columns: list[str] | None = None) -> DataDesignerConfigBuilder:
+        """Create a new config builder seeded from this preview dataset."""
+        if self.dataset is None:
+            raise ValueError("Preview dataset is not available.")
+        df = self.dataset
+        if columns is not None:
+            df = df.loc[:, columns]
+        return DataDesignerConfigBuilder(
+            model_configs=self._config_builder.model_configs,
+            tool_configs=self._config_builder.tool_configs,
+        ).with_seed_dataset(DataFrameSeedSource(df=df.copy()))

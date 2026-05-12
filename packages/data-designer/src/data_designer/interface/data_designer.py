@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -74,6 +76,7 @@ from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
     from data_designer.engine.models.facade import ModelFacade
+    from data_designer.interface.composite_workflow import CompositeWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +154,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
+        self._create_lock = threading.Lock()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
         # Only consult the YAML's `default:` key when we are also falling back to
@@ -359,6 +363,39 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             task_traces=task_traces,
         )
 
+    async def acreate(
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        num_records: int = DEFAULT_NUM_RECORDS,
+        dataset_name: str = "dataset",
+        resume: ResumeMode = ResumeMode.NEVER,
+    ) -> DatasetCreationResults:
+        """Async wrapper for creating a dataset without blocking the caller's event loop."""
+        return await asyncio.to_thread(
+            self._create_threadsafe,
+            config_builder,
+            num_records=num_records,
+            dataset_name=dataset_name,
+            resume=resume,
+        )
+
+    def _create_threadsafe(
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        num_records: int,
+        dataset_name: str,
+        resume: ResumeMode,
+    ) -> DatasetCreationResults:
+        with self._create_lock:
+            return self.create(
+                config_builder,
+                num_records=num_records,
+                dataset_name=dataset_name,
+                resume=resume,
+            )
+
     def preview(
         self, config_builder: DataDesignerConfigBuilder, *, num_records: int = DEFAULT_NUM_RECORDS
     ) -> PreviewResults:
@@ -444,6 +481,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             dataset_metadata=dataset_metadata,
             task_traces=builder.task_traces or None,
         )
+
+    def compose_workflow(self, *, name: str) -> CompositeWorkflow:
+        from data_designer.interface.composite_workflow import CompositeWorkflow
+
+        return CompositeWorkflow(name=name, data_designer=self)
 
     def _log_jinja_rendering_engine_mode(self) -> None:
         engine = JinjaRenderingEngine(self._run_config.jinja_rendering_engine)
