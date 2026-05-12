@@ -284,7 +284,9 @@ def test_get_runtime_plugin_entries_resolves_runtime_name_without_package_aliasi
 
 
 def test_get_package_current_version_prefers_catalog_metadata() -> None:
-    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7")
+    service = PluginCatalogService(
+        Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7"
+    )
     entry_data = _entry(
         name="alpha",
         plugin_type="processor",
@@ -298,7 +300,9 @@ def test_get_package_current_version_prefers_catalog_metadata() -> None:
 
 
 def test_get_package_current_version_uses_exact_requirement_version() -> None:
-    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7")
+    service = PluginCatalogService(
+        Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7"
+    )
     entry_data = _entry(
         name="alpha",
         plugin_type="processor",
@@ -315,7 +319,9 @@ def test_get_package_current_version_uses_exact_requirement_version() -> None:
 def test_get_package_current_version_reads_package_index(
     mock_urlopen: Mock,
 ) -> None:
-    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7")
+    service = PluginCatalogService(
+        Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7"
+    )
     entry = PluginCatalogEntry.model_validate(
         _entry(
             name="alpha",
@@ -345,7 +351,9 @@ def test_get_package_current_version_reads_package_index(
 def test_get_package_current_version_returns_none_when_index_is_unavailable(
     mock_urlopen: Mock,
 ) -> None:
-    service = PluginCatalogService(Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7")
+    service = PluginCatalogService(
+        Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7"
+    )
     entry = PluginCatalogEntry.model_validate(
         _entry(
             name="alpha",
