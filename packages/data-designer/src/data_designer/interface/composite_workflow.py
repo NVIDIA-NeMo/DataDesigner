@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 import time
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, ItemsView, Iterator, KeysView
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -24,8 +24,13 @@ from data_designer.interface.errors import DataDesignerWorkflowError
 from data_designer.interface.results import DatasetCreationResults
 
 if TYPE_CHECKING:
+    import pandas as pd
+
+    from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
     from data_designer.interface.data_designer import DataDesigner
 
+
+logger = logging.getLogger(__name__)
 
 OnSuccessCallback = Callable[[Path], Path | str]
 
@@ -50,13 +55,21 @@ class SkippedStageResult:
 
 
 class CompositeWorkflowResults:
+    """Results for a composite workflow run.
+
+    Per-stage entries are the original ``DataDesigner.create()`` results. If a
+    stage uses ``on_success``, metadata and downstream seeding use the callback
+    output path while the stage result still points at the stage's generated
+    dataset.
+    """
+
     def __init__(
         self,
         *,
         name: str,
         stage_results: dict[str, DatasetCreationResults | SkippedStageResult],
         final_stage_name: str,
-    ):
+    ) -> None:
         self.name = name
         self.stage_results = stage_results
         self.final_stage_name = final_stage_name
@@ -67,10 +80,10 @@ class CompositeWorkflowResults:
     def __iter__(self) -> Iterator[str]:
         return iter(self.stage_results)
 
-    def keys(self):
+    def keys(self) -> KeysView[str]:
         return self.stage_results.keys()
 
-    def items(self):
+    def items(self) -> ItemsView[str, DatasetCreationResults | SkippedStageResult]:
         return self.stage_results.items()
 
     @property
@@ -80,24 +93,24 @@ class CompositeWorkflowResults:
             raise DataDesignerWorkflowError(f"Final stage {self.final_stage_name!r} was skipped: {result.status}.")
         return result
 
-    def load_dataset(self):
+    def load_dataset(self) -> pd.DataFrame:
         return self.final_result.load_dataset()
 
-    def load_analysis(self):
+    def load_analysis(self) -> DatasetProfilerResults:
         return self.final_result.load_analysis()
 
     def count_records(self) -> int:
         return self.final_result.count_records()
 
-    def export(self, *args, **kwargs):
+    def export(self, *args: Any, **kwargs: Any) -> Path:
         return self.final_result.export(*args, **kwargs)
 
-    def push_to_hub(self, *args, **kwargs):
+    def push_to_hub(self, *args: Any, **kwargs: Any) -> str:
         return self.final_result.push_to_hub(*args, **kwargs)
 
 
 class CompositeWorkflow:
-    def __init__(self, *, name: str, data_designer: DataDesigner):
+    def __init__(self, *, name: str, data_designer: DataDesigner) -> None:
         _validate_dir_name(name, "workflow name")
         self.name = name
         self._data_designer = data_designer
@@ -123,7 +136,7 @@ class CompositeWorkflow:
         self._stages.append(
             _WorkflowStage(
                 name=name,
-                config_builder=config_builder,
+                config_builder=_clone_config_builder(config_builder),
                 depends_on=(self._stages[-1].name,) if self._stages else (),
                 num_records=num_records,
                 on_success=on_success,
@@ -136,6 +149,7 @@ class CompositeWorkflow:
         return self
 
     def run(self) -> CompositeWorkflowResults:
+        """Run all stages from scratch, replacing deterministic stage directories."""
         if not self._stages:
             raise DataDesignerWorkflowError(f"Workflow {self.name!r} has no stages.")
 
@@ -174,6 +188,12 @@ class CompositeWorkflow:
 
             stage_builder = _clone_config_builder(stage.config_builder)
             if previous_seed_path is not None:
+                if stage_builder.get_seed_config() is not None:
+                    logger.warning(
+                        "Stage %r has a seed dataset; workflow will seed it from upstream stage %r.",
+                        stage.name,
+                        previous_stage_name,
+                    )
                 stage_builder.with_seed_dataset(
                     _local_seed_source_from_path(previous_seed_path),
                     sampling_strategy=stage.sampling_strategy,
@@ -206,12 +226,12 @@ class CompositeWorkflow:
 
             start_time = time.monotonic()
             try:
-                with _temporary_artifact_path(self._data_designer, workflow_path):
-                    result = self._data_designer.create(
-                        stage_builder,
-                        num_records=num_records,
-                        dataset_name=stage_dir_name,
-                    )
+                result = self._data_designer.create(
+                    stage_builder,
+                    num_records=num_records,
+                    dataset_name=stage_dir_name,
+                    artifact_path=workflow_path,
+                )
                 actual_records = result.count_records()
                 output_seed_path = result.artifact_storage.final_dataset_path
                 callback_output_path = None
@@ -261,16 +281,6 @@ class CompositeWorkflow:
 
 def _clone_config_builder(config_builder: DataDesignerConfigBuilder) -> DataDesignerConfigBuilder:
     return DataDesignerConfigBuilder.from_config(BuilderConfig(data_designer=config_builder.build()))
-
-
-@contextmanager
-def _temporary_artifact_path(data_designer: DataDesigner, artifact_path: Path):
-    original_artifact_path = data_designer._artifact_path
-    data_designer._artifact_path = artifact_path
-    try:
-        yield
-    finally:
-        data_designer._artifact_path = original_artifact_path
 
 
 def _stage_dir_name(index: int, name: str) -> str:
