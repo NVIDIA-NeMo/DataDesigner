@@ -65,6 +65,8 @@ results["judged"].load_dataset()         # final output
 
 Each stage can use a different `DataDesignerConfig`, including different model configs. v1 still uses the parent `DataDesigner` instance and run settings for all stages; per-stage `RunConfig` and compute placement are future work.
 
+Stage names must be unique within a `CompositeWorkflow`. `add_stage()` validates this immediately and raises `DataDesignerWorkflowError` on duplicates before any artifact directory is created. This keeps `CompositeWorkflowResults`, `workflow-metadata.json`, and Phase 3 fingerprint lookup unambiguous.
+
 **Convenience method on results (lightweight, for notebooks):**
 
 For interactive use where a full composite workflow is overkill, a `to_config_builder()` method on `DatasetCreationResults` returns a pre-seeded `DataDesignerConfigBuilder`:
@@ -357,7 +359,7 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - Internal stage representation is a DAG (linear-only inputs in v1).
 - Add `workflow-metadata.json` writing.
 - Add `compose_workflow(name: str)` factory method on `DataDesigner`.
-- Tests: multi-stage runs, explode/filter via callbacks, num_records defaulting, artifact layout, throttle reuse across stages.
+- Tests: multi-stage runs, explode/filter via callbacks, num_records defaulting, duplicate stage-name rejection, artifact layout, throttle reuse across stages.
 
 ### Sidecar: `acreate()` on `DataDesigner` (independent of chaining v1)
 
@@ -396,7 +398,7 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - Join data contract is not automatic dataset fan-in. A multi-parent child still needs one concrete seed dataset; Phase 4 can require a single declared seed parent or an explicit merge stage/callback that writes one `LocalFileSeedSource`-compatible dataset. First-class multi-parent callbacks keyed by parent name are future work.
 - Throttle coordination relies on the existing invariant: all branches run on the same parent `DataDesigner`, so `ThrottleManager` is shared.
 - Hard dependency on the `acreate()` sidecar.
-- **Scope: branch parallelism, not stage pipelining.** Stages still wait for their dependencies to fully complete before starting; pipelined execution of dependent stages is a separate direction sketched in Future considerations.
+- **Scope: branch parallelism, not streaming dependent-stage execution.** Stages still wait for their dependencies to fully complete before starting; overlapped execution across a dependency edge is a separate direction sketched in Future considerations.
 - Tests: fan-out (one upstream, multiple parallel children); join (multiple upstreams, one child); resume invalidation when one branch's fingerprint changes; throttle behavior under N parallel branches.
 
 ## Future considerations
@@ -405,7 +407,7 @@ Items not on the current roadmap but worth flagging so they don't get accidental
 
 **External orchestration for cross-process / distributed execution.** There is interest in eventually running DataDesigner workloads across processes or nodes - self-hosted serving, multi-host fan-out, scheduling against external clusters. The specific shape of that orchestration is still under discussion and is not committed to here. The chaining plan's design choices (parent `DataDesigner` reuse, on-disk handoffs, no new engine surface) compose naturally with such a system: an external orchestrator could dispatch independent `DataDesigner.create()` calls against partitioned slices and per-replica endpoints without the `CompositeWorkflow` class needing to change. Phases 1-4 do not depend on this materializing.
 
-**Pipelined execution of dependent stages.** Today the stage data contract is "final dataset" - a downstream stage waits for its upstream to fully complete. A future direction is to let downstream stages consume upstream batches as they're produced, overlapping execution across the dependency edge. Required changes: streaming seed sources, an explicit "stage done" sentinel rather than file-completion checks, and resume semantics for partially-consumed upstreams. Most useful when stage bottlenecks are heterogeneous (LLM-bound stage feeding a CPU-bound validator); little gain when both stages are LLM-bound since they share provider capacity. Not designed here; flagged so the stage contract isn't quietly closed off.
+**Streaming dependent-stage execution.** Today the stage data contract is "final dataset" - a downstream stage waits for its upstream to fully complete. A future direction is to let downstream stages consume upstream batches as they're produced, overlapping execution across the dependency edge. Required changes: streaming seed sources, an explicit "stage done" sentinel rather than file-completion checks, and resume semantics for partially-consumed upstreams. Most useful when stage bottlenecks are heterogeneous (LLM-bound stage feeding a CPU-bound validator); little gain when both stages are LLM-bound since they share provider capacity. Not designed here; flagged so the stage contract isn't quietly closed off.
 
 **Stage-level run config and compute placement.** v1 stages can have different `DataDesignerConfig` values, including different model configs, but reuse the parent `DataDesigner` and run settings for shared throttle coordination. A future extension can allow per-stage `RunConfig`, provider, or compute placement, but it needs explicit rules for throttling, artifact ownership, and cross-process resume.
 
@@ -419,7 +421,7 @@ Items not on the current roadmap but worth flagging so they don't get accidental
 
 These were open in earlier drafts; recording the resolutions here so the design is unambiguous.
 
-1. **Naming** -> The public abstraction is `CompositeWorkflow`, created through `data_designer.compose_workflow(name=...)`. This makes composition of multiple independent workflows explicit without implying a product-level pipeline builder or a strictly linear linked list.
+1. **Naming** -> The public abstraction is `CompositeWorkflow`, created through `data_designer.compose_workflow(name=...)`. This makes composition of multiple independent workflows explicit without implying a broader builder abstraction or a strictly linear linked list.
 
 2. **In-memory vs on-disk handoff between stages** -> Always on-disk inside `CompositeWorkflow`. The in-memory `DataFrameSeedSource` mode is reserved for the lightweight `to_config_builder()` notebook ergonomic, which is explicitly *not* a `CompositeWorkflow`. Reasons: single execution model, simpler resume story, and composability with any future external orchestration that can't share an in-memory DataFrame across process boundaries. Cost is one parquet round-trip per stage, negligible relative to LLM call time.
 
