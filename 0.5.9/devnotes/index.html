@@ -14,7 +14,7 @@
         <link rel="prev" href="../code_reference/analysis/">
       
       
-        <link rel="next" href="training-a-vlm-to-understand-long-documents-an-iterative-sdg-story/">
+        <link rel="next" href="have-it-your-way-customizing-data-designer-with-plugins/">
       
       
         
@@ -3066,6 +3066,8 @@
       
         
       
+        
+      
     
     
     
@@ -3113,6 +3115,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="have-it-your-way-customizing-data-designer-with-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Have It Your Way: Customizing Data Designer with Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -3442,10 +3472,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_13" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_14" >
         
           
-          <label class="md-nav__link" for="__nav_7_13" id="__nav_7_13_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7_14" id="__nav_7_14_label" tabindex="0">
             
   
   
@@ -3463,8 +3493,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_13_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_13">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_14">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3544,6 +3574,17 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#have-it-your-way-customizing-data-designer-with-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Have It Your Way: Customizing Data Designer with Plugins
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#training-a-vlm-to-understand-long-documents-an-iterative-sdg-story" class="md-nav__link">
@@ -3644,17 +3685,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#designing-data-designer-why-sdg-is-a-systems-problem" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Designing Data Designer: Why SDG Is a Systems Problem
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -3671,6 +3701,54 @@
 <p>Welcome to NeMo Data Designer Dev Notes! Here you'll find in-depth guides, tutorials, and insights about synthetic data generation.</p>
 <!-- Dev notes will automatically appear below -->
       </header>
+      
+        <article class="md-post md-post--excerpt">
+  <header class="md-post__header">
+    
+      <nav class="md-post__authors md-typeset">
+        
+          <span class="md-author">
+            <img src="https://avatars.githubusercontent.com/u/10998105?v=4" alt="Johnny Greco">
+          </span>
+        
+      </nav>
+    
+    <div class="md-post__meta md-meta">
+      <ul class="md-meta__list">
+        <li class="md-meta__item">
+          <time datetime="2026-05-05 00:00:00+00:00">May 5, 2026</time></li>
+        
+        
+          
+          <li class="md-meta__item">
+            
+              7 min read
+            
+          </li>
+        
+        
+      </ul>
+      
+    </div>
+  </header>
+  <div class="md-post__content md-typeset">
+    <h2 id="have-it-your-way-customizing-data-designer-with-plugins"><a class="toclink" href="have-it-your-way-customizing-data-designer-with-plugins/"><strong>Have It Your Way: Customizing Data Designer with Plugins</strong></a></h2>
+<p class="devnote-dek"><em>A plugin framework for the custom pieces every real project ends up needing</em></p>
+
+<p><img alt="Data Designer plugin extensions" class="devnote-float-right devnote-hide-in-index" src="assets/have-it-your-way/data-designer-plugins-hero.png" /></p>
+<p>Data Designer is built around a simple idea: describe the dataset you want, and let the framework handle execution. A config points to seed data, defines generated columns, picks models, and shapes the final records — no orchestration code required. <a href="../plugins/overview/">Data Designer plugins</a> keep that promise when a project needs something custom.</p>
+<p>As of Data Designer <a href="https://github.com/NVIDIA-NeMo/DataDesigner/releases/tag/v0.6.0">v0.6.0</a>, plugins are out of experimental mode and stable. They are the supported path for turning reusable project-specific logic into normal Data Designer components.</p>
+
+    
+      <nav class="md-post__action">
+        <a href="have-it-your-way-customizing-data-designer-with-plugins/">
+          Continue reading
+        </a>
+      </nav>
+    
+    
+  </div>
+</article>
       
         <article class="md-post md-post--excerpt">
   <header class="md-post__header">
@@ -4071,50 +4149,6 @@ Nah. Call <code>.push_to_hub()</code> and you've got a live dataset page on Hugg
   </div>
 </article>
       
-        <article class="md-post md-post--excerpt">
-  <header class="md-post__header">
-    
-      <nav class="md-post__authors md-typeset">
-        
-          <span class="md-author">
-            <img src="https://avatars.githubusercontent.com/u/8190572?v=4" alt="Kirit Thadaka">
-          </span>
-        
-      </nav>
-    
-    <div class="md-post__meta md-meta">
-      <ul class="md-meta__list">
-        <li class="md-meta__item">
-          <time datetime="2026-02-10 00:00:00+00:00">February 10, 2026</time></li>
-        
-        
-          
-          <li class="md-meta__item">
-            
-              9 min read
-            
-          </li>
-        
-        
-      </ul>
-      
-    </div>
-  </header>
-  <div class="md-post__content md-typeset">
-    <h2 id="designing-data-designer-why-sdg-is-a-systems-problem"><a class="toclink" href="designing-data-designer-why-sdg-is-a-systems-problem/"><strong>Designing Data Designer: Why SDG Is a Systems Problem</strong></a></h2>
-<p>Synthetic data generation is more than a single prompt to a large language model. In this post, we walk through the design principles behind NeMo Data Designer and explain why we built it as a composable orchestration framework - treating SDG as a system of specialized stages rather than a monolithic generation task.</p>
-
-    
-      <nav class="md-post__action">
-        <a href="designing-data-designer-why-sdg-is-a-systems-problem/">
-          Continue reading
-        </a>
-      </nav>
-    
-    
-  </div>
-</article>
-      
       
         
           
@@ -4159,13 +4193,13 @@ Nah. Call <code>.push_to_hub()</code> and you've got a live dataset page on Hugg
         
         
           
-          <a href="training-a-vlm-to-understand-long-documents-an-iterative-sdg-story/" class="md-footer__link md-footer__link--next" aria-label="Next: Training a VLM to Understand Long Documents: An Iterative SDG Story">
+          <a href="have-it-your-way-customizing-data-designer-with-plugins/" class="md-footer__link md-footer__link--next" aria-label="Next: Have It Your Way: Customizing Data Designer with Plugins">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Training a VLM to Understand Long Documents: An Iterative SDG Story
+                Have It Your Way: Customizing Data Designer with Plugins
               </div>
             </div>
             <div class="md-footer__button md-icon">
