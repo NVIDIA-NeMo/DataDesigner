@@ -71,7 +71,7 @@ nav:
       - Overview: plugins/overview.md
       - Build Your Own: plugins/build_your_own.md
       - Using Models: plugins/models.md
-      - Available Plugins: plugins/available.md
+      - Discover Plugins: plugins/discover.md
   - Code Reference:
       - Overview: code_reference/index.md
       # Keep module reference pages ordered alphabetically by nav label within each package group.

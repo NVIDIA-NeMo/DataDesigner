@@ -137,8 +137,8 @@ navigation:
         path: ./v0.5.8/pages/plugins/example.mdx
       - page: FileSystemSeedReader Plugins
         path: ./v0.5.8/pages/plugins/filesystem_seed_reader.mdx
-      - page: Available Plugin List
-        path: ./v0.5.8/pages/plugins/available.mdx
+      - page: Discover
+        path: ./v0.5.8/pages/plugins/discover.mdx
   - section: Code Reference
     contents:
       - section: Topic Overviews

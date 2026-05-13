@@ -20,17 +20,9 @@ Plugins are Python packages that extend Data Designer's capabilities without mod
 
 ## How do you use plugins?
 
-A Data Designer plugin is just a Python package configured with an [entry point](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata) that points to a Data Designer `Plugin` object. Using a plugin is as simple as installing the package:
+A Data Designer plugin is just a Python package configured with an [entry point](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata) that points to a Data Designer `Plugin` object. Once installed, plugins are automatically discovered and ready to use — no additional registration or configuration needed.
 
-```bash
-# Install a local plugin (for development and testing)
-uv pip install -e /path/to/your/plugin
-
-# Or install a published plugin from PyPI
-pip install data-designer-{plugin-name}
-```
-
-Once installed, plugins are automatically discovered and ready to use — no additional registration or configuration needed. See the [example plugin](/plugins/example-plugin) for a complete walkthrough, or jump to [FileSystemSeedReader Plugins](/plugins/filesystemseedreader-plugins) for filesystem-backed seed reader authoring.
+Use the Data Designer CLI to discover and install published plugin packages from catalogs. See [Discover Plugins](/plugins/discover) for the catalog workflow. See the [example plugin](/plugins/example-plugin) for a complete authoring walkthrough, or jump to [FileSystemSeedReader Plugins](/plugins/filesystemseedreader-plugins) for filesystem-backed seed reader authoring.
 
 ## How do you create plugins?
 
@@ -64,8 +56,8 @@ Each plugin has three components, and we recommend organizing them into separate
 
 ### 4. Share Your Plugin (Optional)
 
-- Publish to PyPI or another package index to make it installable by anyone via `pip install`
-- This step is only needed if you want others outside your environment to use the plugin
+- Publish to PyPI, another package index, or a direct package reference when you want others outside your environment to install the plugin
+- Add the package to a plugin catalog so users can discover and install it through `data-designer plugin`
 
 **Example entry point for a processor plugin:**
 
