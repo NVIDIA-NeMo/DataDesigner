@@ -31,7 +31,7 @@ Do not call a version frozen if its YAML points at shared pages that may change 
 
 ## Release Prep
 
-Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow prepares the Fern snapshot for publishing and opens a follow-up PR back to `main` if generated release files are not already committed.
+Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow snapshots Fern docs into the CI-managed `docs-website` branch and publishes from that branch.
 
 If a user asks to preview or hand-curate the release docs before tagging:
 
@@ -43,6 +43,6 @@ If a user asks to preview or hand-curate the release docs before tagging:
 6. Update `latest.yml` if the rolling docs should diverge after release prep.
 7. Run `make check-fern-docs`.
 
-Release publishing runs `fern/scripts/fern-release-version.py prepare --force` and `check` before building notebooks. If `latest.yml` cannot be made to match the release nav, the workflow should fail early.
+Release publishing runs `fern/scripts/fern-published-branch.py sync-source`, then `fern/scripts/fern-release-version.py prepare --force` and `check`. If `latest.yml` cannot be made to match the release nav on `docs-website`, the workflow should fail early.
 
 Older releases before the Fern migration stay on the MkDocs archive through the "Older versions" page and redirects in `docs.yml`.

@@ -61,13 +61,15 @@ make serve-fern-docs-locally
 
 Fern publishing runs alongside MkDocs during migration:
 
-- `.github/workflows/build-fern-docs.yml` runs on release publication or manual dispatch. It builds executed notebooks, runs `make check-fern-docs`, and publishes Fern.
-- `.github/workflows/publish-fern-devnotes.yml` runs on `main` when Dev Notes or Fern Dev Notes assets change, plus manual dispatch. It reuses the last docs notebook artifact, runs `make check-fern-docs`, and publishes Fern.
+- `.github/workflows/build-fern-docs.yml` runs on release publication or manual dispatch. It snapshots release docs into the CI-managed `docs-website` branch, builds executed notebooks from the release source, runs `make check-fern-docs` from `docs-website`, and publishes Fern.
+- `.github/workflows/publish-fern-devnotes.yml` runs on `main` when Dev Notes or Fern Dev Notes assets change, plus manual dispatch. It patches only Dev Notes into the `docs-website` branch's current latest docs, reuses the last docs notebook artifact, runs `make check-fern-docs`, and publishes Fern.
 - `.github/workflows/docs-preview.yml` remains the PR preview workflow and posts both MkDocs and Fern preview links for same-repository PRs. It converts tutorial sources without execution outputs for preview builds. Fork PRs still run docs build/checks, but skip hosted previews because those require deployment secrets.
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 
-Release publishing prepares and checks the Fern release snapshot before building notebooks. On a GitHub release event, the workflow generates `docs.yml`, `versions/vX.Y.Z.yml`, and any needed `versions/vX.Y.Z/pages/...` copies in the runner workspace before publishing. After a successful release publish, it opens a follow-up PR back to `main` if those generated Fern release files are not already committed. Manual dispatch can validate and publish a specific tag through the workflow's `release_tag` input; otherwise it uses the latest published release without generating a new snapshot.
+Fern release snapshots live on `docs-website`, not on `main`. This mirrors the MkDocs `gh-pages` model without mixing Fern source state into the MkDocs output branch. Pushes to `docs-website` use `GITHUB_TOKEN`, so publishing happens inline in the same workflow instead of relying on a second workflow trigger.
+
+Manual dispatch with `release_tag` creates or refreshes that release snapshot. For the already-published `v0.6.0` release, run **Build Fern docs** with `release_tag=v0.6.0` and `source_ref=main` after this fix merges. Future release events default `source_ref` to the release tag.
 
 ## Versioning
 
@@ -97,9 +99,9 @@ Dev Notes are versioned: `latest.yml` can include posts from `main` that are not
 
 Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. The Fern version picker includes an "Older versions" page linking to those archives.
 
-Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow prepares the snapshot for publishing and opens a follow-up sync PR if `main` still needs the generated version files.
+Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow snapshots the release into `docs-website` and publishes from that branch.
 
-If you want to preview or hand-curate the exact Fern release diff before tagging, use the hybrid model:
+If you want to preview or hand-curate the exact Fern release diff locally before tagging, use the hybrid model:
 
 1. Run `make prepare-fern-release VERSION=X.Y.Z`.
 2. Review the generated `docs.yml` and `versions/vX.Y.Z.yml` changes.

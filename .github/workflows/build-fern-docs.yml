@@ -8,7 +8,11 @@ on:
         type: boolean
         default: true
       release_tag:
-        description: "Release tag to validate and publish. Defaults to the latest published release."
+        description: "Release tag to publish. Defaults to the latest published release without creating a new snapshot."
+        type: string
+        required: false
+      source_ref:
+        description: "Source ref for release docs. Defaults to release_tag when set, otherwise the workflow ref."
         type: string
         required: false
   release:
@@ -17,80 +21,130 @@ on:
 
 permissions: {}
 
+env:
+  FERN_PUBLISHED_BRANCH: docs-website
+
 jobs:
-  check-release-version:
+  resolve-release:
     if: github.event_name != 'release' || github.event.release.prerelease != true
     runs-on: ubuntu-latest
     outputs:
-      release_tag: ${{ steps.release-tag.outputs.release_tag }}
-      release_ref: ${{ steps.release-tag.outputs.release_ref }}
-      prepare_release_docs: ${{ steps.release-tag.outputs.prepare_release_docs }}
+      prepare_release_docs: ${{ steps.release.outputs.prepare_release_docs }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      source_ref: ${{ steps.release.outputs.source_ref }}
     permissions:
       contents: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag || github.ref }}
-
-      - name: Find release tag
-        id: release-tag
+      - name: Resolve release inputs
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
+          WORKFLOW_REF: ${{ github.ref }}
         run: |
           if [ "$EVENT_NAME" = "release" ]; then
-            RELEASE_TAG="$EVENT_RELEASE_TAG"
-            PREPARE_RELEASE_DOCS=1
+            release_tag="$EVENT_RELEASE_TAG"
+            source_ref="${INPUT_SOURCE_REF:-$EVENT_RELEASE_TAG}"
+            prepare_release_docs=1
           elif [ -n "$INPUT_RELEASE_TAG" ]; then
-            RELEASE_TAG="$INPUT_RELEASE_TAG"
-            PREPARE_RELEASE_DOCS=1
+            release_tag="$INPUT_RELEASE_TAG"
+            source_ref="${INPUT_SOURCE_REF:-$INPUT_RELEASE_TAG}"
+            prepare_release_docs=1
           else
-            RELEASE_TAG=$(gh release view --json tagName -q .tagName)
-            if [ -z "$RELEASE_TAG" ]; then
+            release_tag=$(gh release view --json tagName -q .tagName)
+            if [ -z "$release_tag" ]; then
               echo "::error::Could not find the latest published release tag."
               exit 1
             fi
-            PREPARE_RELEASE_DOCS=0
+            source_ref="${INPUT_SOURCE_REF:-$WORKFLOW_REF}"
+            prepare_release_docs=0
           fi
 
-          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "release_ref=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "prepare_release_docs=$PREPARE_RELEASE_DOCS" >> "$GITHUB_OUTPUT"
+          echo "prepare_release_docs=$prepare_release_docs" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$source_ref" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare Fern release version
-        if: steps.release-tag.outputs.prepare_release_docs == '1'
-        env:
-          RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
-        run: python3 fern/scripts/fern-release-version.py prepare --version "$RELEASE_TAG" --force
+  prepare-published-release:
+    if: needs.resolve-release.outputs.prepare_release_docs == '1'
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          path: workflow
 
-      - name: Check Fern release version
-        env:
-          RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
-          PREPARE_RELEASE_DOCS: ${{ steps.release-tag.outputs.prepare_release_docs }}
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          path: source
+          ref: ${{ needs.resolve-release.outputs.source_ref }}
+
+      - name: Checkout published branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          path: website
+
+      - name: Prepare published branch checkout
+        working-directory: website
         run: |
-          args=(check --version "$RELEASE_TAG")
-          if [ "$PREPARE_RELEASE_DOCS" = "1" ]; then
-            args+=(--require-latest-matches-release)
+          if git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
+            git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
+          else
+            git checkout --orphan "$FERN_PUBLISHED_BRANCH"
+            git rm -rf . || true
           fi
-          python3 fern/scripts/fern-release-version.py "${args[@]}"
+
+      - name: Prepare Fern release snapshot
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+        run: |
+          python3 workflow/fern/scripts/fern-published-branch.py sync-source \
+            --source-root source \
+            --published-root website
+          python3 workflow/fern/scripts/fern-release-version.py --root website/fern prepare --version "$RELEASE_TAG" --force
+          python3 workflow/fern/scripts/fern-release-version.py --root website/fern check --version "$RELEASE_TAG" --require-latest-matches-release
+
+      - name: Commit published branch
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+        working-directory: website
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "::notice::Fern published branch already has $RELEASE_TAG."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: publish Fern docs for $RELEASE_TAG"
+          git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
 
   build-notebooks:
-    needs: check-release-version
+    needs: resolve-release
     uses: ./.github/workflows/build-notebooks.yml
     permissions:
       actions: read
       contents: write
     with:
       use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
-      checkout_ref: ${{ needs.check-release-version.outputs.prepare_release_docs == '1' && needs.check-release-version.outputs.release_ref || '' }}
+      checkout_ref: ${{ needs.resolve-release.outputs.prepare_release_docs == '1' && needs.resolve-release.outputs.source_ref || '' }}
     secrets: inherit
 
   publish:
+    if: always() && needs.resolve-release.result == 'success' && needs.build-notebooks.result == 'success' && (needs.prepare-published-release.result == 'success' || needs.prepare-published-release.result == 'skipped')
     needs:
-      - check-release-version
+      - resolve-release
+      - prepare-published-release
       - build-notebooks
     runs-on: ubuntu-latest
     permissions:
@@ -98,22 +152,10 @@ jobs:
     env:
       FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
     steps:
-      - name: Checkout repository
+      - name: Checkout published branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ needs.check-release-version.outputs.prepare_release_docs == '1' && needs.check-release-version.outputs.release_ref || github.ref }}
-
-      - name: Prepare Fern release version
-        if: needs.check-release-version.outputs.prepare_release_docs == '1'
-        env:
-          RELEASE_TAG: ${{ needs.check-release-version.outputs.release_tag }}
-        run: python3 fern/scripts/fern-release-version.py prepare --version "$RELEASE_TAG" --force
-
-      - name: Check Fern release version
-        if: needs.check-release-version.outputs.prepare_release_docs == '1'
-        env:
-          RELEASE_TAG: ${{ needs.check-release-version.outputs.release_tag }}
-        run: python3 fern/scripts/fern-release-version.py check --version "$RELEASE_TAG" --require-latest-matches-release
+          ref: ${{ env.FERN_PUBLISHED_BRANCH }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -150,59 +192,3 @@ jobs:
           fi
 
           npx -y "fern-api@$fern_version" generate --docs --no-prompt
-
-  sync-release-version-to-main:
-    if: github.event_name == 'release' && github.event.release.prerelease != true
-    needs:
-      - check-release-version
-      - publish
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Checkout release ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ needs.check-release-version.outputs.release_ref }}
-
-      - name: Prepare Fern release version
-        env:
-          RELEASE_TAG: ${{ needs.check-release-version.outputs.release_tag }}
-        run: python3 fern/scripts/fern-release-version.py prepare --version "$RELEASE_TAG" --force
-
-      - name: Open main sync PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.check-release-version.outputs.release_tag }}
-        run: |
-          if [ -z "$(git status --porcelain -- fern/docs.yml fern/versions)" ]; then
-            echo "::notice::Fern release docs are already committed."
-            exit 0
-          fi
-
-          slug="v${RELEASE_TAG#v}"
-          branch="docs/fern-release-${slug}"
-          existing_pr=$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')
-          if [ -n "$existing_pr" ]; then
-            echo "::notice::Fern release sync PR already exists: #$existing_pr"
-            exit 0
-          fi
-
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-            echo "::error::Branch $branch already exists but has no open PR."
-            exit 1
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "$branch"
-          git add fern/docs.yml fern/versions
-          git commit -m "docs: sync Fern docs for $slug"
-          git push origin "$branch"
-
-          gh pr create \
-            --base main \
-            --head "$branch" \
-            --title "docs: sync Fern docs for $slug" \
-            --body "Syncs the generated Fern release snapshot for $slug back to main after release publishing."

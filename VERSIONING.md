@@ -42,14 +42,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Fern release publishing prepares the versioned docs snapshot automatically when the GitHub release is published. It points `latest.yml` at the release nav for the docs build and opens a follow-up PR back to `main` if the generated Fern release files are not already committed.
+Fern release publishing snapshots versioned docs automatically into the CI-managed `docs-website` branch, similar to how MkDocs publishes built output to `gh-pages`. Release owners do not need a dedicated pre-release docs PR.
 
-You do not need a dedicated pre-release docs PR. If you want to preview or review the exact Fern release diff before tagging, run:
-
-```bash
-make prepare-fern-release VERSION=X.Y.Z
-make check-fern-release-version VERSION=X.Y.Z REQUIRE_LATEST=1
-```
+For the already-published `v0.6.0` release, rerun **Build Fern docs** manually with `release_tag=v0.6.0` and `source_ref=main` after the Fern fix PR merges. Future GitHub release events default `source_ref` to the release tag.
 
 ## Accessing Version in Code
 

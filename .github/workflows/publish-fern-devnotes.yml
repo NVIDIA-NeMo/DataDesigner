@@ -18,17 +18,64 @@ on:
 
 permissions: {}
 
+env:
+  FERN_PUBLISHED_BRANCH: docs-website
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
       actions: read
-      contents: read
+      contents: write
     env:
       FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
     steps:
-      - name: Checkout repository
+      - name: Checkout workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          path: workflow
+
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          path: source
+
+      - name: Checkout published branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          path: website
+
+      - name: Prepare published branch checkout
+        working-directory: website
+        run: |
+          if ! git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
+            echo "::error::$FERN_PUBLISHED_BRANCH does not exist. Publish a Fern release snapshot first."
+            exit 1
+          fi
+
+          git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
+          git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
+
+      - name: Patch Dev Notes into latest Fern docs
+        run: |
+          python3 workflow/fern/scripts/fern-published-branch.py patch-devnotes \
+            --source-root source \
+            --published-root website
+
+      - name: Commit published branch
+        working-directory: website
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "::notice::Fern Dev Notes are already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: patch Fern devnotes into latest"
+          git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -39,20 +86,21 @@ jobs:
         run: uv python install 3.13
 
       - name: Install docs dependencies
+        working-directory: website
         run: uv sync --python 3.13 --all-packages --group docs --group notebooks
 
       - name: Reuse notebooks from last successful docs build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p docs/notebooks
+          mkdir -p website/docs/notebooks
 
           download_notebooks() {
             workflow="$1"
             shift
 
             last_run_id=$(gh run list --workflow "$workflow" --status success "$@" --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
-            if [ -n "$last_run_id" ] && gh run download "$last_run_id" --name notebooks --dir docs/notebooks; then
+            if [ -n "$last_run_id" ] && gh run download "$last_run_id" --name notebooks --dir website/docs/notebooks; then
               echo "::notice::Downloaded notebooks from $workflow run $last_run_id"
               exit 0
             fi
@@ -70,9 +118,11 @@ jobs:
           exit 1
 
       - name: Check Fern docs
+        working-directory: website
         run: make check-fern-docs
 
       - name: Publish Fern docs
+        working-directory: website
         run: |
           if [ -z "$FERN_TOKEN" ]; then
             echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern docs."
