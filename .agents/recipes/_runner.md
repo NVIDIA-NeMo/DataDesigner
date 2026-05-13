@@ -67,6 +67,9 @@ Rules:
   passwords) in your output, even if you encounter them in code.
 - **Stay in scope.** Only perform the task described in the recipe. Do not
   explore unrelated areas of the codebase.
+- **No subagents.** Do not use Task, Explore, or other delegated/local agents.
+  The CI key may not have access to their default models; do the work in the
+  main agent session.
 - **Cost awareness.** Minimize unnecessary file reads and tool calls. If you
   have the information you need, stop.
 
