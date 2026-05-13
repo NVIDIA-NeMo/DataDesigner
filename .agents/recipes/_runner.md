@@ -76,6 +76,14 @@ Write all output to a temp file (e.g., `/tmp/recipe-output.md`). The workflow
 will handle posting it. Do not post directly to GitHub - the workflow controls
 output routing.
 
-If your recipe produces code changes, commit them on a new branch and use
-`/create-pr` to open a pull request. The branch name should follow the
-pattern `agentic-ci/chore/{suite}-YYYYMMDD`.
+If your recipe produces code changes, commit them on a new branch following
+the pattern `agentic-ci/{type}/{suite}-YYYYMMDD-{short-slug}` where `{type}`
+matches the change kind (`chore`/`docs`/`fix`/`refactor`).
+
+For PR creation in CI, use `gh pr create --body-file /tmp/pr-body-<suite>.md`
+directly rather than the `/create-pr` skill. The skill assumes an interactive
+session (it can prompt about uncommitted changes, base branch, etc.) and
+shells the body inline, which breaks on backticks and special characters.
+Daily-suite recipes that open PRs are governed by `_fix-policy.md` — read it
+for the full PR contract (allowlists, draft mode, hidden metadata, branch
+naming, atomicity).

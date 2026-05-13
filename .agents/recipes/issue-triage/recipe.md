@@ -1,6 +1,6 @@
 ---
 name: issue-triage
-description: Weekly triage of open issues and PRs - classify, verify, detect staleness, duplicates, and cross-reference
+description: Weekly triage of open issues and PRs - decision-ready report organized by recommended action
 trigger: schedule
 tool: claude-code
 timeout_minutes: 15
@@ -14,7 +14,9 @@ permissions:
 # Repository Triage
 
 Triage all open issues and pull requests in this repository, then post a
-combined report to the tracking issue.
+decision-ready report to the tracking issue. The report is organized by
+**recommended action** so a maintainer can resolve flagged items without
+opening each one.
 
 ## Instructions
 
@@ -23,164 +25,184 @@ combined report to the tracking issue.
 Collect all open issues, open PRs, and recent merge activity:
 
 ```bash
-# All open issues with metadata
 gh issue list --state open --limit 200 \
   --json number,title,state,createdAt,updatedAt,labels,assignees,author,body
 
-# All open PRs with metadata
 gh pr list --state open --limit 200 \
   --json number,title,state,createdAt,updatedAt,labels,author,headRefName,body
 
-# Recently merged PRs (last 60 days) to cross-reference
 gh pr list --state merged --limit 100 \
   --json number,title,headRefName,body,mergedAt
 
-# PR check status for open PRs
+# Failing-check counts for open PRs
 for pr in $(gh pr list --state open --json number --jq '.[].number'); do
-  echo "=== PR #${pr} ==="
-  gh pr checks "$pr" --json name,state --jq '[.[] | select(.state == "FAILURE" or .state == "ERROR")] | length'
+  FAILING=$(gh pr checks "$pr" --json name,state \
+    --jq '[.[] | select(.state == "FAILURE" or .state == "ERROR")] | length')
+  echo "${pr} ${FAILING}"
 done
 ```
 
-### 2. Triage issues
+### 2. Decide an action for every flagged item
 
-For each open issue, determine:
+For each open issue and PR, decide whether it needs maintainer action and, if
+so, which **action bucket** it belongs in. Buckets are exclusive — every
+flagged item appears under exactly one heading.
 
-**Classification** (pick one):
-- `bug` - something is broken
-- `feature` - new capability or enhancement
-- `chore` - maintenance, CI, docs, refactoring
-- `discussion` - needs design input or decision before work starts
+Buckets and the criteria for each:
 
-**Staleness** (based on last update, today's date, and activity):
-- `active` - updated within the last 14 days
-- `aging` - updated 14-30 days ago
-- `stale` - no update for 30+ days
+| Bucket | Apply when |
+|--------|-----------|
+| `Close as resolved` | A merged PR closes the issue via `Fixes/Closes/Resolves #N`, OR a merged PR's title/branch/body strongly indicates it addressed the issue. The issue is still open. |
+| `Close as duplicate` | An older open issue covers the same scope. Pick the older issue as the canonical one. |
+| `Needs maintainer decision` | Issue labeled `discussion`, design-input items with no clear scope, or items labeled `needs-attention` (flagged by the stale-PR workflow because their linked PR was auto-closed). |
+| `Ready for assignment` | Well-scoped issue, no assignee, no linked open PR, not stale (updated within 30 days). Brief enough that someone could pick it up today. |
+| `Stuck PR` | Open PR with one or more failing checks, OR no author activity (push/comment) for 14+ days. |
+| `Duplicate PRs` | Two or more open PRs reference the same issue (`Fixes/Closes/Resolves #N`). |
+| `Stale, consider closing` | 60+ days since last activity, no assignee, no linked open PR. Older than `Ready for assignment` and without traction. |
 
-**Verification** - check if the issue has been addressed:
-- Search merged PRs for closing keywords (`Fixes #N`, `Closes #N`, `Resolves #N`)
-  referencing this issue
-- Search merged PR titles and branches for keywords matching the issue
-- If a merged PR appears to fix the issue, flag it as `potentially resolved`
-- If there is an open PR linked to the issue, note the PR number
+Items that don't fit any of the above are **healthy** — count them but do
+not list them in the action sections.
 
-**Labels as signals** - issues with `needs-attention` were flagged by the stale
-PR workflow because their linked PR was auto-closed. Always include these in the
-"Action needed" section.
+Also check `attempted_fixes` in any daily-suite runner-state files (under
+`.agentic-ci-state/` if accessible) — findings with two `closed` or
+`abandoned` attempts are surfaced in their own section so the maintainer
+sees them alongside other action items. (This section may be empty if
+those state files are not available in the triage run; that's fine.)
 
-**Duplicates / related** - flag issues that overlap in scope or description.
+### 3. Build the report
 
-### 3. Triage PRs
+Write each part to a numbered file: `/tmp/issue-triage-report-1.md`,
+`/tmp/issue-triage-report-2.md`, etc. Single-part reports use
+`/tmp/issue-triage-report-1.md`. The workflow's fallback step looks for
+numbered files first.
 
-For each open PR, determine:
+Format:
 
-**Health flags** (check all that apply):
-- `no-issue` - PR body has no `Fixes/Closes/Resolves #N` reference (external
-  contributors only - collaborators are exempt)
-- `issue-closed` - PR links to an issue that is already closed (by another PR
-  or manually)
-- `checks-failing` - PR has failing CI checks
-- `stale` - no author activity (push or comment) for 14+ days with failing
-  checks
-- `duplicate-fix` - another open PR references the same issue
+````markdown
+<!-- agentic-ci-issue-triage:1/N -->
+## Repository Triage Report — YYYY-MM-DD
 
-**Cross-reference** - for each PR that references an issue:
-- Verify the linked issue exists and is open
-- Check if another open or merged PR also references the same issue
-- If two open PRs fix the same issue, flag both as `duplicate-fix`
-
-### 4. Build the report
-
-Write the combined report to `/tmp/issue-triage-report.md` using this format:
-
-```markdown
-<!-- agentic-ci-issue-triage -->
-## Repository Triage Report
-
-**Run date:** YYYY-MM-DD
-**Open issues:** N | **Open PRs:** N
+**Open issues:** N | **Open PRs:** N | **Healthy (no action needed):** N
 
 ---
 
-### Issues: action needed
+### Close as resolved (M)
 
-Issues that need maintainer attention (potentially resolved, stale with no
-assignee, possible duplicates, needs-attention label).
+| # | Title | Action | Evidence | Rationale |
+|---|-------|--------|----------|-----------|
+| #123 | ... | Close | Merged in #456 | PR title says "fix ..." matching issue scope |
 
-| # | Title | Category | Staleness | Flag | Notes |
-|---|-------|----------|-----------|------|-------|
+### Close as duplicate (M)
 
-### Issues: active work
+| # | Title | Action | Evidence | Rationale |
+|---|-------|--------|----------|-----------|
+| #234 | ... | Close, point to #200 | Overlaps #200 (older) | Both describe the same crash on empty config |
 
-Issues with assignees or linked open PRs.
+### Needs maintainer decision (M)
 
-| # | Title | Category | Assignee | PR | Last updated |
-|---|-------|----------|----------|-----|-------------|
+| # | Title | Action | Evidence | Rationale |
+|---|-------|--------|----------|-----------|
+| #345 | ... | Decide direction | `discussion` label, no consensus | Two competing approaches in comments |
 
-### Issues: backlog
+### Ready for assignment (M)
 
-Remaining open issues, ordered by staleness (most stale first).
+| # | Title | Action | Evidence | Rationale |
+|---|-------|--------|----------|-----------|
+| #456 | ... | Assign | Scope clear, no assignee | One-line repro, fix likely <50 LOC |
 
-| # | Title | Category | Staleness | Last updated |
-|---|-------|----------|-----------|-------------|
+### Stuck PR (M)
+
+| # | Title | Action | Evidence | Rationale |
+|---|-------|--------|----------|-----------|
+| #567 | ... | Nudge author or close | 3 failing checks, 21d since push | DCO + lint failing, author hasn't responded |
+
+### Duplicate PRs (M)
+
+| # | Title | Action | Evidence | Rationale |
+|---|-------|--------|----------|-----------|
+| #678 / #679 | both fix #500 | Pick one, close other | Both reference #500 | #678 has tests, #679 is simpler |
+
+### Stale, consider closing (M)
+
+| # | Title | Action | Evidence | Rationale |
+|---|-------|--------|----------|-----------|
+| #789 | ... | Close with note | 87d no activity, no assignee | No traction; linked design discussion went silent |
+
+### Repeatedly-failed fix attempts (M)
+
+(Only emit this section if any items qualify. See `_fix-policy.md` —
+two-strike escalation.)
+
+| Finding | Suite | Attempts | Notes |
+|---------|-------|----------|-------|
+| ... | docs-and-references | 2 closed | Detector may be flagging a false positive |
 
 ---
 
-### PRs: action needed
+<details>
+<summary>Healthy items (M issues, M PRs)</summary>
 
-PRs with health flags that need maintainer attention.
+(One-line summary of each: `#N <title> — <author> — <last update>`. No
+action needed; this block is for completeness.)
 
-| # | Title | Author | Flags | Notes |
-|---|-------|--------|-------|-------|
-
-### PRs: healthy
-
-Open PRs with no flags.
-
-| # | Title | Author | Linked issue | Last updated |
-|---|-------|--------|-------------|-------------|
-
----
+</details>
 
 ### Summary
 
-**Issues:**
-- N triaged, N flagged for action, N active, N backlog
-- Flags: X potentially resolved, Y stale, Z duplicates
+- N items flagged for action across 7 buckets
+- M PRs flagged (X stuck, Y duplicate)
+- K healthy items (collapsed above)
+````
 
-**PRs:**
-- N triaged, N flagged
-- Flags: X no linked issue, Y checks failing, Z stale, W duplicate fixes
-```
+The marker on the first line (`<!-- agentic-ci-issue-triage:1/N -->`) is
+required. If the report fits in one comment, set N = 1.
+
+### 4. Multi-comment split
+
+GitHub issue comments cap at 65,536 characters. Use a 60,000-char per-part
+budget to leave room for body manipulations.
+
+Build the parts:
+
+1. Render the full report. If `len(body) <= 60000`, you have one part. Use
+   marker `<!-- agentic-ci-issue-triage:1/1 -->`.
+2. Otherwise, split on **action-bucket boundaries** (never split a table
+   mid-row). Each part starts with its own marker
+   `<!-- agentic-ci-issue-triage:i/N -->` and a heading
+   `### Triage Report — Part i of N`.
+3. Place the summary and `Healthy items` `<details>` block at the end of
+   the last part.
 
 ### 5. Post the report
 
-Find the tracking issue number from the `ISSUE_TRIAGE_TRACKING_ISSUE`
-environment variable. Find the last comment by `github-actions[bot]` that
-contains `<!-- agentic-ci-issue-triage -->` and note its ID.
+Tracking issue number is in `ISSUE_TRIAGE_TRACKING_ISSUE`. List all
+existing bot comments containing `agentic-ci-issue-triage:` (in id
+order) and reconcile against the new parts:
 
-- If a previous comment exists, **edit it in place** using
-  `gh api -X PATCH repos/{owner}/{repo}/issues/comments/{id}`.
-- If no previous comment exists, post a new comment using `gh issue comment`.
+- For `i in 0..min(len(existing), len(parts))`: PATCH `existing[i]`
+  with `parts[i]` (`gh api -X PATCH .../comments/<id> -f body=...`).
+- Surplus parts: post via `gh issue comment --body-file`.
+- Surplus existing comments: delete via
+  `gh api -X DELETE .../comments/<id>`.
 
-```bash
-# Edit existing comment
-gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
-  -f body="$(cat /tmp/issue-triage-report.md)"
+This keeps the report a coherent set across runs whether it grows,
+shrinks, or stays stable.
 
-# Or post new comment
-gh issue comment "$TRACKING_ISSUE" --body-file /tmp/issue-triage-report.md
-```
+### 6. Fallback
+
+If you cannot find the tracking issue or the API calls fail repeatedly,
+write the report parts to `/tmp/issue-triage-report-*.md` and stop. The
+workflow's fallback step posts every numbered part in order if no
+agent-authored comments containing today's date already exist on the
+tracking issue.
 
 ## Constraints
 
-- **Read-only triage.** Do not close, label, or modify any issues or PRs. The
-  report is for maintainers to act on.
-- **Do not post the report yourself if you cannot find the tracking issue.**
-  Write the report to `/tmp/issue-triage-report.md` and stop. The workflow
-  will handle fallback posting.
-- **Stay concise.** Notes columns should be one sentence max. Link to the
-  relevant PR, issue, or duplicate - don't explain the fix.
+- **Read-only triage.** Do not close, label, or modify any issues or PRs.
+  The report is for maintainers to act on.
+- **Stay concise.** Rationale columns should be one sentence max.
+- **No fix authority.** This recipe never opens PRs or commits code. It
+  reads, classifies, and posts a report.
 - **Cost awareness.** Do not read full issue/PR bodies unless needed to
-  determine duplicates or verify cross-references. The metadata from
-  `gh issue list` and `gh pr list` is enough for most checks.
+  determine duplicates, verify cross-references, or decide an action. The
+  metadata from `gh issue list` / `gh pr list` is enough for most checks.
