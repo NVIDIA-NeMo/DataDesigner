@@ -12,7 +12,7 @@ Data Designer supports three plugin types:
 
 ## Use an Installed Plugin
 
-Plugin packages register their `Plugin` objects through Python package [entry points](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata). Data Designer discovers installed plugin entry points automatically, so no extra registration code is required. Simply install the plugin package and use its new object types in your Data Designer workflow.
+Plugin packages register their `Plugin` objects through Python package [entry points](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata). Data Designer discovers installed plugin entry points automatically, so no extra registration code is required. Once a plugin package is installed, use its new object types in your Data Designer workflow.
 
 If you install a plugin after `data_designer` has already been imported, restart the Python process so plugin discovery can rebuild from the new entry points.
 
@@ -22,7 +22,7 @@ For implementation instructions across all plugin types, see the [Build Your Own
 
 ## Find Plugins
 
-NVIDIA-maintained plugin packages live in the [DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) repository. See [Available Plugins](available.md) for lists of first-party and community-contributed plugins.
+Use the Data Designer CLI to discover and install published plugin packages from catalogs. See [Discover Plugins](discover.md) for the catalog workflow, first-party plugin documentation, and source links.
 
 ## Discovery troubleshooting
 
