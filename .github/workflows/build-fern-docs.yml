@@ -21,11 +21,17 @@ jobs:
   check-release-version:
     if: github.event_name != 'release' || github.event.release.prerelease != true
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.release-tag.outputs.release_tag }}
+      release_ref: ${{ steps.release-tag.outputs.release_ref }}
+      prepare_release_docs: ${{ steps.release-tag.outputs.prepare_release_docs }}
     permissions:
       contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag || github.ref }}
 
       - name: Find release tag
         id: release-tag
@@ -37,25 +43,36 @@ jobs:
         run: |
           if [ "$EVENT_NAME" = "release" ]; then
             RELEASE_TAG="$EVENT_RELEASE_TAG"
+            PREPARE_RELEASE_DOCS=1
           elif [ -n "$INPUT_RELEASE_TAG" ]; then
             RELEASE_TAG="$INPUT_RELEASE_TAG"
+            PREPARE_RELEASE_DOCS=1
           else
             RELEASE_TAG=$(gh release view --json tagName -q .tagName)
             if [ -z "$RELEASE_TAG" ]; then
               echo "::error::Could not find the latest published release tag."
               exit 1
             fi
+            PREPARE_RELEASE_DOCS=0
           fi
 
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_ref=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "prepare_release_docs=$PREPARE_RELEASE_DOCS" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Fern release version
+        if: steps.release-tag.outputs.prepare_release_docs == '1'
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
+        run: python3 fern/scripts/fern-release-version.py prepare --version "$RELEASE_TAG" --force
 
       - name: Check Fern release version
         env:
-          EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
+          PREPARE_RELEASE_DOCS: ${{ steps.release-tag.outputs.prepare_release_docs }}
         run: |
           args=(check --version "$RELEASE_TAG")
-          if [ "$EVENT_NAME" = "release" ]; then
+          if [ "$PREPARE_RELEASE_DOCS" = "1" ]; then
             args+=(--require-latest-matches-release)
           fi
           python3 fern/scripts/fern-release-version.py "${args[@]}"
@@ -68,6 +85,7 @@ jobs:
       contents: write
     with:
       use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
+      checkout_ref: ${{ needs.check-release-version.outputs.prepare_release_docs == '1' && needs.check-release-version.outputs.release_ref || '' }}
     secrets: inherit
 
   publish:
@@ -82,6 +100,20 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.check-release-version.outputs.prepare_release_docs == '1' && needs.check-release-version.outputs.release_ref || github.ref }}
+
+      - name: Prepare Fern release version
+        if: needs.check-release-version.outputs.prepare_release_docs == '1'
+        env:
+          RELEASE_TAG: ${{ needs.check-release-version.outputs.release_tag }}
+        run: python3 fern/scripts/fern-release-version.py prepare --version "$RELEASE_TAG" --force
+
+      - name: Check Fern release version
+        if: needs.check-release-version.outputs.prepare_release_docs == '1'
+        env:
+          RELEASE_TAG: ${{ needs.check-release-version.outputs.release_tag }}
+        run: python3 fern/scripts/fern-release-version.py check --version "$RELEASE_TAG" --require-latest-matches-release
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -118,3 +150,59 @@ jobs:
           fi
 
           npx -y "fern-api@$fern_version" generate --docs --no-prompt
+
+  sync-release-version-to-main:
+    if: github.event_name == 'release' && github.event.release.prerelease != true
+    needs:
+      - check-release-version
+      - publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout release ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.check-release-version.outputs.release_ref }}
+
+      - name: Prepare Fern release version
+        env:
+          RELEASE_TAG: ${{ needs.check-release-version.outputs.release_tag }}
+        run: python3 fern/scripts/fern-release-version.py prepare --version "$RELEASE_TAG" --force
+
+      - name: Open main sync PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.check-release-version.outputs.release_tag }}
+        run: |
+          if [ -z "$(git status --porcelain -- fern/docs.yml fern/versions)" ]; then
+            echo "::notice::Fern release docs are already committed."
+            exit 0
+          fi
+
+          slug="v${RELEASE_TAG#v}"
+          branch="docs/fern-release-${slug}"
+          existing_pr=$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing_pr" ]; then
+            echo "::notice::Fern release sync PR already exists: #$existing_pr"
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "::error::Branch $branch already exists but has no open PR."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add fern/docs.yml fern/versions
+          git commit -m "docs: sync Fern docs for $slug"
+          git push origin "$branch"
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "docs: sync Fern docs for $slug" \
+            --body "Syncs the generated Fern release snapshot for $slug back to main after release publishing."

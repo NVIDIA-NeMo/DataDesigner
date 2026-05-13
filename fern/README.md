@@ -67,7 +67,7 @@ Fern publishing runs alongside MkDocs during migration:
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 
-Release publishing also runs `fern/scripts/fern-release-version.py check` before building notebooks. A release fails early if the release tag is not represented in `docs.yml` and `versions/vX.Y.Z.yml`, or if `latest.yml` does not match the release nav on the release event. Manual dispatch can validate a specific tag through the workflow's `release_tag` input; otherwise it uses the latest published release.
+Release publishing prepares and checks the Fern release snapshot before building notebooks. On a GitHub release event, the workflow generates `docs.yml`, `versions/vX.Y.Z.yml`, and any needed `versions/vX.Y.Z/pages/...` copies in the runner workspace before publishing. After a successful release publish, it opens a follow-up PR back to `main` if those generated Fern release files are not already committed. Manual dispatch can validate and publish a specific tag through the workflow's `release_tag` input; otherwise it uses the latest published release without generating a new snapshot.
 
 ## Versioning
 
@@ -97,7 +97,9 @@ Dev Notes are versioned: `latest.yml` can include posts from `main` that are not
 
 Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. The Fern version picker includes an "Older versions" page linking to those archives.
 
-When cutting future Fern-native versions, use a hybrid model:
+Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow prepares the snapshot for publishing and opens a follow-up sync PR if `main` still needs the generated version files.
+
+If you want to preview or hand-curate the exact Fern release diff before tagging, use the hybrid model:
 
 1. Run `make prepare-fern-release VERSION=X.Y.Z`.
 2. Review the generated `docs.yml` and `versions/vX.Y.Z.yml` changes.
@@ -150,7 +152,7 @@ Primary local commands:
 | `make check-fern-docs-locally` | Install docs dependencies, generate Fern artifacts, and run `fern check` |
 | `make serve-fern-docs-locally` | Generate local Fern artifacts and serve local docs |
 | `make generate-fern-notebooks-with-outputs` | Full notebook pipeline: execute (needs `NVIDIA_API_KEY`) → colabify → convert |
-| `make prepare-fern-release VERSION=X.Y.Z` | Add Fern version files before cutting a release |
+| `make prepare-fern-release VERSION=X.Y.Z` | Add or refresh Fern version files for release preview |
 | `make check-fern-release-version VERSION=X.Y.Z REQUIRE_LATEST=1` | Verify Fern release metadata exists before publishing |
 
 Support and CI targets:

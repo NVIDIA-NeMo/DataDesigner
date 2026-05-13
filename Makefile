@@ -83,7 +83,7 @@ help:
 	@echo "  generate-fern-api-reference - Generate local Fern API reference with py2fern"
 	@echo "  generate-fern-api-reference-native - Generate Fern API reference with Fern CLI (requires auth)"
 	@echo "  install-docs-deps        - Install docs and notebook dependencies"
-	@echo "  prepare-fern-release VERSION=X.Y.Z - Add Fern version files before cutting a release"
+	@echo "  prepare-fern-release VERSION=X.Y.Z - Add or refresh Fern version files for release preview"
 	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
 	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
 	@echo "  check-fern-docs           - Generate local Fern artifacts and run fern check"
@@ -509,7 +509,7 @@ prepare-fern-release:
 ifndef VERSION
 	$(error VERSION is required, e.g. make prepare-fern-release VERSION=0.5.10)
 endif
-	$(DOCS_PYTHON) fern/scripts/fern-release-version.py prepare --version $(VERSION)
+	$(DOCS_PYTHON) fern/scripts/fern-release-version.py prepare --version $(VERSION) $(if $(FORCE),--force,)
 
 check-fern-release-version:
 ifndef VERSION
