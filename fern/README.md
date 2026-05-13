@@ -67,51 +67,39 @@ Fern publishing runs alongside MkDocs during migration:
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 
-Fern release snapshots live on `docs-website`, not on `main`. This mirrors the MkDocs `gh-pages` model without mixing Fern source state into the MkDocs output branch. Pushes to `docs-website` use `GITHUB_TOKEN`, so publishing happens inline in the same workflow instead of relying on a second workflow trigger.
+Fern release snapshots live on `docs-website`, not on `main`. This mirrors the MkDocs `gh-pages` model without mixing Fern source state into the MkDocs output branch. The branch stores a source snapshot, not only `fern/`, because `make check-fern-docs` needs the Python packages and workspace metadata. Pushes to `docs-website` use `GITHUB_TOKEN`, so publishing happens inline in the same workflow instead of relying on a second workflow trigger.
 
 Manual dispatch with `release_tag` creates or refreshes that release snapshot. For the already-published `v0.6.0` release, run **Build Fern docs** with `release_tag=v0.6.0` and `source_ref=main` after this fix merges. Future release events default `source_ref` to the release tag.
 
 ## Versioning
 
-Current Fern versions:
+`main` contains only the latest Fern authoring docs. Published release snapshots live on `docs-website`.
 
 ```
 fern/versions/
-├── latest.yml          ← rolling nav file
-├── latest/pages/...    ← optional latest-only page overrides after release divergence
-├── v0.6.0.yml          ← release nav file
-├── v0.6.0/pages/...    ← v0.6.0-only page overrides
-├── v0.5.9.yml          ← release nav file
-├── v0.5.9/pages/...    ← v0.5.9-only page overrides
-├── v0.5.8.yml          ← first migrated release nav file
-├── v0.5.8/pages/...    ← shared migrated MDX tree
-├── older.yml           ← older versions landing page
-└── older/pages/...     ← links to the MkDocs archive
+├── latest.yml          ← authoring nav
+└── latest/pages/...    ← authoring pages
 ```
 
-`docs.yml` registers `slug: latest`, `slug: v0.6.0`, `slug: v0.5.9`, `slug: v0.5.8`, and `slug: older-versions`. The `latest`, `v0.6.0`, and `v0.5.9` nav files intentionally reuse older version page trees for unchanged content so Fern-native versions do not duplicate every page. Add version-specific page copies only when content diverges.
+The CI-managed `docs-website` branch has the published archive:
 
-Fern version URLs are based on the active version entry, not the source file path. A `v0.5.9` page can point at `./v0.5.8/pages/...` and still render under `/nemo/datadesigner/v0.5.9/...`; users do not see the reused source path.
-
-Before editing a file under an older shared tree such as `fern/versions/v0.5.8/pages/...`, check every `fern/versions/*.yml` file that points at it. If the content describes a newer release, copy it into the target `vX.Y.Z/pages/...` tree and retarget that release. Point `latest.yml` at the released copy unless latest has already diverged after that release.
-
-Dev Notes are versioned: `latest.yml` can include posts from `main` that are not in old release navs yet. Frozen release navs (`v0.6.0.yml`, `v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point. If a Dev Note says "As of Data Designer vX.Y.Z", do not add it to an older frozen nav or an older shared page tree.
-
-Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. The Fern version picker includes an "Older versions" page linking to those archives.
+```
+fern/versions/
+├── latest.yml
+├── latest/pages/...
+├── v0.6.0.yml
+├── v0.6.0/pages/...
+├── v0.5.9.yml
+├── v0.5.9/pages/...
+├── v0.5.8.yml
+├── v0.5.8/pages/...
+├── older.yml
+└── older/pages/...
+```
 
 Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow snapshots the release into `docs-website` and publishes from that branch.
 
-If you want to preview or hand-curate the exact Fern release diff locally before tagging, use the hybrid model:
-
-1. Run `make prepare-fern-release VERSION=X.Y.Z`.
-2. Review the generated `docs.yml` and `versions/vX.Y.Z.yml` changes.
-3. Reuse older page paths for unchanged content.
-4. Copy changed/new pages into `versions/vX.Y.Z/pages/...`.
-5. Point only changed nav entries at the copied `vX.Y.Z` pages.
-6. Point `latest.yml` at the new release copy. Use `latest/pages/...` only for post-release divergence.
-7. Run `make check-fern-docs`.
-
-Do not add a new version entry without deciding which pages are release-specific. A version YAML that points at shared pages can drift when those shared files change later.
+Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages from `main` into the current latest docs on `docs-website`, then republishes Fern.
 
 ## Folder layout
 
@@ -137,12 +125,8 @@ fern/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
 ├── code-reference/            ← gitignored; populated by `make generate-fern-api-reference`
 └── versions/
-    ├── latest.yml             ← rolling navigation tree
-    ├── v0.6.0.yml             ← release navigation tree
-    ├── v0.5.9.yml             ← release navigation tree
-    ├── v0.5.8.yml             ← navigation tree
-    ├── older.yml              ← older versions landing page
-    └── v0.5.8/pages/          ← shared MDX content
+    ├── latest.yml             ← authoring navigation tree
+    └── latest/pages/          ← authoring MDX content
 ```
 
 ## Common commands
