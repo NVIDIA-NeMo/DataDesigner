@@ -1581,6 +1581,41 @@ async def test_scheduler_deadlock_regression() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_drain_frontier_raises_when_ready_but_no_capacity_or_inflight() -> None:
+    """A broken admission state fails fast instead of spinning in the drain loop."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    tracker.mark_row_range_complete("seed", 0, 1)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_submitted_tasks=0,
+    )
+    scheduler._rg_states[0] = MagicMock(size=1)
+
+    with pytest.raises(RuntimeError, match="Ready frontier is admission-blocked"):
+        await scheduler._drain_frontier(("seed",), False, ["seed", "cell_out"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_is_llm_bound_property_drives_lookup() -> None:
     """is_llm_bound property on generators drives the lookup, not isinstance."""
     provider = _mock_provider()
@@ -1656,6 +1691,71 @@ def test_scheduler_model_task_group_spec_uses_model_resource_and_flow() -> None:
     assert spec.key.identity[-1] == "answer"
     assert spec.weight == 3.0
     assert spec.admitted_limit == 5
+
+
+def test_scheduler_task_group_spec_is_cached_per_generator() -> None:
+    model_config = ModelConfig(
+        alias=MODEL_ALIAS,
+        model="model-text",
+        inference_parameters=ChatCompletionInferenceParams(max_parallel_requests=3),
+        provider="mock-provider",
+    )
+    provider = _provider_with_model_configs({MODEL_ALIAS: model_config})
+    column_config = LLMTextColumnConfig(name="answer", prompt="hello", model_alias=MODEL_ALIAS)
+    generator = MockConfiguredModelCellGenerator(config=column_config, resource_provider=provider)
+    graph = ExecutionGraph.create([column_config], {"answer": GenerationStrategy.CELL_BY_CELL})
+    tracker = CompletionTracker.with_graph(graph, [(0, 2)])
+    scheduler = AsyncTaskScheduler(
+        generators={"answer": generator},
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 2)],
+        max_llm_wait_tasks=5,
+    )
+
+    spec_a = scheduler._task_group_spec(Task(column="answer", row_group=0, row_index=0, task_type="cell"))
+    spec_b = scheduler._task_group_spec(Task(column="answer", row_group=0, row_index=1, task_type="cell"))
+
+    assert spec_a is spec_b
+    assert provider.model_registry.get_model_config.call_count == 1
+    assert provider.model_registry.get_model_provider.call_count == 1
+
+
+def test_scheduler_task_group_spec_logs_debug_on_model_resolution_fallback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = MagicMock()
+    provider.model_registry = MagicMock()
+    provider.model_registry.get_model_config.side_effect = RuntimeError("registry unavailable")
+    provider.model_registry.get_model_provider.return_value = SimpleNamespace(name="mock-provider")
+    column_config = LLMTextColumnConfig(name="answer", prompt="hello", model_alias=MODEL_ALIAS)
+    generator = MockConfiguredModelCellGenerator(config=column_config, resource_provider=provider)
+    graph = ExecutionGraph.create([column_config], {"answer": GenerationStrategy.CELL_BY_CELL})
+    tracker = CompletionTracker.with_graph(graph, [(0, 2)])
+    scheduler = AsyncTaskScheduler(
+        generators={"answer": generator},
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 2)],
+        max_llm_wait_tasks=5,
+    )
+
+    with caplog.at_level("DEBUG", logger="data_designer.engine.dataset_builders.async_scheduler"):
+        spec_a = scheduler._task_group_spec(Task(column="answer", row_group=0, row_index=0, task_type="cell"))
+        spec_b = scheduler._task_group_spec(Task(column="answer", row_group=0, row_index=1, task_type="cell"))
+
+    assert spec_a is spec_b
+    assert spec_a.key.kind == "custom_model"
+    assert spec_a.key.identity == ("answer", MODEL_ALIAS)
+    assert spec_a.weight == 1.0
+    assert provider.model_registry.get_model_config.call_count == 1
+    fallback_records = [
+        record for record in caplog.records if "Falling back to custom-model scheduling group" in record.getMessage()
+    ]
+    assert len(fallback_records) == 1
+    assert "answer" in fallback_records[0].getMessage()
+    assert MODEL_ALIAS in fallback_records[0].getMessage()
+    assert fallback_records[0].exc_info is not None
 
 
 def test_scheduler_custom_model_task_group_spec_uses_alias_set_weight() -> None:
@@ -2007,9 +2107,88 @@ async def test_scheduler_fair_admission_across_ready_columns() -> None:
         for trace in sorted((t for t in scheduler.traces if t.column in gen_names), key=lambda t: t.dispatched_at)[:4]
     ]
 
-    assert len(set(first_window)) == 3
+    assert set(first_window[:3]) == set(gen_names)
     assert max(first_window.count(column) for column in gen_names) <= 2
     assert tracker.is_row_group_complete(0, 12, ["topic", *gen_names])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_fair_admission_across_ready_columns_and_row_groups() -> None:
+    """Fair admission stays column-balanced when multiple row groups are ready."""
+    provider = _mock_provider()
+    gen_names = ["gen_a", "gen_b", "gen_c"]
+
+    class BarrierSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+        def __init__(self, *args: Any, expected_calls: int, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self._expected_calls = expected_calls
+            self._started = 0
+            self._lock = asyncio.Lock()
+            self._release = asyncio.Event()
+
+        @staticmethod
+        def get_generation_strategy() -> GenerationStrategy:
+            return GenerationStrategy.FULL_COLUMN
+
+        def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+            return data
+
+        def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+            return lazy.pd.DataFrame({self.config.name: ["A"] * num_records})
+
+        async def agenerate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+            async with self._lock:
+                self._started += 1
+                if self._started == self._expected_calls:
+                    self._release.set()
+            await self._release.wait()
+            return self.generate_from_scratch(num_records)
+
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        *[LLMTextColumnConfig(name=g, prompt="{{ topic }}", model_alias=MODEL_ALIAS) for g in gen_names],
+    ]
+    strategies: dict[str, GenerationStrategy] = {"topic": GenerationStrategy.FULL_COLUMN}
+    strategies.update({c: GenerationStrategy.CELL_BY_CELL for c in gen_names})
+    row_groups = [(0, 3), (1, 3)]
+    generators: dict[str, ColumnGenerator] = {
+        "topic": BarrierSeedGenerator(
+            config=_expr_config("topic"),
+            resource_provider=provider,
+            expected_calls=len(row_groups),
+        ),
+        **{
+            name: SlowCellGenerator(config=_expr_config(name), resource_provider=provider, delay=0.05)
+            for name in gen_names
+        },
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_submitted_tasks=8,
+        max_concurrent_row_groups=2,
+        trace=True,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    cell_traces = sorted(
+        (t for t in scheduler.traces if t.column in gen_names),
+        key=lambda t: t.dispatched_at,
+    )
+    first_six = cell_traces[:6]
+    first_twelve = cell_traces[:12]
+
+    assert len(cell_traces) == 18
+    assert all({t.column for t in first_six[i : i + 3]} == set(gen_names) for i in range(0, 6, 3))
+    assert all(sum(1 for t in first_twelve if t.column == column) == 4 for column in gen_names)
+    assert {t.row_group for t in first_twelve} == {0, 1}
+    assert all(tracker.is_row_group_complete(rg_id, rg_size, ["topic", *gen_names]) for rg_id, rg_size in row_groups)
 
 
 @pytest.mark.asyncio(loop_scope="session")

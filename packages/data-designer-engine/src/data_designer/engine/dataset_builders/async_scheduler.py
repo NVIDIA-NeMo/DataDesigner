@@ -139,6 +139,8 @@ class AsyncTaskScheduler:
         self._fair_selector = FairTaskSelector()
         self._admitted_by_group: defaultdict[TaskGroupKey, int] = defaultdict(int)
         self._task_group_by_task: dict[Task, TaskGroupKey] = {}
+        # Generator configs and model registry bindings are fixed for one scheduler run.
+        self._task_group_spec_cache: dict[int, TaskGroupSpec] = {}
 
         self._dispatched: set[Task] = set()
         self._in_flight: set[Task] = set()
@@ -349,6 +351,16 @@ class AsyncTaskScheduler:
 
     def _task_group_spec(self, task: Task) -> TaskGroupSpec:
         generator = self._generators[task.column]
+        generator_id = id(generator)
+        cached = self._task_group_spec_cache.get(generator_id)
+        if cached is not None:
+            return cached
+
+        spec = self._build_task_group_spec(task, generator)
+        self._task_group_spec_cache[generator_id] = spec
+        return spec
+
+    def _build_task_group_spec(self, task: Task, generator: ColumnGenerator) -> TaskGroupSpec:
         flow_identity = self._task_flow_identity(task)
 
         if not self._llm_bound_lookup.get(task.column, False):
@@ -366,6 +378,15 @@ class AsyncTaskScheduler:
                 model_config = self._get_model_config_for_alias(generator, alias)
                 provider_name = self._get_model_provider_name_for_alias(generator, alias)
             except Exception:
+                logger.debug(
+                    "Falling back to custom-model scheduling group for column %r after failing to resolve "
+                    "model alias %r from aliases %r for flow %r.",
+                    task.column,
+                    alias,
+                    aliases,
+                    flow_identity,
+                    exc_info=True,
+                )
                 return self._custom_model_group_spec(flow_identity, aliases, weight=1)
             max_parallel = getattr(model_config.inference_parameters, "max_parallel_requests", 1)
             if not isinstance(max_parallel, int):
@@ -624,7 +645,9 @@ class AsyncTaskScheduler:
             if not ready and not self._in_flight:
                 break
             if ready and not dispatch_outcome.dispatched and not self._in_flight:
-                continue
+                raise RuntimeError(
+                    "Ready frontier is admission-blocked with no in-flight task to release scheduler capacity."
+                )
             if not self._in_flight:
                 continue
             self._wake_event.clear()
