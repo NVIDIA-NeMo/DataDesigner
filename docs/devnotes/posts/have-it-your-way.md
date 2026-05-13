@@ -13,7 +13,7 @@ authors:
 
 Data Designer is built around a simple idea: describe the dataset you want, and let the framework handle execution. A config points to seed data, defines generated columns, picks models, and shapes the final records — no orchestration code required. [Data Designer plugins](../../plugins/overview.md) keep that promise when a project needs something custom.
 
-As of Data Designer v0.6.0, plugins are out of experimental mode and stable. They are the supported path for turning reusable project-specific logic into normal Data Designer components.
+As of Data Designer [v0.6.0](https://github.com/NVIDIA-NeMo/DataDesigner/releases/tag/v0.6.0), plugins are out of experimental mode and stable. They are the supported path for turning reusable project-specific logic into normal Data Designer components.
 
 <!-- more -->
 
