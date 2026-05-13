@@ -4,11 +4,16 @@
 from __future__ import annotations
 
 import asyncio
+import math
+import time
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from data_designer.config.run_config import ThrottleConfig
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.throttle_manager import DomainThrottleState, ThrottleDomain, ThrottleManager
 from data_designer.engine.models.clients.throttled import ThrottledModelClient
@@ -22,9 +27,96 @@ from data_designer.engine.models.clients.types import (
     ImageGenerationResponse,
     Usage,
 )
+from tests.engine.models.clients.conftest import mock_httpx_response
 
 PROVIDER = "test-provider"
 MODEL_ID = "test-model"
+ENDPOINT = "https://api.example.com/v1"
+
+
+@dataclass(frozen=True)
+class ColdServerSample:
+    elapsed: float
+    in_flight: int
+    allowed: int
+    status_code: int
+
+
+class ColdServerAsyncHTTPClient:
+    def __init__(
+        self,
+        *,
+        max_parallel: int,
+        server_ramp_seconds: float,
+        service_seconds: float,
+        retry_after: float,
+    ) -> None:
+        self._max_parallel = max_parallel
+        self._server_ramp_seconds = server_ramp_seconds
+        self._service_seconds = service_seconds
+        self._retry_after = retry_after
+        self._lock = asyncio.Lock()
+        self._started_at = time.monotonic()
+        self._in_flight = 0
+        self.samples: list[ColdServerSample] = []
+
+    @property
+    def rate_limits(self) -> int:
+        return sum(1 for sample in self.samples if sample.status_code == 429)
+
+    @property
+    def peak_in_flight(self) -> int:
+        if not self.samples:
+            return 0
+        return max(sample.in_flight for sample in self.samples)
+
+    def peak_in_flight_before(self, seconds: float) -> int:
+        samples = [sample for sample in self.samples if sample.elapsed <= seconds]
+        if not samples:
+            return 0
+        return max(sample.in_flight for sample in samples)
+
+    async def post(self, *_args: object, **_kwargs: object) -> MagicMock:
+        async with self._lock:
+            self._in_flight += 1
+            elapsed = time.monotonic() - self._started_at
+            allowed = self._allowed(elapsed)
+            status_code = 200 if self._in_flight <= allowed else 429
+            self.samples.append(
+                ColdServerSample(
+                    elapsed=elapsed,
+                    in_flight=self._in_flight,
+                    allowed=allowed,
+                    status_code=status_code,
+                )
+            )
+        try:
+            if status_code == 429:
+                response = mock_httpx_response({"error": {"message": "synthetic rate limit"}}, status_code=429)
+                response.headers = {"Retry-After": str(self._retry_after)}
+                return response
+            await asyncio.sleep(self._service_seconds)
+            return mock_httpx_response(
+                {
+                    "choices": [
+                        {"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
+                    ],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                }
+            )
+        finally:
+            async with self._lock:
+                self._in_flight -= 1
+
+    async def aclose(self) -> None:
+        return None
+
+    def _allowed(self, elapsed: float) -> int:
+        if self._server_ramp_seconds <= 0:
+            return self._max_parallel
+        fraction = min(1.0, max(0.0, elapsed / self._server_ramp_seconds))
+        ramp_slots = math.floor((self._max_parallel - 1) * fraction)
+        return max(1, min(self._max_parallel, 1 + ramp_slots))
 
 
 @pytest.fixture
@@ -343,6 +435,114 @@ async def test_acompletion_cancelled_releases_permit(throttle_manager: ThrottleM
 
 
 # --- E2E: full AIMD feedback loop ---
+
+
+async def _complete_with_rate_limit_retries(
+    client: ThrottledModelClient,
+    request: ChatCompletionRequest,
+    *,
+    max_attempts: int = 50,
+) -> int:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await client.acompletion(request)
+            return attempt
+        except ProviderError as exc:
+            if exc.kind != ProviderErrorKind.RATE_LIMIT:
+                raise
+            await asyncio.sleep(exc.retry_after or 0.01)
+    raise AssertionError(f"request did not complete after {max_attempts} attempts")
+
+
+async def _run_cold_server_scenario(
+    *,
+    throttle_ramp_seconds: float,
+    server_ramp_seconds: float,
+    max_parallel: int = 4,
+    tasks: int = 12,
+) -> tuple[ColdServerAsyncHTTPClient, ThrottleManager, ThrottledModelClient]:
+    async_http_client = ColdServerAsyncHTTPClient(
+        max_parallel=max_parallel,
+        server_ramp_seconds=server_ramp_seconds,
+        service_seconds=0.04,
+        retry_after=0.02,
+    )
+    inner = OpenAICompatibleClient(
+        provider_name=PROVIDER,
+        endpoint=ENDPOINT,
+        api_key="sk-test-key",
+        concurrency_mode=ClientConcurrencyMode.ASYNC,
+        async_client=async_http_client,
+    )
+    throttle_manager = ThrottleManager(
+        ThrottleConfig(
+            reduce_factor=0.5,
+            additive_increase=1,
+            success_window=2,
+            cooldown_seconds=0.02,
+            rampup_seconds=throttle_ramp_seconds,
+        )
+    )
+    throttle_manager.register(
+        provider_name=PROVIDER,
+        model_id=MODEL_ID,
+        alias="cold-server",
+        max_parallel_requests=max_parallel,
+    )
+    client = ThrottledModelClient(
+        inner=inner,
+        throttle_manager=throttle_manager,
+        provider_name=PROVIDER,
+        model_id=MODEL_ID,
+    )
+    requests = [
+        ChatCompletionRequest(model=MODEL_ID, messages=[{"role": "user", "content": f"request {i}"}])
+        for i in range(tasks)
+    ]
+    await asyncio.gather(*(_complete_with_rate_limit_retries(client, request) for request in requests))
+    return async_http_client, throttle_manager, client
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_startup_ramp_integration_eases_into_cold_server_without_429s() -> None:
+    no_ramp_client, _, _ = await _run_cold_server_scenario(
+        throttle_ramp_seconds=0.0,
+        server_ramp_seconds=0.3,
+    )
+    ramped_client, throttle_manager, throttled_client = await _run_cold_server_scenario(
+        throttle_ramp_seconds=0.3,
+        server_ramp_seconds=0.1,
+    )
+
+    assert no_ramp_client.rate_limits > 0
+    assert no_ramp_client.peak_in_flight > 1
+    assert ramped_client.rate_limits == 0
+    assert ramped_client.peak_in_flight_before(0.05) <= 1
+    assert ramped_client.peak_in_flight > 1
+
+    await asyncio.sleep(0.31)
+    await _complete_with_rate_limit_retries(
+        throttled_client,
+        ChatCompletionRequest(model=MODEL_ID, messages=[{"role": "user", "content": "final ramp probe"}]),
+    )
+    state = throttle_manager.get_domain_state(PROVIDER, MODEL_ID, ThrottleDomain.CHAT)
+    assert state is not None
+    assert state.current_limit == 4
+    assert state.rampup_active is False
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_startup_ramp_integration_overaggressive_ramp_aborts_to_aimd() -> None:
+    cold_client, throttle_manager, _ = await _run_cold_server_scenario(
+        throttle_ramp_seconds=0.05,
+        server_ramp_seconds=0.5,
+    )
+
+    assert cold_client.rate_limits > 0
+
+    state = throttle_manager.get_domain_state(PROVIDER, MODEL_ID, ThrottleDomain.CHAT)
+    assert state is not None
+    assert state.rampup_active is False
 
 
 @pytest.mark.asyncio(loop_scope="session")

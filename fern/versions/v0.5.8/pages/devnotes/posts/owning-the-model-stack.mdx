@@ -66,8 +66,8 @@ What you actually want is a system that *discovers* the provider's capacity at r
 
 If you've studied networking, this will sound familiar. [AIMD](https://en.wikipedia.org/wiki/Additive_increase/multiplicative_decrease) is the algorithm behind TCP congestion control. We apply the same idea to LLM API concurrency:
 
-- **During optional startup ramp**: if `rampup_seconds` is set, start a new route at 1 concurrent request and climb linearly toward `max_parallel_requests` over that duration.
-- **On success after a 429**: after a window of consecutive successful requests (default: 25), increase the concurrency limit by 1. Slow, cautious growth.
+- **During optional startup ramp**: if `rampup_seconds` is set, start a new route at one concurrent request and climb linearly toward `max_parallel_requests` over that duration.
+- **On success**: after a window of consecutive successful requests (default: 25), increase the concurrency limit by 1. Slow, cautious growth.
 - **On 429**: multiply the current limit by a reduce factor (default: 0.75, a 25% cut). Fast, decisive pullback. Then apply a cooldown using the provider's `Retry-After` header when available, or a default of 2 seconds.
 
 The asymmetry is deliberate. You probe upward slowly because overshooting wastes requests. You pull back quickly because staying above the limit wastes *everything* because every request in the burst gets rejected. This is the same insight that makes TCP work: be optimistic cautiously, be pessimistic decisively.
@@ -84,9 +84,9 @@ This is especially useful when you're self-hosting your inference stack (running
 
 ### **Startup ramp**
 
-Some inference servers do not handle an immediate cold burst well, even when their steady-state capacity is high. For those endpoints, `ThrottleConfig(rampup_seconds=...)` enables a time-based startup ramp. Each throttle domain starts at 1 concurrent request and linearly climbs toward the configured `max_parallel_requests` ceiling over the ramp duration.
+Some inference servers do not handle an immediate cold burst well, even when their steady-state capacity is high. For those endpoints, `ThrottleConfig(rampup_seconds=...)` enables a time-based startup ramp. Each throttle domain starts at one concurrent request and linearly climbs toward the configured `max_parallel_requests` ceiling over the ramp duration.
 
-The ramp is optimistic but interruptible. If no 429s arrive, it reaches the configured peak. If a 429 arrives during the ramp, the ramp is aborted immediately and the domain switches to normal AIMD behavior: multiplicative decrease, cooldown, ceiling recording, and additive recovery.
+The ramp is optimistic but interruptible. If no 429s arrive, it reaches the configured peak. If a 429 arrives during the ramp, the ramp is aborted immediately and the domain switches to normal AIMD behavior: multiplicative decrease, cooldown, ceiling recording when the decrease reveals a higher failed limit, and additive recovery.
 
 ### **Ceiling stabilization**
 

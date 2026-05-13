@@ -108,8 +108,10 @@ def test_rate_limit_aborts_startup_ramp_and_continues_with_aimd() -> None:
     assert state.current_limit == 3
 
 
-def test_rate_limit_at_start_of_ramp_records_minimum_ceiling() -> None:
-    tm = ThrottleManager(ThrottleConfig(reduce_factor=0.5, success_window=1, rampup_seconds=100.0))
+def test_rate_limit_at_start_of_ramp_does_not_pin_recovery_to_minimum_ceiling() -> None:
+    tm = ThrottleManager(
+        ThrottleConfig(reduce_factor=0.5, success_window=1, ceiling_overshoot=0.0, rampup_seconds=100.0)
+    )
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=10)
 
     assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0) == 0.0
@@ -120,7 +122,7 @@ def test_rate_limit_at_start_of_ramp_records_minimum_ceiling() -> None:
     tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
     assert state.rampup_active is False
     assert state.current_limit == 1
-    assert state.rate_limit_ceiling == 1
+    assert state.rate_limit_ceiling == 0
 
     assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=10.0) == 0.0
     tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=10.0)
@@ -128,7 +130,72 @@ def test_rate_limit_at_start_of_ramp_records_minimum_ceiling() -> None:
 
     assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=11.0) == 0.0
     tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=11.0)
+    assert state.current_limit == 3
+
+
+def test_startup_ramp_skipped_when_effective_max_is_one() -> None:
+    tm = ThrottleManager(ThrottleConfig(rampup_seconds=10.0))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0) == 0.0
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.current_limit == 1
+    assert state.rampup_active is False
+
+
+def test_startup_ramp_completes_on_first_call_after_elapsed_time() -> None:
+    tm = ThrottleManager(ThrottleConfig(rampup_seconds=10.0))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=5)
+
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0) == 0.0
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.current_limit == 1
+    assert state.rampup_active is True
+    tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=11.0) == 0.0
+    assert state.current_limit == 5
+    assert state.rampup_active is False
+
+
+def test_failure_does_not_abort_startup_ramp() -> None:
+    tm = ThrottleManager(ThrottleConfig(rampup_seconds=10.0))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=5)
+
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0) == 0.0
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.rampup_active is True
+    tm.release_failure(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    assert state.rampup_active is True
+
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=5.0) == 0.0
+    assert state.current_limit == 3
+    assert state.rampup_active is True
+
+
+def test_non_ramp_rate_limit_at_minimum_does_not_pin_recovery_to_soft_ceiling() -> None:
+    tm = ThrottleManager(ThrottleConfig(reduce_factor=0.5, success_window=1, ceiling_overshoot=0.0))
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=10)
+
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0) == 0.0
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    state.current_limit = 1
+
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    assert state.current_limit == 1
+    assert state.rate_limit_ceiling == 0
+
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=10.0) == 0.0
+    tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=10.0)
     assert state.current_limit == 2
+
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=11.0) == 0.0
+    tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=11.0)
+    assert state.current_limit == 3
 
 
 # --- release_success ---

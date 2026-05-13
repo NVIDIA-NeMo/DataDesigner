@@ -279,11 +279,11 @@ class ThrottleManager:
 
             if is_first_in_cascade:
                 state.current_limit = max(DEFAULT_MIN_LIMIT, math.floor(state.current_limit * self._reduce_factor))
-                if state.rate_limit_ceiling == 0:
-                    state.rate_limit_ceiling = prev_limit
-                else:
-                    state.rate_limit_ceiling = min(state.rate_limit_ceiling, prev_limit)
                 if state.current_limit < prev_limit:
+                    if state.rate_limit_ceiling == 0:
+                        state.rate_limit_ceiling = prev_limit
+                    else:
+                        state.rate_limit_ceiling = min(state.rate_limit_ceiling, prev_limit)
                     if state.rate_limit_ceiling < prev_limit:
                         logger.info(
                             "🪫📉 '%s' [%s] server rate-limited at %d (server limit ~%d) — concurrency reduced to %d (retrying in %.0fs)",
