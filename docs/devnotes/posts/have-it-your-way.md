@@ -13,6 +13,8 @@ authors:
 
 Data Designer is built around a simple idea: describe the dataset you want, and let the framework handle execution. A config points to seed data, defines generated columns, picks models, and shapes the final records — no orchestration code required. [Data Designer plugins](../../plugins/overview.md) keep that promise when a project needs something custom.
 
+As of Data Designer v0.6.0, plugins are out of experimental mode and stable. They are the supported path for turning reusable project-specific logic into normal Data Designer components.
+
 <!-- more -->
 
 What does "something custom" actually look like? Picture a robotics team sitting on a pile of [Isaac Sim](https://developer.nvidia.com/isaac/sim)-generated warehouse runs, trying to turn robot poses, camera views, and event metadata into instruction data. With an internal simulation-log plugin, the user-facing part can still be this small:
@@ -81,7 +83,7 @@ What about [custom columns](../../concepts/custom_columns.md)? Start with a cust
 
 ## **Author a Plugin: From Glue Code to Seed Reader**
 
-Consider a markdown seed reader. The one-off version might be a helper function that walks a directory, splits files into sections, returns a DataFrame, and then gets copied into the next project that needs it. That can work for one project. It becomes a problem when the reader needs options, tests, documentation, versioning, or reuse across teams. At that point, the helper has become a capability whether or not it is packaged like one.
+To make this concrete, let's walk through a full example. Consider a markdown seed reader. The one-off version might be a helper function that walks a directory, splits files into sections, returns a DataFrame, and then gets copied into the next project that needs it. That can work for one project. It becomes a problem when the reader needs options, tests, documentation, versioning, or reuse across teams. At that point, the helper has become a capability whether or not it is packaged like one.
 
 A plugin packages that same helper as a small Python project:
 
@@ -227,27 +229,30 @@ No custom orchestration. No separate DataFrame preparation step. The reader is p
 
 ---
 
-## **Start Local, Share When Useful**
+## **Building the Plugin Ecosystem**
 
-A plugin does not need to start as a public package. Most should start locally. Start with a local Python package and install it in editable mode:
+Reusable plugins also need a discovery layer. Once a plugin is useful beyond one project, users need a simple way to find the right package, install it, and get back to declaring datasets. That is why Data Designer includes a built-in NVIDIA plugin catalog and a CLI workflow for discovery and installation.
+
+The NVIDIA catalog is backed by [NVIDIA-NeMo/DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins), a dedicated home for first-party plugin packages, packaging examples, and plugin-specific docs. Keeping those packages outside the core repository lets them carry optional dependencies, target narrower use cases, and move at their own pace while still using the same plugin interface once installed.
+
+For users, the catalog makes discovering and installing first-party plugins seamless. The common flow is intentionally short: list the compatible packages, search for what you need, and install the package by name or alias.
 
 ```bash
-uv pip install -e .
+data-designer plugin list
+data-designer plugin search github
+data-designer plugin install github
 ```
 
-That is enough for Data Designer to discover the entry point. You can iterate on the config class and implementation while testing the plugin in a real preview loop. When the shape stabilizes, the same package can move to an internal index, a GitHub repo, or PyPI.
+After installation, normal entry point discovery takes over. Import the plugin's config classes and keep building the same declarative workflow.
 
-This is useful inside teams. A data platform group can maintain seed readers for internal systems. An applied science group can maintain generators for its domain. A training group can maintain processors that emit exactly the record shapes its trainers consume. Everyone else installs a package and uses typed configs in the same workflow they already know.
+The same pattern works for teams and communities. A platform group can publish a catalog of approved internal plugins backed by an internal package index or direct package references. A community can publish a catalog for a domain or workflow. The catalog gives users a trusted path to the plugins they prefer, while plugin packages remain independently versioned and distributed.
 
-It is useful for the broader community too. If you build a plugin that should be discoverable by other Data Designer users, publish it and follow the instructions in [Available Plugins](../../plugins/available.md) to request a catalog listing.
+```bash
+data-designer plugin catalog add internal <catalog-url>
+data-designer plugin --catalog internal install <package-or-alias>
+```
 
----
-
-## **A Repository for First-Party Plugins**
-
-We recently created [NVIDIA-NeMo/DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins), a dedicated repository for NVIDIA-maintained plugins. It is where we will publish first-party plugin packages, recommended packaging examples, and plugin-specific docs as the catalog grows.
-
-The split keeps the core Data Designer repo focused on the framework: the config API, engine execution, model integration, validation behavior, and stable plugin interface. Plugin packages can depend on optional libraries, target narrower use cases, and move at a different release pace, while still installing separately and using the same plugin interface once installed.
+That is the foundation for a richer Data Designer plugin ecosystem: the core framework provides the stable runtime, plugin authors provide specialized capabilities, and catalogs make those capabilities discoverable. For more information, see [Discover Plugins](../../plugins/discover.md).
 
 ---
 
@@ -259,9 +264,9 @@ Interested in building your own plugin? Here are some resources to get you start
 2. [Build Your Own](../../plugins/build_your_own.md) — follow the authoring guide for seed readers, column generators, and processors
 3. [Using Models in Plugins](../../plugins/models.md) — call configured models from plugin code
 4. [Markdown Section Seed Reader recipe](../../recipes/plugin_development/markdown_seed_reader.md) — study the complete version of the example from this post
-5. [Available Plugins](../../plugins/available.md) — browse the catalog and learn how to submit your own plugin
+5. [Discover Plugins](../../plugins/discover.md) — learn how to discover and install plugins
 6. [DataDesignerPlugins on GitHub](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) — explore first-party plugin packages
 
 Moving plugins out of experimental mode means Data Designer no longer has to predict every customization users will need. The framework provides the pipeline. Plugins supply the custom pieces.
 
-🎨🔌 Thanks for reading and happy plugin building!
+🎨 🔌 Thanks for reading and happy plugin building!
