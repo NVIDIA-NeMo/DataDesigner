@@ -150,7 +150,7 @@ jobs:
 
           if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 \
+              --max-time 30 \
               -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
               -H "Content-Type: application/json" \
               -H "x-api-key: ${ANTHROPIC_API_KEY}" \
