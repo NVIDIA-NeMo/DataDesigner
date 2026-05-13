@@ -77,6 +77,8 @@ Current Fern versions:
 fern/versions/
 ├── latest.yml          ← rolling nav file
 ├── latest/pages/...    ← latest-only page overrides
+├── v0.6.0.yml          ← release nav file
+├── v0.6.0/pages/...    ← v0.6.0-only page overrides
 ├── v0.5.9.yml          ← release nav file
 ├── v0.5.9/pages/...    ← v0.5.9-only page overrides
 ├── v0.5.8.yml          ← first migrated release nav file
@@ -85,11 +87,13 @@ fern/versions/
 └── older/pages/...     ← links to the MkDocs archive
 ```
 
-`docs.yml` registers `slug: latest`, `slug: v0.5.9`, `slug: v0.5.8`, and `slug: older-versions`. The `latest` and `v0.5.9` nav files intentionally reuse the migrated `v0.5.8/pages/` tree for most content so the first Fern-native versions do not duplicate every page. Add version-specific page copies only when content diverges.
+`docs.yml` registers `slug: latest`, `slug: v0.6.0`, `slug: v0.5.9`, `slug: v0.5.8`, and `slug: older-versions`. The `latest`, `v0.6.0`, and `v0.5.9` nav files intentionally reuse the migrated `v0.5.8/pages/` tree for unchanged content so Fern-native versions do not duplicate every page. Add version-specific page copies only when content diverges.
 
 Fern version URLs are based on the active version entry, not the source file path. A `v0.5.9` page can point at `./v0.5.8/pages/...` and still render under `/nemo/datadesigner/v0.5.9/...`; users do not see the reused source path.
 
-Dev Notes are versioned: `latest.yml` can include posts from `main` that are not in old release navs yet. Frozen release navs (`v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point.
+Before editing a file under an older shared tree such as `fern/versions/v0.5.8/pages/...`, check every `fern/versions/*.yml` file that points at it. If the content describes a newer release, copy it into `latest/pages/...` and the target `vX.Y.Z/pages/...` tree, then retarget only those nav entries.
+
+Dev Notes are versioned: `latest.yml` can include posts from `main` that are not in old release navs yet. Frozen release navs (`v0.6.0.yml`, `v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point. If a Dev Note says "As of Data Designer vX.Y.Z", do not add it to an older frozen nav or an older shared page tree.
 
 Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. The Fern version picker includes an "Older versions" page linking to those archives.
 
@@ -130,6 +134,7 @@ fern/
 ├── code-reference/            ← gitignored; populated by `make generate-fern-api-reference`
 └── versions/
     ├── latest.yml             ← rolling navigation tree
+    ├── v0.6.0.yml             ← release navigation tree
     ├── v0.5.9.yml             ← release navigation tree
     ├── v0.5.8.yml             ← navigation tree
     ├── older.yml              ← older versions landing page

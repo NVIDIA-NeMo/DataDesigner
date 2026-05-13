@@ -1,3 +1,4 @@
+# Frozen v0.6.0 release nav. Reuses shared pages until content needs to diverge.
 navigation:
   - section: Getting Started
     contents:
@@ -76,7 +77,7 @@ navigation:
   - section: Recipes
     contents:
       - page: Recipe Cards
-        path: ./v0.5.8/pages/recipes/cards.mdx
+        path: ./v0.5.9/pages/recipes/cards.mdx
       - section: Code Generation
         contents:
           - page: Text to Python
@@ -107,14 +108,34 @@ navigation:
             path: ./v0.5.8/pages/recipes/mcp_and_tooluse/pdf_qa.mdx
           - page: Nemotron Super Search Agent
             path: ./v0.5.8/pages/recipes/mcp_and_tooluse/search_agent.mdx
+      - section: VLM Long-Document Understanding
+        contents:
+          - page: Seed Dataset Preparation
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/seed_dataset_preparation.mdx
+          - page: Nemotron Parse OCR
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/nemotron_parse_ocr.mdx
+          - page: Text QA from OCR Transcripts
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/text_qa.mdx
+          - page: Page Classification
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/page_classification.mdx
+          - page: Visual QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/visual_qa.mdx
+          - page: Single-Page QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/single_page_qa.mdx
+          - page: Multi-Page Windowed QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/multi_page_windowed_qa.mdx
+          - page: Whole-Document QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/whole_document_qa.mdx
+          - page: Frontier Judge QA Filter
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/frontier_judge.mdx
   - section: Plugins
     contents:
       - page: Overview
-        path: ./v0.5.8/pages/plugins/overview.mdx
+        path: ./v0.6.0/pages/plugins/overview.mdx
       - page: Example Plugin
-        path: ./v0.5.8/pages/plugins/example.mdx
+        path: ./v0.6.0/pages/plugins/example.mdx
       - page: FileSystemSeedReader Plugins
-        path: ./v0.5.8/pages/plugins/filesystem_seed_reader.mdx
+        path: ./v0.6.0/pages/plugins/filesystem_seed_reader.mdx
       - page: Discover
         path: ./v0.5.8/pages/plugins/discover.mdx
   - section: Code Reference
@@ -146,7 +167,11 @@ navigation:
   - section: Dev Notes
     contents:
       - page: Overview
-        path: ./v0.5.8/pages/devnotes/index.mdx
+        path: ./v0.6.0/pages/devnotes/index.mdx
+      - page: Have It Your Way
+        path: ./v0.6.0/pages/devnotes/posts/have-it-your-way.mdx
+      - page: VLM Long Document Understanding
+        path: ./v0.6.0/pages/devnotes/posts/vlm-long-document-understanding.mdx
       - page: Push Datasets to Hugging Face Hub
         path: ./v0.5.8/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
       - page: Text-to-SQL for Nemotron Super
@@ -155,12 +180,12 @@ navigation:
         path: ./v0.5.8/pages/devnotes/posts/async-all-the-way-down.mdx
       - page: Owning the Model Stack
         path: ./v0.5.8/pages/devnotes/posts/owning-the-model-stack.mdx
-      - page: Data Designer Got Skills
-        path: ./v0.5.8/pages/devnotes/posts/data-designer-got-skills.mdx
       - section: Older Dev Notes
         collapsed: true
         skip-slug: true
         contents:
+          - page: Data Designer Got Skills
+            path: ./v0.5.8/pages/devnotes/posts/data-designer-got-skills.mdx
           - page: Search Agent
             path: ./v0.5.8/pages/devnotes/posts/search-agent.mdx
           - page: Structured Outputs from Nemotron

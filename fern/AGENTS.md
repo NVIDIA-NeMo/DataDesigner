@@ -23,6 +23,10 @@ Use hybrid versioning. A version YAML may reuse older page files for unchanged c
 
 Example: a `v0.5.9` nav entry can point to `./v0.5.8/pages/concepts/columns.mdx`. Users still see the page under the active `v0.5.9` URL because Fern routes by version slug and nav title, not by source file path.
 
+Before editing a file under an older shared tree such as `fern/versions/v0.5.8/pages/...`, check every `fern/versions/*.yml` file that points at it. If the content describes a newer release, copy it into `latest/pages/...` and the target `vX.Y.Z/pages/...` tree, then retarget only those nav entries.
+
+Dev Notes are versioned. Do not add a new release-specific post to an older frozen nav or page tree. If a post says "As of Data Designer vX.Y.Z", it belongs in `latest.yml` and `vX.Y.Z.yml`, not in older version navs.
+
 Do not call a version frozen if its YAML points at shared pages that may change later. If a page's content must remain release-specific, copy it into `fern/versions/vX.Y.Z/pages/...` and point that version's YAML to the copy.
 
 ## Release Prep
