@@ -1,0 +1,132 @@
+/* Indentation. */
+div.doc-contents:not(.first) {
+    padding-left: 25px;
+    border-left: .05rem solid var(--md-typeset-table-color);
+  }
+
+  /* Mark external links as such. */
+  a.external::after,
+  a.autorefs-external::after {
+    /* https://primer.style/octicons/arrow-up-right-24 */
+    mask-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18.25 15.5a.75.75 0 00.75-.75v-9a.75.75 0 00-.75-.75h-9a.75.75 0 000 1.5h7.19L6.22 16.72a.75.75 0 101.06 1.06L17.5 7.56v7.19c0 .414.336.75.75.75z"></path></svg>');
+    -webkit-mask-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18.25 15.5a.75.75 0 00.75-.75v-9a.75.75 0 00-.75-.75h-9a.75.75 0 000 1.5h7.19L6.22 16.72a.75.75 0 101.06 1.06L17.5 7.56v7.19c0 .414.336.75.75.75z"></path></svg>');
+    content: ' ';
+
+    display: inline-block;
+    vertical-align: middle;
+    position: relative;
+
+    height: 1em;
+    width: 1em;
+    background-color: currentColor;
+  }
+
+  a.external:hover::after,
+  a.autorefs-external:hover::after {
+    background-color: var(--md-accent-fg-color);
+  }
+
+  /* Tree-like output for backlinks. */
+  .doc-backlink-list {
+    --tree-clr: var(--md-default-fg-color);
+    --tree-font-size: 1rem;
+    --tree-item-height: 1;
+    --tree-offset: 1rem;
+    --tree-thickness: 1px;
+    --tree-style: solid;
+    display: grid;
+    list-style: none !important;
+  }
+
+  .doc-backlink-list li > span:first-child {
+    text-indent: .3rem;
+  }
+  .doc-backlink-list li {
+    padding-inline-start: var(--tree-offset);
+    border-left: var(--tree-thickness) var(--tree-style) var(--tree-clr);
+    position: relative;
+    margin-left: 0 !important;
+
+    &:last-child {
+      border-color: transparent;
+    }
+    &::before{
+      content: '';
+      position: absolute;
+      top: calc(var(--tree-item-height) / 2 * -1 * var(--tree-font-size) + var(--tree-thickness));
+      left: calc(var(--tree-thickness) * -1);
+      width: calc(var(--tree-offset) + var(--tree-thickness) * 2);
+      height: calc(var(--tree-item-height)  * var(--tree-font-size));
+      border-left: var(--tree-thickness) var(--tree-style) var(--tree-clr);
+      border-bottom: var(--tree-thickness) var(--tree-style) var(--tree-clr);
+    }
+    &::after{
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+      background-color: var(--tree-clr);
+      top: calc(var(--tree-item-height) / 2 * 1rem);
+      left: var(--tree-offset) ;
+      translate: calc(var(--tree-thickness) * -1) calc(var(--tree-thickness) * -1);
+    }
+  }
+
+  .doc-symbol-toc.doc-symbol-module::after {
+    content: "module";
+  }
+
+  .doc-symbol-toc.doc-symbol-method::after {
+    content: "method";
+  }
+
+  /* Keep API section tables readable when Python type annotations are long. */
+  div.doc-contents:has(table:has(thead th:nth-child(3))) {
+    overflow-x: auto;
+  }
+
+  div.doc-contents table:has(thead th:nth-child(3)) {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 42rem;
+  }
+
+  div.doc-contents table:has(thead th:nth-child(3)) td {
+    vertical-align: top;
+  }
+
+  div.doc-contents table:has(thead th:nth-child(3)) code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  /* Attributes: Name, Type, Description. */
+  div.doc-contents table:has(thead th:nth-child(3)):not(:has(thead th:nth-child(4))) th:nth-child(1),
+  div.doc-contents table:has(thead th:nth-child(3)):not(:has(thead th:nth-child(4))) td:nth-child(1) {
+    width: clamp(9rem, 18%, 12rem);
+  }
+
+  div.doc-contents table:has(thead th:nth-child(3)):not(:has(thead th:nth-child(4))) th:nth-child(2),
+  div.doc-contents table:has(thead th:nth-child(3)):not(:has(thead th:nth-child(4))) td:nth-child(2) {
+    width: clamp(16rem, 38%, 34rem);
+  }
+
+  /* Parameters: Name, Type, Description, Default. */
+  div.doc-contents table:has(thead th:nth-child(4)) {
+    min-width: 54rem;
+  }
+
+  div.doc-contents table:has(thead th:nth-child(4)) th:nth-child(1),
+  div.doc-contents table:has(thead th:nth-child(4)) td:nth-child(1) {
+    width: clamp(9rem, 16%, 11rem);
+  }
+
+  div.doc-contents table:has(thead th:nth-child(4)) th:nth-child(2),
+  div.doc-contents table:has(thead th:nth-child(4)) td:nth-child(2) {
+    width: clamp(16rem, 32%, 28rem);
+  }
+
+  div.doc-contents table:has(thead th:nth-child(4)) th:nth-child(4),
+  div.doc-contents table:has(thead th:nth-child(4)) td:nth-child(4) {
+    width: clamp(5rem, 9%, 7rem);
+  }
