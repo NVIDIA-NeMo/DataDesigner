@@ -528,8 +528,6 @@ class ThrottleManager:
     def _apply_startup_ramp(self, state: DomainThrottleState, effective_max: int, now: float) -> None:
         """Apply the configured startup ramp to a domain, if it is still active."""
         if not state.rampup_active:
-            if state.current_limit > effective_max:
-                state.current_limit = effective_max
             return
         if self._rampup_seconds <= 0 or effective_max <= DEFAULT_MIN_LIMIT:
             state.current_limit = min(state.current_limit, effective_max)

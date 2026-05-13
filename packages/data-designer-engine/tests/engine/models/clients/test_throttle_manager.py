@@ -160,7 +160,7 @@ def test_startup_ramp_completes_on_first_call_after_elapsed_time() -> None:
     assert state.rampup_active is False
 
 
-def test_failure_does_not_abort_startup_ramp() -> None:
+def test_release_failure_preserves_startup_ramp_and_progress() -> None:
     tm = ThrottleManager(ThrottleConfig(rampup_seconds=10.0))
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=5)
 

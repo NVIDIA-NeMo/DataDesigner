@@ -56,7 +56,7 @@ class ColdServerAsyncHTTPClient:
         self._service_seconds = service_seconds
         self._retry_after = retry_after
         self._lock = asyncio.Lock()
-        self._started_at = time.monotonic()
+        self._started_at: float | None = None
         self._in_flight = 0
         self.samples: list[ColdServerSample] = []
 
@@ -70,16 +70,19 @@ class ColdServerAsyncHTTPClient:
             return 0
         return max(sample.in_flight for sample in self.samples)
 
-    def peak_in_flight_before(self, seconds: float) -> int:
-        samples = [sample for sample in self.samples if sample.elapsed <= seconds]
-        if not samples:
+    @property
+    def peak_allowed(self) -> int:
+        if not self.samples:
             return 0
-        return max(sample.in_flight for sample in samples)
+        return max(sample.allowed for sample in self.samples)
 
     async def post(self, *_args: object, **_kwargs: object) -> MagicMock:
         async with self._lock:
             self._in_flight += 1
-            elapsed = time.monotonic() - self._started_at
+            now = time.monotonic()
+            if self._started_at is None:
+                self._started_at = now
+            elapsed = now - self._started_at
             allowed = self._allowed(elapsed)
             status_code = 200 if self._in_flight <= allowed else 429
             self.samples.append(
@@ -517,7 +520,7 @@ async def test_startup_ramp_integration_eases_into_cold_server_without_429s() ->
     assert no_ramp_client.rate_limits > 0
     assert no_ramp_client.peak_in_flight > 1
     assert ramped_client.rate_limits == 0
-    assert ramped_client.peak_in_flight_before(0.05) <= 1
+    assert ramped_client.peak_allowed > 1
     assert ramped_client.peak_in_flight > 1
 
     await asyncio.sleep(0.31)
