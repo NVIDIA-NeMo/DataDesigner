@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-.][0-9A-Za-z]+)*")
+AS_OF_VERSION_RE = re.compile(rf"As of Data Designer\s+\[?v?({VERSION_RE.pattern})")
+NAV_PATH_RE = re.compile(r"^\s*path:\s+\./([^#\s]+)\s*$")
 
 
 class ReleaseVersionError(RuntimeError):
@@ -31,6 +33,22 @@ def normalize_version(value: str) -> str:
 
 def version_slug(version: str) -> str:
     return f"v{normalize_version(version)}"
+
+
+def version_key(value: str) -> tuple[int, int, int, int, str]:
+    version = normalize_version(value)
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(.*)", version)
+    if not match:
+        raise ReleaseVersionError(f"Invalid version '{value}'")
+    suffix = match.group(4)
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)), int(not suffix), suffix)
+
+
+def parse_yaml_value(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 def find_top_level_block(lines: list[str], name: str) -> tuple[int, int]:
@@ -59,9 +77,75 @@ def versions_block_text(root: Path) -> str:
     return "".join(lines[start:end])
 
 
+def version_entries(root: Path) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for line in versions_block_text(root).splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- display-name:"):
+            if current:
+                entries.append(current)
+            current = {"display_name": parse_yaml_value(stripped.split(":", 1)[1])}
+        elif current and stripped.startswith("path:"):
+            current["path"] = parse_yaml_value(stripped.split(":", 1)[1])
+        elif current and stripped.startswith("slug:"):
+            current["slug"] = parse_yaml_value(stripped.split(":", 1)[1])
+    if current:
+        entries.append(current)
+    return entries
+
+
+def highest_version_slug(entries: list[dict[str, str]]) -> str | None:
+    slugs = [entry["slug"] for entry in entries if re.fullmatch(rf"v{VERSION_RE.pattern}", entry.get("slug", ""))]
+    return max(slugs, key=version_key, default=None)
+
+
 def has_version_entry(root: Path, slug: str) -> bool:
     block = versions_block_text(root)
     return re.search(rf"^\s+slug:\s+{re.escape(slug)}\s*$", block, re.MULTILINE) is not None
+
+
+def check_latest_display_name(root: Path) -> list[str]:
+    entries = version_entries(root)
+    latest = next((entry for entry in entries if entry.get("slug") == "latest"), None)
+    highest = highest_version_slug(entries)
+    if latest is None or highest is None:
+        return []
+
+    match = re.search(rf"\bv({VERSION_RE.pattern})\b", latest.get("display_name", ""))
+    if not match:
+        return ["Latest version display name must include the latest registered version slug"]
+
+    displayed = f"v{match.group(1)}"
+    if displayed != highest:
+        return [f"Latest display name points at {displayed}, but highest registered version is {highest}"]
+    return []
+
+
+def referenced_mdx_paths(nav: Path) -> list[Path]:
+    versions_dir = nav.parent
+    paths: list[Path] = []
+    for line in nav.read_text().splitlines():
+        match = NAV_PATH_RE.match(line)
+        if match:
+            path = versions_dir / match.group(1)
+            if path.suffix == ".mdx" and path.exists():
+                paths.append(path)
+    return paths
+
+
+def check_as_of_versions(root: Path) -> list[str]:
+    errors: list[str] = []
+    for nav in sorted((root / "versions").glob("v*.yml")):
+        nav_slug = nav.stem
+        nav_version = version_key(nav_slug)
+        for path in referenced_mdx_paths(nav):
+            for match in AS_OF_VERSION_RE.finditer(path.read_text()):
+                content_slug = version_slug(match.group(1))
+                if version_key(content_slug) > nav_version:
+                    rel_path = path.relative_to(root)
+                    errors.append(f"{nav.name} references {rel_path}, which declares {content_slug}")
+    return errors
 
 
 def update_docs_yml(root: Path, slug: str) -> None:
@@ -149,6 +233,8 @@ def check_release(root: Path, slug: str) -> list[str]:
     elif "navigation:" not in nav.read_text():
         errors.append(f"{nav} does not look like a Fern version nav file")
 
+    errors.extend(check_latest_display_name(root))
+    errors.extend(check_as_of_versions(root))
     return errors
 
 
