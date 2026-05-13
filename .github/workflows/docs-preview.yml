@@ -55,6 +55,13 @@ jobs:
       - name: Build docs
         run: .venv/bin/mkdocs build
 
+      - name: Verify published Fern archive exists
+        run: |
+          if ! git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
+            echo "::error::$FERN_PUBLISHED_BRANCH does not exist. Publish a Fern release snapshot first."
+            exit 1
+          fi
+
       - name: Checkout published Fern archive
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:

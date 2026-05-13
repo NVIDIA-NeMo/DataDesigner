@@ -167,7 +167,7 @@ jobs:
       contents: write
     with:
       use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
-      checkout_ref: ${{ needs.resolve-release.outputs.prepare_release_docs == '1' && needs.resolve-release.outputs.source_ref || '' }}
+      checkout_ref: ${{ needs.resolve-release.outputs.prepare_release_docs == '1' && needs.resolve-release.outputs.source_ref || needs.resolve-release.outputs.release_tag }}
     secrets: inherit
 
   publish:

@@ -30,12 +30,16 @@ SKIP_NAMES = {
     "site",
 }
 FERN_DEVNOTE_SUPPORT_PATHS = [
-    "fern/assets/devnotes",
+    "fern/assets",
     "fern/components/Authors.tsx",
     "fern/components/BlogCard.tsx",
+    "fern/components/MetricsTable.tsx",
+    "fern/components/TrajectoryViewer.tsx",
     "fern/components/devnotes",
     "fern/styles/authors.css",
     "fern/styles/blog-card.css",
+    "fern/styles/metrics-table.css",
+    "fern/styles/trajectory-viewer.css",
 ]
 
 
