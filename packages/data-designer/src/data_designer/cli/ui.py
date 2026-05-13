@@ -530,7 +530,7 @@ def display_config_preview(config: dict, title: str = "Configuration Preview") -
     panel_width = _console.width - LEFT_PADDING - RIGHT_PADDING
 
     panel = Panel(
-        yaml_str,
+        Text(yaml_str),
         title=title,
         title_align="left",
         border_style=NordColor.NORD14.value,

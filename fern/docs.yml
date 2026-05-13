@@ -340,9 +340,6 @@ redirects:
     destination: "/nemo/datadesigner/plugins/file-system-seed-reader-plugins"
   - source: "/nemo/datadesigner/plugins/example"
     destination: "/nemo/datadesigner/plugins/example-plugin"
-  - source: "/nemo/datadesigner/plugins/available"
-    destination: "/nemo/datadesigner/plugins/available-plugin-list"
-
   # Code Reference: mkdocstrings tree -> Fern Topic Overviews subsection.
   # Underscored page names get kebab'd at the page-slug level too (Fern's title
   # slugifier drops underscores), so the snake_case modules need per-page rules.
