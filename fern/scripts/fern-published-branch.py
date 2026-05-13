@@ -71,6 +71,23 @@ def versions_block(path: Path) -> list[str] | None:
     return lines[start:end]
 
 
+def normalize_latest_display_name(block: list[str] | None) -> list[str] | None:
+    if block is None:
+        return None
+
+    normalized = list(block)
+    display_name_index = -1
+    for index, line in enumerate(block):
+        if line.startswith("- display-name:"):
+            display_name_index = index
+            continue
+        match = VERSION_SLUG_RE.match(line)
+        if display_name_index != -1 and match and match.group(1) == "latest":
+            normalized[display_name_index] = '- display-name: "Latest"\n'
+            break
+    return normalized
+
+
 def restore_versions_block(path: Path, block: list[str] | None) -> None:
     if block is None:
         return
@@ -157,7 +174,7 @@ def sync_source(args: argparse.Namespace) -> int:
     if not (source_root / "fern" / "docs.yml").exists():
         raise PublishedBranchError(f"Missing source Fern docs at {source_root / 'fern'}")
 
-    preserved_versions_block = versions_block(published_root / "fern" / "docs.yml")
+    preserved_versions_block = normalize_latest_display_name(versions_block(published_root / "fern" / "docs.yml"))
     with tempfile.TemporaryDirectory() as tmpdir:
         preserved_versions = Path(tmpdir) / "versions"
         if (published_root / "fern" / "versions").exists():
