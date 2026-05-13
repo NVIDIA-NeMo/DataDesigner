@@ -31,6 +31,8 @@ Two pre-render steps are needed before the dev server has all content. Both prod
 make generate-fern-api-reference
 ```
 
+`py2fern` only descends into Python packages. Add `__init__.py` to any new subdirectory whose modules should appear in the API reference.
+
 The `libraries:` block in [`docs.yml`](docs.yml) still documents the equivalent Fern-native generator. Run `make generate-fern-api-reference-native` only when you want the Fern CLI output and have Fern auth.
 
 Re-run when the upstream package source changes.
