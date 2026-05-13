@@ -45,7 +45,7 @@ config_builder.add_column(
 config_builder.add_processor(RobotSFTProcessor(output_column="messages"))
 ```
 
-That is the point of plugins: install a package, import its config classes, and keep the workflow declarative. The Isaac run reader, event labeler, and trainer-format processor own the custom parsing, labeling, validation, and export shape, while Data Designer still handles discovery, dependency ordering, model calls, previews, and output.
+That is the point of plugins: install a package, import its config classes, and keep the workflow declarative. The Isaac run reader, event labeler, and trainer-format processor own the project-specific parsing and trainer-facing shape. Data Designer still does the framework work, from component discovery and dependency ordering to model execution and output handling.
 
 ---
 
@@ -53,7 +53,7 @@ That is the point of plugins: install a package, import its config classes, and 
 
 ![A confused engineer trying to fit custom building blocks into the wrong framework slots](assets/have-it-your-way/customization-blocks-confusion.png){ .devnote-section-graphic }
 
-The mess usually starts innocently. A team defines a Data Designer config, then discovers that its seed data lives in an internal layout, its generated column needs a domain simulator, and its trainer expects a slightly different record shape. Someone writes a small reader beside the notebook. Someone patches a generator into a project folder. Someone adds a cleanup script after preview because the final export has one more organization-specific rule. Each choice is reasonable because every project has its own corpus, policy, ontology, simulator, and training stack.
+The mess usually starts innocently. A team defines a Data Designer config, then discovers that its seed data lives in an internal layout, its generated column needs a domain simulator, and its trainer expects a slightly different record shape. Someone writes a small reader beside the notebook. Someone patches a generator into a project folder. Someone adds a cleanup script after preview because the final export has one more organization-specific rule. Each choice is reasonable because every project brings a different corpus, policy model, domain vocabulary, or training stack.
 
 The problem is that the custom behavior now lives around Data Designer instead of inside the Data Designer workflow. It is harder to validate, harder to share, harder to version, and easier to lose. Plugins give that bespoke work a clean package boundary – a name, typed config, runtime implementation, entry point, and tests that travel together. Users still declare the dataset they want, but the local reader, domain generator, or trainer-format processor becomes a normal Data Designer component instead of another layer of glue.
 
@@ -75,7 +75,7 @@ The first plugin boundaries match the places where real projects most often need
 
 </div>
 
-These boundaries are intentionally narrow. A plugin should own the behavior that is specific to your use case. Data Designer should keep owning the pipeline responsibilities: validation, dependency resolution, batching, model calls, logging, previews, output handling. That split lets custom components use the normal workflow without moving orchestration into the project.
+These boundaries are intentionally narrow. A plugin should own the behavior that is specific to your use case. Data Designer validates configs and resolves dependencies. It plans batches, runs models, records logs, shows previews, then writes the output. That split lets custom components use the normal workflow without moving orchestration into the project.
 
 What about [custom columns](../../concepts/custom_columns.md)? Start with a custom column when you are prototyping column-generator behavior or need a one-off column that only one project uses. Custom columns keep the logic in a Python function inside the config, with declared dependencies and optional model access. When that logic needs a stable config schema, tests, packaging, docs, or reuse across teams, promote it to a column generator plugin.
 
@@ -109,7 +109,7 @@ class MarkdownSectionSeedSource(FileSystemSeedSource):
     seed_type: Literal["markdown-sections"] = "markdown-sections"
 ```
 
-The implementation class is where the old helper code should move. For a filesystem seed reader, Data Designer gives you a small interface instead of a blank page: implement `build_manifest(...)` to build a cheap index of candidate inputs, and implement `hydrate_row(...)` to turn each selected manifest row into one or more dataset rows. That split matters because Data Designer can sample, shuffle, partition, and batch against the lightweight manifest before paying the cost of reading files, parsing sections, or calling project-specific libraries. The parser can still be a normal helper function; the reader class is the framework boundary.
+The implementation class is where the old helper code should move. For a filesystem seed reader, Data Designer gives you a small interface instead of a blank page: implement `build_manifest(...)` to build a cheap index of candidate inputs, and implement `hydrate_row(...)` to turn each selected manifest row into one or more dataset rows. That split matters because Data Designer can plan work against the lightweight manifest before paying the cost of reading files, parsing sections, or calling project-specific libraries. The parser can still be a normal helper function; the reader class is the framework boundary.
 
 ```python
 # impl.py
@@ -141,7 +141,6 @@ class MarkdownSectionSeedReader(FileSystemSeedReader[MarkdownSectionSeedSource])
         context: SeedReaderFileSystemContext,
     ) -> list[dict[str, str]]:
         # Fast path: enumerate candidate files and return cheap metadata.
-        # Data Designer can index, sample, shuffle, and batch these rows.
         matched_paths = self.get_matching_relative_paths(
             context=context,
             file_pattern=self.source.file_pattern,
@@ -235,24 +234,24 @@ Reusable plugins also need a discovery layer. Once a plugin is useful beyond one
 
 The NVIDIA catalog is backed by [NVIDIA-NeMo/DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins), a dedicated home for first-party plugin packages, packaging examples, and plugin-specific docs. Keeping those packages outside the core repository lets them carry optional dependencies, target narrower use cases, and move at their own pace while still using the same plugin interface once installed.
 
-For users, the catalog makes discovering and installing first-party plugins seamless. The common flow is intentionally short: list the compatible packages, search for what you need, and install the package by name or alias.
+For users, the first-party path is short: list what is available, search for what you need, and install by package name or alias.
 
 ```bash
 data-designer plugin list
-data-designer plugin search github
-data-designer plugin install github
+data-designer plugin search <keyword>
+data-designer plugin install <package-name>
 ```
 
-After installation, normal entry point discovery takes over. Import the plugin's config classes and keep building the same declarative workflow.
+After installation, there is no separate registration step. Data Designer discovers the package's entry points, so users import the plugin's config classes and keep building the same declarative workflow.
 
-The same pattern works for teams and communities. A platform group can publish a catalog of approved internal plugins backed by an internal package index or direct package references. A community can publish a catalog for a domain or workflow. The catalog gives users a trusted path to the plugins they prefer, while plugin packages remain independently versioned and distributed.
+Catalogs are not limited to NVIDIA plugins. A platform group can publish a catalog of approved internal plugins backed by an internal package index or direct package references. A community can publish a catalog for a domain or workflow. The catalog gives users a trusted path to the plugins they prefer, while plugin packages remain independently versioned and distributed.
 
 ```bash
-data-designer plugin catalog add internal <catalog-url>
-data-designer plugin --catalog internal install <package-or-alias>
+data-designer plugin catalog add <catalog-name> <catalog-url>
+data-designer plugin --catalog <catalog-name> install <package-name>
 ```
 
-That is the foundation for a richer Data Designer plugin ecosystem: the core framework provides the stable runtime, plugin authors provide specialized capabilities, and catalogs make those capabilities discoverable. For more information, see [Discover Plugins](../../plugins/discover.md).
+This provides a foundation for a rich Data Designer plugin ecosystem: the core framework provides the stable runtime, plugin authors provide specialized capabilities, and catalogs make those capabilities discoverable. For more information, see [Discover Plugins](../../plugins/discover.md).
 
 ---
 
