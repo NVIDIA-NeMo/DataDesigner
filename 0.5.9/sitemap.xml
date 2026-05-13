@@ -9,43 +9,95 @@
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/analysis/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/column_configs/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config_builder/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/analysis/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/data_designer_config/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/column_configs/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/mcp/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/config_builder/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/models/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/data_designer_config/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/processors/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/mcp/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/run_config/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/models/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/sampler_params/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/plugins/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/validator_params/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/processors/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/run_config/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/sampler_params/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/seeds/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config/validator_params/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/engine/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/engine/column_generators/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/engine/mcp/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/engine/processors/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/engine/seed_readers/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/interface/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/interface/data_designer/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/interface/errors/</loc>
+         <lastmod>2026-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/interface/results/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
@@ -277,15 +329,15 @@
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/plugins/available/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/plugins/build_your_own/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/plugins/example/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/plugins/discover/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/plugins/filesystem_seed_reader/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/plugins/models/</loc>
          <lastmod>2026-05-13</lastmod>
     </url>
     <url>

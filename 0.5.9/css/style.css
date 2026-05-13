@@ -124,6 +124,58 @@ h2 {
     margin-bottom: 0.2rem !important;
 }
 
+.md-typeset .devnote-dek {
+    border-left: 0.18rem solid #76B900;
+    color: var(--md-default-fg-color);
+    font-size: 1.05rem;
+    font-weight: 500;
+    line-height: 1.45;
+    margin: 0.6rem 0 1rem;
+    padding-left: 0.8rem;
+}
+
+.md-typeset img.devnote-float-right,
+.md-typeset img.devnote-section-graphic {
+    background: var(--md-default-bg-color);
+    border: 0.05rem solid var(--md-default-fg-color--lightest);
+    border-radius: 0.3rem;
+    box-shadow: 0 0.25rem 0.8rem rgb(0 0 0 / 18%);
+}
+
+.md-typeset img.devnote-float-right {
+    float: right;
+    width: min(42%, 28rem);
+    max-width: 100%;
+    height: auto;
+    margin: 0 0 0.7rem 1rem;
+}
+
+.md-typeset img.devnote-section-graphic {
+    float: right;
+    width: min(38%, 24rem);
+    max-width: 100%;
+    height: auto;
+    margin: 0.1rem 0 0.7rem 1rem;
+}
+
+.md-typeset .devnote-clear {
+    clear: right;
+}
+
+.md-post--excerpt .devnote-hide-in-index {
+    display: none;
+}
+
+@media screen and (max-width: 60em) {
+    .md-typeset img.devnote-float-right,
+    .md-typeset img.devnote-section-graphic {
+        float: none;
+        display: block;
+        width: 100%;
+        margin: 1rem 0;
+    }
+}
+
 /* Define the company grid layout */
 
 #grid-container {
@@ -162,6 +214,19 @@ h2 {
 
   .md-typeset__table > table {
     max-height: 60vh;
+    min-width: 100%;
+    width: max-content;
+  }
+
+  .md-typeset__table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .md-typeset__table code {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
   }
 
   .md-typeset__table > table thead {
