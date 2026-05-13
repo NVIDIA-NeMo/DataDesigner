@@ -1806,15 +1806,15 @@ def test_scheduler_task_group_spec_logs_debug_on_model_resolution_fallback(
     generator = MockConfiguredModelCellGenerator(config=column_config, resource_provider=provider)
     graph = ExecutionGraph.create([column_config], {"answer": GenerationStrategy.CELL_BY_CELL})
     tracker = CompletionTracker.with_graph(graph, [(0, 2)])
-    scheduler = AsyncTaskScheduler(
-        generators={"answer": generator},
-        graph=graph,
-        tracker=tracker,
-        row_groups=[(0, 2)],
-        max_llm_wait_tasks=5,
-    )
 
-    with caplog.at_level("DEBUG", logger="data_designer.engine.dataset_builders.async_scheduler"):
+    with caplog.at_level("DEBUG", logger="data_designer.engine.dataset_builders.utils.scheduling_hints"):
+        scheduler = AsyncTaskScheduler(
+            generators={"answer": generator},
+            graph=graph,
+            tracker=tracker,
+            row_groups=[(0, 2)],
+            max_llm_wait_tasks=5,
+        )
         spec_a = scheduler._task_group_spec(Task(column="answer", row_group=0, row_index=0, task_type="cell"))
         spec_b = scheduler._task_group_spec(Task(column="answer", row_group=0, row_index=1, task_type="cell"))
 

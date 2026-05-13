@@ -28,6 +28,7 @@ from data_designer.engine.dataset_builders.utils.fair_task_queue import (
     TaskGroupSpec,
 )
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
+from data_designer.engine.dataset_builders.utils.scheduling_hints import SchedulingHint, SchedulingHintResolver
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
@@ -136,10 +137,11 @@ class AsyncTaskScheduler:
         self._max_llm_wait_tasks = max_llm_wait_tasks
 
         self._llm_bound_lookup = build_llm_bound_lookup(generators)
+        self._scheduling_hints = SchedulingHintResolver(generators)
         self._fair_queue = FairTaskQueue()
         self._pending_pre_batch_ready: defaultdict[int, list[Task]] = defaultdict(list)
         self._pending_pre_batch_ready_tasks: set[Task] = set()
-        # Generator configs and model registry bindings are fixed for one scheduler run.
+        # Task group specs are derived from per-generator scheduling hints and flow identity.
         self._task_group_spec_cache: dict[int, TaskGroupSpec] = {}
 
         self._dispatched: set[Task] = set()
@@ -376,112 +378,33 @@ class AsyncTaskScheduler:
         if cached is not None:
             return cached
 
-        spec = self._build_task_group_spec(task, generator)
+        spec = self._task_group_spec_from_hint(
+            self._scheduling_hints.hint_for(generator),
+            self._task_flow_identity(task),
+        )
         self._task_group_spec_cache[generator_id] = spec
         return spec
 
-    def _build_task_group_spec(self, task: Task, generator: ColumnGenerator) -> TaskGroupSpec:
-        flow_identity = self._task_flow_identity(task)
-
-        if not self._llm_bound_lookup.get(task.column, False):
+    def _task_group_spec_from_hint(self, hint: SchedulingHint, flow_identity: tuple[str, ...]) -> TaskGroupSpec:
+        if hint.group_kind == "local":
             return TaskGroupSpec(key=TaskGroupKey(kind="local", identity=flow_identity))
 
-        aliases = self._model_aliases_for_generator(generator)
-        if not aliases:
-            return self._fallback_llm_group_spec(flow_identity)
+        if hint.group_kind == "custom_model":
+            identity = (*flow_identity, *hint.identity_suffix)
+        else:
+            identity = (*hint.identity_prefix, *flow_identity, *hint.identity_suffix)
 
-        model_parts: list[str] = []
-        total_parallel = 0
-        primary_alias = getattr(generator.config, "model_alias", None)
-        for alias in aliases:
-            try:
-                model_config = self._get_model_config_for_alias(generator, alias)
-                provider_name = self._get_model_provider_name_for_alias(generator, alias)
-            except Exception:
-                logger.debug(
-                    "Falling back to custom-model scheduling group for column %r after failing to resolve "
-                    "model alias %r from aliases %r for flow %r.",
-                    task.column,
-                    alias,
-                    aliases,
-                    flow_identity,
-                    exc_info=True,
-                )
-                return self._custom_model_group_spec(flow_identity, aliases, weight=1)
-            max_parallel = getattr(model_config.inference_parameters, "max_parallel_requests", 1)
-            if not isinstance(max_parallel, int):
-                max_parallel = 1
-            model_parts.extend(
-                (
-                    provider_name,
-                    str(model_config.model),
-                    str(model_config.generation_type),
-                    alias,
-                )
-            )
-            total_parallel += max_parallel
-
-        weight = max(1, total_parallel)
-        if len(aliases) == 1 and primary_alias == aliases[0]:
-            identity = tuple((*model_parts[:3], *flow_identity))
-            return self._model_group_spec(identity, weight=weight)
-        return self._custom_model_group_spec(flow_identity, aliases, weight=weight)
+        weight = max(1, hint.weight)
+        return TaskGroupSpec(
+            key=TaskGroupKey(kind=hint.group_kind, identity=identity),
+            weight=float(weight),
+            admitted_limit=self._llm_group_admitted_limit(weight),
+        )
 
     def _task_flow_identity(self, task: Task) -> tuple[str, ...]:
         generator = self._generators[task.column]
         output_columns = self._gen_instance_to_columns.get(id(generator), [task.column])
         return tuple(output_columns)
-
-    @staticmethod
-    def _get_model_config_for_alias(generator: ColumnGenerator, alias: str) -> Any:
-        get_model_config = getattr(generator, "get_model_config", None)
-        if callable(get_model_config):
-            return get_model_config(model_alias=alias)
-        return generator.resource_provider.model_registry.get_model_config(model_alias=alias)
-
-    @staticmethod
-    def _get_model_provider_name_for_alias(generator: ColumnGenerator, alias: str) -> str:
-        get_provider_name = getattr(generator, "get_model_provider_name", None)
-        if callable(get_provider_name):
-            return str(get_provider_name(model_alias=alias))
-        provider = generator.resource_provider.model_registry.get_model_provider(model_alias=alias)
-        return str(provider.name)
-
-    @staticmethod
-    def _model_aliases_for_generator(generator: ColumnGenerator) -> list[str]:
-        get_aliases = getattr(generator.config, "get_model_aliases", None)
-        if callable(get_aliases):
-            aliases = get_aliases()
-        else:
-            aliases = []
-            if (alias := getattr(generator.config, "model_alias", None)) is not None:
-                aliases.append(alias)
-            aliases.extend(getattr(generator.config, "model_aliases", []) or [])
-        return list(dict.fromkeys(alias for alias in aliases if alias))
-
-    def _model_group_spec(self, identity: tuple[str, ...], *, weight: int) -> TaskGroupSpec:
-        return TaskGroupSpec(
-            key=TaskGroupKey(kind="model", identity=identity),
-            weight=float(weight),
-            admitted_limit=self._llm_group_admitted_limit(weight),
-        )
-
-    def _custom_model_group_spec(
-        self, flow_identity: tuple[str, ...], aliases: list[str], *, weight: int
-    ) -> TaskGroupSpec:
-        identity = (*flow_identity, *sorted(aliases))
-        return TaskGroupSpec(
-            key=TaskGroupKey(kind="custom_model", identity=identity),
-            weight=float(max(1, weight)),
-            admitted_limit=self._llm_group_admitted_limit(max(1, weight)),
-        )
-
-    def _fallback_llm_group_spec(self, flow_identity: tuple[str, ...]) -> TaskGroupSpec:
-        return TaskGroupSpec(
-            key=TaskGroupKey(kind="model", identity=("unknown", *flow_identity)),
-            weight=1.0,
-            admitted_limit=self._llm_group_admitted_limit(1),
-        )
 
     def _llm_group_admitted_limit(self, weight: int) -> int:
         return max(1, min(self._max_llm_wait_tasks, LLM_WAIT_POOL_MULTIPLIER * weight))
