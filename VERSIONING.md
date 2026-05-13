@@ -25,6 +25,10 @@ MAJOR.MINOR.PATCH
 When ready to release version `X.Y.Z`:
 
 ```bash
+# Prepare Fern docs for the release
+make prepare-fern-release VERSION=X.Y.Z
+make check-fern-release-version VERSION=X.Y.Z REQUIRE_LATEST=1
+
 # Tag the release
 git tag vX.Y.Z
 
@@ -38,9 +42,13 @@ uv publish
 
 Example:
 ```bash
+make prepare-fern-release VERSION=0.1.0
+make check-fern-release-version VERSION=0.1.0 REQUIRE_LATEST=1
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+Commit the Fern release changes before tagging. `prepare-fern-release` creates or updates the frozen `fern/versions/vX.Y.Z.yml` release nav, copies any latest-only pages into `fern/versions/vX.Y.Z/pages/`, and points `latest.yml` at the release copy. Release publishing checks this again and fails if `latest.yml` does not match the release nav.
 
 ## Accessing Version in Code
 

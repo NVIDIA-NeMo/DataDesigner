@@ -78,6 +78,7 @@ Data Designer is migrating from MkDocs to Fern over several releases. Until the 
 - Edit tutorial notebooks in `docs/notebook_source/*.py`.
 - Use `make serve-docs-locally` to preview the legacy MkDocs site.
 - Use `make check-fern-docs` to regenerate local Fern artifacts and validate the Fern site.
+- Before cutting a release, follow the Fern release prep steps in [VERSIONING.md](VERSIONING.md) so `latest.yml` points at the frozen release nav.
 - Do not commit generated Fern API reference or notebook artifacts.
 
 ---
