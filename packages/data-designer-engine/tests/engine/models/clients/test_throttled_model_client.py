@@ -508,12 +508,13 @@ async def _run_cold_server_scenario(
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_startup_ramp_integration_eases_into_cold_server_without_429s() -> None:
+    throttle_ramp_seconds = 0.3
     no_ramp_client, _, _ = await _run_cold_server_scenario(
         throttle_ramp_seconds=0.0,
         server_ramp_seconds=0.3,
     )
     ramped_client, throttle_manager, throttled_client = await _run_cold_server_scenario(
-        throttle_ramp_seconds=0.3,
+        throttle_ramp_seconds=throttle_ramp_seconds,
         server_ramp_seconds=0.1,
     )
 
@@ -523,7 +524,7 @@ async def test_startup_ramp_integration_eases_into_cold_server_without_429s() ->
     assert ramped_client.peak_allowed > 1
     assert ramped_client.peak_in_flight > 1
 
-    await asyncio.sleep(0.31)
+    await asyncio.sleep(throttle_ramp_seconds + 0.2)
     await _complete_with_rate_limit_retries(
         throttled_client,
         ChatCompletionRequest(model=MODEL_ID, messages=[{"role": "user", "content": "final ramp probe"}]),
