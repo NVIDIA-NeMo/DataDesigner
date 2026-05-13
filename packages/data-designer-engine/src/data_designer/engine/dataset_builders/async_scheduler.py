@@ -21,7 +21,7 @@ from data_designer.engine.dataset_builders.utils.async_progress_reporter import 
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
 )
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
+from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.utils.fair_task_queue import (
     FairTaskSelector,
     TaskGroupKey,
@@ -83,7 +83,7 @@ class _RowGroupState:
 
 @dataclass(frozen=True)
 class _DispatchOutcome:
-    """Result of one fair-dispatch pass over the current ready frontier."""
+    """Result of one fair-dispatch pass over the persistent ready queue."""
 
     dispatched: bool = False
     submission_full: bool = False
@@ -137,6 +137,8 @@ class AsyncTaskScheduler:
 
         self._llm_bound_lookup = build_llm_bound_lookup(generators)
         self._fair_selector = FairTaskSelector()
+        self._pending_pre_batch_ready: defaultdict[int, list[Task]] = defaultdict(list)
+        self._pending_pre_batch_ready_tasks: set[Task] = set()
         self._admitted_by_group: defaultdict[TaskGroupKey, int] = defaultdict(int)
         self._task_group_by_task: dict[Task, TaskGroupKey] = {}
         # Generator configs and model registry bindings are fixed for one scheduler run.
@@ -303,21 +305,49 @@ class AsyncTaskScheduler:
             await asyncio.gather(*self._worker_tasks, return_exceptions=True)
         self._worker_tasks.clear()
 
-    def _get_ready_tasks(self, seed_cols: tuple[str, ...], has_pre_batch: bool) -> list[Task]:
-        admitted_ids = set(self._rg_states)
-        ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
-        if not has_pre_batch:
-            return ready
-        seed_set = set(seed_cols)
-        return [
-            t
-            for t in ready
-            if ((s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done) or t.column in seed_set
-        ]
+    def _apply_tracker_delta(self) -> None:
+        self._apply_frontier_delta(self._tracker.consume_frontier_delta())
 
-    def _dispatch_ready_tasks(self, ready: list[Task]) -> _DispatchOutcome:
-        ready_groups = [(task, self._task_group_spec(task)) for task in ready]
-        self._fair_selector.sync_ready(ready_groups)
+    def _apply_frontier_delta(self, delta: FrontierDelta) -> None:
+        if delta.empty:
+            return
+        for task in delta.removed:
+            self._discard_ready_task(task)
+        for task in delta.added:
+            self._enqueue_ready_task(task)
+
+    def _enqueue_ready_task(self, task: Task) -> None:
+        if task in self._dispatched or task.row_group not in self._rg_states:
+            return
+        if not self._tracker.is_frontier_task(task):
+            return
+        state = self._rg_states[task.row_group]
+        if self._on_seeds_complete is not None and not state.pre_batch_done:
+            if task not in self._pending_pre_batch_ready_tasks:
+                self._pending_pre_batch_ready[task.row_group].append(task)
+                self._pending_pre_batch_ready_tasks.add(task)
+            return
+        self._fair_selector.enqueue(task, self._task_group_spec(task))
+
+    def _discard_ready_task(self, task: Task) -> None:
+        self._fair_selector.discard(task)
+        self._pending_pre_batch_ready_tasks.discard(task)
+
+    def _flush_pre_batch_ready(self, row_group: int) -> None:
+        pending = self._pending_pre_batch_ready.pop(row_group, [])
+        for task in pending:
+            if task not in self._pending_pre_batch_ready_tasks:
+                continue
+            self._pending_pre_batch_ready_tasks.discard(task)
+            self._enqueue_ready_task(task)
+
+    def _drop_pending_ready_for_row_group(self, row_group: int) -> None:
+        pending = self._pending_pre_batch_ready.pop(row_group, [])
+        for task in pending:
+            self._pending_pre_batch_ready_tasks.discard(task)
+        self._fair_selector.discard_where(lambda task: task.row_group == row_group)
+
+    def _dispatch_queued_tasks(self) -> _DispatchOutcome:
         dispatched = False
 
         while self._fair_selector.has_queued_tasks:
@@ -550,8 +580,7 @@ class AsyncTaskScheduler:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
 
-            ready = self._get_ready_tasks(seed_cols, has_pre_batch)
-            dispatch_outcome = self._dispatch_ready_tasks(ready)
+            dispatch_outcome = self._dispatch_queued_tasks()
 
             self._checkpoint_completed_row_groups(all_columns)
 
@@ -566,11 +595,15 @@ class AsyncTaskScheduler:
             if all_done:
                 break
 
-            if not ready and not self._in_flight:
+            if not self._fair_selector.has_queued_tasks and not self._in_flight:
                 if self._all_rgs_admitted:
                     break
 
-            if not ready or dispatch_outcome.submission_full or dispatch_outcome.group_blocked:
+            if (
+                not self._fair_selector.has_queued_tasks
+                or dispatch_outcome.submission_full
+                or dispatch_outcome.group_blocked
+            ):
                 await self._wake_event.wait()
 
     async def _salvage_rounds(
@@ -630,6 +663,7 @@ class AsyncTaskScheduler:
                     self._spawn_worker(self._execute_seed_task(task, gid))
                 else:
                     self._dispatched.discard(task)
+                    self._enqueue_ready_task(task)
             # Drain: dispatch frontier tasks and any newly-ready downstream tasks
             # until nothing remains in-flight or in the frontier.
             await self._drain_frontier(seed_cols, has_pre_batch, all_columns)
@@ -637,14 +671,15 @@ class AsyncTaskScheduler:
 
     async def _drain_frontier(self, seed_cols: tuple[str, ...], has_pre_batch: bool, all_columns: list[str]) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
+        del all_columns
         while True:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
-            ready = self._get_ready_tasks(seed_cols, has_pre_batch)
-            dispatch_outcome = self._dispatch_ready_tasks(ready)
-            if not ready and not self._in_flight:
+            dispatch_outcome = self._dispatch_queued_tasks()
+            has_queued = self._fair_selector.has_queued_tasks
+            if not has_queued and not self._in_flight:
                 break
-            if ready and not dispatch_outcome.dispatched and not self._in_flight:
+            if has_queued and not dispatch_outcome.dispatched and not self._in_flight:
                 raise RuntimeError(
                     "Ready frontier is admission-blocked with no in-flight task to release scheduler capacity."
                 )
@@ -739,6 +774,8 @@ class AsyncTaskScheduler:
         if completed:
             checkpointed = {rg_id for rg_id, _ in completed}
             self._deferred = [t for t in self._deferred if t.row_group not in checkpointed]
+            for rg_id in checkpointed:
+                self._drop_pending_ready_for_row_group(rg_id)
 
     def _finalize_after_shutdown(self, all_columns: list[str]) -> None:
         """Salvage row groups left in flight when early shutdown fired.
@@ -801,6 +838,8 @@ class AsyncTaskScheduler:
                             for ri in range(state.size):
                                 if self._tracker.is_dropped(rg_id, ri):
                                     self._record_skipped_tasks_for_row(rg_id, ri)
+                    self._apply_tracker_delta()
+                    self._flush_pre_batch_ready(rg_id)
 
     def _drop_row(self, row_group: int, row_index: int, *, exclude_columns: set[str] | None = None) -> None:
         if self._tracker.is_dropped(row_group, row_index):
@@ -808,6 +847,7 @@ class AsyncTaskScheduler:
 
         self._record_skipped_tasks_for_row(row_group, row_index, exclude_columns=exclude_columns)
         self._tracker.drop_row(row_group, row_index)
+        self._apply_tracker_delta()
         if self._buffer_manager:
             self._buffer_manager.drop_row(row_group, row_index)
 
@@ -1001,6 +1041,7 @@ class AsyncTaskScheduler:
                     self._tracker.mark_row_range_complete(col, task.row_group, rg_size)
                 else:
                     self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
+            self._apply_tracker_delta()
 
             self._check_error_rate(success=True)
             # The degraded-provider WARN is provider-scoped: only feed the

@@ -1610,9 +1610,83 @@ async def test_drain_frontier_raises_when_ready_but_no_capacity_or_inflight() ->
         max_submitted_tasks=0,
     )
     scheduler._rg_states[0] = MagicMock(size=1)
+    scheduler._apply_tracker_delta()
 
     with pytest.raises(RuntimeError, match="Ready frontier is admission-blocked"):
         await scheduler._drain_frontier(("seed",), False, ["seed", "cell_out"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_dispatch_does_not_scan_ready_frontier(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 3)])
+
+    def fail_get_ready_tasks(*args: Any, **kwargs: Any) -> list[Task]:
+        raise AssertionError("scheduler should consume frontier deltas instead of scanning ready tasks")
+
+    monkeypatch.setattr(tracker, "get_ready_tasks", fail_get_ready_tasks)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 3)],
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_pre_batch_drop_removes_pending_ready_task() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 3)])
+
+    def drop_middle_row(row_group: int, row_group_size: int) -> None:
+        del row_group_size
+        tracker.drop_row(row_group, 1)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 3)],
+        on_seeds_complete=drop_middle_row,
+        trace=True,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    cell_traces = [trace for trace in scheduler.traces if trace.column == "cell_out"]
+    assert {trace.row_index for trace in cell_traces} == {0, 2}
+    assert tracker.is_dropped(0, 1)
+    assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
 
 
 @pytest.mark.asyncio(loop_scope="session")

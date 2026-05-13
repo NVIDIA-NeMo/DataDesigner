@@ -58,24 +58,37 @@ class FairTaskSelector:
     def get_group_spec(self, key: TaskGroupKey) -> TaskGroupSpec:
         return self._group_specs[key]
 
-    def sync_ready(self, ready: Iterable[tuple[Task, TaskGroupSpec]]) -> None:
-        """Synchronize queued tasks against the scheduler's current ready set."""
-        ready_items = sorted(ready, key=self._ready_sort_key)
-        ready_tasks = {task for task, _ in ready_items}
+    def enqueue(self, task: Task, group: TaskGroupSpec) -> None:
+        """Add one ready task to its fair scheduling group."""
+        self._group_specs[group.key] = group
+        if task in self._queued:
+            return
+        queue = self._queues.setdefault(group.key, deque())
+        queue.append(task)
+        self._queued.add(task)
+        self._task_groups[task] = group.key
+        self._activate_group(group.key)
 
-        for task, group in ready_items:
-            self._group_specs[group.key] = group
-            if task in self._queued:
-                continue
-            queue = self._queues.setdefault(group.key, deque())
-            queue.append(task)
-            self._queued.add(task)
-            self._task_groups[task] = group.key
-            self._activate_group(group.key)
+    def enqueue_many(self, ready: Iterable[tuple[Task, TaskGroupSpec]]) -> None:
+        """Add ready tasks incrementally without resynchronizing the full frontier."""
+        for task, group in ready:
+            self.enqueue(task, group)
 
-        for stale in self._queued - ready_tasks:
-            self._queued.discard(stale)
-            self._task_groups.pop(stale, None)
+    def discard(self, task: Task) -> None:
+        """Remove a queued task lazily if it is no longer dispatchable."""
+        self._queued.discard(task)
+        self._task_groups.pop(task, None)
+
+    def discard_many(self, tasks: Iterable[Task]) -> None:
+        """Remove queued tasks lazily if they are no longer dispatchable."""
+        for task in tasks:
+            self.discard(task)
+
+    def discard_where(self, predicate: Callable[[Task], bool]) -> None:
+        """Remove queued tasks matching a predicate."""
+        for task in tuple(self._queued):
+            if predicate(task):
+                self.discard(task)
 
     def pop_next(self, can_admit_group: Callable[[TaskGroupKey], bool]) -> TaskSelection | None:
         """Select the next eligible task, or ``None`` if no queued group can run."""
@@ -127,9 +140,3 @@ class FairTaskSelector:
             if task in self._queued and self._task_groups.get(task) == key:
                 break
             queue.popleft()
-
-    @staticmethod
-    def _ready_sort_key(item: tuple[Task, TaskGroupSpec]) -> tuple[TaskGroupKey, int, int, str, str]:
-        task, group = item
-        row_index = task.row_index if task.row_index is not None else -1
-        return (group.key, task.row_group, row_index, task.column, task.task_type)
