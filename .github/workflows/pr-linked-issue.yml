@@ -36,8 +36,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          REPO: ${{ github.repository }}
         run: |
           USER="$PR_AUTHOR"
+
+          printf '%s' "$PR_BODY" > /tmp/pr-body-raw.txt
+          # Commit authors can be spoofed; trust only PR metadata GitHub controls.
+          if { [ "$USER" = "github-actions[bot]" ] || [ "$USER" = "agentic-ci" ]; } && \
+             [ "$HEAD_REPO" = "$REPO" ] && \
+             [[ "$HEAD_REF" == agentic-ci/* ]] && \
+             grep -q '<!-- agentic-ci ' /tmp/pr-body-raw.txt; then
+            echo "is_collaborator=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           # Bots that are always allowed (match DCO allowlist pattern).
           if [ "$USER" = "dependabot[bot]" ]; then
