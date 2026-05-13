@@ -38,7 +38,7 @@ class TaskSelection:
 
 
 class FairTaskQueue:
-    """Virtual-time fair queue with per-group FIFO admission limits."""
+    """Virtual-time fair queue with peer-sensitive per-group FIFO admission limits."""
 
     def __init__(self) -> None:
         self._queues: dict[TaskGroupKey, deque[Task]] = {}
@@ -148,4 +148,9 @@ class FairTaskQueue:
         group = self._group_specs[key]
         if group.admitted_limit is None:
             return True
-        return self._admitted_by_group.get(key, 0) < group.admitted_limit
+        if self._admitted_by_group.get(key, 0) < group.admitted_limit:
+            return True
+        return not self._has_queued_peer_group(key)
+
+    def _has_queued_peer_group(self, key: TaskGroupKey) -> bool:
+        return any(queued_key != key for queued_key in self._task_groups.values())

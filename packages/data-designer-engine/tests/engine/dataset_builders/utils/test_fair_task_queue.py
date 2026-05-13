@@ -84,22 +84,33 @@ def test_fair_task_queue_discards_queued_tasks() -> None:
     assert queue.admit_next() is None
 
 
-def test_fair_task_queue_admitted_cap_skips_saturated_group() -> None:
+def test_fair_task_queue_admitted_cap_skips_saturated_group_with_waiting_peer() -> None:
     queue = FairTaskQueue()
-    capped = _group("a", admitted_limit=1)
-    open_group = _group("b", admitted_limit=1)
-    _enqueue(queue, [(_task("a", 0), capped), (_task("a", 1), capped), (_task("b", 0), open_group)])
+    capped = _group("a", admitted_limit=1, weight=1_000)
+    peer = _group("b")
+    _enqueue(
+        queue,
+        [
+            (_task("a", 0), capped),
+            (_task("a", 1), capped),
+            (_task("b", 0), peer),
+            (_task("b", 1), peer),
+        ],
+    )
 
     first = queue.admit_next()
+    peer_first = queue.admit_next()
     selected = queue.admit_next()
 
     assert first is not None
     assert first.task.column == "a"
+    assert peer_first is not None
+    assert peer_first.task.column == "b"
     assert selected is not None
     assert selected.task.column == "b"
 
 
-def test_fair_task_queue_returns_none_when_all_groups_capped() -> None:
+def test_fair_task_queue_solo_group_can_exceed_admitted_cap() -> None:
     queue = FairTaskQueue()
     group = _group("a", admitted_limit=1)
     first_task = _task("a", 0)
@@ -111,27 +122,74 @@ def test_fair_task_queue_returns_none_when_all_groups_capped() -> None:
 
     assert first is not None
     assert first.task == first_task
+    second = queue.admit_next()
+    assert second is not None
+    assert second.task == second_task
+    assert queue.has_queued_tasks is False
+
+
+def test_fair_task_queue_over_cap_group_yields_to_queued_peer() -> None:
+    queue = FairTaskQueue()
+    capped = _group("a", admitted_limit=1)
+    peer = _group("b")
+    _enqueue(queue, [(_task("a", i), capped) for i in range(5)])
+
+    solo_selected = [queue.admit_next() for _ in range(3)]
+    _enqueue(queue, [(_task("b", i), peer) for i in range(2)])
+    peer_selected = [queue.admit_next() for _ in range(2)]
+
+    assert [selection.task.column for selection in solo_selected if selection is not None] == ["a", "a", "a"]
+    assert [selection.task.column for selection in peer_selected if selection is not None] == ["b", "b"]
+
+
+def test_fair_task_queue_returns_none_when_all_competing_groups_capped() -> None:
+    queue = FairTaskQueue()
+    group_a = _group("a", admitted_limit=1)
+    group_b = _group("b", admitted_limit=1)
+    _enqueue(
+        queue,
+        [
+            (_task("a", 0), group_a),
+            (_task("a", 1), group_a),
+            (_task("b", 0), group_b),
+            (_task("b", 1), group_b),
+        ],
+    )
+
+    selected = [queue.admit_next() for _ in range(2)]
+
+    assert [selection.task.column for selection in selected if selection is not None] == ["a", "b"]
     assert queue.admit_next() is None
     assert queue.has_queued_tasks is True
 
 
 def test_fair_task_queue_release_reopens_saturated_group() -> None:
     queue = FairTaskQueue()
-    group = _group("a", admitted_limit=1)
-    first_task = _task("a", 0)
-    second_task = _task("a", 1)
-    queue.enqueue(first_task, group)
-    queue.enqueue(second_task, group)
+    group_a = _group("a", admitted_limit=1)
+    group_b = _group("b", admitted_limit=1)
+    _enqueue(
+        queue,
+        [
+            (_task("a", 0), group_a),
+            (_task("a", 1), group_a),
+            (_task("b", 0), group_b),
+            (_task("b", 1), group_b),
+        ],
+    )
     first = queue.admit_next()
+    second = queue.admit_next()
 
     assert first is not None
+    assert first.task.column == "a"
+    assert second is not None
+    assert second.task.column == "b"
     assert queue.admit_next() is None
 
     queue.release(first.task)
-    second = queue.admit_next()
+    reopened = queue.admit_next()
 
-    assert second is not None
-    assert second.task == second_task
+    assert reopened is not None
+    assert reopened.task == _task("a", 1)
 
 
 def test_fair_task_queue_no_duplicate_on_repeated_enqueue() -> None:
