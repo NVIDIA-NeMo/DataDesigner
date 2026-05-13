@@ -328,8 +328,9 @@ class ThrottleManager:
         domain: ThrottleDomain,
         now: float | None = None,
     ) -> None:
+        now = now if now is not None else time.monotonic()
         with self._lock:
-            state = self._get_or_create_domain(provider_name, model_id, domain)
+            state = self._get_or_create_domain(provider_name, model_id, domain, now=now)
             state.in_flight = max(0, state.in_flight - 1)
             # Non-rate-limit failure breaks the 429 cascade: a sequence like
             # 429 → 500 → 429 should treat the second 429 as the start of a
@@ -361,14 +362,15 @@ class ThrottleManager:
         AIMD's adaptive concurrency. Pass an explicit float for tests or for
         support cases where a queue-wait deadline is genuinely desired.
         """
-        deadline = (time.monotonic() + timeout) if timeout is not None else None
-        wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
+        now = time.monotonic()
+        deadline = (now + timeout) if timeout is not None else None
+        wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain, now=now)
         if wait == 0.0:
             return
         with self._lock:
             # state is captured once and reused in the finally block; safe
             # because DomainThrottleState objects are never replaced after creation.
-            state = self._get_or_create_domain(provider_name, model_id, domain)
+            state = self._get_or_create_domain(provider_name, model_id, domain, now=now)
             state.waiters += 1
             if state.waiters == 1:
                 logger.debug(
@@ -392,7 +394,8 @@ class ThrottleManager:
                 else:
                     sleep_for = wait
                 time.sleep(sleep_for)
-                wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
+                now = time.monotonic()
+                wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain, now=now)
                 if wait == 0.0:
                     return
         finally:
@@ -422,14 +425,15 @@ class ThrottleManager:
         AIMD's adaptive concurrency. Pass an explicit float for tests or for
         support cases where a queue-wait deadline is genuinely desired.
         """
-        deadline = (time.monotonic() + timeout) if timeout is not None else None
-        wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
+        now = time.monotonic()
+        deadline = (now + timeout) if timeout is not None else None
+        wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain, now=now)
         if wait == 0.0:
             return
         with self._lock:
             # state is captured once and reused in the finally block; safe
             # because DomainThrottleState objects are never replaced after creation.
-            state = self._get_or_create_domain(provider_name, model_id, domain)
+            state = self._get_or_create_domain(provider_name, model_id, domain, now=now)
             state.waiters += 1
             if state.waiters == 1:
                 logger.debug(
@@ -453,7 +457,8 @@ class ThrottleManager:
                 else:
                     sleep_for = wait
                 await asyncio.sleep(sleep_for)
-                wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
+                now = time.monotonic()
+                wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain, now=now)
                 if wait == 0.0:
                     return
         finally:
@@ -505,17 +510,16 @@ class ThrottleManager:
         provider_name: str,
         model_id: str,
         domain: ThrottleDomain,
-        now: float | None = None,
+        now: float,
     ) -> DomainThrottleState:
         key = (provider_name, model_id, domain.value)
         state = self._domains.get(key)
         if state is None:
             effective_max = self._effective_max_for(provider_name, model_id)
             rampup_active = self._rampup_seconds > 0 and effective_max > DEFAULT_MIN_LIMIT
-            started_at = now if now is not None else time.monotonic()
             state = DomainThrottleState(
                 current_limit=DEFAULT_MIN_LIMIT if rampup_active else effective_max,
-                rampup_started_at=started_at,
+                rampup_started_at=now,
                 rampup_active=rampup_active,
             )
             self._domains[key] = state
