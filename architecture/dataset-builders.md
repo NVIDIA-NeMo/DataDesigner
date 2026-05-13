@@ -35,7 +35,7 @@ Preparation (`_prepare_async_run`):
 4. Constructs `CompletionTracker`, `RowGroupBufferManager`, `AsyncTaskScheduler`
 5. Hooks `ProcessorRunner` for pre-batch and post-batch stages
 
-`AsyncTaskScheduler` runs on a dedicated async loop with semaphore-based concurrency, salvage rounds for failed tasks, and order-dependent locks for columns that must execute sequentially.
+`AsyncTaskScheduler` runs on a dedicated async loop with frontier-driven dispatch, semaphore-based capacity limits, salvage rounds for failed tasks, and order-dependent locks for columns that must execute sequentially. Ready frontier tasks are admitted through a virtual-time fair queue so one hot column or model-backed generator cannot consume the whole submission window before peer work gets a turn.
 
 ### Execution Graph
 
@@ -123,7 +123,7 @@ DatasetBuilder.build()
       → CompletionTracker.with_graph()
       → AsyncTaskScheduler(semaphores, salvage_rounds)
   → scheduler.run()
-      → for each row group, dispatch ready tasks from frontier
+      → for each row group, fairly admit ready tasks from frontier
       → tasks execute generators, update CompletionTracker
       → checkpoints via RowGroupBufferManager
   → collect TaskTraces, emit telemetry
@@ -133,6 +133,7 @@ DatasetBuilder.build()
 
 - **Dual execution engines behind one API.** The sequential engine is simpler and easier to debug; the async engine adds row-group parallelism for throughput. Users switch via an environment variable without changing their code.
 - **DAG-driven ordering** ensures columns with dependencies (e.g., a judge column that depends on a text column) are generated in the correct order, regardless of the order they appear in the config.
+- **Fair async admission** keeps the scheduler flowing across ready columns and model groups. Global semaphores still bound memory/coroutine growth, while per-group virtual-time queues prevent a large ready frontier from degenerating into a column-by-column wave.
 - **Salvage rounds in async mode** retry failed tasks after all other tasks in a round complete, improving resilience against transient LLM failures without blocking the entire generation.
 - **Unified DAG construction.** `topologically_sort_column_configs` (in `execution_graph.py`) determines column ordering using Kahn's algorithm; the runtime `ExecutionGraph` adds strategy-aware dependency tracking for the async scheduler.
 

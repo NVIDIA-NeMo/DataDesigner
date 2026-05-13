@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections import deque
+from collections import defaultdict, deque
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
@@ -22,6 +22,11 @@ from data_designer.engine.dataset_builders.utils.async_progress_reporter import 
     AsyncProgressReporter,
 )
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
+from data_designer.engine.dataset_builders.utils.fair_task_queue import (
+    FairTaskSelector,
+    TaskGroupKey,
+    TaskGroupSpec,
+)
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
@@ -76,6 +81,15 @@ class _RowGroupState:
     in_flight_count: int = 0
 
 
+@dataclass(frozen=True)
+class _DispatchOutcome:
+    """Result of one fair-dispatch pass over the current ready frontier."""
+
+    dispatched: bool = False
+    submission_full: bool = False
+    group_blocked: bool = False
+
+
 class AsyncTaskScheduler:
     """Dependency-aware async task scheduler for the dataset builder.
 
@@ -119,8 +133,12 @@ class AsyncTaskScheduler:
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
         self._submission_semaphore = TrackingSemaphore(max_submitted_tasks)
         self._llm_wait_semaphore = TrackingSemaphore(max_llm_wait_tasks)
+        self._max_llm_wait_tasks = max_llm_wait_tasks
 
         self._llm_bound_lookup = build_llm_bound_lookup(generators)
+        self._fair_selector = FairTaskSelector()
+        self._admitted_by_group: defaultdict[TaskGroupKey, int] = defaultdict(int)
+        self._task_group_by_task: dict[Task, TaskGroupKey] = {}
 
         self._dispatched: set[Task] = set()
         self._in_flight: set[Task] = set()
@@ -204,7 +222,7 @@ class AsyncTaskScheduler:
         self._rg_size_map: dict[int, int] = dict(row_groups)
 
         # Pre-compute seed columns (graph is static)
-        self._seed_cols: frozenset[str] = frozenset(c for c in graph.columns if not graph.get_upstream_columns(c))
+        self._seed_cols: tuple[str, ...] = tuple(c for c in graph.columns if not graph.get_upstream_columns(c))
 
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
         self._progress_bar = StickyProgressBar() if progress_bar else None
@@ -283,6 +301,150 @@ class AsyncTaskScheduler:
             await asyncio.gather(*self._worker_tasks, return_exceptions=True)
         self._worker_tasks.clear()
 
+    def _get_ready_tasks(self, seed_cols: tuple[str, ...], has_pre_batch: bool) -> list[Task]:
+        admitted_ids = set(self._rg_states)
+        ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
+        if not has_pre_batch:
+            return ready
+        seed_set = set(seed_cols)
+        return [
+            t
+            for t in ready
+            if ((s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done) or t.column in seed_set
+        ]
+
+    def _dispatch_ready_tasks(self, ready: list[Task]) -> _DispatchOutcome:
+        ready_groups = [(task, self._task_group_spec(task)) for task in ready]
+        self._fair_selector.sync_ready(ready_groups)
+        dispatched = False
+
+        while self._fair_selector.has_queued_tasks:
+            if not self._submission_semaphore.try_acquire():
+                return _DispatchOutcome(dispatched=dispatched, submission_full=True)
+
+            selection = self._fair_selector.pop_next(self._can_admit_group)
+            if selection is None:
+                self._submission_semaphore.release()
+                return _DispatchOutcome(dispatched=dispatched, group_blocked=True)
+
+            self._dispatch_selected_task(selection.task, selection.group)
+            dispatched = True
+
+        return _DispatchOutcome(dispatched=dispatched)
+
+    def _dispatch_selected_task(self, task: Task, group: TaskGroupSpec) -> None:
+        self._dispatched.add(task)
+        self._in_flight.add(task)
+        self._task_group_by_task[task] = group.key
+        self._admitted_by_group[group.key] += 1
+        if (s := self._rg_states.get(task.row_group)) is not None:
+            s.in_flight_count += 1
+        self._spawn_worker(self._execute_task(task))
+
+    def _can_admit_group(self, key: TaskGroupKey) -> bool:
+        group = self._fair_selector.get_group_spec(key)
+        if group.admitted_limit is None:
+            return True
+        return self._admitted_by_group[key] < group.admitted_limit
+
+    def _task_group_spec(self, task: Task) -> TaskGroupSpec:
+        generator = self._generators[task.column]
+        flow_identity = self._task_flow_identity(task)
+
+        if not self._llm_bound_lookup.get(task.column, False):
+            return TaskGroupSpec(key=TaskGroupKey(kind="local", identity=flow_identity))
+
+        aliases = self._model_aliases_for_generator(generator)
+        if not aliases:
+            return self._fallback_llm_group_spec(flow_identity)
+
+        model_parts: list[str] = []
+        total_parallel = 0
+        primary_alias = getattr(generator.config, "model_alias", None)
+        for alias in aliases:
+            try:
+                model_config = self._get_model_config_for_alias(generator, alias)
+                provider_name = self._get_model_provider_name_for_alias(generator, alias)
+            except Exception:
+                return self._custom_model_group_spec(flow_identity, aliases, weight=1)
+            max_parallel = getattr(model_config.inference_parameters, "max_parallel_requests", 1)
+            if not isinstance(max_parallel, int):
+                max_parallel = 1
+            model_parts.extend(
+                (
+                    provider_name,
+                    str(model_config.model),
+                    str(model_config.generation_type),
+                    alias,
+                )
+            )
+            total_parallel += max_parallel
+
+        weight = max(1, total_parallel)
+        if len(aliases) == 1 and primary_alias == aliases[0]:
+            identity = tuple((*model_parts[:3], *flow_identity))
+            return self._model_group_spec(identity, weight=weight)
+        return self._custom_model_group_spec(flow_identity, aliases, weight=weight)
+
+    def _task_flow_identity(self, task: Task) -> tuple[str, ...]:
+        generator = self._generators[task.column]
+        output_columns = self._gen_instance_to_columns.get(id(generator), [task.column])
+        return tuple(output_columns)
+
+    @staticmethod
+    def _get_model_config_for_alias(generator: ColumnGenerator, alias: str) -> Any:
+        get_model_config = getattr(generator, "get_model_config", None)
+        if callable(get_model_config):
+            return get_model_config(model_alias=alias)
+        return generator.resource_provider.model_registry.get_model_config(model_alias=alias)
+
+    @staticmethod
+    def _get_model_provider_name_for_alias(generator: ColumnGenerator, alias: str) -> str:
+        get_provider_name = getattr(generator, "get_model_provider_name", None)
+        if callable(get_provider_name):
+            return str(get_provider_name(model_alias=alias))
+        provider = generator.resource_provider.model_registry.get_model_provider(model_alias=alias)
+        return str(provider.name)
+
+    @staticmethod
+    def _model_aliases_for_generator(generator: ColumnGenerator) -> list[str]:
+        get_aliases = getattr(generator.config, "get_model_aliases", None)
+        if callable(get_aliases):
+            aliases = get_aliases()
+        else:
+            aliases = []
+            if (alias := getattr(generator.config, "model_alias", None)) is not None:
+                aliases.append(alias)
+            aliases.extend(getattr(generator.config, "model_aliases", []) or [])
+        return list(dict.fromkeys(alias for alias in aliases if alias))
+
+    def _model_group_spec(self, identity: tuple[str, ...], *, weight: int) -> TaskGroupSpec:
+        return TaskGroupSpec(
+            key=TaskGroupKey(kind="model", identity=identity),
+            weight=float(weight),
+            admitted_limit=self._llm_group_admitted_limit(weight),
+        )
+
+    def _custom_model_group_spec(
+        self, flow_identity: tuple[str, ...], aliases: list[str], *, weight: int
+    ) -> TaskGroupSpec:
+        identity = (*flow_identity, *sorted(aliases))
+        return TaskGroupSpec(
+            key=TaskGroupKey(kind="custom_model", identity=identity),
+            weight=float(max(1, weight)),
+            admitted_limit=self._llm_group_admitted_limit(max(1, weight)),
+        )
+
+    def _fallback_llm_group_spec(self, flow_identity: tuple[str, ...]) -> TaskGroupSpec:
+        return TaskGroupSpec(
+            key=TaskGroupKey(kind="model", identity=("unknown", *flow_identity)),
+            weight=1.0,
+            admitted_limit=self._llm_group_admitted_limit(1),
+        )
+
+    def _llm_group_admitted_limit(self, weight: int) -> int:
+        return max(1, min(self._max_llm_wait_tasks, LLM_WAIT_POOL_MULTIPLIER * weight))
+
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
         for rg_id, rg_size in self._row_groups:
@@ -349,7 +511,7 @@ class AsyncTaskScheduler:
 
     async def _main_dispatch_loop(
         self,
-        seed_cols: frozenset[str],
+        seed_cols: tuple[str, ...],
         has_pre_batch: bool,
         all_columns: list[str],
     ) -> None:
@@ -367,25 +529,8 @@ class AsyncTaskScheduler:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
 
-            admitted_ids = set(self._rg_states)
-            ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
-            # Gate non-seed tasks on pre-batch completion when a pre-batch callback is configured
-            if has_pre_batch:
-                ready = [
-                    t
-                    for t in ready
-                    if (s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done or t.column in seed_cols
-                ]
-            semaphore_full = False
-            for task in ready:
-                if not self._submission_semaphore.try_acquire():
-                    semaphore_full = True
-                    break
-                self._dispatched.add(task)
-                self._in_flight.add(task)
-                if (s := self._rg_states.get(task.row_group)) is not None:
-                    s.in_flight_count += 1
-                self._spawn_worker(self._execute_task(task))
+            ready = self._get_ready_tasks(seed_cols, has_pre_batch)
+            dispatch_outcome = self._dispatch_ready_tasks(ready)
 
             self._checkpoint_completed_row_groups(all_columns)
 
@@ -404,12 +549,12 @@ class AsyncTaskScheduler:
                 if self._all_rgs_admitted:
                     break
 
-            if not ready or semaphore_full:
+            if not ready or dispatch_outcome.submission_full or dispatch_outcome.group_blocked:
                 await self._wake_event.wait()
 
     async def _salvage_rounds(
         self,
-        seed_cols: frozenset[str],
+        seed_cols: tuple[str, ...],
         has_pre_batch: bool,
         all_columns: list[str],
     ) -> None:
@@ -469,29 +614,17 @@ class AsyncTaskScheduler:
             await self._drain_frontier(seed_cols, has_pre_batch, all_columns)
             self._checkpoint_completed_row_groups(all_columns)
 
-    async def _drain_frontier(self, seed_cols: frozenset[str], has_pre_batch: bool, all_columns: list[str]) -> None:
+    async def _drain_frontier(self, seed_cols: tuple[str, ...], has_pre_batch: bool, all_columns: list[str]) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
-            admitted_ids = set(self._rg_states)
-            ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
-            if has_pre_batch:
-                ready = [
-                    t
-                    for t in ready
-                    if (s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done or t.column in seed_cols
-                ]
-            for task in ready:
-                if not self._submission_semaphore.try_acquire():
-                    break
-                self._dispatched.add(task)
-                self._in_flight.add(task)
-                if (s := self._rg_states.get(task.row_group)) is not None:
-                    s.in_flight_count += 1
-                self._spawn_worker(self._execute_task(task))
+            ready = self._get_ready_tasks(seed_cols, has_pre_batch)
+            dispatch_outcome = self._dispatch_ready_tasks(ready)
             if not ready and not self._in_flight:
                 break
+            if ready and not dispatch_outcome.dispatched and not self._in_flight:
+                continue
             if not self._in_flight:
                 continue
             self._wake_event.clear()
@@ -499,7 +632,7 @@ class AsyncTaskScheduler:
 
     async def _salvage_stalled_row_groups(
         self,
-        seed_cols: frozenset[str],
+        seed_cols: tuple[str, ...],
         has_pre_batch: bool,
         all_columns: list[str],
     ) -> None:
@@ -622,7 +755,7 @@ class AsyncTaskScheduler:
                     logger.warning(f"Row group {rg_id}: 0 of {rg_size} rows survived early shutdown - skipping write.")
         self._checkpoint_completed_row_groups(all_columns)
 
-    def _run_seeds_complete_check(self, seed_cols: frozenset[str]) -> None:
+    def _run_seeds_complete_check(self, seed_cols: tuple[str, ...]) -> None:
         """Run pre-batch callbacks for row groups whose seeds just completed."""
         for rg_id, state in list(self._rg_states.items()):
             if state.seeds_dispatched and not state.pre_batch_done:
@@ -901,6 +1034,8 @@ class AsyncTaskScheduler:
                 trace.completed_at = time.perf_counter()
                 self.traces.append(trace)
 
+            if (group_key := self._task_group_by_task.pop(task, None)) is not None:
+                self._admitted_by_group[group_key] = max(0, self._admitted_by_group[group_key] - 1)
             self._in_flight.discard(task)
             if (s := self._rg_states.get(task.row_group)) is not None:
                 s.in_flight_count = max(0, s.in_flight_count - 1)
