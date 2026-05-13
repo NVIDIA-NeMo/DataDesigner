@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import heapq
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -69,20 +69,10 @@ class FairTaskSelector:
         self._task_groups[task] = group.key
         self._activate_group(group.key)
 
-    def enqueue_many(self, ready: Iterable[tuple[Task, TaskGroupSpec]]) -> None:
-        """Add ready tasks incrementally without resynchronizing the full frontier."""
-        for task, group in ready:
-            self.enqueue(task, group)
-
     def discard(self, task: Task) -> None:
         """Remove a queued task lazily if it is no longer dispatchable."""
         self._queued.discard(task)
         self._task_groups.pop(task, None)
-
-    def discard_many(self, tasks: Iterable[Task]) -> None:
-        """Remove queued tasks lazily if they are no longer dispatchable."""
-        for task in tasks:
-            self.discard(task)
 
     def discard_where(self, predicate: Callable[[Task], bool]) -> None:
         """Remove queued tasks matching a predicate."""

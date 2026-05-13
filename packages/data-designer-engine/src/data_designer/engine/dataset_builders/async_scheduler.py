@@ -666,12 +666,11 @@ class AsyncTaskScheduler:
                     self._enqueue_ready_task(task)
             # Drain: dispatch frontier tasks and any newly-ready downstream tasks
             # until nothing remains in-flight or in the frontier.
-            await self._drain_frontier(seed_cols, has_pre_batch, all_columns)
+            await self._drain_frontier(seed_cols, has_pre_batch)
             self._checkpoint_completed_row_groups(all_columns)
 
-    async def _drain_frontier(self, seed_cols: tuple[str, ...], has_pre_batch: bool, all_columns: list[str]) -> None:
+    async def _drain_frontier(self, seed_cols: tuple[str, ...], has_pre_batch: bool) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
-        del all_columns
         while True:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
@@ -938,8 +937,8 @@ class AsyncTaskScheduler:
             seen_instances.add(gid)
 
             task = Task(column=col, row_group=rg_id, row_index=None, task_type="from_scratch")
-            # Also mark the "batch" variant as dispatched to prevent get_ready_tasks
-            # from generating a duplicate for this column
+            # Also mark the "batch" variant as dispatched to prevent duplicate
+            # scheduling for this column.
             batch_alias = Task(column=col, row_group=rg_id, row_index=None, task_type="batch")
             if task in self._dispatched or batch_alias in self._dispatched:
                 continue

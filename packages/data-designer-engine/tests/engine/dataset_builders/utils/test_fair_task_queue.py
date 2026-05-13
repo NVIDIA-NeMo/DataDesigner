@@ -25,18 +25,26 @@ def _group(name: str, *, weight: float = 1.0, admitted_limit: int | None = None)
     )
 
 
+def _enqueue(selector: FairTaskSelector, items: list[tuple[Task, TaskGroupSpec]]) -> None:
+    for task, group in items:
+        selector.enqueue(task, group)
+
+
 def test_fair_task_selector_equal_groups_round_robins() -> None:
     selector = FairTaskSelector()
-    selector.enqueue_many(
-        (task, _group(task.column))
-        for task in [
-            _task("a", 0),
-            _task("a", 1),
-            _task("b", 0),
-            _task("b", 1),
-            _task("c", 0),
-            _task("c", 1),
-        ]
+    _enqueue(
+        selector,
+        [
+            (task, _group(task.column))
+            for task in [
+                _task("a", 0),
+                _task("a", 1),
+                _task("b", 0),
+                _task("b", 1),
+                _task("c", 0),
+                _task("c", 1),
+            ]
+        ],
     )
 
     selected = [selector.pop_next(lambda _key: True) for _ in range(6)]
@@ -46,12 +54,13 @@ def test_fair_task_selector_equal_groups_round_robins() -> None:
 
 def test_fair_task_selector_weighted_groups() -> None:
     selector = FairTaskSelector()
-    selector.enqueue_many(
+    _enqueue(
+        selector,
         [
             (task, _group(task.column, weight=2 if task.column == "a" else 1))
             for task in [_task("a", i) for i in range(6)]
         ]
-        + [(_task("b", i), _group("b", weight=1)) for i in range(6)]
+        + [(_task("b", i), _group("b", weight=1)) for i in range(6)],
     )
 
     selected = [selector.pop_next(lambda _key: True) for _ in range(6)]
@@ -65,7 +74,7 @@ def test_fair_task_selector_discards_queued_tasks() -> None:
     stale = _task("a", 0)
     fresh = _task("a", 1)
 
-    selector.enqueue_many([(stale, _group("a")), (fresh, _group("a"))])
+    _enqueue(selector, [(stale, _group("a")), (fresh, _group("a"))])
     selector.discard(stale)
 
     selected = selector.pop_next(lambda _key: True)
@@ -79,7 +88,7 @@ def test_fair_task_selector_admitted_cap_skips_capped_group() -> None:
     selector = FairTaskSelector()
     capped = _group("a", admitted_limit=1)
     open_group = _group("b", admitted_limit=1)
-    selector.enqueue_many([(_task("a", 0), capped), (_task("b", 0), open_group)])
+    _enqueue(selector, [(_task("a", 0), capped), (_task("b", 0), open_group)])
 
     selected = selector.pop_next(lambda key: key != capped.key)
 
@@ -109,22 +118,12 @@ def test_fair_task_selector_no_duplicate_on_repeated_enqueue() -> None:
     assert selector.pop_next(lambda _key: True) is None
 
 
-def test_fair_task_selector_discard_many_removes_multiple_tasks() -> None:
-    selector = FairTaskSelector()
-    tasks = [_task("a", 0), _task("a", 1), _task("b", 0)]
-    selector.enqueue_many((task, _group(task.column)) for task in tasks)
-
-    selector.discard_many(tasks[:2])
-    selected = selector.pop_next(lambda _key: True)
-
-    assert selected is not None
-    assert selected.task == tasks[2]
-    assert selector.pop_next(lambda _key: True) is None
-
-
 def test_fair_task_selector_discard_where_removes_matching_tasks() -> None:
     selector = FairTaskSelector()
-    selector.enqueue_many((_task(column, i), _group(column)) for column in ["a", "b"] for i in range(2))
+    _enqueue(
+        selector,
+        [(_task(column, i), _group(column)) for column in ["a", "b"] for i in range(2)],
+    )
 
     selector.discard_where(lambda task: task.column == "a")
     selected = [selector.pop_next(lambda _key: True) for _ in range(2)]

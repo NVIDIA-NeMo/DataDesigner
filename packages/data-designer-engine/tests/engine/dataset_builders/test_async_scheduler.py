@@ -1613,7 +1613,7 @@ async def test_drain_frontier_raises_when_ready_but_no_capacity_or_inflight() ->
     scheduler._apply_tracker_delta()
 
     with pytest.raises(RuntimeError, match="Ready frontier is admission-blocked"):
-        await scheduler._drain_frontier(("seed",), False, ["seed", "cell_out"])
+        await scheduler._drain_frontier(("seed",), False)
 
 
 @pytest.mark.asyncio(loop_scope="session")
