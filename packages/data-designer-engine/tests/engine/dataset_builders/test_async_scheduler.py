@@ -31,7 +31,7 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler, build_llm_bound_lookup
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
+from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.dataset_builders.utils.task_model import Task
@@ -787,7 +787,7 @@ async def test_scheduler_pre_batch_failure_raises() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_error_rate_shutdown() -> None:
+async def test_scheduler_error_rate_shutdown(caplog: pytest.LogCaptureFixture) -> None:
     """Early shutdown triggers when error rate exceeds threshold."""
     provider = _mock_provider()
     configs = [
@@ -823,12 +823,13 @@ async def test_scheduler_error_rate_shutdown() -> None:
         shutdown_error_rate=0.5,
         shutdown_error_window=2,
     )
-    await scheduler.run()
+    with caplog.at_level("ERROR", logger="data_designer.engine.dataset_builders.async_scheduler"):
+        await scheduler.run()
 
     # Early shutdown: not all rows should be checkpointed (some row groups incomplete)
+    assert scheduler.early_shutdown
     assert buffer_mgr.actual_num_records < 10
-    # No leftover unfinished row groups (finalize-after-shutdown drains them).
-    assert not scheduler._rg_states
+    assert not any("unfinished row group" in record.getMessage() for record in caplog.records)
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1582,7 +1583,12 @@ async def test_scheduler_deadlock_regression() -> None:
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_drain_frontier_raises_when_ready_but_no_capacity_or_inflight() -> None:
-    """A broken admission state fails fast instead of spinning in the drain loop."""
+    """A broken admission state fails fast instead of spinning in the drain loop.
+
+    This intentionally calls private frontier helpers: the state is an invariant
+    violation that public ``run()`` should never construct, but the fail-fast
+    guard prevents infinite waits if future scheduler changes create it.
+    """
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
@@ -1600,7 +1606,7 @@ async def test_drain_frontier_raises_when_ready_but_no_capacity_or_inflight() ->
     graph = ExecutionGraph.create(configs, strategies)
     row_groups = [(0, 1)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
-    tracker.mark_row_range_complete("seed", 0, 1)
+    seed_delta = tracker.mark_row_range_complete("seed", 0, 1)
 
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -1610,7 +1616,7 @@ async def test_drain_frontier_raises_when_ready_but_no_capacity_or_inflight() ->
         max_submitted_tasks=0,
     )
     scheduler._rg_states[0] = MagicMock(size=1)
-    scheduler._apply_tracker_delta()
+    scheduler._apply_frontier_delta(seed_delta)
 
     with pytest.raises(RuntimeError, match="Ready frontier is admission-blocked"):
         await scheduler._drain_frontier(("seed",), False)
@@ -1635,7 +1641,7 @@ async def test_scheduler_dispatch_does_not_scan_ready_frontier(monkeypatch: pyte
     tracker = CompletionTracker.with_graph(graph, [(0, 3)])
 
     def fail_get_ready_tasks(*args: Any, **kwargs: Any) -> list[Task]:
-        raise AssertionError("scheduler should consume frontier deltas instead of scanning ready tasks")
+        raise AssertionError("scheduler should apply returned frontier deltas instead of scanning ready tasks")
 
     monkeypatch.setattr(tracker, "get_ready_tasks", fail_get_ready_tasks)
     scheduler = AsyncTaskScheduler(
@@ -1668,9 +1674,9 @@ async def test_scheduler_pre_batch_drop_removes_pending_ready_task() -> None:
     graph = ExecutionGraph.create(configs, strategies)
     tracker = CompletionTracker.with_graph(graph, [(0, 3)])
 
-    def drop_middle_row(row_group: int, row_group_size: int) -> None:
+    def drop_middle_row(row_group: int, row_group_size: int) -> FrontierDelta:
         del row_group_size
-        tracker.drop_row(row_group, 1)
+        return tracker.drop_row(row_group, 1)
 
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -1739,6 +1745,7 @@ def _provider_with_model_configs(configs: dict[str, ModelConfig]) -> MagicMock:
 
 
 def test_scheduler_model_task_group_spec_uses_model_resource_and_flow() -> None:
+    """Direct spec coverage keeps model identity and flow composition deterministic."""
     model_config = ModelConfig(
         alias=MODEL_ALIAS,
         model="model-text",
@@ -1768,6 +1775,7 @@ def test_scheduler_model_task_group_spec_uses_model_resource_and_flow() -> None:
 
 
 def test_scheduler_task_group_spec_is_cached_per_generator() -> None:
+    """The per-generator spec cache has no stable public signal, so isolate it directly."""
     model_config = ModelConfig(
         alias=MODEL_ALIAS,
         model="model-text",
@@ -1798,6 +1806,7 @@ def test_scheduler_task_group_spec_is_cached_per_generator() -> None:
 def test_scheduler_task_group_spec_logs_debug_on_model_resolution_fallback(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Direct spec resolution isolates fallback logging without timing-based scheduler traces."""
     provider = MagicMock()
     provider.model_registry = MagicMock()
     provider.model_registry.get_model_config.side_effect = RuntimeError("registry unavailable")
@@ -1833,6 +1842,8 @@ def test_scheduler_task_group_spec_logs_debug_on_model_resolution_fallback(
 
 
 def test_scheduler_custom_model_task_group_spec_uses_alias_set_weight() -> None:
+    """Direct spec coverage verifies custom-model alias aggregation before fair admission."""
+
     @custom_column_generator(model_aliases=["draft", "judge"])
     def gen_with_models(row: dict, generator_params: None, models: dict) -> dict:
         row["custom_llm"] = "val"

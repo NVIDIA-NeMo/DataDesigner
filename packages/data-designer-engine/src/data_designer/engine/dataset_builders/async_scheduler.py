@@ -46,7 +46,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_TASK_POOL_SIZE: int = 256
-LLM_WAIT_POOL_MULTIPLIER: int = 2
+# Global LLM wait-pool headroom sizes the memory-safety semaphore above provider capacity.
+GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER: int = 2
+# Per-group admission backlog caps how many ready LLM tasks one fair-queue group can hold.
+LLM_GROUP_ADMISSION_BACKLOG_MULTIPLIER: int = 2
 
 # Degraded-provider WARN: emit at most one warning per interval when the
 # rolling fraction of retryable errors exceeds the threshold. Distinct from
@@ -111,7 +114,7 @@ class AsyncTaskScheduler:
         max_llm_wait_tasks: int = DEFAULT_TASK_POOL_SIZE,
         salvage_max_rounds: int = 2,
         on_finalize_row_group: Callable[[int], None] | None = None,
-        on_seeds_complete: Callable[[int, int], None] | None = None,
+        on_seeds_complete: Callable[[int, int], FrontierDelta | None] | None = None,
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
@@ -305,9 +308,6 @@ class AsyncTaskScheduler:
             await asyncio.gather(*self._worker_tasks, return_exceptions=True)
         self._worker_tasks.clear()
 
-    def _apply_tracker_delta(self) -> None:
-        self._apply_frontier_delta(self._tracker.consume_frontier_delta())
-
     def _apply_frontier_delta(self, delta: FrontierDelta) -> None:
         if delta.empty:
             return
@@ -407,7 +407,7 @@ class AsyncTaskScheduler:
         return tuple(output_columns)
 
     def _llm_group_admitted_limit(self, weight: int) -> int:
-        return max(1, min(self._max_llm_wait_tasks, LLM_WAIT_POOL_MULTIPLIER * weight))
+        return max(1, min(self._max_llm_wait_tasks, LLM_GROUP_ADMISSION_BACKLOG_MULTIPLIER * weight))
 
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
@@ -736,7 +736,7 @@ class AsyncTaskScheduler:
                     state.pre_batch_done = True
                     if self._on_seeds_complete:
                         try:
-                            self._on_seeds_complete(rg_id, state.size)
+                            delta = self._on_seeds_complete(rg_id, state.size)
                         except DatasetGenerationError:
                             raise
                         except Exception as exc:
@@ -750,7 +750,8 @@ class AsyncTaskScheduler:
                             for ri in range(state.size):
                                 if self._tracker.is_dropped(rg_id, ri):
                                     self._record_skipped_tasks_for_row(rg_id, ri)
-                    self._apply_tracker_delta()
+                        if delta is not None:
+                            self._apply_frontier_delta(delta)
                     self._flush_pre_batch_ready(rg_id)
 
     def _drop_row(self, row_group: int, row_index: int, *, exclude_columns: set[str] | None = None) -> None:
@@ -758,8 +759,7 @@ class AsyncTaskScheduler:
             return
 
         self._record_skipped_tasks_for_row(row_group, row_index, exclude_columns=exclude_columns)
-        self._tracker.drop_row(row_group, row_index)
-        self._apply_tracker_delta()
+        self._apply_frontier_delta(self._tracker.drop_row(row_group, row_index))
         if self._buffer_manager:
             self._buffer_manager.drop_row(row_group, row_index)
 
@@ -856,6 +856,8 @@ class AsyncTaskScheduler:
             if task in self._dispatched or batch_alias in self._dispatched:
                 continue
 
+            # Seeds bypass fair-queue admission while row groups are being admitted;
+            # direct dispatch preserves stateful lock ordering across row groups.
             # Acquire stateful lock *before* submission semaphore to preserve
             # row-group ordering. Held until generation completes (_execute_seed_task).
             if gid in self._stateful_locks:
@@ -950,10 +952,10 @@ class AsyncTaskScheduler:
             for col in output_cols:
                 if task.row_index is None:
                     rg_size = self._get_rg_size(task.row_group)
-                    self._tracker.mark_row_range_complete(col, task.row_group, rg_size)
+                    delta = self._tracker.mark_row_range_complete(col, task.row_group, rg_size)
                 else:
-                    self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
-            self._apply_tracker_delta()
+                    delta = self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
+                self._apply_frontier_delta(delta)
 
             self._check_error_rate(success=True)
             # The degraded-provider WARN is provider-scoped: only feed the

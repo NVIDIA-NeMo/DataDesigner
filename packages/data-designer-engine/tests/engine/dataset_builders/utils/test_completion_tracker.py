@@ -285,14 +285,12 @@ def test_get_ready_tasks_multiple_row_groups() -> None:
     assert len(question_tasks) == 5  # 3 from rg0 + 2 from rg1
 
 
-def test_consume_frontier_delta_returns_and_clears_pending_changes(ready_ctx: ReadyTasksFixture) -> None:
+def test_frontier_delta_return_is_empty_when_frontier_does_not_change(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+
     delta = ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
 
-    consumed = ready_ctx.tracker.consume_frontier_delta()
-    empty = ready_ctx.tracker.consume_frontier_delta()
-
-    assert consumed == delta
-    assert empty.empty
+    assert delta.empty
 
 
 def test_get_ready_tasks_skips_already_complete_batch(ready_ctx: ReadyTasksFixture) -> None:

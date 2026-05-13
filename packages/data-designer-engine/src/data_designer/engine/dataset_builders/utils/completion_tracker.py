@@ -46,8 +46,6 @@ class CompletionTracker:
         self._row_group_sizes: dict[int, int] = {}
         self._batch_complete: dict[int, set[str]] = defaultdict(set)
         self._frontier: set[Task] = set()
-        self._pending_delta_added: list[Task] = []
-        self._pending_delta_removed: list[Task] = []
 
     @classmethod
     def with_graph(cls, graph: ExecutionGraph, row_groups: list[tuple[int, int]]) -> CompletionTracker:
@@ -159,16 +157,6 @@ class CompletionTracker:
             t for t in self._frontier if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
         ]
 
-    def consume_frontier_delta(self) -> FrontierDelta:
-        """Return and clear frontier changes recorded since the previous consume."""
-        delta = FrontierDelta(
-            added=tuple(self._pending_delta_added),
-            removed=tuple(self._pending_delta_removed),
-        )
-        self._pending_delta_added.clear()
-        self._pending_delta_removed.clear()
-        return delta
-
     def is_frontier_task(self, task: Task) -> bool:
         """Return whether *task* is still in the ready frontier."""
         return task in self._frontier
@@ -192,8 +180,6 @@ class CompletionTracker:
                     self._frontier.add(Task(column=col, row_group=rg_id, row_index=None, task_type="batch"))
 
     def _record_delta(self, *, added: list[Task], removed: list[Task]) -> FrontierDelta:
-        self._pending_delta_added.extend(added)
-        self._pending_delta_removed.extend(removed)
         return FrontierDelta(added=tuple(added), removed=tuple(removed))
 
     def _add_frontier_task(self, task: Task) -> bool:

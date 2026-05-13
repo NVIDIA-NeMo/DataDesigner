@@ -85,14 +85,14 @@ if DATA_DESIGNER_ASYNC_ENGINE:
 
     from data_designer.engine.dataset_builders.async_scheduler import (
         DEFAULT_TASK_POOL_SIZE,
-        LLM_WAIT_POOL_MULTIPLIER,
+        GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER,
         AsyncTaskScheduler,
     )
     from data_designer.engine.dataset_builders.utils.async_concurrency import (
         AsyncConcurrentExecutor,
         ensure_async_engine_loop,
     )
-    from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
+    from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
     from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
 
@@ -996,13 +996,18 @@ class DatasetBuilder:
 
         # Pre-batch processor callback: runs after seed tasks complete for a row group.
         # If it raises, the scheduler propagates the error as DatasetGenerationError (fail-fast).
-        def on_seeds_complete(rg_id: int, rg_size: int) -> None:
+        def on_seeds_complete(rg_id: int, rg_size: int) -> FrontierDelta:
             df = buffer_manager.get_dataframe(rg_id)
             df = self._processor_runner.run_pre_batch_on_df(df, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
+            deltas: list[FrontierDelta] = []
             for ri in range(rg_size):
                 if buffer_manager.is_dropped(rg_id, ri) and not tracker.is_dropped(rg_id, ri):
-                    tracker.drop_row(rg_id, ri)
+                    deltas.append(tracker.drop_row(rg_id, ri))
+            return FrontierDelta(
+                added=tuple(task for delta in deltas for task in delta.added),
+                removed=tuple(task for delta in deltas for task in delta.removed),
+            )
 
         # Post-batch processor callback: runs after all columns, before finalization.
         def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
@@ -1022,7 +1027,7 @@ class DatasetBuilder:
             row_groups=row_groups,
             buffer_manager=buffer_manager,
             max_submitted_tasks=DEFAULT_TASK_POOL_SIZE,
-            max_llm_wait_tasks=max(DEFAULT_TASK_POOL_SIZE, LLM_WAIT_POOL_MULTIPLIER * aggregate),
+            max_llm_wait_tasks=max(DEFAULT_TASK_POOL_SIZE, GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER * aggregate),
             on_finalize_row_group=on_finalize_row_group,
             on_seeds_complete=(
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
