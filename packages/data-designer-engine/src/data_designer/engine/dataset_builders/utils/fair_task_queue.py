@@ -37,8 +37,8 @@ class TaskSelection:
     group: TaskGroupSpec
 
 
-class FairTaskSelector:
-    """Virtual-time fair selector over per-group FIFO task queues."""
+class FairTaskQueue:
+    """Virtual-time fair queue with per-group FIFO admission limits."""
 
     def __init__(self) -> None:
         self._queues: dict[TaskGroupKey, deque[Task]] = {}
@@ -46,6 +46,8 @@ class FairTaskSelector:
         self._task_groups: dict[Task, TaskGroupKey] = {}
         self._group_specs: dict[TaskGroupKey, TaskGroupSpec] = {}
         self._group_finish: dict[TaskGroupKey, float] = {}
+        self._admitted_by_group: dict[TaskGroupKey, int] = {}
+        self._admitted_task_groups: dict[Task, TaskGroupKey] = {}
         self._heap: list[tuple[float, int, TaskGroupKey]] = []
         self._active_heap_keys: set[TaskGroupKey] = set()
         self._sequence = 0
@@ -54,9 +56,6 @@ class FairTaskSelector:
     @property
     def has_queued_tasks(self) -> bool:
         return bool(self._queued)
-
-    def get_group_spec(self, key: TaskGroupKey) -> TaskGroupSpec:
-        return self._group_specs[key]
 
     def enqueue(self, task: Task, group: TaskGroupSpec) -> None:
         """Add one ready task to its fair scheduling group."""
@@ -80,8 +79,8 @@ class FairTaskSelector:
             if predicate(task):
                 self.discard(task)
 
-    def pop_next(self, can_admit_group: Callable[[TaskGroupKey], bool]) -> TaskSelection | None:
-        """Select the next eligible task, or ``None`` if no queued group can run."""
+    def admit_next(self) -> TaskSelection | None:
+        """Admit the next eligible task, or ``None`` if no queued group can run."""
         blocked: list[TaskGroupKey] = []
         try:
             while self._heap:
@@ -91,13 +90,15 @@ class FairTaskSelector:
                 queue = self._queues.get(key)
                 if not queue:
                     continue
-                if not can_admit_group(key):
+                if not self._can_admit_group(key):
                     blocked.append(key)
                     continue
 
                 task = queue.popleft()
                 self._queued.discard(task)
                 self._task_groups.pop(task, None)
+                self._admitted_task_groups[task] = key
+                self._admitted_by_group[key] = self._admitted_by_group.get(key, 0) + 1
 
                 group = self._group_specs[key]
                 self._virtual_time = max(self._virtual_time, finish)
@@ -110,6 +111,18 @@ class FairTaskSelector:
         finally:
             for key in blocked:
                 self._activate_group(key)
+
+    def release(self, task: Task) -> None:
+        """Release one previously admitted task from its group limit."""
+        key = self._admitted_task_groups.pop(task, None)
+        if key is None:
+            return
+        admitted = self._admitted_by_group.get(key, 0)
+        if admitted <= 1:
+            self._admitted_by_group.pop(key, None)
+        else:
+            self._admitted_by_group[key] = admitted - 1
+        self._activate_group(key)
 
     def _activate_group(self, key: TaskGroupKey) -> None:
         self._purge_queue_head(key)
@@ -130,3 +143,9 @@ class FairTaskSelector:
             if task in self._queued and self._task_groups.get(task) == key:
                 break
             queue.popleft()
+
+    def _can_admit_group(self, key: TaskGroupKey) -> bool:
+        group = self._group_specs[key]
+        if group.admitted_limit is None:
+            return True
+        return self._admitted_by_group.get(key, 0) < group.admitted_limit

@@ -23,7 +23,7 @@ from data_designer.engine.dataset_builders.utils.async_progress_reporter import 
 )
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.utils.fair_task_queue import (
-    FairTaskSelector,
+    FairTaskQueue,
     TaskGroupKey,
     TaskGroupSpec,
 )
@@ -136,11 +136,9 @@ class AsyncTaskScheduler:
         self._max_llm_wait_tasks = max_llm_wait_tasks
 
         self._llm_bound_lookup = build_llm_bound_lookup(generators)
-        self._fair_selector = FairTaskSelector()
+        self._fair_queue = FairTaskQueue()
         self._pending_pre_batch_ready: defaultdict[int, list[Task]] = defaultdict(list)
         self._pending_pre_batch_ready_tasks: set[Task] = set()
-        self._admitted_by_group: defaultdict[TaskGroupKey, int] = defaultdict(int)
-        self._task_group_by_task: dict[Task, TaskGroupKey] = {}
         # Generator configs and model registry bindings are fixed for one scheduler run.
         self._task_group_spec_cache: dict[int, TaskGroupSpec] = {}
 
@@ -327,10 +325,10 @@ class AsyncTaskScheduler:
                 self._pending_pre_batch_ready[task.row_group].append(task)
                 self._pending_pre_batch_ready_tasks.add(task)
             return
-        self._fair_selector.enqueue(task, self._task_group_spec(task))
+        self._fair_queue.enqueue(task, self._task_group_spec(task))
 
     def _discard_ready_task(self, task: Task) -> None:
-        self._fair_selector.discard(task)
+        self._fair_queue.discard(task)
         self._pending_pre_batch_ready_tasks.discard(task)
 
     def _flush_pre_batch_ready(self, row_group: int) -> None:
@@ -345,39 +343,31 @@ class AsyncTaskScheduler:
         pending = self._pending_pre_batch_ready.pop(row_group, [])
         for task in pending:
             self._pending_pre_batch_ready_tasks.discard(task)
-        self._fair_selector.discard_where(lambda task: task.row_group == row_group)
+        self._fair_queue.discard_where(lambda task: task.row_group == row_group)
 
     def _dispatch_queued_tasks(self) -> _DispatchOutcome:
         dispatched = False
 
-        while self._fair_selector.has_queued_tasks:
+        while self._fair_queue.has_queued_tasks:
             if not self._submission_semaphore.try_acquire():
                 return _DispatchOutcome(dispatched=dispatched, submission_full=True)
 
-            selection = self._fair_selector.pop_next(self._can_admit_group)
+            selection = self._fair_queue.admit_next()
             if selection is None:
                 self._submission_semaphore.release()
                 return _DispatchOutcome(dispatched=dispatched, group_blocked=True)
 
-            self._dispatch_selected_task(selection.task, selection.group)
+            self._dispatch_selected_task(selection.task)
             dispatched = True
 
         return _DispatchOutcome(dispatched=dispatched)
 
-    def _dispatch_selected_task(self, task: Task, group: TaskGroupSpec) -> None:
+    def _dispatch_selected_task(self, task: Task) -> None:
         self._dispatched.add(task)
         self._in_flight.add(task)
-        self._task_group_by_task[task] = group.key
-        self._admitted_by_group[group.key] += 1
         if (s := self._rg_states.get(task.row_group)) is not None:
             s.in_flight_count += 1
         self._spawn_worker(self._execute_task(task))
-
-    def _can_admit_group(self, key: TaskGroupKey) -> bool:
-        group = self._fair_selector.get_group_spec(key)
-        if group.admitted_limit is None:
-            return True
-        return self._admitted_by_group[key] < group.admitted_limit
 
     def _task_group_spec(self, task: Task) -> TaskGroupSpec:
         generator = self._generators[task.column]
@@ -595,12 +585,12 @@ class AsyncTaskScheduler:
             if all_done:
                 break
 
-            if not self._fair_selector.has_queued_tasks and not self._in_flight:
+            if not self._fair_queue.has_queued_tasks and not self._in_flight:
                 if self._all_rgs_admitted:
                     break
 
             if (
-                not self._fair_selector.has_queued_tasks
+                not self._fair_queue.has_queued_tasks
                 or dispatch_outcome.submission_full
                 or dispatch_outcome.group_blocked
             ):
@@ -675,7 +665,7 @@ class AsyncTaskScheduler:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
             dispatch_outcome = self._dispatch_queued_tasks()
-            has_queued = self._fair_selector.has_queued_tasks
+            has_queued = self._fair_queue.has_queued_tasks
             if not has_queued and not self._in_flight:
                 break
             if has_queued and not dispatch_outcome.dispatched and not self._in_flight:
@@ -1097,8 +1087,7 @@ class AsyncTaskScheduler:
                 trace.completed_at = time.perf_counter()
                 self.traces.append(trace)
 
-            if (group_key := self._task_group_by_task.pop(task, None)) is not None:
-                self._admitted_by_group[group_key] = max(0, self._admitted_by_group[group_key] - 1)
+            self._fair_queue.release(task)
             self._in_flight.discard(task)
             if (s := self._rg_states.get(task.row_group)) is not None:
                 s.in_flight_count = max(0, s.in_flight_count - 1)
