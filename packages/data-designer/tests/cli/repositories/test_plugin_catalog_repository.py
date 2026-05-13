@@ -406,6 +406,80 @@ def test_load_catalog_accepts_equivalent_data_designer_marker_quoting(tmp_path: 
     assert catalog.plugins[0].compatibility.data_designer.marker == "python_version < '3.12'"
 
 
+def test_load_catalog_rejects_non_list_packages(tmp_path: Path) -> None:
+    catalog_dir = tmp_path / "catalog"
+    catalog_dir.mkdir()
+    catalog_path = catalog_dir / "plugins.json"
+    catalog_path.write_text(json.dumps({"schema_version": 2, "packages": {"name": "data-designer-bad"}}))
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="catalog document has invalid packages; expected a list"):
+        repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_invalid_runtime_plugin_type(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(
+        tmp_path,
+        packages=[
+            _package_entry(
+                package_name="data-designer-invalid-plugin-type",
+                plugins=[_runtime_plugin("invalid-plugin-type", plugin_type="unknown-type")],
+            )
+        ],
+    )
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="plugin_type 'unknown-type' is invalid"):
+        repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_invalid_entry_point_group(tmp_path: Path) -> None:
+    runtime_plugin = _runtime_plugin("invalid-entry-point-group")
+    runtime_plugin["entry_point"]["group"] = "other.plugins"
+    catalog_path = _write_catalog(
+        tmp_path,
+        packages=[
+            _package_entry(
+                package_name="data-designer-invalid-entry-point-group",
+                plugins=[runtime_plugin],
+            )
+        ],
+    )
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="entry_point.group 'other.plugins' is invalid"):
+        repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_mismatched_data_designer_requirement_specifier(tmp_path: Path) -> None:
+    package = _package_entry()
+    package["compatibility"]["data_designer"] = {
+        "requirement": "data-designer>=0.5.7",
+        "specifier": ">=0.6.0",
+        "marker": None,
+    }
+    catalog_path = _write_catalog(tmp_path, packages=[package])
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="expected '>=0.5.7' from requirement"):
+        repository.load_catalog("local", refresh=True)
+
+
+def test_load_catalog_rejects_non_http_docs_url(tmp_path: Path) -> None:
+    package = _package_entry()
+    package["docs"]["url"] = "ftp://docs.example.test/plugins/data-designer-text-transform/"
+    catalog_path = _write_catalog(tmp_path, packages=[package])
+    repository = PluginCatalogRepository(tmp_path)
+    repository.add_catalog("local", str(catalog_path))
+
+    with pytest.raises(PluginCatalogError, match="expected an absolute HTTP\\(S\\) URL"):
+        repository.load_catalog("local", refresh=True)
+
+
 def test_load_catalog_rejects_invalid_schema_v2_install_metadata(tmp_path: Path) -> None:
     catalog_path = _write_catalog(
         tmp_path,

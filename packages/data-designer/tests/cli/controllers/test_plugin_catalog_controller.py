@@ -416,6 +416,38 @@ def test_run_info_renders_package_metadata_with_nested_runtime_plugins(
     assert mock_console.print.call_count >= 1
 
 
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.display_config_preview")
+def test_run_info_still_renders_package_metadata_when_install_plan_cannot_be_built(
+    mock_display_config_preview: MagicMock,
+    mock_console: MagicMock,
+    mock_print_warning: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.catalog_service.get_package_current_version.return_value = "0.2.0"
+    controller.install_service.build_install_plan.side_effect = ValueError("pip is unavailable")
+
+    controller.run_info("text-transform", catalog_alias="local")
+
+    mock_console.print.assert_any_call("  Version: [bold]0.2.0[/bold]")
+    mock_console.print.assert_any_call("  Runtime plugins: [bold]text-transform (processor)[/bold]")
+    mock_console.print.assert_any_call("  Compatibility: [bold green]data-designer>=0.5.7 ✓[/bold green]")
+    mock_print_warning.assert_called_once_with("pip is unavailable")
+    metadata = mock_display_config_preview.call_args.args[0]
+    assert metadata["package"] == {
+        "name": "data-designer-text-transform",
+        "description": "Transform text records",
+        "version": "0.2.0",
+    }
+    mock_display_config_preview.assert_called_once()
+
+
 @pytest.mark.parametrize(
     ("install_mode", "expected_strategy"),
     [
@@ -874,47 +906,9 @@ def test_run_install_preserves_version_in_runtime_plugin_recovery_hint(
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
-@patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
-def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
-    mock_print_warning: MagicMock,
-    mock_console: MagicMock,
-    controller: PluginCatalogController,
-) -> None:
-    entry = _entry(data_designer_requirement="data-designer>=99.0", data_designer_specifier=">=99.0")
-    catalog = _catalog()
-    controller.catalog_service.get_catalog.return_value = catalog
-    controller.catalog_service.get_package_entries.return_value = [entry]
-    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(
-        False,
-        ["Data Designer 0.5.7 does not satisfy >=99.0"],
-    )
-    controller.install_service.build_install_plan.return_value = _plan(catalog)
-
-    with pytest.raises(typer.Exit) as exc_info:
-        controller.run_install("data-designer-text-transform", catalog_alias="local", dry_run=True)
-
-    assert exc_info.value.exit_code == 1
-    controller.install_service.build_install_plan.assert_called_once_with(entry, catalog, manager="auto")
-    controller.install_service.install.assert_not_called()
-    controller.install_service.verify_entry_points.assert_not_called()
-    mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
-    assert all(
-        "Command:" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list if call_args.args
-    )
-    mock_console.print.assert_any_call("  Compatibility: [bold yellow]data-designer>=99.0 x[/bold yellow]")
-    reason_lines = [
-        call.args[0].plain for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Text)
-    ]
-    assert "    - Data Designer 0.5.7 does not satisfy >=99.0" in reason_lines
-    mock_print_warning.assert_called_once_with(
-        "Dry run complete; no changes made. Install would be blocked because compatibility checks failed."
-    )
-
-
-@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
 @patch("data_designer.cli.controllers.plugin_catalog_controller.print_warning")
-def test_run_install_dry_run_renders_incompatible_entry_for_inspection(
+def test_run_install_dry_run_renders_incompatible_plan_and_block_message(
     mock_print_warning: MagicMock,
     mock_print_error: MagicMock,
     mock_console: MagicMock,
@@ -942,11 +936,20 @@ def test_run_install_dry_run_renders_incompatible_entry_for_inspection(
     )
     controller.install_service.build_install_plan.assert_called_once_with(entry, catalog, manager="auto")
     controller.install_service.install.assert_not_called()
+    controller.install_service.verify_entry_points.assert_not_called()
     mock_print_error.assert_not_called()
+    mock_console.print.assert_any_call("  Install strategy: [bold]pip install[/bold]")
+    assert all(
+        "Command:" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list if call_args.args
+    )
+    mock_console.print.assert_any_call("  Compatibility: [bold yellow]data-designer>=99.0 x[/bold yellow]")
+    reason_lines = [
+        call.args[0].plain for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Text)
+    ]
+    assert "    - Data Designer 0.5.7 does not satisfy >=99.0" in reason_lines
     mock_print_warning.assert_called_once_with(
         "Dry run complete; no changes made. Install would be blocked because compatibility checks failed."
     )
-    assert mock_console.print.call_count >= 1
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")
@@ -1022,6 +1025,32 @@ def test_run_install_warns_when_verification_misses_entry_point(
         "Plugin package 'data-designer-text-transform' was installed, but Data Designer could not load every "
         "declared runtime entry point. Restart the shell or check the package code and entry point metadata."
     )
+    assert mock_console.print.call_count >= 1
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
+def test_run_install_wraps_package_manager_failure(
+    mock_print_error: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog()
+    plan = _plan(catalog)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.install_service.build_install_plan.return_value = plan
+    controller.install_service.install.side_effect = RuntimeError("installer exited with status 2")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_install("data-designer-text-transform", catalog_alias="local", yes=True)
+
+    assert exc_info.value.exit_code == 1
+    controller.install_service.install.assert_called_once_with(plan)
+    controller.install_service.verify_entry_points.assert_not_called()
+    mock_print_error.assert_called_once_with("installer exited with status 2")
     assert mock_console.print.call_count >= 1
 
 
@@ -1102,6 +1131,31 @@ def test_run_uninstall_wraps_plan_error(
     assert exc_info.value.exit_code == 1
     controller.install_service.uninstall.assert_not_called()
     mock_print_error.assert_called_once_with("Failed to build plugin uninstall plan: uv was requested")
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+@patch("data_designer.cli.controllers.plugin_catalog_controller.print_error")
+def test_run_uninstall_wraps_package_manager_failure(
+    mock_print_error: MagicMock,
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry()
+    catalog = _catalog()
+    plan = _uninstall_plan(catalog)
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.get_package_entries.return_value = [entry]
+    controller.install_service.build_uninstall_plan.return_value = plan
+    controller.install_service.uninstall.side_effect = RuntimeError("uninstaller exited with status 2")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_uninstall("data-designer-text-transform", catalog_alias="local", yes=True)
+
+    assert exc_info.value.exit_code == 1
+    controller.install_service.uninstall.assert_called_once_with(plan)
+    controller.install_service.verify_entry_points_removed.assert_not_called()
+    mock_print_error.assert_called_once_with("uninstaller exited with status 2")
+    assert mock_console.print.call_count >= 1
 
 
 @patch("data_designer.cli.controllers.plugin_catalog_controller.console")

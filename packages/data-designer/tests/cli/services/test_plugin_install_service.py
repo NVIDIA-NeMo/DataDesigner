@@ -332,6 +332,24 @@ def test_build_auto_install_plan_uses_uv_add_for_non_package_user_project(
     mock_which.assert_called_once_with("uv")
 
 
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_install_plan_uses_uv_add_with_python310_pyproject_fallback(
+    mock_which: Mock,
+    tmp_path: Path,
+) -> None:
+    _write_project(tmp_path)
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    with patch("data_designer.cli.services.plugin_install_service.tomllib", None):
+        plan = service.build_install_plan(entry, catalog, manager="auto")
+
+    assert plan.install_mode == "uv-project"
+    assert plan.project_root == str(tmp_path)
+    mock_which.assert_called_once_with("uv")
+
+
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value=None)
 def test_build_auto_install_plan_chooses_pip_when_uv_is_unavailable(mock_which: Mock) -> None:
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
@@ -578,6 +596,73 @@ def test_build_auto_uninstall_plan_skips_uv_remove_when_package_is_not_a_project
     service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
 
     plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+
+    assert plan.command == [
+        "uv",
+        "pip",
+        "uninstall",
+        "--python",
+        sys.executable,
+        "data-designer-template",
+    ]
+    assert plan.commands == [plan.command]
+    assert plan.uninstall_mode == "uv-environment"
+    assert plan.project_root is None
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_uninstall_plan_detects_project_dependency_with_python310_pyproject_fallback(
+    mock_which: Mock,
+    tmp_path: Path,
+) -> None:
+    _write_project(tmp_path, dependencies=["data-designer-template>=0.1"])
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    with patch("data_designer.cli.services.plugin_install_service.tomllib", None):
+        plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+
+    assert plan.commands == [
+        [
+            "uv",
+            "remove",
+            "--project",
+            str(tmp_path),
+            "--no-sync",
+            "data-designer-template",
+        ],
+        [
+            "uv",
+            "pip",
+            "uninstall",
+            "--python",
+            sys.executable,
+            "data-designer-template",
+        ],
+    ]
+    assert plan.uninstall_mode == "uv-project"
+    assert plan.project_root == str(tmp_path)
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_uninstall_plan_handles_malformed_python310_pyproject_fallback(
+    mock_which: Mock,
+    tmp_path: Path,
+) -> None:
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "synthetic-data-project"\ndependencies = [not valid\n',
+        encoding="utf-8",
+    )
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    with patch("data_designer.cli.services.plugin_install_service.tomllib", None):
+        plan = service.build_uninstall_plan(entry, catalog, manager="auto")
 
     assert plan.command == [
         "uv",
