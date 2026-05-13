@@ -166,13 +166,31 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             self._model_providers = self._resolve_model_providers(model_providers)
             default_provider_name = None
         self._mcp_providers = mcp_providers or []
-        # When the YAML carries a default, ``get_default_provider_name`` already
-        # nudged the user with a ``DeprecationWarning``. Building the registry
-        # below would re-fire ``ModelProviderRegistry._warn_on_explicit_default``
-        # for the same root cause, so suppress that second warning. See PR #594
-        # review.
+        # Suppress ``ModelProviderRegistry._warn_on_explicit_default`` whenever
+        # *we* are filling ``default=`` on the user's behalf rather than the
+        # user actively opting into the deprecated registry-level default. Two
+        # such cases:
+        #   1. ``model_providers is None`` — the caller passed nothing, so we
+        #      load the YAML's ``providers:`` list and (in the multi-provider
+        #      case) ``resolve_model_provider_registry`` synthesises
+        #      ``default=providers[0].name`` to satisfy ``check_implicit_default``.
+        #      The fresh-install YAML ships three providers and no ``default:``
+        #      key, so this fires for every default ``DataDesigner()``
+        #      construction. The user has no actionable lever here, and the
+        #      warning's "Specify provider= on each ModelConfig" remediation
+        #      doesn't apply when they haven't built a ``ModelConfig`` at all.
+        #   2. ``default_provider_name is not None`` — the YAML carried a
+        #      ``default:`` key and ``get_default_provider_name`` already
+        #      emitted the YAML-level ``DeprecationWarning``. The registry
+        #      warning would fire for the same root cause, so suppress it to
+        #      avoid double-warning. See PR #594 review.
+        # Users who hand-construct a multi-provider list in Python still see
+        # the warning (they wrote the multi-provider intent themselves), and
+        # users who hand-construct ``ModelProviderRegistry(default=...)``
+        # directly always see it — those are the entry points #589 targets.
+        library_synthesised_default = model_providers is None or default_provider_name is not None
         with warnings.catch_warnings():
-            if default_provider_name is not None:
+            if library_synthesised_default:
                 warnings.filterwarnings(
                     "ignore",
                     message="ModelProviderRegistry.default is deprecated",
