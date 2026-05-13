@@ -515,7 +515,7 @@ check-fern-release-version:
 ifndef VERSION
 	$(error VERSION is required, e.g. make check-fern-release-version VERSION=0.5.10)
 endif
-	$(DOCS_PYTHON) fern/scripts/fern-release-version.py check --version $(VERSION)
+	$(DOCS_PYTHON) fern/scripts/fern-release-version.py check --version $(VERSION) $(if $(REQUIRE_LATEST),--require-latest-matches-release,)
 
 prepare-fern-docs: generate-fern-api-reference generate-fern-notebooks
 	@echo "✅ Fern local artifacts ready"

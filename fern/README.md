@@ -67,7 +67,7 @@ Fern publishing runs alongside MkDocs during migration:
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 
-Release publishing also runs `fern/scripts/fern-release-version.py check` before building notebooks. A release fails early if the release tag is not represented in `docs.yml` and `versions/vX.Y.Z.yml`. Manual dispatch can validate a specific tag through the workflow's `release_tag` input; otherwise it uses the latest published release.
+Release publishing also runs `fern/scripts/fern-release-version.py check` before building notebooks. A release fails early if the release tag is not represented in `docs.yml` and `versions/vX.Y.Z.yml`, or if `latest.yml` does not match the release nav on the release event. Manual dispatch can validate a specific tag through the workflow's `release_tag` input; otherwise it uses the latest published release.
 
 ## Versioning
 
@@ -151,7 +151,7 @@ Primary local commands:
 | `make serve-fern-docs-locally` | Generate local Fern artifacts and serve local docs |
 | `make generate-fern-notebooks-with-outputs` | Full notebook pipeline: execute (needs `NVIDIA_API_KEY`) → colabify → convert |
 | `make prepare-fern-release VERSION=X.Y.Z` | Add Fern version files before cutting a release |
-| `make check-fern-release-version VERSION=X.Y.Z` | Verify Fern release metadata exists before publishing |
+| `make check-fern-release-version VERSION=X.Y.Z REQUIRE_LATEST=1` | Verify Fern release metadata exists before publishing |
 
 Support and CI targets:
 

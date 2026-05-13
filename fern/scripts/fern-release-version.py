@@ -148,6 +148,19 @@ def check_as_of_versions(root: Path) -> list[str]:
     return errors
 
 
+def check_latest_matches_release(root: Path, slug: str) -> list[str]:
+    latest_nav = root / "versions" / "latest.yml"
+    release_nav = root / "versions" / f"{slug}.yml"
+    if not latest_nav.exists() or not release_nav.exists():
+        return []
+
+    latest_content = strip_leading_comment_block(latest_nav.read_text())
+    release_content = strip_leading_comment_block(release_nav.read_text())
+    if latest_content != release_content:
+        return [f"{latest_nav} must match {release_nav} when publishing {slug}"]
+    return []
+
+
 def update_docs_yml(root: Path, slug: str) -> None:
     docs_yml = root / "docs.yml"
     lines = read_docs_lines(root)
@@ -213,7 +226,17 @@ def write_release_nav(root: Path, slug: str, force: bool) -> bool:
     return copied_pages
 
 
-def check_release(root: Path, slug: str) -> list[str]:
+def update_latest_nav(root: Path, slug: str) -> bool:
+    latest_nav = root / "versions" / "latest.yml"
+    content = latest_nav.read_text()
+    updated = content.replace("./latest/pages/", f"./{slug}/pages/")
+    if updated == content:
+        return False
+    latest_nav.write_text(updated)
+    return True
+
+
+def check_release(root: Path, slug: str, require_latest_matches_release: bool = False) -> list[str]:
     errors: list[str] = []
     block = versions_block_text(root)
     nav = root / "versions" / f"{slug}.yml"
@@ -235,6 +258,8 @@ def check_release(root: Path, slug: str) -> list[str]:
 
     errors.extend(check_latest_display_name(root))
     errors.extend(check_as_of_versions(root))
+    if require_latest_matches_release:
+        errors.extend(check_latest_matches_release(root, slug))
     return errors
 
 
@@ -242,12 +267,15 @@ def prepare(args: argparse.Namespace) -> int:
     root = Path(args.root)
     slug = version_slug(args.version)
     copied_pages = write_release_nav(root, slug, args.force)
+    updated_latest = update_latest_nav(root, slug)
     update_docs_yml(root, slug)
     print(f"Prepared Fern release {slug}")
     if copied_pages:
         print(f"Copied latest-only pages into {root / 'versions' / slug / 'pages'}")
     else:
         print("No latest-only pages needed copying")
+    if updated_latest:
+        print(f"Updated latest.yml to point at {slug} page copies")
     print("Review reused page paths before publishing the release.")
     return 0
 
@@ -255,7 +283,7 @@ def prepare(args: argparse.Namespace) -> int:
 def check(args: argparse.Namespace) -> int:
     root = Path(args.root)
     slug = version_slug(args.version)
-    errors = check_release(root, slug)
+    errors = check_release(root, slug, args.require_latest_matches_release)
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
@@ -276,6 +304,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     check_parser = subparsers.add_parser("check", help="Check Fern files include a release")
     check_parser.add_argument("--version", required=True, help="Release version or tag, e.g. v0.5.10")
+    check_parser.add_argument(
+        "--require-latest-matches-release",
+        action="store_true",
+        help="Fail unless latest.yml matches the requested release nav, ignoring leading comments",
+    )
     check_parser.set_defaults(func=check)
     return parser
 

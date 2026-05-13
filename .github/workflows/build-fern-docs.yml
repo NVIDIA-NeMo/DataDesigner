@@ -51,8 +51,14 @@ jobs:
 
       - name: Check Fern release version
         env:
+          EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
-        run: python3 fern/scripts/fern-release-version.py check --version "$RELEASE_TAG"
+        run: |
+          args=(check --version "$RELEASE_TAG")
+          if [ "$EVENT_NAME" = "release" ]; then
+            args+=(--require-latest-matches-release)
+          fi
+          python3 fern/scripts/fern-release-version.py "${args[@]}"
 
   build-notebooks:
     needs: check-release-version
