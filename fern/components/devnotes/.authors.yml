@@ -39,6 +39,14 @@ authors:
     name: Nabin Mulepati
     description: Researcher at NVIDIA
     avatar: https://avatars.githubusercontent.com/u/5551931?v=4
+  trintamaki:
+    name: Tuomas Rintamaki
+    description: Researcher at NVIDIA
+    avatar: https://avatars.githubusercontent.com/u/143676174?v=4
+  nvilia:
+    name: Ilia Karmanov
+    description: Researcher at NVIDIA
+    avatar: https://avatars.githubusercontent.com/u/130559691?v=4
   davanstrien:
     name: Daniel van Strien
     description: Machine Learning Librarian at Hugging Face

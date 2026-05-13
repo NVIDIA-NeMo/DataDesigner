@@ -26,6 +26,11 @@ After completing the audit, update the file with any new findings (add to
 `known_issues` array with a short hash of the finding). Skip reporting issues
 that already appear in `known_issues`.
 
+This recipe also maintains `fix_backlog` and `attempted_fixes` per
+`_fix-policy.md`. Update `fix_backlog` for every detected finding *before*
+the `known_issues` filter applies, so fixable findings persist across runs
+even when their report row is suppressed for being unchanged.
+
 ## Instructions
 
 ### Turn budget
@@ -170,9 +175,30 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 If no findings in any category, write `NO_FINDINGS` on the first line instead.
 
+## Fix phase
+
+Follow the standard fix procedure in `_fix-policy.md`. Suite-specific bits:
+
+### Eligible categories
+
+| Category | Branch type | test_required | Eligibility note |
+|----------|-------------|---------------|------------------|
+| broken-link | `docs` | no | Only when the corrected target is unambiguous (exact-match file at a different path, or a single similar anchor). Multiple candidates → ineligible. |
+| docstring-drift | `docs` | yes | Purely signature-driven `Args:`/`Returns:`/`Raises:` updates. Rename a param to its current name, drop entries for removed params, add placeholder entries for added params (note the signature; do not invent semantic descriptions). |
+| arch-ref-rename | `docs` | no | Only when grep confirms the old symbol is gone and exactly one similarly-named new symbol exists at the same role. |
+
+`fix_backlog.data` should carry whatever the fix step needs without
+re-scanning: the proposed target for broken-link, the signature-vs-Args
+delta for docstring-drift, the new symbol name for arch-ref-rename.
+
+All other audit categories (docs-site rewrites, dev-note edits, external
+URL breakage) stay report-only.
+
 ## Constraints
 
-- Do not modify any files. This is a read-only audit.
+- Outside the fix phase, this recipe is read-only — do not modify files.
+- Within the fix phase, only modify paths in the suite's path allowlist.
+  See `_fix-policy.md` for the shared command/path baseline.
 - Do not read file contents unless needed to verify a specific reference.
   Use `grep` and `head` for targeted checks rather than reading entire files.
 - Skip vendored or generated files.

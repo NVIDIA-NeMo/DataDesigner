@@ -1,0 +1,124 @@
+---
+title: "Use Case Recipes"
+description: "Self-contained code examples that demonstrate how to leverage Data Designer for specific use cases."
+position: 1
+---
+
+Recipes are a collection of code examples that demonstrate how to leverage Data Designer in specific use cases. Each recipe is a self-contained example that can be run independently.
+
+<Tip title="New to Data Designer?">
+  Recipes provide working code for specific use cases without detailed explanations. If you're learning Data Designer for the first time, start with our [tutorial notebooks](/tutorials/overview), which offer step-by-step guidance and explain core concepts. Once you're familiar with the basics, return here for practical, ready-to-use implementations.
+</Tip>
+
+<Note title="Prerequisite">
+  These recipes use the OpenAI model provider by default. Ensure your OpenAI provider is set up via the Data Designer CLI before running a recipe.
+</Note>
+
+## Code Generation
+
+<CardGroup cols={2}>
+  <Card title="Text to Python" icon="code" href="/recipes/code-generation/text-to-python">
+    Natural-language instructions paired with Python implementations across complexity levels and industries.
+
+    *Python code generation · validation · LLM-as-judge*
+  </Card>
+  <Card title="Text to SQL" icon="database" href="/recipes/code-generation/text-to-sql">
+    Natural-language instructions paired with SQL implementations across complexity levels and industries.
+
+    *SQL code generation · validation · LLM-as-judge*
+  </Card>
+  <Card title="Nemotron Super Text to SQL" icon="database" href="/recipes/code-generation/nemotron-super-text-to-sql">
+    Enterprise-grade text-to-SQL training data — dialect-specific SQL, distractor injection, dirty data, 5 LLM judges with 15 scoring dimensions.
+
+    *Multi-dialect SQL · `SubcategorySamplerParams` · 5 judges · 15 score columns*
+  </Card>
+</CardGroup>
+
+## QA and Chat
+
+<CardGroup cols={2}>
+  <Card title="Product Info QA" icon="comment" href="/recipes/qa-and-chat/product-info-qa">
+    Product information paired with question/answer pairs.
+
+    *Structured outputs · expression columns · LLM-as-judge*
+  </Card>
+  <Card title="Multi-Turn Chat" icon="comments" href="/recipes/qa-and-chat/multi-turn-chat">
+    Multi-turn chat conversations between a user and an AI assistant.
+
+    *Structured outputs · expression columns · LLM-as-judge*
+  </Card>
+</CardGroup>
+
+## Trace Ingestion
+
+<CardGroup cols={2}>
+  <Card title="Agent Rollout Trace Distillation" icon="code-fork" href="/recipes/trace-ingestion/agent-rollout-trace-distillation">
+    Read agent rollout traces from disk and turn each one into a structured workflow record inside a Data Designer pipeline. See the [ingestion guide](/concepts/agent-rollout-ingestion) for the trace format.
+
+    *`AgentRolloutSeedSource` · ATIF, Claude Code, Codex, Hermes formats · trace-aware prompts*
+  </Card>
+</CardGroup>
+
+## MCP and Tool Use
+
+<CardGroup cols={2}>
+  <Card title="Basic MCP Tool Use" icon="wrench" href="/recipes/mcp-and-tool-use/basic-mcp-tool-use">
+    Minimal example of MCP tool calling — defines a simple MCP server and generates data that requires tool calls to complete.
+
+    *`LocalStdioMCPProvider` · simple tool server · tool-augmented text*
+  </Card>
+  <Card title="PDF Document QA" icon="file-pdf" href="/recipes/mcp-and-tool-use/pdf-document-qa">
+    Grounded Q&A pairs from PDF documents using MCP tool calls and BM25 search.
+
+    *`LocalStdioMCPProvider` · BM25 retrieval · per-column trace capture*
+  </Card>
+  <Card title="Nemotron Super Search Agent" icon="magnifying-glass" href="/recipes/mcp-and-tool-use/nemotron-super-search-agent">
+    Multi-turn search agent trajectories — Tavily web search via MCP, Wikidata KG seeding, BrowseComp-style question generation.
+
+    *Tavily MCP · Wikidata seeding · two-stage question generation · trajectory capture*
+  </Card>
+</CardGroup>
+
+## Plugin Development
+
+<CardGroup cols={2}>
+  <Card title="Markdown Section Seed Reader" icon="file-lines" href="/recipes/plugin-development/markdown-section-seed-reader-plugin">
+    Define a custom `FileSystemSeedReader` inline and turn Markdown files into one seed row per heading section.
+
+    *Single-file custom reader · `hydrate_row()` fanout · `DirectorySeedSource` customization*
+  </Card>
+</CardGroup>
+
+## VLM Long-Document Understanding
+
+A 9-recipe pipeline for generating visual QA training data from long PDF documents: OCR, page classification, single-page / multi-page / whole-document QA, and frontier-model quality filtering.
+
+<CardGroup cols={2}>
+  <Card title="Seed Dataset Preparation" icon="file-lines" href="/recipes/vlm-long-document-understanding/seed-dataset-preparation">
+    Download PDFs, render page images, and prepare seed datasets for the downstream VLM recipes.
+  </Card>
+  <Card title="Nemotron Parse OCR" icon="file-lines" href="/recipes/vlm-long-document-understanding/nemotron-parse-ocr">
+    Run Nemotron Parse over document pages and save OCR transcripts for text-based QA generation.
+  </Card>
+  <Card title="Text QA from OCR Transcripts" icon="message-question" href="/recipes/vlm-long-document-understanding/text-qa-from-ocr-transcripts">
+    Generate text-grounded question-answer pairs from OCR transcripts.
+  </Card>
+  <Card title="Page Classification" icon="tags" href="/recipes/vlm-long-document-understanding/page-classification">
+    Classify pages by visual reasoning potential before running more expensive QA generation.
+  </Card>
+  <Card title="Visual QA" icon="image" href="/recipes/vlm-long-document-understanding/visual-qa">
+    Generate visual question-answer pairs from classified page images.
+  </Card>
+  <Card title="Single-Page QA" icon="file" href="/recipes/vlm-long-document-understanding/single-page-qa">
+    Generate single-page VLM QA examples from page-level image seeds.
+  </Card>
+  <Card title="Multi-Page Windowed QA" icon="files" href="/recipes/vlm-long-document-understanding/multi-page-windowed-qa">
+    Generate cross-page QA examples over fixed-size page windows.
+  </Card>
+  <Card title="Whole-Document QA" icon="book-open" href="/recipes/vlm-long-document-understanding/whole-document-qa">
+    Generate document-level QA examples over grouped page images.
+  </Card>
+  <Card title="Frontier Judge QA Filter" icon="filter" href="/recipes/vlm-long-document-understanding/frontier-judge-qa-filter">
+    Score and filter generated QA pairs with a stronger independent judge.
+  </Card>
+</CardGroup>

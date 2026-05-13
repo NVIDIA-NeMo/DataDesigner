@@ -41,6 +41,8 @@ PROVIDER_API_KEY_ENV_VARS = {
     OPENROUTER_PROVIDER_NAME: OPENROUTER_API_KEY_ENV_VAR_NAME,
 }
 
+CHAT_COMPLETION_ATTEMPTS = 2
+
 
 def _get_provider_registry(provider_name: str) -> ModelProviderRegistry:
     provider_data = next(p for p in PREDEFINED_PROVIDERS if p["name"] == provider_name)
@@ -76,8 +78,15 @@ def _check_model(provider_name: str, model_type: str) -> None:
             input_texts=["Hello!"],
             skip_usage_tracking=True,
         )
-        assert len(result) == 1 and len(result[0]) > 0
-    else:
+        if len(result) != 1 or len(result[0]) == 0:
+            raise AssertionError(
+                f"Expected one non-empty embedding from {provider_name}/{model_type} "
+                f"({model_name}); got {len(result)} embeddings"
+            )
+        return
+
+    result = None
+    for attempt in range(1, CHAT_COMPLETION_ATTEMPTS + 1):
         result, _ = facade.generate(
             prompt="Say 'OK' and nothing else.",
             parser=lambda x: x,
@@ -86,7 +95,15 @@ def _check_model(provider_name: str, model_type: str) -> None:
             max_conversation_restarts=0,
             skip_usage_tracking=True,
         )
-        assert isinstance(result, str) and len(result) > 0
+        if isinstance(result, str) and len(result) > 0:
+            return
+        if attempt < CHAT_COMPLETION_ATTEMPTS:
+            print(f"RETRY {provider_name}/{model_type} ({model_name}) returned {result!r}")
+
+    raise AssertionError(
+        f"Expected non-empty chat response from {provider_name}/{model_type} "
+        f"({model_name}) after {CHAT_COMPLETION_ATTEMPTS} attempts; got {result!r}"
+    )
 
 
 def main() -> int:

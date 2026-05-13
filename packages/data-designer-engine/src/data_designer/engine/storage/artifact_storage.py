@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from datetime import datetime
 from functools import cached_property
@@ -55,6 +56,7 @@ class ArtifactStorage(BaseModel):
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
     resume: ResumeMode = ResumeMode.NEVER
     _media_storage: MediaStorage = PrivateAttr(default=None)
+    _metadata_defaults: dict[str, object] = PrivateAttr(default_factory=dict)
 
     @property
     def media_storage(self) -> MediaStorage:
@@ -319,6 +321,10 @@ class ArtifactStorage(BaseModel):
         with open(self.metadata_file_path, "r") as file:
             return json.load(file)
 
+    def set_metadata_defaults(self, defaults: dict[str, object]) -> None:
+        """Persist fields that should be included in every metadata write."""
+        self._metadata_defaults.update(defaults)
+
     def write_metadata(self, metadata: dict) -> Path:
         """Write metadata to the metadata.json file.
 
@@ -329,8 +335,16 @@ class ArtifactStorage(BaseModel):
             Path to the written metadata file.
         """
         self.mkdir_if_needed(self.base_dataset_path)
-        with open(self.metadata_file_path, "w") as file:
-            json.dump(metadata, file, indent=2, sort_keys=True)
+        metadata = {**self._metadata_defaults, **metadata}
+        tmp_path = self.metadata_file_path.with_name(f"{self.metadata_file_path.name}.tmp.{os.getpid()}")
+        try:
+            with open(tmp_path, "w") as file:
+                json.dump(metadata, file, indent=2, sort_keys=True)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(tmp_path, self.metadata_file_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
         return self.metadata_file_path
 
     def update_metadata(self, updates: dict) -> Path:

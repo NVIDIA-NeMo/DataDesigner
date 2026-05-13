@@ -709,6 +709,10 @@ class CustomColumnConfig(SingleColumnConfig):
         metadata = getattr(self.generator_function, "custom_column_metadata", {})
         return metadata.get("model_aliases", [])
 
+    def get_model_aliases(self) -> list[str]:
+        """Returns the decorator-declared aliases so the startup health check pings every endpoint."""
+        return self.model_aliases
+
     @field_serializer("generator_function")
     def serialize_generator_function(self, v: Any) -> str:
         return getattr(v, "__name__", repr(v))

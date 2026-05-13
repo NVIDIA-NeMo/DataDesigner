@@ -84,11 +84,9 @@ Users set that alias from default model settings or from `DataDesignerConfigBuil
 
 If your plugin uses multiple model aliases, inherit from `ColumnGeneratorWithModelRegistry` and resolve each alias explicitly with `self.get_model(...)`.
 
-The config must include a primary `model_alias: str` field. Startup health checks read it directly from any column config whose generator inherits from `ColumnGeneratorWithModelRegistry`, including generators that inherit through `ColumnGeneratorWithModel`. A config for this pattern might also define `judge_model_alias`, `critic_model_alias`, or another task-specific alias.
+The startup model health check pings every alias your column declares. By default, `SingleColumnConfig.get_model_aliases()` returns the primary `model_alias` field, which covers single-model plugins for free. A config for this pattern might also define `judge_model_alias`, `critic_model_alias`, or another task-specific alias. Override `get_model_aliases()` to return every alias the column depends on so a typo, missing API key, or unreachable endpoint surfaces at startup instead of at first generation.
 
-Validate additional alias fields in `_validate()` or `_initialize()` with `get_model_config(...)` so missing aliases fail before generation starts. `get_model_config(alias)` only verifies that the alias is registered; it does not call the endpoint. Endpoint reachability is only exercised for the primary `model_alias` collected by the standard startup health check.
-
-The matching config shows which alias gets the standard startup health check and which alias the plugin validates itself:
+The matching config opts every alias into the standard startup health check by listing them all in `get_model_aliases()`:
 
 ```python
 from __future__ import annotations
@@ -111,6 +109,9 @@ class PairwiseJudgeColumnConfig(SingleColumnConfig):
     @property
     def side_effect_columns(self) -> list[str]:
         return []
+
+    def get_model_aliases(self) -> list[str]:
+        return [self.model_alias, self.judge_model_alias]
 ```
 
 ```python
@@ -134,10 +135,6 @@ class PairwiseJudgeColumnGenerator(ColumnGeneratorWithModelRegistry[PairwiseJudg
     @staticmethod
     def get_generation_strategy() -> GenerationStrategy:
         return GenerationStrategy.CELL_BY_CELL
-
-    def _validate(self) -> None:
-        self.get_model_config(self.config.model_alias)
-        self.get_model_config(self.config.judge_model_alias)
 
     async def agenerate(self, data: dict) -> dict:
         generator_model = self.get_model(self.config.model_alias)
@@ -163,6 +160,8 @@ class PairwiseJudgeColumnGenerator(ColumnGeneratorWithModelRegistry[PairwiseJudg
         return data
 ```
 
+If your config has no `model_alias` field at all (uncommon but valid), override `get_model_aliases()` to return whichever fields name your model dependencies — the default implementation reads `model_alias` via `getattr` and returns an empty list when it is absent, so it will not crash on configs without it.
+
 ## What the registry returns
 
 `get_model(...)` returns a `ModelFacade`. Call the facade based on the modality your plugin needs:
@@ -181,7 +180,7 @@ Prefer implementing `agenerate(...)` for model-backed plugins. The base `generat
 
 The model-aware bases mark the generator as LLM-bound, so the async scheduler treats the work like other model calls.
 
-Plugin discovery treats column generator implementations that inherit from `ColumnGeneratorWithModelRegistry` as model-generated column types for startup model health checks. The standard health-check collection reads a primary `model_alias` field directly from the config. Additional alias fields should be registration-validated by the plugin implementation; their endpoints are not pinged by the standard startup health check.
+Plugin discovery treats column generator implementations that inherit from `ColumnGeneratorWithModelRegistry` as model-generated column types for startup model health checks. The standard health-check collection calls `SingleColumnConfig.get_model_aliases()` on each column config and pings every alias it returns. The default implementation returns the column's primary `model_alias` (or an empty list for configs without one); configs with multiple model fields should override it so the startup check exercises every endpoint they depend on.
 
 ## Built-in patterns
 

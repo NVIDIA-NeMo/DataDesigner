@@ -51,6 +51,10 @@ regardless of test coverage.
 Read `{{memory_path}}/runner-state.json` for known issues from previous runs.
 Update after the audit. Skip re-reporting known issues.
 
+This recipe also maintains `fix_backlog` and `attempted_fixes` per
+`_fix-policy.md`. Update `fix_backlog` for every detected finding *before*
+the `known_issues` filter applies.
+
 ## Instructions
 
 ### 1. Import boundary violations
@@ -208,15 +212,35 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 If no findings in any category, write `NO_FINDINGS` on the first line instead.
 
+## Fix phase
+
+Follow the standard fix procedure in `_fix-policy.md`. Suite-specific bits:
+
+### Eligible categories
+
+| Category | Branch type | test_required | Eligibility note |
+|----------|-------------|---------------|------------------|
+| missing-future | `chore` | yes | Insert `from __future__ import annotations` after the SPDX header block, before other imports. Fully deterministic. Tests required because `__future__` annotations can affect introspection-heavy code paths. |
+| lazy-import | `refactor` | yes | Move a top-level heavy import (pandas/numpy/polars/torch/duckdb/sqlfluff/faker) to the `data_designer.lazy_heavy_imports` accessor pattern. Eligible only when (a) file is under `packages/*/src/`, (b) the module is already wired in the lazy system, (c) the heavy module is used only inside function bodies. |
+
+**Not eligible** — stays report-only:
+
+- Import boundary violations (architectural judgement).
+- Dead exports (audit labels them "potentially dead"; external plugin
+  consumers may use them).
+
 ## Constraints
 
-- Do not modify any files. This is a read-only audit.
+- Outside the fix phase, this recipe is read-only — do not modify files.
+- Within the fix phase, only modify paths in the suite's path allowlist.
+  See `_fix-policy.md` for the shared command/path baseline.
 - Imports inside `if TYPE_CHECKING:` blocks are allowed and should not be
   flagged for any check.
 - Lazy imports in `__init__.py` (via `__getattr__`) are deferred and should
   not be treated as violations.
 - Dead export detection has false positives. Mark uncertain cases as
-  "potentially dead" rather than definitively dead.
+  "potentially dead" rather than definitively dead. **Do not auto-remove
+  them** — they are not in the fix-eligible list.
 - Always cite which rule or doc is violated so maintainers can verify.
 - Import boundaries are currently clean. No findings in that section is
   normal and expected.
