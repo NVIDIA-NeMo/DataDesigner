@@ -95,11 +95,6 @@ def version_entries(root: Path) -> list[dict[str, str]]:
     return entries
 
 
-def highest_version_slug(entries: list[dict[str, str]]) -> str | None:
-    slugs = [entry["slug"] for entry in entries if re.fullmatch(rf"v{VERSION_RE.pattern}", entry.get("slug", ""))]
-    return max(slugs, key=version_key, default=None)
-
-
 def has_version_entry(root: Path, slug: str) -> bool:
     block = versions_block_text(root)
     return re.search(rf"^\s+slug:\s+{re.escape(slug)}\s*$", block, re.MULTILINE) is not None
@@ -108,17 +103,11 @@ def has_version_entry(root: Path, slug: str) -> bool:
 def check_latest_display_name(root: Path) -> list[str]:
     entries = version_entries(root)
     latest = next((entry for entry in entries if entry.get("slug") == "latest"), None)
-    highest = highest_version_slug(entries)
-    if latest is None or highest is None:
+    if latest is None:
         return []
 
-    match = re.search(rf"\bv({VERSION_RE.pattern})\b", latest.get("display_name", ""))
-    if not match:
-        return ["Latest version display name must include the latest registered version slug"]
-
-    displayed = f"v{match.group(1)}"
-    if displayed != highest:
-        return [f"Latest display name points at {displayed}, but highest registered version is {highest}"]
+    if latest.get("display_name") != "Latest":
+        return ['Latest version display name must be "Latest"']
     return []
 
 
@@ -172,7 +161,7 @@ def update_docs_yml(root: Path, slug: str) -> None:
     )
     if latest_index == -1:
         raise ReleaseVersionError("Missing latest version entry in docs.yml")
-    lines[latest_index] = f'- display-name: "Latest · {slug}"\n'
+    lines[latest_index] = '- display-name: "Latest"\n'
 
     if not has_version_entry(root, slug):
         insert_index = end
@@ -242,7 +231,7 @@ def check_release(root: Path, slug: str, require_latest_matches_release: bool = 
     nav = root / "versions" / f"{slug}.yml"
 
     expected = {
-        "latest display name": rf'^- display-name:\s+["\']Latest\b.*{re.escape(slug)}["\']\s*$',
+        "latest display name": r'^- display-name:\s+["\']Latest["\']\s*$',
         "version display name": rf'^- display-name:\s+["\']{re.escape(slug)}["\']\s*$',
         "version path": rf"^\s+path:\s+versions/{re.escape(slug)}\.yml\s*$",
         "version slug": rf"^\s+slug:\s+{re.escape(slug)}\s*$",
