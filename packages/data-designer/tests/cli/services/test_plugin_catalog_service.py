@@ -347,6 +347,33 @@ def test_get_package_current_version_reads_package_index(
     mock_urlopen.assert_called_once()
 
 
+@patch("data_designer.cli.services.plugin_catalog_service.urlopen")
+def test_get_package_current_version_respects_requirement_specifier(
+    mock_urlopen: Mock,
+) -> None:
+    service = PluginCatalogService(
+        Mock(spec=PluginCatalogRepository), python_version="3.11.0", data_designer_version="0.5.7"
+    )
+    entry_data = _entry(
+        name="alpha",
+        plugin_type="processor",
+        package_name="data-designer-alpha",
+        data_designer_specifier=">=0.5.7",
+    )
+    entry_data["install"]["requirement"] = "data-designer-alpha<0.2.0"
+    entry = PluginCatalogEntry.model_validate(entry_data)
+    mock_urlopen.return_value = _RemoteResponse(
+        b"""
+        <html><body>
+          <a href="../../data_designer_alpha-0.1.0-py3-none-any.whl">data_designer_alpha-0.1.0-py3-none-any.whl</a>
+          <a href="../../data_designer_alpha-0.2.0-py3-none-any.whl">data_designer_alpha-0.2.0-py3-none-any.whl</a>
+        </body></html>
+        """
+    )
+
+    assert service.get_package_current_version(entry) == "0.1.0"
+
+
 @patch("data_designer.cli.services.plugin_catalog_service.urlopen", side_effect=OSError("offline"))
 def test_get_package_current_version_returns_none_when_index_is_unavailable(
     mock_urlopen: Mock,

@@ -277,7 +277,7 @@ class PluginCatalogController:
 
         print_header("Uninstall Data Designer Plugin Package")
         console.print(f"  Package: [bold]{_escape_markup(entry.package.name)}[/bold]")
-        console.print(f"  Catalog: [bold]{_escape_markup(catalog.alias)}[/bold] ({_escape_markup(catalog.url)})")
+        _print_catalog_detail(catalog)
         console.print(
             f"  Uninstall target: [bold]{_escape_markup(_target_description(plan.uninstall_mode, plan.project_root))}[/bold]"
         )
@@ -764,9 +764,20 @@ def _package_entries_are_installed(
     package_entries: list[PluginCatalogEntry],
     installed_plugins: list[InstalledPluginInfo],
 ) -> bool:
-    installed_entry_points = {(plugin.name, plugin.entry_point_value) for plugin in installed_plugins}
     return bool(package_entries) and all(
-        (entry.entry_point.name, entry.entry_point.value) in installed_entry_points for entry in package_entries
+        any(_installed_plugin_matches_entry(installed_plugin, entry) for installed_plugin in installed_plugins)
+        for entry in package_entries
+    )
+
+
+def _installed_plugin_matches_entry(installed_plugin: InstalledPluginInfo, entry: PluginCatalogEntry) -> bool:
+    if installed_plugin.package_name is None:
+        return False
+    if canonicalize_name(installed_plugin.package_name) != canonicalize_name(entry.package.name):
+        return False
+    return (
+        installed_plugin.name == entry.entry_point.name
+        and installed_plugin.entry_point_value == entry.entry_point.value
     )
 
 

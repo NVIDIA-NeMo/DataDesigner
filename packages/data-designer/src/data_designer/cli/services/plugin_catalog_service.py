@@ -291,16 +291,26 @@ def _resolve_package_current_version(entry: PluginCatalogEntry, *, requirement: 
     if entry.package.version is not None:
         return entry.package.version
 
-    requirement_version = _package_version_from_requirement(requirement, entry.package.name)
+    parsed_requirement = _package_requirement(requirement, entry.package.name)
+    if parsed_requirement is None:
+        return None
+    if parsed_requirement.url is not None:
+        return _package_version_from_distribution_url(parsed_requirement.url, entry.package.name)
+
+    requirement_version = _package_version_from_requirement(parsed_requirement)
     if requirement_version is not None:
         return requirement_version
 
     if entry.install.index_url is None:
         return None
-    return _latest_simple_index_version(entry.install.index_url, entry.package.name)
+    return _latest_simple_index_version(
+        entry.install.index_url,
+        entry.package.name,
+        specifier=parsed_requirement.specifier,
+    )
 
 
-def _package_version_from_requirement(requirement_text: str, package_name: str) -> str | None:
+def _package_requirement(requirement_text: str, package_name: str) -> Requirement | None:
     try:
         requirement = Requirement(requirement_text)
     except InvalidRequirement:
@@ -308,10 +318,10 @@ def _package_version_from_requirement(requirement_text: str, package_name: str) 
 
     if canonicalize_name(requirement.name) != canonicalize_name(package_name):
         return None
+    return requirement
 
-    if requirement.url is not None:
-        return _package_version_from_distribution_url(requirement.url, package_name)
 
+def _package_version_from_requirement(requirement: Requirement) -> str | None:
     parsed_versions = []
     for specifier in requirement.specifier:
         if specifier.operator != "==" or "*" in specifier.version:
@@ -333,7 +343,12 @@ def _package_version_from_distribution_url(url: str, package_name: str) -> str |
     return str(version)
 
 
-def _latest_simple_index_version(index_url: str, package_name: str) -> str | None:
+def _latest_simple_index_version(
+    index_url: str,
+    package_name: str,
+    *,
+    specifier: SpecifierSet,
+) -> str | None:
     project_url = urljoin(f"{index_url.rstrip('/')}/", f"{canonicalize_name(package_name)}/")
     request = Request(
         project_url,
@@ -354,6 +369,7 @@ def _latest_simple_index_version(index_url: str, package_name: str) -> str | Non
         version
         for filename in parser.filenames
         if (version := _package_version_from_distribution_filename(filename, package_name)) is not None
+        and specifier.contains(version, prereleases=True)
     ]
     if not versions:
         return None

@@ -127,8 +127,16 @@ def test_run_list_renders_package_first_catalog_table(
     }
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
     controller.catalog_service.list_installed_plugins.return_value = [
-        InstalledPluginInfo(name="text-column", entry_point_value="data_designer_text_transform.plugin:plugin"),
-        InstalledPluginInfo(name="text-processor", entry_point_value="data_designer_text_transform.plugin:plugin"),
+        InstalledPluginInfo(
+            name="text-column",
+            entry_point_value="data_designer_text_transform.plugin:plugin",
+            package_name="data-designer-text-transform",
+        ),
+        InstalledPluginInfo(
+            name="text-processor",
+            entry_point_value="data_designer_text_transform.plugin:plugin",
+            package_name="data-designer-text-transform",
+        ),
     ]
     controller.catalog_service.get_package_current_version.return_value = "0.2.0"
 
@@ -214,7 +222,40 @@ def test_run_list_leaves_installed_column_empty_when_runtime_entry_points_are_mi
     }
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
     controller.catalog_service.list_installed_plugins.return_value = [
-        InstalledPluginInfo(name="text-column", entry_point_value="data_designer_text_transform.plugin:plugin"),
+        InstalledPluginInfo(
+            name="text-column",
+            entry_point_value="data_designer_text_transform.plugin:plugin",
+            package_name="data-designer-text-transform",
+        ),
+    ]
+
+    controller.run_list(catalog_alias="local", include_incompatible=True)
+
+    printed_tables = [
+        call.args[0] for call in mock_console.print.call_args_list if call.args and isinstance(call.args[0], Table)
+    ]
+    assert list(printed_tables[0].columns[5].cells) == [""]
+
+
+@patch("data_designer.cli.controllers.plugin_catalog_controller.console")
+def test_run_list_leaves_installed_column_empty_when_entry_points_belong_to_another_package(
+    mock_console: MagicMock,
+    controller: PluginCatalogController,
+) -> None:
+    entry = _entry(name="text-column", plugin_type="column-generator")
+    catalog = _catalog()
+    controller.catalog_service.get_catalog.return_value = catalog
+    controller.catalog_service.list_entries.return_value = [entry]
+    controller.catalog_service.group_entries_by_package.return_value = {
+        "data-designer-text-transform": [entry],
+    }
+    controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
+    controller.catalog_service.list_installed_plugins.return_value = [
+        InstalledPluginInfo(
+            name="text-column",
+            entry_point_value="data_designer_text_transform.plugin:plugin",
+            package_name="data-designer-forked-text-transform",
+        ),
     ]
 
     controller.run_list(catalog_alias="local", include_incompatible=True)
@@ -271,8 +312,16 @@ def test_run_list_uses_vertical_layout_in_narrow_terminals(
     }
     controller.catalog_service.evaluate_compatibility.return_value = CompatibilityResult(True, [])
     controller.catalog_service.list_installed_plugins.return_value = [
-        InstalledPluginInfo(name="document-chunker", entry_point_value="data_designer_text_transform.plugin:plugin"),
-        InstalledPluginInfo(name="embedding-dedup", entry_point_value="data_designer_text_transform.plugin:plugin"),
+        InstalledPluginInfo(
+            name="document-chunker",
+            entry_point_value="data_designer_text_transform.plugin:plugin",
+            package_name="data-designer-retrieval-sdg",
+        ),
+        InstalledPluginInfo(
+            name="embedding-dedup",
+            entry_point_value="data_designer_text_transform.plugin:plugin",
+            package_name="data-designer-retrieval-sdg",
+        ),
     ]
     controller.catalog_service.get_package_current_version.return_value = "0.1.0"
 
@@ -1004,6 +1053,12 @@ def test_run_uninstall_dry_run_renders_plan_without_uninstalling(
     mock_console.print.assert_any_call(
         "  Command: [bold]python -m pip uninstall --yes data-designer-text-transform[/bold]"
     )
+    catalog_details = [
+        call_args.args[0]
+        for call_args in mock_console.print.call_args_list
+        if call_args.args and isinstance(call_args.args[0], Text) and call_args.args[0].plain == "  Catalog: local"
+    ]
+    assert catalog_details
     assert all("Runtime plugins" not in str(call_args.args[0]) for call_args in mock_console.print.call_args_list)
     mock_print_success.assert_any_call("Dry run complete; no changes made")
 

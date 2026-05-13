@@ -529,7 +529,7 @@ def test_build_auto_uninstall_plan_uses_pip_with_warning_when_uv_is_too_old(
 
 @patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
 def test_build_auto_uninstall_plan_uses_uv_remove_for_active_project(mock_which: Mock, tmp_path: Path) -> None:
-    _write_project(tmp_path)
+    _write_project(tmp_path, dependencies=["data-designer-template"])
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
     service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
@@ -564,6 +564,32 @@ def test_build_auto_uninstall_plan_uses_uv_remove_for_active_project(mock_which:
     ]
     assert plan.uninstall_mode == "uv-project"
     assert plan.project_root == str(tmp_path)
+    mock_which.assert_called_once_with("uv")
+
+
+@patch("data_designer.cli.services.plugin_install_service.shutil.which", return_value="/usr/bin/uv")
+def test_build_auto_uninstall_plan_skips_uv_remove_when_package_is_not_a_project_dependency(
+    mock_which: Mock,
+    tmp_path: Path,
+) -> None:
+    _write_project(tmp_path, dependencies=["another-package"])
+    entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
+    catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
+    service = PluginInstallService(working_dir=tmp_path, active_virtualenv=True)
+
+    plan = service.build_uninstall_plan(entry, catalog, manager="auto")
+
+    assert plan.command == [
+        "uv",
+        "pip",
+        "uninstall",
+        "--python",
+        sys.executable,
+        "data-designer-template",
+    ]
+    assert plan.commands == [plan.command]
+    assert plan.uninstall_mode == "uv-environment"
+    assert plan.project_root is None
     mock_which.assert_called_once_with("uv")
 
 
@@ -882,7 +908,7 @@ def test_uninstall_runs_every_project_uninstall_command(mock_which: Mock, tmp_pa
         seen.append(command)
         return 0
 
-    _write_project(tmp_path)
+    _write_project(tmp_path, dependencies=["data-designer-template"])
     service = PluginInstallService(runner=runner, working_dir=tmp_path, active_virtualenv=True)
     entry = _entry(package_name="data-designer-template", install={"requirement": "data-designer-template"})
     catalog = PluginCatalogConfig(alias="local", url="/catalog/plugins.json")
@@ -1169,7 +1195,17 @@ def _entry(
     return PluginCatalogEntry.model_validate(payload)
 
 
-def _write_project(path: Path, *, name: str = "synthetic-data-project") -> Path:
+def _write_project(
+    path: Path,
+    *,
+    name: str = "synthetic-data-project",
+    dependencies: list[str] | None = None,
+) -> Path:
     path.mkdir(exist_ok=True)
-    (path / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n', encoding="utf-8")
+    lines = ["[project]", f'name = "{name}"']
+    if dependencies is not None:
+        lines.append("dependencies = [")
+        lines.extend(f'    "{dependency}",' for dependency in dependencies)
+        lines.append("]")
+    (path / "pyproject.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path

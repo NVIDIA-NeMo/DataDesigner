@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.metadata
 import os
@@ -131,7 +132,7 @@ class PluginInstallService:
             working_dir=self._working_dir or Path.cwd(),
             active_virtualenv=self._active_virtualenv,
         )
-        commands = _uninstall_commands(target, entry.package.name)
+        commands, uninstall_mode, project_root = _uninstall_commands(target, entry.package.name)
         return UninstallPlan(
             package_name=entry.package.name,
             command=commands[0],
@@ -139,8 +140,8 @@ class PluginInstallService:
             catalog_alias=catalog.alias,
             source_warning=target.warning,
             commands=commands,
-            uninstall_mode=target.mode,
-            project_root=str(target.project_root) if target.project_root is not None else None,
+            uninstall_mode=uninstall_mode,
+            project_root=str(project_root) if project_root is not None else None,
         )
 
     def install(self, plan: InstallPlan) -> None:
@@ -319,15 +320,20 @@ def _base_command(target: _InstallTarget) -> list[str]:
     return [sys.executable, "-m", "pip", "install"]
 
 
-def _uninstall_commands(target: _InstallTarget, package_name: str) -> list[list[str]]:
+def _uninstall_commands(target: _InstallTarget, package_name: str) -> tuple[list[list[str]], str, Path | None]:
     if target.mode == "uv-project":
         if target.project_root is None:
             raise ValueError("uv project uninstall target requires a project root")
-        return [
-            ["uv", "remove", "--project", str(target.project_root), "--no-sync", package_name],
-            ["uv", "pip", "uninstall", "--python", sys.executable, package_name],
-        ]
-    return [_base_uninstall_command(target) + [package_name]]
+        commands = []
+        uninstall_mode = "uv-environment"
+        project_root = None
+        if _project_has_dependency(target.project_root, package_name):
+            commands.append(["uv", "remove", "--project", str(target.project_root), "--no-sync", package_name])
+            uninstall_mode = "uv-project"
+            project_root = target.project_root
+        commands.append(["uv", "pip", "uninstall", "--python", sys.executable, package_name])
+        return commands, uninstall_mode, project_root
+    return [_base_uninstall_command(target) + [package_name]], target.mode, target.project_root
 
 
 def _base_uninstall_command(target: _InstallTarget) -> list[str]:
@@ -444,6 +450,29 @@ def _is_data_designer_source_project(project_root: Path) -> bool:
     return source_parts[:3] == ("packages", "data-designer", "src") or source_parts[:2] == ("src", "data_designer")
 
 
+def _project_has_dependency(project_root: Path, package_name: str) -> bool:
+    pyproject_data = _load_pyproject_data(project_root / "pyproject.toml")
+    project = pyproject_data.get("project", {})
+    if not isinstance(project, dict):
+        return False
+
+    dependencies = project.get("dependencies", [])
+    if not isinstance(dependencies, list):
+        return False
+
+    canonical_package_name = canonicalize_name(package_name)
+    for dependency in dependencies:
+        if not isinstance(dependency, str):
+            continue
+        try:
+            requirement = Requirement(dependency)
+        except InvalidRequirement:
+            continue
+        if canonicalize_name(requirement.name) == canonical_package_name:
+            return True
+    return False
+
+
 def _load_pyproject_data(pyproject_path: Path) -> dict[str, Any]:
     try:
         text = pyproject_path.read_text(encoding="utf-8")
@@ -461,14 +490,22 @@ def _load_pyproject_data(pyproject_path: Path) -> dict[str, Any]:
 
 
 def _load_pyproject_markers_without_tomllib(text: str) -> dict[str, Any]:
-    # Python 3.10 only needs a deliberately lossy fallback: detect simple
-    # [project] name markers from this repo's pyprojects, not parse TOML.
+    # Python 3.10 only needs a deliberately lossy fallback for install targeting,
+    # not a full TOML parser.
     project: dict[str, Any] = {}
     section = ""
+    dependencies: list[str] = []
+    collecting_dependencies = False
 
     for raw_line in text.splitlines():
         line = raw_line.split("#", maxsplit=1)[0].strip()
         if not line:
+            continue
+        if collecting_dependencies:
+            dependency, complete = _parse_simple_toml_string_list_item(line)
+            if dependency is not None:
+                dependencies.append(dependency)
+            collecting_dependencies = not complete
             continue
         if line.startswith("[") and line.endswith("]"):
             section = line.strip("[]").strip()
@@ -477,13 +514,52 @@ def _load_pyproject_markers_without_tomllib(text: str) -> dict[str, Any]:
             continue
 
         key, raw_value = (part.strip() for part in line.split("=", maxsplit=1))
-        if section == "project" and key == "name":
+        if section != "project":
+            continue
+        if key == "name":
             project["name"] = _parse_simple_toml_value(raw_value)
+        elif key == "dependencies":
+            parsed_dependencies, complete = _parse_simple_toml_string_list(raw_value)
+            dependencies.extend(parsed_dependencies)
+            collecting_dependencies = not complete
 
     data: dict[str, Any] = {}
+    if dependencies:
+        project["dependencies"] = dependencies
     if project:
         data["project"] = project
     return data
+
+
+def _parse_simple_toml_string_list(raw_value: str) -> tuple[list[str], bool]:
+    value = raw_value.strip()
+    if not value.startswith("["):
+        return [], True
+    if value.endswith("]"):
+        try:
+            parsed_value = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            parsed_value = None
+        if isinstance(parsed_value, list):
+            return [item for item in parsed_value if isinstance(item, str)], True
+
+    value = value.removeprefix("[").strip()
+    if not value:
+        return [], False
+
+    dependency, complete = _parse_simple_toml_string_list_item(value)
+    return ([dependency] if dependency is not None else []), complete
+
+
+def _parse_simple_toml_string_list_item(raw_value: str) -> tuple[str | None, bool]:
+    value = raw_value.strip()
+    complete = value.endswith("]")
+    if complete:
+        value = value.removesuffix("]").strip()
+    value = value.removesuffix(",").strip()
+    if not value:
+        return None, complete
+    return _parse_simple_toml_value(value), complete
 
 
 def _parse_simple_toml_value(raw_value: str) -> str | None:
