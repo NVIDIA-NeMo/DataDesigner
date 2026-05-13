@@ -15,6 +15,10 @@ from pathlib import Path
 
 DEVNOTES_SECTION_RE = re.compile(r"^  - section:\s+Dev Notes\s*$")
 NAV_PATH_RE = re.compile(r"^(\s*path:\s+)\./([^#\s]+)(.*)$")
+REDIRECT_VERSION_RE = re.compile(
+    r'^\s*destination:\s+["\']/nemo/datadesigner/((?:v[0-9][^/"\']*)|older-versions)(?:/|["\'])'
+)
+VERSION_SLUG_RE = re.compile(r"^\s*slug:\s+['\"]?([^'\"\s]+)")
 SKIP_NAMES = {
     ".git",
     ".mypy_cache",
@@ -70,6 +74,35 @@ def restore_versions_block(path: Path, block: list[str] | None) -> None:
     start, end = find_top_level_block(lines, "versions")
     lines[start:end] = block
     path.write_text("".join(lines))
+
+
+def required_redirect_slugs(path: Path) -> set[str]:
+    required: set[str] = set()
+    for line in path.read_text().splitlines():
+        match = REDIRECT_VERSION_RE.match(line)
+        if match:
+            required.add(match.group(1))
+    return required
+
+
+def version_slugs(path: Path) -> set[str]:
+    slugs: set[str] = set()
+    for line in versions_block(path) or []:
+        match = VERSION_SLUG_RE.match(line)
+        if match:
+            slugs.add(match.group(1))
+    return slugs
+
+
+def validate_redirect_targets(published_root: Path) -> None:
+    docs_yml = published_root / "fern" / "docs.yml"
+    missing = sorted(required_redirect_slugs(docs_yml) - version_slugs(docs_yml))
+    if missing:
+        formatted = ", ".join(missing)
+        raise PublishedBranchError(
+            f"Published Fern docs.yml is missing version entries required by redirects: {formatted}. "
+            "Initialize docs-website with the historical Fern archive before publishing."
+        )
 
 
 def ignore_source(_dir: str, names: list[str]) -> set[str]:
@@ -132,6 +165,7 @@ def sync_source(args: argparse.Namespace) -> int:
             source_root / "fern" / "versions", published_root / "fern" / "versions", preserved_versions
         )
         restore_versions_block(published_root / "fern" / "docs.yml", preserved_versions_block)
+        validate_redirect_targets(published_root)
     return 0
 
 

@@ -85,6 +85,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           path: workflow
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Checkout source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -102,13 +103,13 @@ jobs:
       - name: Prepare published branch checkout
         working-directory: website
         run: |
-          if git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
-            git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
-            git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
-          else
-            git checkout --orphan "$FERN_PUBLISHED_BRANCH"
-            git rm -rf . || true
+          if ! git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
+            echo "::error::$FERN_PUBLISHED_BRANCH does not exist. Initialize it with the historical Fern archive before publishing."
+            exit 1
           fi
+
+          git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
+          git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
 
       - name: Prepare Fern release snapshot
         env:

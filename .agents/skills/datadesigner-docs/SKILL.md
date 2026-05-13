@@ -16,27 +16,23 @@ Current URL: **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`** (see `i
 
 ## Scope Rule
 
-**ALL doc edits happen under `fern/`.** The legacy `docs/` directory is the original MkDocs source — `docs/notebook_source/*.py` (jupytext) and `docs/devnotes/*.md` are still canonical for notebooks and dev notes (they feed Fern), but **do not add new top-level prose pages under `docs/`**. Concept pages, recipes, plugins, code reference — all of these live under `fern/versions/v0.5.8/pages/`.
+**ALL doc edits happen under `fern/`.** The legacy `docs/` directory is the original MkDocs source. `docs/notebook_source/*.py` remains canonical for notebook code, but **do not add new top-level prose pages under `docs/`**. Concept pages, recipes, plugins, code reference, and Dev Notes prose live under `fern/versions/latest/pages/`.
 
-## Versioning Model: Floating Latest
+## Versioning Model
 
-DataDesigner currently has Fern-native version entries backed by one shared migrated MDX tree. `latest` is a real rolling nav file; `v0.5.9` and `v0.5.8` are release nav files. All currently reuse `v0.5.8/pages/`.
+`main` contains only the latest Fern authoring docs. Historical release snapshots live on the CI-managed `docs-website` branch and must not be edited on `main`.
 
 ```
 fern/versions/
-├── latest.yml          ← rolling nav file (reuses ./v0.5.8/pages/...)
-├── v0.5.9.yml          ← release nav file (reuses ./v0.5.8/pages/...)
-├── v0.5.8.yml          ← release nav file (reuses ./v0.5.8/pages/...)
-└── v0.5.8/pages/       ← shared migrated MDX tree
+├── latest.yml          ← authoring nav file
+└── latest/pages/       ← authoring MDX tree
 ```
 
-`docs.yml` registers `slug: latest`, `slug: v0.5.9`, and `slug: v0.5.8`. When you edit shared docs, edit `v0.5.8/pages/`. Add version-specific page copies only when content diverges.
+`docs.yml` on `main` registers only `slug: latest`. When you edit docs, edit `latest/pages/` and `latest.yml`.
 
-Dev Notes are rolling release: `latest.yml` can include posts from `main` that are not in the release nav yet. Frozen release navs (`v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point.
+Dev Notes are patched into the published latest docs by CI. Add new posts to `latest/pages/devnotes/posts/` and `latest.yml` on `main`.
 
-Released versions older than `v0.5.8` remain on the legacy MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. `docs.yml` redirects `/nemo/datadesigner/v<version>/...` to those archives for versions without a real Fern tree.
-
-For future Fern-native releases, add a version YAML that reuses shared pages by default. Copy only pages that need version-specific content.
+For future Fern-native releases, do not copy page trees by hand on `main`. The release workflow snapshots `latest` into a frozen version on `docs-website`.
 
 ## Layout at a Glance
 
@@ -62,10 +58,8 @@ fern/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
 ├── code-reference/            ← gitignored; populated by `fern docs md generate`
 └── versions/
-    ├── latest.yml             ← rolling navigation tree
-    ├── v0.5.9.yml             ← release navigation tree, reuses v0.5.8/pages/
-    ├── v0.5.8.yml             ← navigation tree
-    └── v0.5.8/pages/          ← shared MDX content
+    ├── latest.yml             ← authoring navigation tree
+    └── latest/pages/          ← authoring MDX content
 ```
 
 ## URL Routing Rules
@@ -75,10 +69,10 @@ Fern's URL is computed from the **section/page titles in the active version YAML
 ```
 File system                                           Published URL
 ────────────────────────────────────────────────────  ────────────────────────────────────────
-v0.5.8/pages/concepts/columns.mdx                     /concepts/columns
-v0.5.8/pages/concepts/tool_use_and_mcp.mdx            /concepts/tool-use-and-mcp/overview
-v0.5.8/pages/recipes/code_generation/text_to_sql.mdx  /recipes/code-generation/text-to-sql
-v0.5.8/pages/devnotes/posts/text-to-sql.mdx           /dev-notes/text-to-sql-for-nemotron-super
+latest/pages/concepts/columns.mdx                     /concepts/columns
+latest/pages/concepts/tool_use_and_mcp.mdx            /concepts/tool-use-and-mcp/overview
+latest/pages/recipes/code_generation/text_to_sql.mdx  /recipes/code-generation/text-to-sql
+latest/pages/devnotes/posts/text-to-sql.mdx           /dev-notes/text-to-sql-for-nemotron-super
 ```
 
 Rules:
@@ -92,7 +86,7 @@ When in doubt, recompute by walking the page's position in the active version YA
 
 ### Add a Page
 
-1. Pick the file location: `fern/versions/v0.5.8/pages/<subdir>/<filename>.mdx`. Underscores in filenames are fine — they don't affect the URL.
+1. Pick the file location: `fern/versions/latest/pages/<subdir>/<filename>.mdx`. Underscores in filenames are fine — they don't affect the URL.
 2. Write minimal frontmatter:
 
    ```mdx
@@ -106,27 +100,27 @@ When in doubt, recompute by walking the page's position in the active version YA
    <content>
    ```
 
-3. Add an entry under the appropriate `section:` in `fern/versions/v0.5.8.yml`:
+3. Add an entry under the appropriate `section:` in `fern/versions/latest.yml`:
 
    ```yaml
    - page: <Page Title>
-     path: ./v0.5.8/pages/<subdir>/<filename>.mdx
+     path: ./latest/pages/<subdir>/<filename>.mdx
    ```
 
 4. The URL becomes `/<section-slug>/<page-title-slug>`. Update any cross-references in other MDX accordingly.
-5. If the page is a rolling Dev Note that should appear before the next release, add it to `latest.yml` only.
+5. If the page is a Dev Note, add it to the `Dev Notes` section in `latest.yml`.
 
 ### Update a Page
 
 Editing prose is straightforward — change the MDX, save. No mirror step (one canonical tree).
 
-For title changes, also update the `page:` value in `v0.5.8.yml` *and* fix any incoming links pointing at the old slugified title.
+For title changes, also update the `page:` value in `latest.yml` *and* fix any incoming links pointing at the old slugified title.
 
 ### Move / Rename a Page (with Redirect)
 
 1. `git mv` the file.
-2. Update `path:` in `v0.5.8.yml`.
-3. Update incoming links: `grep -rn "<old-slug>" fern/versions/v0.5.8/pages/`.
+2. Update `path:` in `latest.yml`.
+3. Update incoming links: `grep -rn "<old-slug>" fern/versions/latest/pages/`.
 4. Add a redirect to `fern/docs.yml`:
 
    ```yaml
@@ -141,7 +135,7 @@ For title changes, also update the `page:` value in `v0.5.8.yml` *and* fix any i
 
 1. `grep -rn "<filename-or-slug>"` to find inbound links.
 2. `git rm` the MDX file.
-3. Remove the `- page:` entry from `v0.5.8.yml`.
+3. Remove the `- page:` entry from `latest.yml`.
 4. Fix or remove all inbound links.
 5. Add a redirect in `docs.yml` if the URL was public.
 
@@ -149,7 +143,7 @@ For title changes, also update the `page:` value in `v0.5.8.yml` *and* fix any i
 
 Request: *"Add a how-to about deduplicating generated rows."*
 
-1. Create `fern/versions/v0.5.8/pages/concepts/deduplication.mdx`:
+1. Create `fern/versions/latest/pages/concepts/deduplication.mdx`:
 
    ```mdx
    ---
@@ -162,22 +156,22 @@ Request: *"Add a how-to about deduplicating generated rows."*
    <content>
    ```
 
-2. Add to `fern/versions/v0.5.8.yml` under the `Concepts` section:
+2. Add to `fern/versions/latest.yml` under the `Concepts` section:
 
    ```yaml
    - page: Deduplication
-     path: ./v0.5.8/pages/concepts/deduplication.mdx
+     path: ./latest/pages/concepts/deduplication.mdx
    ```
 
-3. Published URL: `/concepts/deduplication` (works at both `/latest/concepts/deduplication` and `/v0.5.8/concepts/deduplication`).
+3. Published URL: `/concepts/deduplication` on latest.
 4. `cd fern && fern check && fern docs dev` to verify.
 
 ### Worked Example: Rename with Redirect
 
 Request: *"Rename `/concepts/seed-datasets` to `/concepts/input-datasets`."*
 
-1. Update `page: Seed Datasets` → `page: Input Datasets` in `v0.5.8.yml`.
-2. `git mv fern/versions/v0.5.8/pages/concepts/seed-datasets.mdx fern/versions/v0.5.8/pages/concepts/input-datasets.mdx` and update `path:`.
+1. Update `page: Seed Datasets` → `page: Input Datasets` in `latest.yml`.
+2. `git mv fern/versions/latest/pages/concepts/seed-datasets.mdx fern/versions/latest/pages/concepts/input-datasets.mdx` and update `path:`.
 3. Add to `docs.yml`:
 
    ```yaml
@@ -188,7 +182,7 @@ Request: *"Rename `/concepts/seed-datasets` to `/concepts/input-datasets`."*
        destination: "/nemo/datadesigner/latest/concepts/input-datasets"
    ```
 
-4. `grep -rn "/concepts/seed-datasets" fern/versions/v0.5.8/pages/` and rewrite hits.
+4. `grep -rn "/concepts/seed-datasets" fern/versions/latest/pages/` and rewrite hits.
 
 ---
 
@@ -263,9 +257,9 @@ Do **not** add `position:` (we use explicit nav order in the version YAML), `dat
 
 ## Dev Notes (Blog Posts)
 
-Dev notes live under `fern/versions/v0.5.8/pages/devnotes/posts/`. They use the dev-notes kit components: **`<Authors>`, `<MetricsTable>`, `<TrajectoryViewer>`, `<ExpandableCode>`, `<CustomCard>`** (sources in `fern/components/`, CSS in `fern/styles/`).
+Dev notes live under `fern/versions/latest/pages/devnotes/posts/`. They use the dev-notes kit components: **`<Authors>`, `<MetricsTable>`, `<TrajectoryViewer>`, `<ExpandableCode>`, `<CustomCard>`** (sources in `fern/components/`, CSS in `fern/styles/`).
 
-For rolling posts on `main`, add the page and card to `latest.yml` first. Add the same nav entry to a release YAML only when that post is part of that release.
+Add the page and card to `latest.yml`. Release snapshots are handled by CI on `docs-website`.
 
 ### Authors Byline
 
@@ -417,7 +411,7 @@ make generate-fern-api-reference
 
 This does not require Fern auth. Re-run when the upstream Python source changes. If you need to compare with Fern's native generator, use `make generate-fern-api-reference-native` with Fern auth.
 
-The generated tree is wired into the nav via `versions/v0.5.8.yml`'s "Code Reference > Python API" folder entry (`folder: ../code-reference/data-designer`). The nav also includes prose pages under "Topic Overviews" — those are conceptual landings that link to the auto-generated reference.
+The generated tree is wired into the nav via `versions/latest.yml`'s "Code Reference > Python API" folder entry (`folder: ../code-reference/data-designer`). The nav also includes prose pages under "Topic Overviews" — those are conceptual landings that link to the auto-generated reference.
 
 To add another package as a library entry (e.g. engine or interface namespace):
 
@@ -485,14 +479,14 @@ When the team adds a Fern preview workflow (modeled after Gym's `fern-docs-previ
 
 ## Cutting a New Version Train
 
-Do not copy page trees by hand. Add a new version YAML that reuses shared pages by default; copy only pages that need version-specific content. If that becomes tedious, add a build-time materialization script before `fern generate --docs`.
+Do not copy page trees by hand on `main`. The release workflow copies `latest/pages/` to a frozen `vX.Y.Z/pages/` tree on `docs-website`, updates the published versions list, checks the generated Fern docs, and publishes from `docs-website`.
 
 ## Debugging
 
 | Symptom | Fix |
 |---|---|
 | `fern check` YAML error | 2-space indent; `- page:` inside `contents:`; `path:` is relative to the version YAML |
-| Page 404 in preview | Section/page title mismatch — recompute slug from `v0.5.8.yml`, not from filename |
+| Page 404 in preview | Section/page title mismatch — recompute slug from `latest.yml`, not from filename |
 | `Could not parse expression with acorn` | Bare `{...}` JSON or pymdown attr_list; see MDX Gotchas |
 | `Could not parse import/exports with acorn` | Missing blank line between top-level `import` statement and `# H1` body |
 | `Unexpected character 'X' before name` | Likely `--8<--` snippet include or bare `<digit`; see MDX Gotchas |
@@ -508,4 +502,4 @@ Do not copy page trees by hand. Add a new version YAML that reuses shared pages 
 
 - Editing Python source under `packages/` — that's a code change, not a docs change.
 - Adding a notebook tutorial's *code*: edit `docs/notebook_source/<name>.py`, not the converted `.ipynb` or the wrapper MDX.
-- Editing dev note *prose*: edit the migrated MDX under `fern/versions/v0.5.8/pages/devnotes/posts/<name>.mdx`. (The original `docs/devnotes/posts/<name>.md` is no longer the source of truth — Fern is.)
+- Editing dev note *prose*: edit the migrated MDX under `fern/versions/latest/pages/devnotes/posts/<name>.mdx`. (The original `docs/devnotes/posts/<name>.md` is no longer the source of truth — Fern is.)

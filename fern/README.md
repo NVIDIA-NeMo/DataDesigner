@@ -69,6 +69,8 @@ These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows ex
 
 Fern release snapshots live on `docs-website`, not on `main`. This mirrors the MkDocs `gh-pages` model without mixing Fern source state into the MkDocs output branch. The branch stores a source snapshot, not only `fern/`, because `make check-fern-docs` needs the Python packages and workspace metadata. Pushes to `docs-website` use `GITHUB_TOKEN`, so publishing happens inline in the same workflow instead of relying on a second workflow trigger.
 
+The `docs-website` branch must already contain the historical Fern archive (`v0.6.0`, `v0.5.9`, `v0.5.8`, and `older`) before release publishing runs. The workflow fails if those redirect targets are missing.
+
 Manual dispatch with `release_tag` creates or refreshes that release snapshot. For the already-published `v0.6.0` release, run **Build Fern docs** with `release_tag=v0.6.0` and `source_ref=main` after this fix merges. Future release events default `source_ref` to the release tag.
 
 ## Versioning

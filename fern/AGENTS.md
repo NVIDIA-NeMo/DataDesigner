@@ -23,6 +23,8 @@ This folder contains the Fern docs site for NeMo Data Designer. Use `fern/README
 
 Published release snapshots live on the CI-managed `docs-website` branch. Do not manually edit `docs-website` unless the user explicitly asks for release archive repair.
 
+The `docs-website` branch must already contain the historical Fern archive (`v0.6.0`, `v0.5.9`, `v0.5.8`, and `older`). The release workflow fails if those redirect targets are missing.
+
 Dev Notes publishing patches only Dev Notes from `main` into the current latest docs on `docs-website`, mirroring the MkDocs workflow.
 
 ## Release Prep
