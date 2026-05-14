@@ -36,12 +36,13 @@ Reference diagrams for the async scheduling epic tracked by issue 645. These dia
 plantuml plans/645/async-scheduling-epic.puml
 ```
 
-The expected design spine is data provenance plus scheduler-owned control:
+The expected runtime control owner is `AsyncTaskScheduler`:
 
 ```text
 SchedulingMetadata -> TaskSchedulingResolver -> CompletionTracker
--> AsyncTaskScheduler coordinates FairTaskQueue + TaskAdmissionController
--> ModelRequestExecutor -> RequestAdmissionController -> provider/model endpoint
+AsyncTaskScheduler -> FairTaskQueue.select_next(...)
+AsyncTaskScheduler -> TaskAdmissionController.try_acquire(...)
+AsyncTaskScheduler -> ModelRequestExecutor -> RequestAdmissionController -> provider/model endpoint
 ```
 
 Task admission and request admission each have explicit controller, queue, policy, and lease/state boundaries where applicable. Telemetry observes scheduler admission and request admission separately, then issue 648 correlates the two timelines through the runtime correlation provider.

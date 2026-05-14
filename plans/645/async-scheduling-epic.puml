@@ -12,7 +12,7 @@ skinparam ranksep 45
 legend right
   Epic issue 645 target shape.
   Issue tags show primary ownership.
-  Solid arrows are runtime/data flow.
+  Solid arrows are runtime calls or data flow.
   Dashed arrows are observability or policy inputs.
 endlegend
 
@@ -33,8 +33,9 @@ component "Benchmark and Future Design\nbenchmark harness\nbounded-borrow policy
 
 Author --> MetadataStage
 MetadataStage -right-> TaskQueueStage : resolved task DTOs
-TaskQueueStage -right-> TaskAdmissionStage : selected ready work
-TaskAdmissionStage -right-> SchedulerStage : task lease
+SchedulerStage -left-> TaskQueueStage : select_next(...)
+SchedulerStage -down-> TaskAdmissionStage : try_acquire(...)
+TaskAdmissionStage -up-> SchedulerStage : TaskAdmissionLease
 SchedulerStage -right-> ModelBoundaryStage : execute task code
 ModelBoundaryStage -right-> RequestAdmissionStage : model request item
 RequestAdmissionStage -right-> ModelBoundaryStage : request lease
