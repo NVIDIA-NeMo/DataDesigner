@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
@@ -641,7 +642,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         config_builder: DataDesignerConfigBuilder,
         resource_provider: ResourceProvider,
         *,
-        column_configs: list | None = None,
+        column_configs: list[ColumnConfigT] | None = None,
     ) -> DataDesignerDatasetProfiler:
         return DataDesignerDatasetProfiler(
             config=DatasetProfilerConfig(

@@ -445,14 +445,14 @@ def _select_output_result(
 
 
 def _count_parquet_records(path: Path) -> int:
-    parquet_files = sorted(path.glob("*.parquet")) if path.is_dir() else [path]
+    parquet_files = _parquet_files(path)
     if not parquet_files:
         raise DataDesignerWorkflowError(f"No parquet files found at {str(path)!r}.")
     return sum(lazy.pq.read_metadata(file_path).num_rows for file_path in parquet_files)
 
 
 def _load_parquet_dataset(path: Path) -> pd.DataFrame:
-    parquet_files = sorted(path.glob("*.parquet")) if path.is_dir() else [path]
+    parquet_files = _parquet_files(path)
     if not parquet_files:
         raise DataDesignerWorkflowError(f"No parquet files found at {str(path)!r}.")
     return lazy.pd.concat([lazy.pd.read_parquet(file_path) for file_path in parquet_files], ignore_index=True)
@@ -464,7 +464,7 @@ def _export_parquet_dataset(source_path: Path, output_path: Path, *, format: Exp
         raise InvalidFileFormatError(
             f"Unsupported export format: {resolved_format!r}. Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
         )
-    parquet_files = _export_parquet_files(source_path)
+    parquet_files = _parquet_files(source_path)
     if not parquet_files:
         raise ArtifactStorageError("No parquet files found to export.")
     if resolved_format == "jsonl":
@@ -476,10 +476,10 @@ def _export_parquet_dataset(source_path: Path, output_path: Path, *, format: Exp
     return output_path
 
 
-def _export_parquet_files(source_path: Path) -> list[Path]:
-    if not source_path.is_dir():
-        return [source_path]
-    return sorted(source_path.glob("batch_*.parquet")) or sorted(source_path.glob("*.parquet"))
+def _parquet_files(path: Path) -> list[Path]:
+    if not path.is_dir():
+        return [path]
+    return sorted(path.glob("*.parquet"))
 
 
 def _write_workflow_metadata(workflow_path: Path, metadata: dict[str, Any]) -> None:
@@ -513,6 +513,8 @@ def _validate_stage_output_processor(
 def _validate_dir_name(name: str, label: str) -> None:
     if not name:
         raise DataDesignerWorkflowError(f"{label} must be a non-empty string.")
+    if name in {".", ".."}:
+        raise DataDesignerWorkflowError(f"{label} {name!r} is not allowed.")
     invalid_chars = {"<", ">", ":", '"', "/", "\\", "|", "?", "*"}
     if any(char in name for char in invalid_chars):
         raise DataDesignerWorkflowError(f"{label} {name!r} contains invalid path characters.")

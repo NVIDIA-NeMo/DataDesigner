@@ -280,6 +280,28 @@ def test_composite_workflow_empty_callback_can_skip_downstream_stages(
         results.load_dataset()
 
 
+def test_composite_workflow_empty_callback_fails_by_default(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+
+    def empty_output(stage_path: Path) -> Path:
+        output_path = stage_path / "callback-outputs" / "empty"
+        output_path.mkdir(parents=True)
+        lazy.pd.DataFrame({"category": []}).to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = data_designer.compose_workflow(name="empty-default")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2, on_success=empty_output)
+
+    with pytest.raises(DataDesignerWorkflowError, match="produced an empty output"):
+        workflow.run()
+
+
 def test_composite_workflow_empty_workflow_fails_before_artifacts(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -292,7 +314,7 @@ def test_composite_workflow_empty_workflow_fails_before_artifacts(
     assert not (stub_artifact_path / "empty-workflow").exists()
 
 
-@pytest.mark.parametrize("name", ["bad/name", "bad*name", ""])
+@pytest.mark.parametrize("name", ["bad/name", "bad*name", "", ".", ".."])
 def test_composite_workflow_rejects_invalid_workflow_names(
     name: str,
     stub_model_providers: list[ModelProvider],
@@ -301,7 +323,7 @@ def test_composite_workflow_rejects_invalid_workflow_names(
         DataDesigner(model_providers=stub_model_providers).compose_workflow(name=name)
 
 
-@pytest.mark.parametrize("name", ["bad/name", "bad*name", ""])
+@pytest.mark.parametrize("name", ["bad/name", "bad*name", "", ".", ".."])
 def test_composite_workflow_rejects_invalid_stage_names(
     name: str,
     stub_artifact_path: Path,
@@ -704,6 +726,34 @@ def test_composite_workflow_export_uses_selected_final_output(
         {"compact_name": "Ada"},
         {"compact_name": "Linus"},
     ]
+
+
+def test_composite_workflow_export_matches_selected_output_files(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage.add_processor(SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"}))
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="mixed-export")
+    workflow.add_stage("compact", stage, num_records=1, output="processor:compact")
+    results = workflow.run()
+
+    lazy.pd.DataFrame({"compact_name": ["Linus"]}).to_parquet(
+        results.get_stage_output_path("compact") / "extra.parquet",
+        index=False,
+    )
+
+    output = results.export(tmp_path / "mixed.jsonl")
+
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert sorted(rows, key=lambda row: row["compact_name"]) == [
+        {"compact_name": "Ada"},
+        {"compact_name": "Linus"},
+    ]
+    assert results.count_records() == 2
 
 
 def test_composite_workflow_push_to_hub_rejects_selected_processor_output(
