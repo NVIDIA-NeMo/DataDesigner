@@ -191,7 +191,7 @@ jobs:
             /^---$/ { section++; next }
             section == 1 && $1 == "max_turns" { print $2; exit }
             section == 2 { exit }
-          ' "${RECIPE_DIR}/recipe.md")
+          ' "${RECIPE_DIR}/recipe.md" | grep -oE '[0-9]+' | head -n1)
           MAX_TURNS=${MAX_TURNS:-50}
           echo "Using max turns: ${MAX_TURNS}"
 
@@ -260,6 +260,8 @@ jobs:
             | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
             | sed "s|{{memory_path}}|.agentic-ci-state|g")
 
+          # Keep fix-phase turns fixed at 50; the audit budget is the
+          # suite-tuned scan limit, while fixes are bounded by scope gates.
           stdbuf -oL -eL claude \
             --model "$AGENTIC_CI_MODEL" \
             -p "$PROMPT" \

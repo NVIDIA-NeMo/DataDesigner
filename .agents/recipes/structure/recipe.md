@@ -4,7 +4,7 @@ description: Audit structural integrity - import boundaries, lazy import complia
 trigger: schedule
 tool: claude-code
 timeout_minutes: 20
-max_turns: 30
+max_turns: 50
 permissions:
   contents: write
 ---
@@ -226,8 +226,9 @@ Follow the standard fix procedure in `_fix-policy.md`. Suite-specific bits:
 `missing-future` is batchable: when the primary candidate is
 `missing-future`, include other `missing-future` backlog entries with the
 same `test_target` if each file still lacks the import and the combined
-diff remains within the localized-fix bar. Run the shared test target once.
-Use one hidden finding marker and one `attempted_fixes` entry per file.
+diff remains within the localized-fix bar. Batch at most 3 files. Run the
+shared test target once. Use one hidden finding marker and one
+`attempted_fixes` entry per file.
 
 **Not eligible** — stays report-only:
 

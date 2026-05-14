@@ -95,6 +95,9 @@ entries may point to the same `pr_number` and `branch`.
 - Cap at 200 entries (drop oldest by `first_seen`).
 - Populated **before** the `known_issues` filter so fixable findings persist
   even when their report row is suppressed for being unchanged.
+- Batchable categories must include enough information in `data` to group
+  siblings safely. For package-scoped Python fixes, derive `test_target` from
+  the package containing the source file.
 
 ### `attempted_fixes` rules
 
@@ -200,7 +203,8 @@ declare only the parts that vary (eligible categories, branch type,
    1. If the suite declares the category batchable, collect sibling
       `fix_backlog` entries for the same suite/category that share the same
       test target and branch type. Do not discover new findings; use only
-      existing backlog entries.
+      existing backlog entries. Batch at most 3 entries to stay within the
+      localized-fix file cap.
    2. Re-verify every finding still applies (re-grep / re-read). If a
       sibling no longer applies, remove it from `fix_backlog`; if the
       primary no longer applies, continue to the next primary candidate.
