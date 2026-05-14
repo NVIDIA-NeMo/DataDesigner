@@ -1,0 +1,822 @@
+---
+title: "Visual QA"
+description: ""
+---
+<Info title="Download Recipe">
+  [Download the complete recipe script](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/vlm_long_doc/05-visual-qa-sdg.py)
+</Info>
+
+```python
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer>=0.5.6",
+# ]
+# ///
+"""Long-Document Understanding Visual Question-Answering Recipe
+
+Generate question-answer pairs grounded in document page images using a
+vision-language model (VLM). For each seed record the pipeline:
+
+  1. Samples a question type (multiple choice, yes/no, free-form, not answerable)
+  2. Generates a question conditioned on the page image and its classification
+  3. Generates an answer (with chain-of-thought reasoning captured separately)
+  4. Evaluates question relevance against the visible content
+  5. Evaluates answer correctness against the visible content
+
+Prerequisites:
+    - A seed parquet file containing:
+        * `png_images_base64`    – JSON array of base64-encoded PNGs (one
+          element per page; single-page seeds have a one-element array).
+        * `page_classification` – JSON describing the visual element type and
+          reasoning complexity score (produced by 04-page-classification-sdg.py)
+    - A vLLM-compatible deployment of the VLM (default: Qwen/Qwen3-VL-235B-A22B-Thinking-FP8).
+      Recommended vLLM launch flags:
+        --tensor-parallel-size 4
+        --max-model-len 50000
+        --gpu-memory-utilization 0.90
+        --reasoning-parser deepseek_r1
+        --limit-mm-per-prompt '{"video": 0}'
+        --trust-remote-code
+
+      Example launch script for 4× H100:
+        docker run --gpus all \
+            -p 8000:8000 \
+            vllm/vllm-openai:latest \
+            --model Qwen/Qwen3-VL-235B-A22B-Thinking-FP8 \
+            --tensor-parallel-size 4 \
+            --max-model-len 50000 \
+            --gpu-memory-utilization 0.90 \
+            --reasoning-parser deepseek_r1 \
+            --limit-mm-per-prompt '{"video": 0}' \
+            --trust-remote-code
+
+Run:
+    # Basic usage (seed-path should point to the output of 04-page-classification-sdg.py)
+    uv run 05-visual-qa-sdg.py --vllm-endpoint http://localhost:8000/v1 --seed-path artifacts/page_classification/parquet-files/*.parquet
+
+    # Custom model and record count
+    uv run 05-visual-qa-sdg.py --vllm-endpoint http://localhost:8000/v1 --seed-path artifacts/page_classification/parquet-files/*.parquet --num-records 100
+
+    # For help message and available options
+    uv run 05-visual-qa-sdg.py --help
+"""
+
+from pathlib import Path
+
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
+
+DEFAULT_VLM_MODEL = "Qwen/Qwen3-VL-235B-A22B-Thinking-FP8"
+VLLM_PROVIDER_NAME = "vllm"
+
+# =============================================================================
+# Image context helper
+# =============================================================================
+
+IMAGE_CONTEXT = [
+    dd.ImageContext(
+        # Expects a single-element JSON array from the per-page seed.
+        column_name="png_images_base64",
+        data_type=dd.ModalityDataType.BASE64,
+        image_format=dd.ImageFormat.PNG,
+    )
+]
+
+# =============================================================================
+# Prompt templates
+# =============================================================================
+
+PROMPT_QUESTION = """\
+You are an expert in creating meaningful questions that test comprehension and reasoning about visual document content.
+
+Your task: Create a targeted question of type <question-type> based on the visual element classification and visible content.
+
+<question-type>
+{{question_type}}
+</question-type>
+
+<page-classification>
+{{page_classification}}
+</page-classification>
+
+CRITICAL: Focus on the Visual Element
+
+The <page-classification> identifies the PRIMARY visual element type (e.g., TABULAR, QUANTITATIVE, LOGIC_DIAGRAMS) present in the image.
+
+IMPORTANT: When creating your question, focus EXCLUSIVELY on the area of the image that contains the visual element identified in <page-classification>.
+- If primary_categories shows TABULAR with subcategory SIMPLE_TABLE, focus your question on the TABLE content specifically
+- If primary_categories shows QUANTITATIVE with subcategory BAR_CHART, focus your question on the CHART data specifically
+- Ignore any surrounding text, headers, footers, or decorative elements that are not part of the primary visual element
+- Your question should be about the DATA/CONTENT within the visual element, not about peripheral information
+
+═══════════════════════════════════════════════════════════════════════════════
+IMPORTANT: PREFER SIMPLE REASONING QUESTIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+Create questions that require ONE STEP of reasoning or calculation - not just reading a value, but not overly complex either.
+
+PREFERRED question types (aim for these):
+
+1. SIMPLE COMPARISONS (no calculation needed):
+   ✓ "Which category has the highest/lowest value?"
+   ✓ "Is X greater than Y?"
+   ✓ "Which period showed the largest increase?"
+   → Requires comparing 2-4 values, no math
+
+2. SIMPLE CALCULATIONS (one operation):
+   ✓ "What is the difference between X and Y?" (subtraction)
+   ✓ "What is the total of categories A and B?" (addition of 2-3 items)
+   ✓ "What percentage of the total does X represent?" (one division)
+   → Requires one simple calculation with clearly visible values
+
+3. SIMPLE TRENDS/PATTERNS (observation):
+   ✓ "Did revenue increase or decrease from Q1 to Q4?"
+   ✓ "Which category grew the most?"
+   ✓ "List all items above/below value X"
+   → Requires identifying patterns without complex math
+
+4. SIMPLE RATIOS (when values are obvious):
+   ✓ "How many times larger is A than B?" (when A=200, B=100 → answer: 2)
+   → Only when the ratio is simple (2x, 3x, etc.)
+
+AVOID these question types:
+✗ Direct single value lookup: "What was the revenue in Q3?"
+✗ Multi-step calculations: "What is the average growth rate across all periods?"
+✗ Complex aggregations: "What percentage do the top 5 categories represent combined?"
+✗ Statistical measures: "What is the variance?" or "What is the correlation?"
+✗ Ambiguous questions: "Which shows the most consistent pattern?"
+
+KEY PRINCIPLE: Questions should require examining 2-3 data points and ONE simple operation (compare, add, subtract, or divide).
+
+STEP 1: Analyze the Visual Element Type
+
+The <page-classification> tells you what TYPE of visual content is present. Use this to create appropriate reasoning-based questions.
+
+PRIMARY CATEGORIES and REASONING Question Strategies:
+
+QUANTITATIVE (Charts/Graphs):
+  - Subcategories: BAR_CHART, LINE_GRAPH, SCATTER_PLOT, PIE_CHART, AREA_GRAPH, HISTOGRAM, BOX_PLOT, HEATMAP, BUBBLE_CHART
+  - Best question types: numerical (simple calculations), comparisons, multiple choice
+  - SIMPLE REASONING Examples:
+    ✓ "Which category has the highest value?" (comparison)
+    ✓ "What is the difference between the highest and lowest values?" (one subtraction)
+    ✓ "Did sales increase or decrease from Q1 to Q4?" (simple trend)
+    ✓ "What is the total of the two largest categories?" (simple addition)
+    ✓ "Is Category A greater than Category B?" (simple comparison)
+    ✓ "How many categories have values above 100?" (counting with condition)
+  - AVOID: Direct lookups ("What was Q3 revenue?"), complex calculations ("What's the average growth rate?")
+
+TABULAR (Tables):
+  - Subcategories: SIMPLE_TABLE, NESTED_TABLE, PIVOT_TABLE, COMPARISON_TABLE, FINANCIAL_TABLE
+  - Best question types: numerical (simple calculations), comparisons, filtered lists
+  - SIMPLE REASONING Examples:
+    ✓ "Which fund has the highest budget?" (comparison)
+    ✓ "What is the total budget of Funds A and B?" (simple addition)
+    ✓ "How many funds have a budget over $1000?" (counting with condition)
+    ✓ "Is Fund A's budget greater than Fund B's?" (simple comparison)
+    ✓ "List all funds with 'Education' as their purpose" (filtering)
+    ✓ "What is the difference between the largest and smallest fund?" (one subtraction)
+  - AVOID: Direct cell lookups ("What is Fund 01's source?"), complex calculations ("What's the average of all funds meeting multiple conditions?")
+
+LOGIC_DIAGRAMS (Flowcharts/Process):
+  - Subcategories: FLOWCHART, DECISION_TREE, PROCESS_MAP, ALGORITHM_DIAGRAM, STATE_DIAGRAM, SEQUENCE_DIAGRAM
+  - Best question types: text (simple path tracing), yes/no, list
+  - SIMPLE REASONING Examples:
+    ✓ "If condition A is true, what is the next step?" (simple path following)
+    ✓ "How many decision points are shown in the flowchart?" (counting)
+    ✓ "Does the process include step X?" (yes/no)
+    ✓ "What happens immediately after step X?" (one-step trace)
+    ✓ "List all possible outcomes shown" (enumeration)
+    ✓ "Which step comes before the final outcome?" (simple reverse trace)
+  - AVOID: Complex path analysis ("What sequence of 5 conditions leads to Z?"), multi-hop reasoning
+
+HIERARCHICAL (Org Charts/Trees):
+  - Subcategories: ORG_CHART, MIND_MAP, TREE_STRUCTURE, TAXONOMY, DENDROGRAM
+  - Best question types: text (simple relationships), counting, lists
+  - SIMPLE REASONING Examples:
+    ✓ "How many people directly report to Manager X?" (counting direct connections)
+    ✓ "Who is Manager X's immediate supervisor?" (one-level relationship)
+    ✓ "Which manager has the most direct reports?" (comparison)
+    ✓ "List all people who report directly to the CEO" (enumeration)
+    ✓ "How many levels are in the organizational hierarchy?" (counting layers)
+    ✓ "Is Person A senior to Person B?" (relationship check)
+  - AVOID: Complex multi-level traversal ("How many total reports including indirect?"), percentage calculations
+
+SPATIAL_RELATIONAL (Maps/Diagrams):
+  - Subcategories: FLOOR_PLAN, BLUEPRINT, CHOROPLETH_MAP, POINT_MAP, TOPOGRAPHIC_MAP, NETWORK_DIAGRAM
+  - Best question types: text (simple spatial), yes/no, counting
+  - SIMPLE REASONING Examples:
+    ✓ "Which room is adjacent to Room X?" (one-step spatial)
+    ✓ "How many rooms are on the first floor?" (counting)
+    ✓ "Is Room A directly connected to Room B?" (yes/no spatial)
+    ✓ "Which area is the largest?" (comparison)
+    ✓ "List all rooms that connect to the hallway" (enumeration)
+    ✓ "What is located north of Building X?" (directional)
+  - AVOID: Complex path finding ("shortest path through 5 rooms"), density calculations, percentage of area
+
+SCHEMATIC (Technical Diagrams):
+  - Subcategories: CIRCUIT_DIAGRAM, MECHANICAL_DIAGRAM, ANATOMICAL_DIAGRAM, WIRING_DIAGRAM, PLUMBING_DIAGRAM
+  - Best question types: text (simple connections), counting, lists
+  - SIMPLE REASONING Examples:
+    ✓ "What component is directly connected to component X?" (one-step connection)
+    ✓ "How many components are of type X?" (counting)
+    ✓ "Is component A connected to component B?" (yes/no)
+    ✓ "List all components connected to the input" (enumeration)
+    ✓ "Which component has the most connections?" (comparison)
+    ✓ "What is the next component after X in the flow?" (one-step trace)
+  - AVOID: Path analysis ("all components in signal path"), failure analysis, impedance calculations
+
+INFOGRAPHIC (Visual Narratives):
+  - Subcategories: TIMELINE, STATISTICAL_INFOGRAPHIC, PROCESS_INFOGRAPHIC, COMPARISON_INFOGRAPHIC
+  - Best question types: text (simple analysis), comparisons, counting
+  - SIMPLE REASONING Examples:
+    ✓ "Which year had the most events?" (comparison)
+    ✓ "How many events occurred between Year X and Year Y?" (counting)
+    ✓ "Which category shows the largest value in the comparison?" (simple comparison)
+    ✓ "Did the trend increase or decrease over time?" (direction)
+    ✓ "List all events that occurred after Year X" (filtering)
+    ✓ "Is Category A greater than Category B?" (simple comparison)
+  - AVOID: Complex calculations ("average time intervals"), growth rates, statistical measures
+
+STEP 2: Match Question Type to Content
+
+NUMERICAL question types (int, float, percentage %):
+  ✓ Use for: QUANTITATIVE charts, TABULAR data with numbers, INFOGRAPHIC with statistics
+  ✓ ALWAYS require calculation, comparison, or aggregation - NEVER direct lookup
+  ✗ NEVER use for: LOGIC_DIAGRAMS, HIERARCHICAL, SCHEMATIC (unless they contain numerical labels)
+
+TEXT question types (short answer, list of items, yes/no):
+  ✓ Use for: TABULAR (if text content), LOGIC_DIAGRAMS, HIERARCHICAL, SPATIAL_RELATIONAL, SCHEMATIC, INFOGRAPHIC
+  ✓ Should require reasoning, filtering, or multi-step analysis
+
+MULTIPLE CHOICE:
+  ✓ Good for any category - create options based on calculated or derived values, not direct readings
+  ✓ Options should require the user to perform reasoning to eliminate incorrect choices
+
+NOT ANSWERABLE:
+  ✓ Create questions relevant to the visual element type but whose answer isn't present
+  ✓ Example: For a 2023 revenue table, ask "What percentage increase occurred from 2024 Q1 to Q2?"
+
+STEP 3: Match Complexity to Score
+
+The reasoning_complexity_score (1-10) in <page-classification> indicates the appropriate depth.
+IMPORTANT: Keep questions simple and achievable. Most questions should be in the 3-6 range.
+
+- Score 1-3 (Low): Basic comparisons or simple observations
+  * Examples: "Which category has the highest value?", "Is A greater than B?"
+  * Requires comparing 2-3 values, no calculation needed
+
+- Score 4-6 (Medium): ONE simple calculation or counting with a condition
+  * This is the TARGET for most questions - requires one step of reasoning
+  * Examples:
+    - "What is the total of A and B?" (simple addition)
+    - "What is the difference between highest and lowest?" (simple subtraction)
+    - "How many items are above 100?" (counting with condition)
+  * Questions should require examining 2-4 data points and ONE simple operation
+
+- Score 7-8 (High): Use sparingly - slightly more complex but still straightforward
+  * Examples: "What percentage does X represent?" (requires division)
+  * Only use when the calculation is still simple and unambiguous
+
+- Score 9-10 (Expert): AVOID - Too complex for reliable VLM answering
+  * Do not create questions requiring: multi-step calculations, averages of many items, growth rates, statistical measures
+  * These lead to calculation errors and incorrect answers
+
+GENERAL RULE: If you need to do more than ONE calculation step in your head to answer it, the question is too complex.
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL: CREATE VERIFIABLE QUESTIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+Before finalizing your question, ask yourself:
+1. "Can I answer this question clearly by looking at the visual?"
+2. "Can I verify if an answer is correct or incorrect?"
+3. "Is there a clear, unambiguous correct answer?"
+
+If you cannot easily answer and verify the question yourself, DO NOT use it.
+
+Examples:
+✓ GOOD: "Which category has the highest value?"
+  → You can look and determine: "Category A = 150, Category B = 120, so Category A is correct"
+
+✓ GOOD: "What is the difference between Product A and Product B?"
+  → You can calculate: "Product A = 200, Product B = 150, difference = 50"
+
+✗ BAD: "Which category shows the most consistent growth?"
+  → Ambiguous - what does "most consistent" mean? Hard to verify.
+
+✗ BAD: "What is the average of all values shown?"
+  → If there are 10+ values, too tedious to verify correctly
+
+✗ BAD: "What percentage of total do the top 5 categories represent?"
+  → Requires identifying top 5, summing them, calculating percentage - too many steps to verify reliably
+
+FORBIDDEN - DO NOT CREATE:
+✗ Questions answerable by reading a single trivial value (unless complexity score is 1-3)
+✗ Character/letter counting
+✗ Word counting (unless semantically meaningful)
+✗ Font style/size questions
+✗ Trivial string manipulation
+✗ Color or formatting questions
+✗ Generic questions that ignore the visual element type
+
+Question Framing Rules:
+1. Create questions SPECIFIC to the visual element type identified in <page-classification>
+2. Focus ONLY on the primary visual element (table, chart, diagram, etc.), not surrounding content
+3. Do NOT use: "the page", "the image", "the document", "according to"
+4. Ask about content directly using action verbs like: "Which", "What is", "How many", "Is"
+5. Prefer simple reasoning questions (one comparison or one calculation) over direct lookups
+6. Match question difficulty to the reasoning_complexity_score (target: 3-6)
+7. CRITICAL: You must be able to answer the question yourself and verify if an answer is correct
+8. Ensure questions have clear, unambiguous correct answers
+9. Keep questions achievable - avoid ambiguous terms like "most consistent" or "optimal"
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT INSTRUCTIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+Your response MUST contain ONLY the question text.
+
+If the question type is "multiple choices":
+- Output the question on the first line
+- Output each choice on a separate line, starting with a letter (A., B., C., D.)
+- Example:
+  Which category has the highest value?
+  A. Category A
+  B. Category B
+  C. Category C
+  D. Category D
+
+For all other question types:
+- Output ONLY the question text, nothing else
+- Example: What is the difference between Product A and Product B?
+
+DO NOT include any explanations, reasoning, or additional text.\
+"""
+
+
+PROMPT_ANSWER = """\
+You are an expert at providing accurate, comprehensive answers based on given information.
+
+Your task is to answer the <question> using ONLY the information visible in the image.
+
+<question-type>
+{{question_type}}
+</question-type>
+
+<page-classification>
+{{page_classification}}
+</page-classification>
+
+<question>
+{{question}}
+</question>
+
+Answer Guidelines:
+- Base your answer ENTIRELY on the visible content
+- Do not make assumptions or add information not present in the visible content
+- Use the <page-classification> to understand the content type and provide appropriate answers:
+  * For QUANTITATIVE/TABULAR with numbers: Perform calculations accurately using visible data
+  * For LOGIC_DIAGRAMS: Describe process steps or decision flows
+  * For HIERARCHICAL: Explain relationships or structures
+  * For SPATIAL_RELATIONAL: Describe locations or spatial relationships
+  * For SCHEMATIC: Explain component connections or technical details
+  * For INFOGRAPHIC: Extract key facts or statistics
+
+CRITICAL - For Calculation-Based Questions:
+When the question asks you to calculate percentages, ratios, differences, averages, or any derived values:
+1. Extract the relevant data points from the visible content
+2. Perform the calculation accurately
+3. Provide the final answer with appropriate units (%, ratio, currency, etc.)
+4. Round percentages to 1-2 decimal places (e.g., "25.5%" or "33.33%")
+5. Round decimal numbers to 2-3 significant figures unless the question specifies otherwise
+
+Examples of calculation questions:
+- "What percentage of X?" → Calculate: (part/whole) × 100, answer as "XX.X%"
+- "What is the ratio of A to B?" → Calculate: A/B, answer as "X:Y" or "X.XX"
+- "What is the difference between X and Y?" → Calculate: |X - Y|, answer with units
+- "What is the average of X, Y, Z?" → Calculate: (X+Y+Z)/3, answer with units
+
+Special Cases:
+- If the question type is "not answerable", respond with "Not answerable"
+- For multiple choice questions: Select the correct option based on the visible content (perform calculations if needed)
+- For yes/no questions: Respond with "Yes" or "No"
+- For list questions: Format your answer as a clear list
+
+Answer Format:
+- Provide a direct answer without meta-commentary like "Based on the image..." or "According to the information provided..."
+- Answer as if you are directly viewing the content
+- Be precise and factual - do not speculate or infer beyond what is explicitly visible
+- For numerical answers, include appropriate units and precision\
+"""
+
+
+PROMPT_QUESTION_RELEVANCE = """\
+You are an expert at evaluating question quality and relevance.
+
+Your task is to determine if the <question> is relevant to the content visible in the image.
+
+<question-type>
+{{question_type}}
+</question-type>
+
+<page-classification>
+{{page_classification}}
+</page-classification>
+
+<question>
+{{question}}
+</question>
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL: VERIFY STEP-BY-STEP BEFORE JUDGING
+═══════════════════════════════════════════════════════════════════════════════
+
+Do NOT make a snap judgment. Follow this systematic verification process:
+
+STEP 1: Look at the image and identify what visual content is present
+- What type of visual element do you see? (table, chart, diagram, etc.)
+- What specific data or information is shown?
+- What are the main topics, categories, or entities visible?
+
+STEP 2: Analyze what the question is asking about
+- What topic or data does the question reference?
+- What type of information would be needed to answer it?
+- Does the question align with the visual element type from <page-classification>?
+
+STEP 3: Check if the question relates to visible content
+- Are the entities/categories mentioned in the question actually present in the image?
+- Is the type of data needed to answer visible in the image?
+- Does the question make sense for this type of visual?
+
+STEP 4: Make your decision
+- Mark "Relevant" if: The question asks about data/content that IS present in the visible image
+- Mark "Relevant" if: The question is "not answerable" type AND is about the right domain/topic but specific data is missing
+- Mark "Irrelevant" ONLY if: The question asks about content clearly NOT in the image OR is inappropriate for the visual type
+
+═══════════════════════════════════════════════════════════════════════════════
+EVALUATION PHILOSOPHY: FOCUS ON CONTENT ALIGNMENT
+═══════════════════════════════════════════════════════════════════════════════
+
+After verifying step-by-step, apply these standards:
+
+MARK as "Relevant" when:
+- The question asks about data, entities, or topics that ARE visible in the image
+- The question type matches the visual element type (charts for quantitative, tables for tabular, etc.)
+- For "not answerable" questions: the domain/topic matches but specific data is missing
+
+MARK as "Irrelevant" when:
+- The question asks about entities or data clearly NOT present in the image
+- The question type is inappropriate for the visual element (e.g., asking about flowchart steps when showing a bar chart)
+- The question topic has no connection to the visible content
+
+KEY PRINCIPLE: Verify that the question's subject matter aligns with what's actually visible in the image.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Detailed Evaluation Guidelines:
+
+1. RELEVANT questions are those that:
+   ✓ Ask about data, entities, or relationships visible in the image
+   ✓ Are appropriate for the visual element type (e.g., asking about values in a chart, rows in a table)
+   ✓ Can potentially be answered from or reasoned about using the visible content
+   ✓ For "not answerable" type: relate to the domain/topic but specific answer is not present
+
+2. IRRELEVANT questions are those that:
+   ✗ Ask about entities, data, or topics completely absent from the image
+   ✗ Are inappropriate for the visual type (e.g., asking about flowchart steps when image shows a bar chart)
+   ✗ Reference information that has nothing to do with the visible content
+
+Examples by Visual Type:
+
+For TABULAR content:
+- "What is Fund A's budget?" → Relevant (if Fund A is in the table)
+- "Which fund has the highest value?" → Relevant (if funds and values are shown)
+- "What is the CEO's salary?" → Irrelevant (if no CEO or salary data visible)
+
+For QUANTITATIVE (Charts):
+- "Which category has the highest value?" → Relevant (if categories are shown)
+- "What is the total of A and B?" → Relevant (if A and B are in the chart)
+- "What was the value in 2025?" → Irrelevant (if only 2020-2023 data shown)
+
+For LOGIC_DIAGRAMS (Flowcharts):
+- "What happens after step X?" → Relevant (if step X is in the flowchart)
+- "How many decision points are there?" → Relevant (if diagram shows decision points)
+- "What is the database schema?" → Irrelevant (if image shows a process flow, not database)
+
+Special Case - "not answerable" questions:
+- These should be relevant to the DOMAIN but the specific answer should not be present
+- Example: Image shows 2023 revenue table, Question: "What was 2024 Q1 revenue?" → Relevant domain, but answer not present
+
+Your response should be:
+- "Relevant" - if the question relates to content visible in the image (DEFAULT choice)
+- "Irrelevant" - ONLY if the question is clearly about something not in the image
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT INSTRUCTIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+Your response MUST contain ONLY ONE WORD:
+- "Relevant" OR
+- "Irrelevant"
+
+DO NOT include any explanations, reasoning, or additional text.
+Output ONLY the single word.\
+"""
+
+
+PROMPT_ANSWER_CORRECTNESS = """\
+You are an expert at evaluating answer accuracy and correctness.
+
+Your task is to determine if the <answer> reasonably addresses the <question> based on the visible content.
+
+<question-type>
+{{question_type}}
+</question-type>
+
+<page-classification>
+{{page_classification}}
+</page-classification>
+
+<question>
+{{question}}
+</question>
+
+<answer>
+{{answer}}
+</answer>
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL: VERIFY STEP-BY-STEP BEFORE JUDGING
+═══════════════════════════════════════════════════════════════════════════════
+
+Do NOT make a snap judgment. Follow this systematic verification process:
+
+STEP 1: Understand what the question is asking
+- What type of answer is expected? (comparison, calculation, value, list, yes/no)
+- What specific information needs to be extracted or computed?
+
+STEP 2: Look at the visible content and verify the answer yourself
+- Identify the relevant data points in the image
+- If the question requires calculation, do the calculation yourself
+- If the question requires comparison, compare the values yourself
+- If the question requires counting or listing, count/list them yourself
+
+STEP 3: Compare YOUR answer to the PROVIDED answer
+- Does the provided answer match what you found?
+- Is it in the right ballpark? (within ±5% for numbers)
+- Is it semantically equivalent even if worded differently?
+- Does it make sense given the data?
+
+STEP 4: Make your decision
+- Mark "Correct" if: Your answer and provided answer align (exact or close enough)
+- Mark "Incorrect" ONLY if: Provided answer is clearly wrong based on your verification
+
+═══════════════════════════════════════════════════════════════════════════════
+EVALUATION PHILOSOPHY: FOCUS ON SUBSTANTIVE CORRECTNESS
+═══════════════════════════════════════════════════════════════════════════════
+
+After verifying step-by-step, apply these standards:
+
+ACCEPT as "Correct" when:
+- The answer is factually accurate based on the visible content
+- Numbers are close enough (within ±5% for calculations due to rounding)
+- Wording differs but the meaning/value is the same
+- Format differs ("25%" vs "0.25" vs "1/4") but represents the same value
+
+MARK as "Incorrect" when:
+- The answer contradicts the visible content
+- Numbers are significantly wrong (beyond ±5% tolerance)
+- The answer uses wrong data from the image
+- The answer doesn't address what was asked
+
+KEY PRINCIPLE: Distinguish between minor variations (format, rounding) and actual errors (wrong data, wrong calculation).
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT INSTRUCTIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+Your response MUST contain ONLY ONE WORD:
+- "Correct" OR
+- "Incorrect"
+
+DO NOT include any explanations, reasoning, or additional text.
+Output ONLY the single word.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Detailed Evaluation Guidelines:
+
+1. FOR "not answerable" QUESTIONS:
+   - Mark "Correct" if the answer indicates it's not answerable (e.g., "Not answerable", "Cannot be determined", "Information not provided", etc.)
+   - Only mark "Incorrect" if the answer provides a specific answer when it should say "not answerable", OR if it says "not answerable" but the information is clearly present
+
+2. FOR CALCULATION/REASONING QUESTIONS (percentages, ratios, trends, comparisons):
+
+   MARK AS "Correct" IF ANY OF THESE ARE TRUE:
+   ✓ The answer is in the right ballpark (within ±5% for calculations)
+   ✓ The answer uses a reasonable interpretation of the data
+   ✓ The answer shows correct reasoning even if numbers differ slightly
+   ✓ The answer addresses the question asked, even if format varies
+   ✓ Minor calculation differences due to rounding (e.g., 33% vs 33.33%)
+   ✓ Equivalent representations (e.g., "1/4" vs "25%" vs "0.25")
+   ✓ Different but reasonable ways to express the same concept
+
+   Examples of answers to mark "Correct":
+   - Question: "What percentage does X represent?"
+     Answer: "25%" when exact is 24.8% → CORRECT (close enough)
+   - Question: "What's the ratio of A to B?"
+     Answer: "about 2 to 1" when exact is 1.9:1 → CORRECT (reasonable)
+   - Question: "By how much did X increase?"
+     Answer: "doubled" when exact increase is 95% → CORRECT (reasonable interpretation)
+
+   ONLY MARK AS "Incorrect" IF:
+   ✗ The answer is wildly off (e.g., says 80% when it's actually 20%)
+   ✗ The answer clearly misidentifies what data to use
+   ✗ The answer provides a specific value when asked for a calculation but didn't calculate
+   ✗ The answer is completely unrelated to what was asked
+
+3. FOR EXTRACTION QUESTIONS (specific values, items from lists):
+
+   MARK AS "Correct" IF:
+   ✓ The answer matches the visible content
+   ✓ Minor wording differences that don't change meaning
+   ✓ The answer captures the key information even if not word-for-word
+
+   ONLY MARK AS "Incorrect" IF:
+   ✗ The answer states information not present in the visible content
+   ✗ The answer contradicts what's visible
+
+4. FOR COMPARISON/ANALYSIS QUESTIONS:
+
+   MARK AS "Correct" IF:
+   ✓ The answer shows reasonable analysis of the visible content
+   ✓ The conclusion is defensible based on the data
+   ✓ The reasoning makes sense even if you might analyze it differently
+
+   ONLY MARK AS "Incorrect" IF:
+   ✗ The conclusion clearly contradicts the visible data
+   ✗ The reasoning is fundamentally flawed
+
+5. FOR MULTIPLE CHOICE QUESTIONS:
+
+   MARK AS "Correct" IF:
+   ✓ The selected option is correct or defensible
+
+   MARK AS "Incorrect" IF:
+   ✗ The selected option is clearly wrong
+
+6. FOR YES/NO QUESTIONS:
+
+   MARK AS "Correct" IF:
+   ✓ The yes/no answer is reasonable based on visible content
+
+   MARK AS "Incorrect" IF:
+   ✗ The yes/no answer clearly contradicts visible content\
+"""
+
+
+# =============================================================================
+# Pipeline configuration
+# =============================================================================
+
+
+def build_config(
+    seed_path: str = "seed.parquet",
+    model_alias: str = "qwen-vl",
+    model_id: str = DEFAULT_VLM_MODEL,
+) -> dd.DataDesignerConfigBuilder:
+    model_configs = [
+        dd.ModelConfig(
+            alias=model_alias,
+            model=model_id,
+            provider=VLLM_PROVIDER_NAME,
+            inference_parameters=dd.ChatCompletionInferenceParams(
+                timeout=1200,
+                max_tokens=40000,
+                max_parallel_requests=32,
+            ),
+        ),
+    ]
+
+    config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
+
+    config_builder.with_seed_dataset(
+        dd.LocalFileSeedSource(path=seed_path),
+        sampling_strategy=dd.SamplingStrategy.ORDERED,
+    )
+
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="question_type",
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
+                values=[
+                    "multiple choices",
+                    "yes or no",
+                    "number, word, phrase, short sentence (string), list of items (int, string, float or mixed)",
+                    "not answerable",
+                ],
+                weights=[0.05, 0.1, 2, 0.01],
+            ),
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="question",
+            model_alias=model_alias,
+            prompt=PROMPT_QUESTION,
+            multi_modal_context=IMAGE_CONTEXT,
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="answer",
+            model_alias=model_alias,
+            prompt=PROMPT_ANSWER,
+            multi_modal_context=IMAGE_CONTEXT,
+            extract_reasoning_content=True,
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="question_relevance",
+            model_alias=model_alias,
+            prompt=PROMPT_QUESTION_RELEVANCE,
+            multi_modal_context=IMAGE_CONTEXT,
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMTextColumnConfig(
+            name="answer_correctness",
+            model_alias=model_alias,
+            prompt=PROMPT_ANSWER_CORRECTNESS,
+            multi_modal_context=IMAGE_CONTEXT,
+        )
+    )
+
+    return config_builder
+
+
+def create_dataset(
+    config_builder: dd.DataDesignerConfigBuilder,
+    num_records: int,
+    vllm_endpoint: str,
+    artifact_path: Path | str | None = None,
+) -> DatasetCreationResults:
+    model_providers = [
+        dd.ModelProvider(
+            name=VLLM_PROVIDER_NAME,
+            endpoint=vllm_endpoint,
+        ),
+    ]
+    data_designer = DataDesigner(
+        artifact_path=artifact_path,
+        model_providers=model_providers,
+    )
+    data_designer.set_run_config(dd.RunConfig(progress_bar=True, disable_early_shutdown=True))
+    results = data_designer.create(config_builder, num_records=num_records, dataset_name="visual_qa")
+    return results
+
+
+if __name__ == "__main__":
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--vllm-endpoint",
+        type=str,
+        required=True,
+        help="Base URL of the vLLM server hosting the VLM (e.g. http://localhost:8000/v1)",
+    )
+    parser.add_argument("--seed-path", type=str, required=True, help="Path to the seed parquet file")
+    parser.add_argument("--model-alias", type=str, default="qwen-vl")
+    parser.add_argument("--model-id", type=str, default=DEFAULT_VLM_MODEL)
+    parser.add_argument("--num-records", type=int, default=5)
+    parser.add_argument("--artifact-path", type=str, default=None)
+    args = parser.parse_args()
+
+    config_builder = build_config(
+        seed_path=args.seed_path,
+        model_alias=args.model_alias,
+        model_id=args.model_id,
+    )
+    results = create_dataset(
+        config_builder,
+        num_records=args.num_records,
+        vllm_endpoint=args.vllm_endpoint,
+        artifact_path=args.artifact_path,
+    )
+
+    print(f"Dataset saved to: {results.artifact_storage.final_dataset_path}")
+
+    results.load_analysis().to_report()
+
+```

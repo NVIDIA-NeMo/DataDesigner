@@ -21,6 +21,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: fern-docs-website
+  cancel-in-progress: false
+
 env:
   FERN_PUBLISHED_BRANCH: docs-website
 
@@ -54,7 +58,7 @@ jobs:
             source_ref="${INPUT_SOURCE_REF:-$INPUT_RELEASE_TAG}"
             prepare_release_docs=1
           else
-            release_tag=$(gh release view --json tagName -q .tagName)
+            release_tag=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
             if [ -z "$release_tag" ]; then
               echo "::error::Could not find the latest published release tag."
               exit 1
@@ -69,15 +73,19 @@ jobs:
 
   prepare-published-release:
     if: needs.resolve-release.outputs.prepare_release_docs == '1'
-    needs: resolve-release
+    needs:
+      - resolve-release
+      - build-notebooks
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
       - name: Checkout workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           path: workflow
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
 
       - name: Checkout source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -95,27 +103,60 @@ jobs:
       - name: Prepare published branch checkout
         working-directory: website
         run: |
-          if git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
-            git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
-            git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
-          else
-            git checkout --orphan "$FERN_PUBLISHED_BRANCH"
-            git rm -rf . || true
+          if ! git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
+            echo "::error::$FERN_PUBLISHED_BRANCH does not exist. Initialize it with the historical Fern archive before publishing."
+            exit 1
           fi
+
+          git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
+          git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
 
       - name: Prepare Fern release snapshot
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+          SOURCE_REF: ${{ needs.resolve-release.outputs.source_ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          PUBLISHED_BRANCH: ${{ env.FERN_PUBLISHED_BRANCH }}
         run: |
+          source_sha=$(git -C source rev-parse HEAD)
           python3 workflow/fern/scripts/fern-published-branch.py sync-source \
             --source-root source \
-            --published-root website
+            --published-root website \
+            --metadata-source-repository "$SOURCE_REPOSITORY" \
+            --metadata-source-ref "$SOURCE_REF" \
+            --metadata-source-sha "$source_sha" \
+            --metadata-release-tag "$RELEASE_TAG" \
+            --metadata-published-branch "$PUBLISHED_BRANCH"
           python3 workflow/fern/scripts/fern-release-version.py --root website/fern prepare --version "$RELEASE_TAG" --force
           python3 workflow/fern/scripts/fern-release-version.py --root website/fern check --version "$RELEASE_TAG" --require-latest-matches-release
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.9.5"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install docs dependencies
+        working-directory: website
+        run: uv sync --python 3.13 --all-packages --group docs --group notebooks
+
+      - name: Download executed notebooks
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: notebooks
+          path: website/docs/notebooks
+
+      - name: Check Fern docs
+        working-directory: website
+        run: make check-fern-docs
 
       - name: Commit published branch
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+          SOURCE_REF: ${{ needs.resolve-release.outputs.source_ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
         working-directory: website
         run: |
           if [ -z "$(git status --porcelain)" ]; then
@@ -123,10 +164,15 @@ jobs:
             exit 0
           fi
 
+          source_sha=$(git -C ../source rev-parse HEAD)
+          previous_published_sha=$(git rev-parse HEAD)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "docs: publish Fern docs for $RELEASE_TAG"
+          git commit \
+            -m "docs: publish Fern docs for $RELEASE_TAG" \
+            -m "Source: $SOURCE_REPOSITORY@$SOURCE_REF ($source_sha)" \
+            -m "Previous docs-website head: $previous_published_sha"
           git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
 
   build-notebooks:
@@ -137,7 +183,7 @@ jobs:
       contents: write
     with:
       use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
-      checkout_ref: ${{ needs.resolve-release.outputs.prepare_release_docs == '1' && needs.resolve-release.outputs.source_ref || '' }}
+      checkout_ref: ${{ needs.resolve-release.outputs.prepare_release_docs == '1' && needs.resolve-release.outputs.source_ref || needs.resolve-release.outputs.release_tag }}
     secrets: inherit
 
   publish:

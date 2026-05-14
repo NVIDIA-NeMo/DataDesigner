@@ -45,7 +45,7 @@ experimental:
   - ./components
   basepath-aware: true
 versions:
-- display-name: "Latest · v0.6.0"
+- display-name: "Latest"
   path: versions/latest.yml
   slug: latest
 - display-name: "v0.6.0"
@@ -62,7 +62,7 @@ versions:
   slug: older-versions
 
 libraries:
-  data-designer:
+  data-designer-config:
     input:
       git: https://github.com/NVIDIA-NeMo/DataDesigner
       subpath: packages/data-designer-config/src/data_designer/config
@@ -343,24 +343,56 @@ redirects:
     destination: "/nemo/datadesigner/plugins/file-system-seed-reader-plugins"
   - source: "/nemo/datadesigner/plugins/example"
     destination: "/nemo/datadesigner/plugins/example-plugin"
-  # Code Reference: mkdocstrings tree -> Fern Topic Overviews subsection.
+  # Code Reference: mkdocstrings tree -> Fern package-shaped sections.
   # Underscored page names get kebab'd at the page-slug level too (Fern's title
   # slugifier drops underscores), so the snake_case modules need per-page rules.
+  - source: "/nemo/datadesigner/code_reference"
+    destination: "/nemo/datadesigner/code-reference/overview"
+  - source: "/nemo/datadesigner/code_reference/config"
+    destination: "/nemo/datadesigner/code-reference/config/overview"
+  - source: "/nemo/datadesigner/code_reference/config/column_configs"
+    destination: "/nemo/datadesigner/code-reference/config/column-configs"
+  - source: "/nemo/datadesigner/code_reference/config/config_builder"
+    destination: "/nemo/datadesigner/code-reference/config/config-builder"
+  - source: "/nemo/datadesigner/code_reference/config/data_designer_config"
+    destination: "/nemo/datadesigner/code-reference/config/data-designer-config"
+  - source: "/nemo/datadesigner/code_reference/config/run_config"
+    destination: "/nemo/datadesigner/code-reference/config/run-config"
+  - source: "/nemo/datadesigner/code_reference/config/sampler_params"
+    destination: "/nemo/datadesigner/code-reference/config/sampler-params"
+  - source: "/nemo/datadesigner/code_reference/config/validator_params"
+    destination: "/nemo/datadesigner/code-reference/config/validator-params"
+  - source: "/nemo/datadesigner/code_reference/config/:module*"
+    destination: "/nemo/datadesigner/code-reference/config/:module*"
+  - source: "/nemo/datadesigner/code_reference/interface"
+    destination: "/nemo/datadesigner/code-reference/interface/overview"
+  - source: "/nemo/datadesigner/code_reference/interface/data_designer"
+    destination: "/nemo/datadesigner/code-reference/interface/data-designer"
+  - source: "/nemo/datadesigner/code_reference/interface/:module*"
+    destination: "/nemo/datadesigner/code-reference/interface/:module*"
+  - source: "/nemo/datadesigner/code_reference/engine"
+    destination: "/nemo/datadesigner/code-reference/engine-extension-api/overview"
+  - source: "/nemo/datadesigner/code_reference/engine/column_generators"
+    destination: "/nemo/datadesigner/code-reference/engine-extension-api/column-generators"
+  - source: "/nemo/datadesigner/code_reference/engine/seed_readers"
+    destination: "/nemo/datadesigner/code-reference/engine-extension-api/seed-readers"
+  - source: "/nemo/datadesigner/code_reference/engine/:module*"
+    destination: "/nemo/datadesigner/code-reference/engine-extension-api/:module*"
   - source: "/nemo/datadesigner/code_reference/column_configs"
-    destination: "/nemo/datadesigner/code-reference/topic-overviews/column-configs"
+    destination: "/nemo/datadesigner/code-reference/config/column-configs"
   - source: "/nemo/datadesigner/code_reference/config_builder"
-    destination: "/nemo/datadesigner/code-reference/topic-overviews/config-builder"
+    destination: "/nemo/datadesigner/code-reference/config/config-builder"
   - source: "/nemo/datadesigner/code_reference/data_designer_config"
-    destination: "/nemo/datadesigner/code-reference/topic-overviews/data-designer-config"
+    destination: "/nemo/datadesigner/code-reference/config/data-designer-config"
   - source: "/nemo/datadesigner/code_reference/run_config"
-    destination: "/nemo/datadesigner/code-reference/topic-overviews/run-config"
+    destination: "/nemo/datadesigner/code-reference/config/run-config"
   - source: "/nemo/datadesigner/code_reference/sampler_params"
-    destination: "/nemo/datadesigner/code-reference/topic-overviews/sampler-params"
+    destination: "/nemo/datadesigner/code-reference/config/sampler-params"
   - source: "/nemo/datadesigner/code_reference/validator_params"
-    destination: "/nemo/datadesigner/code-reference/topic-overviews/validator-params"
+    destination: "/nemo/datadesigner/code-reference/config/validator-params"
   # Modules whose page slug already matches the filename (no underscores):
   - source: "/nemo/datadesigner/code_reference/:module*"
-    destination: "/nemo/datadesigner/code-reference/topic-overviews/:module*"
+    destination: "/nemo/datadesigner/code-reference/config/:module*"
 
   # Dev Notes: mkdocs-material blog plugin URL shape.
   # Section title "Dev Notes" -> /dev-notes; intermediate posts/ directory dropped.

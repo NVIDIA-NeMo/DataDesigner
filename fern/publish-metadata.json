@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "kind": "fern-docs-website",
+  "action": "release-snapshot",
+  "source": {
+    "repository": "NVIDIA-NeMo/DataDesigner",
+    "ref": "andreatgretel/fix/fern-versioned-docs",
+    "sha": "e1c3f4e603c886957077a869c6c4b1738fef7d13"
+  },
+  "release_tag": "v0.6.0",
+  "published_branch": "docs-website"
+}

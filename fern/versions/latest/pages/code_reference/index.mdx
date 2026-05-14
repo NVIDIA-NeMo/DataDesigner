@@ -1,0 +1,15 @@
+---
+title: "Code Reference"
+description: ""
+position: 1
+---
+
+Data Designer is implemented as three installable packages that share the `data_designer` namespace.
+
+| Package | Namespace | Role |
+|---------|-----------|------|
+| `data-designer-config` | `data_designer.config` | Configuration schemas, builder APIs, plugin registration objects, and result schemas. |
+| `data-designer-engine` | `data_designer.engine` | Runtime extension contracts for generation, seed reading, processing, and MCP tool execution. |
+| `data-designer` | `data_designer.interface` | Public entry points for previewing, creating, and inspecting generated datasets. |
+
+The dependency direction is `interface -> engine -> config`. Config objects describe what should happen, engine objects implement how it happens, and interface objects expose the supported public API.
