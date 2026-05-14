@@ -12,7 +12,7 @@ This folder contains the Fern docs site for NeMo Data Designer. Use `fern/README
 
 ## Generated Artifacts
 
-- `make generate-fern-api-reference` creates gitignored API reference files in `fern/code-reference/`.
+- `make generate-fern-api-reference` creates gitignored API reference files in `fern/code-reference/` for `data_designer.config`, `data_designer.interface`, and curated engine extension modules.
 - `py2fern` only descends into Python packages. Add `__init__.py` to any new subdirectory whose modules should appear in the API reference.
 - `make generate-fern-notebooks` creates gitignored notebook files in `fern/components/notebooks/`.
 - `docs/notebook_source/*.py` is the notebook source of truth.

@@ -25,7 +25,7 @@ Two pre-render steps are needed before the dev server has all content. Both prod
 
 ### 1. Python API reference (gitignored - must regenerate)
 
-`make generate-fern-api-reference` uses `py2fern` to extract API docs from the local Python source (`packages/data-designer-config/src/data_designer/config`). The output lands in `fern/code-reference/data-designer/` (gitignored).
+`make generate-fern-api-reference` uses `py2fern` to extract API docs from local Python source. The output lands in `fern/code-reference/` (gitignored), preserving the existing Config API folder and adding Interface and curated Engine extension API folders.
 
 ```bash
 make generate-fern-api-reference
@@ -33,7 +33,7 @@ make generate-fern-api-reference
 
 `py2fern` only descends into Python packages. Add `__init__.py` to any new subdirectory whose modules should appear in the API reference.
 
-The `libraries:` block in [`docs.yml`](docs.yml) still documents the equivalent Fern-native generator. Run `make generate-fern-api-reference-native` only when you want the Fern CLI output and have Fern auth.
+The `libraries:` block in [`docs.yml`](docs.yml) still documents the Fern-native config generator. Run `make generate-fern-api-reference-native` only when you want the Fern CLI output and have Fern auth.
 
 Re-run when the upstream package source changes.
 
