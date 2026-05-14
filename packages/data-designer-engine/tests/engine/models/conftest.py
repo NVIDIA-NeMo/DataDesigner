@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from data_designer.config.models import (
+    ChatCompletionInferenceParams,
+    EmbeddingInferenceParams,
+    ImageInferenceParams,
+    ModelConfig,
+)
+from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
+from data_designer.engine.models.clients.base import ModelClient
+from data_designer.engine.models.factory import create_model_registry
+from data_designer.engine.models.registry import ModelRegistry
+from data_designer.engine.secret_resolver import SecretsFileResolver
+from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry
+
+
+@pytest.fixture
+def stub_secrets_resolver() -> SecretsFileResolver:
+    module_path = Path(__file__).parent
+    return SecretsFileResolver(module_path / "stub_secrets.json")
+
+
+@pytest.fixture
+def stub_model_provider_registry() -> ModelProviderRegistry:
+    return ModelProviderRegistry(
+        providers=[
+            ModelProvider(
+                name="stub-model-provider",
+                endpoint="https://api.example.com/v1",
+                provider_type="openai",
+                api_key="STUB_API_KEY",
+            )
+        ]
+    )
+
+
+@pytest.fixture
+def stub_model_configs() -> list[ModelConfig]:
+    return [
+        ModelConfig(
+            alias="stub-text",
+            model="stub-model-text",
+            provider="stub-model-provider",
+            inference_parameters=ChatCompletionInferenceParams(
+                temperature=0.80, top_p=0.95, max_tokens=100, max_parallel_requests=10, timeout=100
+            ),
+        ),
+        ModelConfig(
+            alias="stub-reasoning",
+            model="stub-model-reasoning",
+            provider="stub-model-provider",
+            inference_parameters=ChatCompletionInferenceParams(
+                temperature=0.80, top_p=0.95, max_tokens=100, max_parallel_requests=10, timeout=100
+            ),
+        ),
+        ModelConfig(
+            alias="stub-embedding",
+            model="stub-model-embedding",
+            provider="stub-model-provider",
+            inference_parameters=EmbeddingInferenceParams(
+                dimensions=100,
+            ),
+        ),
+        ModelConfig(
+            alias="stub-image",
+            model="stub-model-image",
+            provider="stub-model-provider",
+            inference_parameters=ImageInferenceParams(),
+        ),
+    ]
+
+
+@pytest.fixture
+def stub_model_registry(
+    stub_model_configs: list[ModelConfig],
+    stub_secrets_resolver: SecretsFileResolver,
+    stub_model_provider_registry: ModelProviderRegistry,
+) -> ModelRegistry:
+    return create_model_registry(
+        model_configs=stub_model_configs,
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+    )
+
+
+@pytest.fixture
+def stub_model_client() -> MagicMock:
+    """Mock ModelClient for testing ModelFacade without a real HTTP adapter."""
+    return MagicMock(spec=ModelClient)
+
+
+@pytest.fixture
+def stub_mcp_facade_for_model() -> StubMCPFacade:
+    """Default stub MCP facade with max_tool_call_turns=3."""
+    return StubMCPFacade()
+
+
+@pytest.fixture
+def stub_mcp_registry_for_model(stub_mcp_facade_for_model: StubMCPFacade) -> StubMCPRegistry:
+    """Default stub MCP registry."""
+    return StubMCPRegistry(stub_mcp_facade_for_model)

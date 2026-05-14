@@ -1,0 +1,145 @@
+[
+  {
+    "columns": [
+      { "name": "diagnosis", "drop": false },
+      { "name": "patient_summary", "drop": false },
+      { "name": "row_id", "drop": false },
+      { "name": "gaussian", "drop": false },
+      { "name": "uniform", "drop": false },
+      { "name": "poisson", "drop": false }
+    ],
+    "source": {
+      "path": "datasets/test-repo/testing/data.csv",
+      "seed_type": "hf"
+    },
+    "sampling_strategy": "shuffle"
+  },
+  {
+    "columns": [
+      {
+        "name": "student",
+        "drop": false,
+        "sampler_type": "person",
+        "params": {
+          "locale": "en_US",
+          "sex": null,
+          "city": null,
+          "age_range": [18, 114],
+          "select_field_values": null,
+          "with_synthetic_personas": true
+        },
+        "conditional_params": {},
+        "convert_to": null
+      },
+      {
+        "name": "school_subject",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "math",
+            "science",
+            "history",
+            "english",
+            "art",
+            "music",
+            "physical_education"
+          ],
+          "weights": null
+        },
+        "conditional_params": {},
+        "convert_to": null
+      }
+    ],
+    "constraints": [],
+    "max_rejections_factor": 5
+  },
+  {
+    "name": "school_subject_description",
+    "drop": false,
+    "prompt": "Describe the school subject {{ school_subject }}. Also mention a student named {{ student.first_name }} who has {{ diagnosis }}.",
+    "model_alias": "nano",
+    "system_prompt": "/no_think"
+  },
+  {
+    "name": "school_supplies",
+    "drop": false,
+    "prompt": "Create a list of school supplies for the school subject {{ school_subject }}.",
+    "model_alias": "nano",
+    "system_prompt": "/no_think",
+    "output_format": {
+      "$defs": {
+        "Supplies": {
+          "properties": {
+            "name": { "title": "Name", "type": "string" },
+            "quantity": { "title": "Quantity", "type": "integer" }
+          },
+          "required": ["name", "quantity"],
+          "title": "Supplies",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "school_name": {
+          "enum": [
+            "Lincoln Elementary",
+            "Washington Elementary",
+            "Jefferson Elementary"
+          ],
+          "title": "School Name",
+          "type": "string"
+        },
+        "number_of_classes": {
+          "title": "Number Of Classes",
+          "type": "integer"
+        },
+        "supplies": {
+          "items": { "$ref": "#/$defs/Supplies" },
+          "title": "Supplies",
+          "type": "array"
+        }
+      },
+      "required": ["school_name", "number_of_classes", "supplies"],
+      "title": "SchoolSupplies",
+      "type": "object"
+    }
+  },
+  {
+    "name": "code_student_work_summary",
+    "drop": false,
+    "prompt": "Write a Python code snippet that would be relevant for the school subject {{ school_subject }}.",
+    "model_alias": "nano",
+    "system_prompt": "/no_think",
+    "code_lang": "python"
+  },
+  {
+    "name": "code_student_work_summary_validation",
+    "drop": false,
+    "target_columns": ["code_student_work_summary"],
+    "validator_type": "code",
+    "validator_params": {
+      "code_lang": "python"
+    },
+    "batch_size": 10
+  },
+  {
+    "name": "llm_judge_code_student_work_summary",
+    "drop": false,
+    "prompt": "You are a Python expert. Evaluate the following code for the school subject {{ school_subject }}. \n<code>\n{{ code_student_work_summary }}\n</code>",
+    "model_alias": "nano",
+    "system_prompt": "/no_think",
+    "scores": [
+      {
+        "options": {
+          "4": "The code is very clear and easy to understand.",
+          "3": "The code is clear and easy to understand.",
+          "2": "The code is somewhat clear and easy to understand.",
+          "1": "The code is not clear and easy to understand.",
+          "0": "The code is extremely difficult to understand."
+        },
+        "name": "Quality",
+        "description": "Is the code clear and easy to understand?"
+      }
+    ]
+  }
+]

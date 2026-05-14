@@ -1,0 +1,167 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import logging
+import time
+from threading import Lock
+from typing import TYPE_CHECKING
+
+from data_designer.logging import LOG_INDENT, RandomEmoji
+
+if TYPE_CHECKING:
+    from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
+
+logger = logging.getLogger(__name__)
+
+
+class ProgressTracker:
+    """
+    Thread-safe progress tracker for monitoring concurrent task completion.
+
+    Tracks completed, successful, and failed task counts and logs progress
+    at configurable intervals. Designed for use with ConcurrentThreadExecutor
+    to provide visibility into long-running batch operations.
+
+    Example usage:
+        tracker = ProgressTracker(total_records=100, label="LLM_TEXT column 'response'")
+        tracker.log_start(max_workers=8)
+
+        # In callbacks from ConcurrentThreadExecutor:
+        tracker.record_success()  # or tracker.record_failure()
+
+        # After executor completes:
+        tracker.log_final()
+    """
+
+    def __init__(
+        self,
+        total_records: int,
+        label: str,
+        log_interval_percent: int = 10,
+        *,
+        quiet: bool = False,
+        progress_bar: StickyProgressBar | None = None,
+        progress_bar_key: str | None = None,
+    ):
+        self.total_records = total_records
+        self.label = label
+        self.quiet = quiet
+
+        self.completed = 0
+        self.success = 0
+        self.failed = 0
+        self.skipped = 0
+
+        interval_fraction = max(1, log_interval_percent) / 100.0
+        self.log_interval = max(1, int(total_records * interval_fraction)) if total_records > 0 else 1
+        self.next_log_at = self.log_interval
+
+        self.start_time = time.perf_counter()
+        self.lock = Lock()
+        self._random_emoji = RandomEmoji()
+
+        self._bar = progress_bar
+        self._bar_key = progress_bar_key or label
+        if self._bar is not None:
+            self._bar.add_bar(self._bar_key, label, total_records)
+
+    def log_start(self, max_workers: int) -> None:
+        """Log the start of processing with worker count and interval information."""
+        logger.info(
+            "⚡️ Processing %s with %d concurrent workers",
+            self.label,
+            max_workers,
+        )
+        self._log_interval_info()
+
+    def _log_interval_info(self) -> None:
+        interval_str = "after each record" if self.log_interval == 1 else f"every {self.log_interval} records"
+        logger.info(
+            "⏱️ %s will report progress %s",
+            self.label,
+            interval_str,
+        )
+
+    def record_success(self) -> None:
+        """Record a successful task completion and log progress if at interval."""
+        self._record_completion(success=True)
+
+    def record_failure(self) -> None:
+        """Record a failed task completion and log progress if at interval."""
+        self._record_completion(success=False)
+
+    def record_skipped(self) -> None:
+        """Record a skipped task completion and log progress if at interval."""
+        self._record_completion(success=None)
+
+    def get_snapshot(self, elapsed: float | None = None) -> tuple[int, int, int, int, int, float, float, str]:
+        with self.lock:
+            return self._get_snapshot_unlocked(elapsed)
+
+    def log_final(self) -> None:
+        """Log final progress summary."""
+        with self.lock:
+            if self._bar is not None:
+                self._bar.remove_bar(self._bar_key)
+            if self.completed > 0:
+                self._log_progress_unlocked()
+
+    def _record_completion(self, *, success: bool | None) -> None:
+        should_log = False
+        with self.lock:
+            self.completed += 1
+            if success is True:
+                self.success += 1
+            elif success is False:
+                self.failed += 1
+            else:
+                self.skipped += 1
+
+            if not self.quiet and self.completed >= self.next_log_at and self.completed < self.total_records:
+                should_log = True
+                while self.next_log_at <= self.completed:
+                    self.next_log_at += self.log_interval
+
+        if should_log:
+            with self.lock:
+                self._log_progress_unlocked()
+
+    def _get_snapshot_unlocked(self, elapsed: float | None = None) -> tuple[int, int, int, int, int, float, float, str]:
+        current_elapsed = time.perf_counter() - self.start_time if elapsed is None else elapsed
+        rate = self.completed / current_elapsed if current_elapsed > 0 else 0.0
+        percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
+        emoji = self._random_emoji.progress(percent)
+        return self.completed, self.total_records, self.success, self.failed, self.skipped, percent, rate, emoji
+
+    def _log_progress_unlocked(self) -> None:
+        """Log current progress. Must be called while holding the lock."""
+        if self._bar is not None and self._bar.is_active:
+            self._bar.update(
+                self._bar_key,
+                completed=self.completed,
+                success=self.success,
+                failed=self.failed,
+            )
+            return
+
+        completed, total_records, success, failed, skipped, percent, rate, emoji = self._get_snapshot_unlocked()
+        remaining = max(0, total_records - completed)
+        eta = f"{(remaining / rate):.1f}s" if rate > 0 else "unknown"
+        skipped_suffix = f", {skipped} skipped" if skipped else ""
+
+        logger.info(
+            "%s%s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed%s, %.2f rec/s, eta %s",
+            LOG_INDENT,
+            emoji,
+            self.label,
+            completed,
+            total_records,
+            percent,
+            success,
+            failed,
+            skipped_suffix,
+            rate,
+            eta,
+        )

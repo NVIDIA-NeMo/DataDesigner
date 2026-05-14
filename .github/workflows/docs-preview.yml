@@ -1,0 +1,137 @@
+name: Docs preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "docs/**"
+      - "fern/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs-preview.yml"
+
+permissions: {}
+
+concurrency:
+  group: docs-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.9.5"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install docs dependencies
+        run: uv sync --all-packages --group docs --group notebooks
+
+      - name: Create preview notebooks
+        run: |
+          mkdir -p docs/notebooks
+          cp docs/notebook_source/_README.md docs/notebooks/README.md
+          cp docs/notebook_source/_pyproject.toml docs/notebooks/pyproject.toml
+
+          for src in docs/notebook_source/*.py; do
+            name=$(basename "$src" .py)
+            .venv/bin/jupytext --to ipynb --output "docs/notebooks/${name}.ipynb" "$src"
+          done
+
+      - name: Build docs
+        run: .venv/bin/mkdocs build
+
+      - name: Check Fern docs
+        id: fern-check
+        continue-on-error: true
+        run: make check-fern-docs
+
+      - name: Skip hosted previews for fork PRs
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: echo "::notice::Skipping hosted docs previews because this PR comes from a fork."
+
+      - name: Deploy Fern preview
+        if: github.event.pull_request.head.repo.full_name == github.repository && steps.fern-check.outcome == 'success'
+        id: fern-preview
+        continue-on-error: true
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$FERN_TOKEN" ]; then
+            echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern preview docs."
+            exit 1
+          fi
+
+          cd fern
+          fern_version=$(jq -r .version fern.config.json)
+          if [[ ! "$fern_version" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-.][0-9A-Za-z]+)*$ ]]; then
+            echo "::error::Invalid Fern version in fern.config.json: $fern_version"
+            exit 1
+          fi
+
+          log_file="$RUNNER_TEMP/fern-preview.log"
+
+          set -o pipefail
+          npx -y "fern-api@$fern_version" generate --docs --preview --id "pr-$PR_NUMBER" --force --no-prompt 2>&1 | tee "$log_file"
+
+          url=$(sed -nE 's#.*(https://[^[:space:]]+docs\.buildwithfern\.com[^[:space:]]*).*#\1#p' "$log_file" | tail -n 1)
+          while [[ "$url" =~ [\)\>\.,]$ ]]; do
+            url="${url%?}"
+          done
+
+          if [ -z "$url" ]; then
+            echo "::error::Could not find Fern preview URL in CLI output."
+            exit 1
+          fi
+
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Cloudflare Pages
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        id: deploy
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site/ --project-name=dd-docs-preview --branch=pr-${{ github.event.pull_request.number }}
+
+      - name: Find existing comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "<!-- docs-preview -->"
+
+      - name: Post or update PR comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            <!-- docs-preview -->
+            **MkDocs preview:** ${{ steps.deploy.outcome == 'success' && steps.deploy.outputs.deployment-url || 'MkDocs preview failed; see workflow logs.' }}
+
+            **Fern preview:** ${{ steps.fern-preview.outcome == 'success' && steps.fern-preview.outputs.url || 'Fern preview failed or skipped; see workflow logs.' }}
+
+            > Notebook tutorials are rendered without execution outputs in previews.
+
+      - name: Fail if Fern docs check failed
+        if: steps.fern-check.outcome == 'failure'
+        run: exit 1

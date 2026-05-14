@@ -1,0 +1,194 @@
+name: Build Fern docs
+
+on:
+  workflow_dispatch:
+    inputs:
+      use_cache:
+        description: "Use cached notebooks for unchanged sources"
+        type: boolean
+        default: true
+      release_tag:
+        description: "Release tag to publish. Defaults to the latest published release without creating a new snapshot."
+        type: string
+        required: false
+      source_ref:
+        description: "Source ref for release docs. Defaults to release_tag when set, otherwise the workflow ref."
+        type: string
+        required: false
+  release:
+    types:
+      - published
+
+permissions: {}
+
+env:
+  FERN_PUBLISHED_BRANCH: docs-website
+
+jobs:
+  resolve-release:
+    if: github.event_name != 'release' || github.event.release.prerelease != true
+    runs-on: ubuntu-latest
+    outputs:
+      prepare_release_docs: ${{ steps.release.outputs.prepare_release_docs }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      source_ref: ${{ steps.release.outputs.source_ref }}
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve release inputs
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            release_tag="$EVENT_RELEASE_TAG"
+            source_ref="${INPUT_SOURCE_REF:-$EVENT_RELEASE_TAG}"
+            prepare_release_docs=1
+          elif [ -n "$INPUT_RELEASE_TAG" ]; then
+            release_tag="$INPUT_RELEASE_TAG"
+            source_ref="${INPUT_SOURCE_REF:-$INPUT_RELEASE_TAG}"
+            prepare_release_docs=1
+          else
+            release_tag=$(gh release view --json tagName -q .tagName)
+            if [ -z "$release_tag" ]; then
+              echo "::error::Could not find the latest published release tag."
+              exit 1
+            fi
+            source_ref="${INPUT_SOURCE_REF:-$WORKFLOW_REF}"
+            prepare_release_docs=0
+          fi
+
+          echo "prepare_release_docs=$prepare_release_docs" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$source_ref" >> "$GITHUB_OUTPUT"
+
+  prepare-published-release:
+    if: needs.resolve-release.outputs.prepare_release_docs == '1'
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          path: workflow
+
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          path: source
+          ref: ${{ needs.resolve-release.outputs.source_ref }}
+
+      - name: Checkout published branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          path: website
+
+      - name: Prepare published branch checkout
+        working-directory: website
+        run: |
+          if git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$FERN_PUBLISHED_BRANCH" --depth=1
+            git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
+          else
+            git checkout --orphan "$FERN_PUBLISHED_BRANCH"
+            git rm -rf . || true
+          fi
+
+      - name: Prepare Fern release snapshot
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+        run: |
+          python3 workflow/fern/scripts/fern-published-branch.py sync-source \
+            --source-root source \
+            --published-root website
+          python3 workflow/fern/scripts/fern-release-version.py --root website/fern prepare --version "$RELEASE_TAG" --force
+          python3 workflow/fern/scripts/fern-release-version.py --root website/fern check --version "$RELEASE_TAG" --require-latest-matches-release
+
+      - name: Commit published branch
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+        working-directory: website
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "::notice::Fern published branch already has $RELEASE_TAG."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: publish Fern docs for $RELEASE_TAG"
+          git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
+
+  build-notebooks:
+    needs: resolve-release
+    uses: ./.github/workflows/build-notebooks.yml
+    permissions:
+      actions: read
+      contents: write
+    with:
+      use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
+      checkout_ref: ${{ needs.resolve-release.outputs.prepare_release_docs == '1' && needs.resolve-release.outputs.source_ref || '' }}
+    secrets: inherit
+
+  publish:
+    if: always() && needs.resolve-release.result == 'success' && needs.build-notebooks.result == 'success' && (needs.prepare-published-release.result == 'success' || needs.prepare-published-release.result == 'skipped')
+    needs:
+      - resolve-release
+      - prepare-published-release
+      - build-notebooks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+    steps:
+      - name: Checkout published branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ env.FERN_PUBLISHED_BRANCH }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.9.5"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install docs dependencies
+        run: uv sync --python 3.13 --all-packages --group docs --group notebooks
+
+      - name: Download executed notebooks
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: notebooks
+          path: docs/notebooks
+
+      - name: Check Fern docs
+        run: make check-fern-docs
+
+      - name: Publish Fern docs
+        run: |
+          if [ -z "$FERN_TOKEN" ]; then
+            echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern docs."
+            exit 1
+          fi
+
+          cd fern
+          fern_version=$(jq -r .version fern.config.json)
+          if [[ ! "$fern_version" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-.][0-9A-Za-z]+)*$ ]]; then
+            echo "::error::Invalid Fern version in fern.config.json: $fern_version"
+            exit 1
+          fi
+
+          npx -y "fern-api@$fern_version" generate --docs --no-prompt

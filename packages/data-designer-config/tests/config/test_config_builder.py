@@ -1,0 +1,1172 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+import yaml
+from pydantic import BaseModel, ValidationError
+
+import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
+from data_designer.config.column_configs import (
+    ExpressionColumnConfig,
+    LLMCodeColumnConfig,
+    LLMJudgeColumnConfig,
+    LLMStructuredColumnConfig,
+    LLMTextColumnConfig,
+    SamplerColumnConfig,
+    Score,
+    ValidationColumnConfig,
+)
+from data_designer.config.column_types import DataDesignerColumnType, get_column_config_from_kwargs
+from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
+from data_designer.config.data_designer_config import DataDesignerConfig
+from data_designer.config.errors import (
+    BuilderConfigurationError,
+    BuilderSerializationError,
+    InvalidColumnTypeError,
+    InvalidConfigError,
+)
+from data_designer.config.mcp import ToolConfig
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
+from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTransformProcessorConfig
+from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
+from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
+from data_designer.config.seed import IndexRange, SamplingStrategy
+from data_designer.config.seed_source import HuggingFaceSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.utils.info import ConfigBuilderInfo
+from data_designer.config.validator_params import CodeValidatorParams
+from data_designer.config.version import get_library_version
+
+
+class DummyStructuredModel(BaseModel):
+    stub: str
+
+
+@pytest.fixture
+def stub_data_designer_builder(stub_data_designer_builder_config_str):
+    yield DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
+
+
+def test_loading_model_configs_in_constructor(stub_model_configs):
+    stub_model_configs_dict = [mc.model_dump(mode="json") for mc in stub_model_configs]
+    # test loading model configs from a list
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    assert builder.model_configs == stub_model_configs
+
+    # test loading model configs from a yaml file
+    with tempfile.NamedTemporaryFile(prefix="model_configs", suffix=".yaml") as tmp_file:
+        model_configs = {"model_configs": stub_model_configs_dict}
+        tmp_file.write(yaml.safe_dump(model_configs).encode("utf-8"))
+        tmp_file.flush()
+        builder = DataDesignerConfigBuilder(model_configs=tmp_file.name)
+        assert builder.model_configs == stub_model_configs
+
+    # test failure when the list is not grouped under model_configs in the yaml file
+    with tempfile.NamedTemporaryFile(prefix="model_configs", suffix=".yaml") as tmp_file:
+        model_configs = {"invalid": stub_model_configs_dict}
+        tmp_file.write(yaml.safe_dump(model_configs).encode("utf-8"))
+        tmp_file.flush()
+        with pytest.raises(InvalidConfigError):
+            builder = DataDesignerConfigBuilder(model_configs=tmp_file.name)
+
+
+def test_from_config(stub_data_designer_builder_config_str):
+    builder = DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    assert isinstance(builder.get_column_config(name="code"), LLMCodeColumnConfig)
+    assert isinstance(builder.get_column_config(name="code_validation_result"), ValidationColumnConfig)
+    assert isinstance(builder.get_column_config(name="code_judge_result"), LLMJudgeColumnConfig)
+    assert builder.build().model_configs[0].alias == "my_own_code_model"
+
+    # test construction from a concrete config object
+    config_dict = yaml.safe_load(stub_data_designer_builder_config_str)
+    builder_config_object = BuilderConfig.model_validate(config_dict)
+    builder_from_object = DataDesignerConfigBuilder.from_config(
+        config=builder_config_object,
+    )
+    assert isinstance(builder_from_object.get_column_config(name="code_id"), SamplerColumnConfig)
+
+
+def test_from_config_restores_processors_and_profilers(stub_model_configs: list[ModelConfig]) -> None:
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    builder.add_column(SamplerColumnConfig(name="test_id", sampler_type="uuid", params=UUIDSamplerParams()))
+    processor_config = SchemaTransformProcessorConfig(name="records", template={"id": "{{ test_id }}"})
+    profiler_config = JudgeScoreProfilerConfig(model_alias="stub-model", summary_score_sample_size=5)
+
+    builder.add_processor(processor_config)
+    builder.add_profiler(profiler_config)
+
+    loaded_builder = DataDesignerConfigBuilder.from_config(builder.get_builder_config())
+
+    assert loaded_builder.get_processor_configs() == [processor_config]
+    assert loaded_builder.get_profilers() == [profiler_config]
+
+
+def test_from_config_restores_drop_column_processor_side_effects(stub_model_configs: list[ModelConfig]) -> None:
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    for column_name in ("col_a", "col_b", "other"):
+        builder.add_column(SamplerColumnConfig(name=column_name, sampler_type="uuid", params=UUIDSamplerParams()))
+    processor_config = DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"])
+
+    builder.add_processor(processor_config)
+
+    loaded_builder = DataDesignerConfigBuilder.from_config(builder.get_builder_config())
+
+    assert loaded_builder.get_processor_configs() == [processor_config]
+    assert loaded_builder.get_column_config("col_a").drop is True
+    assert loaded_builder.get_column_config("col_b").drop is True
+    assert loaded_builder.get_column_config("other").drop is False
+
+
+def test_from_config_round_trips_all_data_designer_config_fields(stub_model_configs: list[ModelConfig]) -> None:
+    data_designer_config_fields = set(DataDesignerConfig.model_fields)
+
+    builder = DataDesignerConfigBuilder(
+        model_configs=stub_model_configs,
+        tool_configs=[
+            ToolConfig(
+                tool_alias="lookup-tools",
+                providers=["local-tools"],
+                allow_tools=["lookup"],
+                max_tool_call_turns=2,
+                timeout_sec=1.0,
+            )
+        ],
+    )
+    builder.with_seed_dataset(
+        HuggingFaceSeedSource(path="datasets/test-repo/data/*.parquet", token="test-token"),
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=IndexRange(start=1, end=3),
+    )
+    builder.add_column(
+        name="age",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.UNIFORM,
+        params={"low": 1, "high": 100},
+    )
+    builder.add_column(
+        name="height",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.UNIFORM,
+        params={"low": 15, "high": 200},
+    )
+    builder.add_column(
+        SamplerColumnConfig(name="internal_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
+    )
+    builder.add_constraint(ScalarInequalityConstraint(target_column="age", operator="gt", rhs=18))
+    builder.add_constraint(ColumnInequalityConstraint(target_column="height", operator="gt", rhs="age"))
+    builder.add_processor(SchemaTransformProcessorConfig(name="records", template={"age": "{{ age }}"}))
+    builder.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["internal_*"]))
+    builder.add_profiler(JudgeScoreProfilerConfig(model_alias="stub-model", summary_score_sample_size=5))
+
+    original_config = builder.build()
+    loaded_config = DataDesignerConfigBuilder.from_config(BuilderConfig(data_designer=original_config)).build()
+
+    assert set(original_config.model_fields_set) == data_designer_config_fields
+    assert set(loaded_config.model_fields_set) == data_designer_config_fields
+    for field_name in sorted(data_designer_config_fields):
+        assert getattr(loaded_config, field_name) == getattr(original_config, field_name)
+
+
+def test_from_config_auto_wraps_bare_data_designer_config(stub_data_designer_config_str: str) -> None:
+    """Test that from_config auto-wraps a bare DataDesignerConfig (no 'data_designer' wrapper)."""
+    builder = DataDesignerConfigBuilder.from_config(config=stub_data_designer_config_str)
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    assert isinstance(builder.get_column_config(name="code"), LLMCodeColumnConfig)
+    assert builder.build().model_configs[0].alias == "my_own_code_model"
+
+
+def test_from_config_auto_wraps_bare_dict() -> None:
+    """Test that from_config auto-wraps a dict with 'columns' but no 'data_designer' key."""
+    bare_config: dict = {
+        "model_configs": [
+            {
+                "alias": "test-model",
+                "model": "openai/meta/llama-3.3-70b-instruct",
+            }
+        ],
+        "columns": [
+            {
+                "name": "test_id",
+                "column_type": "sampler",
+                "sampler_type": "uuid",
+                "params": {"prefix": "id_", "short_form": True},
+            }
+        ],
+    }
+    builder = DataDesignerConfigBuilder.from_config(config=bare_config)
+    assert isinstance(builder.get_column_config(name="test_id"), SamplerColumnConfig)
+
+
+def test_from_config_passthrough_when_already_wrapped() -> None:
+    """Test that from_config passes through a dict that already has a 'data_designer' key."""
+    wrapped_config: dict = {
+        "data_designer": {
+            "model_configs": [
+                {
+                    "alias": "test-model",
+                    "model": "openai/meta/llama-3.3-70b-instruct",
+                }
+            ],
+            "columns": [
+                {
+                    "name": "test_id",
+                    "column_type": "sampler",
+                    "sampler_type": "uuid",
+                    "params": {"prefix": "id_", "short_form": True},
+                }
+            ],
+        }
+    }
+    builder = DataDesignerConfigBuilder.from_config(config=wrapped_config)
+    assert isinstance(builder.get_column_config(name="test_id"), SamplerColumnConfig)
+
+
+def test_from_config_auto_wraps_bare_yaml_file(stub_data_designer_config_str: str) -> None:
+    """Test that from_config auto-wraps a bare DataDesignerConfig loaded from a YAML file."""
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+        f.write(stub_data_designer_config_str)
+        f.flush()
+        builder = DataDesignerConfigBuilder.from_config(config=Path(f.name))
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+
+
+def test_from_config_auto_wraps_bare_json_file() -> None:
+    """Test that from_config auto-wraps a bare DataDesignerConfig loaded from a JSON file."""
+    bare_config: dict = {
+        "model_configs": [
+            {
+                "alias": "test-model",
+                "model": "openai/meta/llama-3.3-70b-instruct",
+            }
+        ],
+        "columns": [
+            {
+                "name": "test_id",
+                "column_type": "sampler",
+                "sampler_type": "uuid",
+                "params": {"prefix": "id_", "short_form": True},
+            }
+        ],
+    }
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        json.dump(bare_config, f)
+        f.flush()
+        builder = DataDesignerConfigBuilder.from_config(config=Path(f.name))
+
+    assert isinstance(builder.get_column_config(name="test_id"), SamplerColumnConfig)
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_from_config_loads_yaml_url(mock_requests: MagicMock, stub_data_designer_config_str: str) -> None:
+    mock_response = MagicMock()
+    mock_response.content = stub_data_designer_config_str.encode("utf-8")
+    mock_requests.get.return_value = mock_response
+
+    builder = DataDesignerConfigBuilder.from_config(config="https://example.com/config.yaml")
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    mock_requests.get.assert_called_once_with("https://example.com/config.yaml", timeout=10)
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_from_config_loads_json_url(mock_requests: MagicMock, stub_data_designer_config_str: str) -> None:
+    config_dict = yaml.safe_load(stub_data_designer_config_str)
+    mock_response = MagicMock()
+    mock_response.content = json.dumps(config_dict).encode("utf-8")
+    mock_requests.get.return_value = mock_response
+
+    builder = DataDesignerConfigBuilder.from_config(config="https://example.com/config.json")
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    mock_requests.get.assert_called_once_with("https://example.com/config.json", timeout=10)
+
+
+def test_info(stub_data_designer_builder):
+    assert stub_data_designer_builder.info is not None
+    assert isinstance(stub_data_designer_builder.info, ConfigBuilderInfo)
+
+
+def test_add_column_with_types(stub_empty_builder):
+    stub_empty_builder.add_column(
+        SamplerColumnConfig(
+            name="test_id",
+            sampler_type=SamplerType.UUID,
+            params=UUIDSamplerParams(prefix="code_", short_form=True, uppercase=True),
+        )
+    )
+    stub_empty_builder.add_column(
+        LLMCodeColumnConfig(
+            name="test_code",
+            prompt="Write some zig but call it Python.",
+            code_lang=CodeLang.PYTHON,
+            model_alias="stub-code-alias",
+        )
+    )
+    stub_empty_builder.add_column(
+        LLMStructuredColumnConfig(
+            name="test_structured_output",
+            prompt="Generate a structured output",
+            output_format=DummyStructuredModel,
+            model_alias="stub-structured-alias",
+        )
+    )
+    stub_empty_builder.add_column(
+        LLMJudgeColumnConfig(
+            name="test_judge",
+            prompt="Judge this",
+            scores=[
+                Score(
+                    name="test_rubric",
+                    description="test",
+                    options={"0": "Not Good", "1": "Good"},
+                )
+            ],
+            model_alias="stub-judge-alias",
+        )
+    )
+    stub_empty_builder.add_column(
+        ValidationColumnConfig(
+            name="test_validation",
+            target_columns=["test_code"],
+            validator_type="code",
+            validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+        )
+    )
+    stub_empty_builder.add_column(
+        ExpressionColumnConfig(
+            name="test_expression",
+            expr="1 + 1",
+        )
+    )
+    assert stub_empty_builder.get_column_config("test_id").name == "test_id"
+    assert stub_empty_builder.get_column_config("test_code").name == "test_code"
+    assert stub_empty_builder.get_column_config("test_structured_output").name == "test_structured_output"
+    assert (
+        stub_empty_builder.get_column_config("test_structured_output").output_format
+        == DummyStructuredModel.model_json_schema()
+    )
+    assert stub_empty_builder.get_column_config("test_judge").name == "test_judge"
+    assert stub_empty_builder.get_column_config("test_validation").name == "test_validation"
+    assert len(stub_empty_builder.get_column_configs()) == 6
+
+    # replace existing column
+    stub_empty_builder.add_column(
+        LLMCodeColumnConfig(
+            name="test_code",
+            prompt="Write some zig but call it Swift.",
+            code_lang=CodeLang.SWIFT,
+            model_alias="stub-code-alias",
+        )
+    )
+    assert stub_empty_builder.get_column_config(name="test_code").prompt == "Write some zig but call it Swift."
+
+
+def test_add_column_with_kwargs(stub_empty_builder):
+    stub_empty_builder.add_column(
+        name="test_id",
+        column_type="sampler",
+        sampler_type=SamplerType.UUID,
+        params={"prefix": "code_", "short_form": True, "uppercase": True},
+    )
+    stub_empty_builder.add_column(
+        name="test_code",
+        column_type="llm-code",
+        prompt="Write some zig but call it Python.",
+        code_lang=CodeLang.PYTHON,
+        model_alias="stub-code-alias",
+    )
+    stub_empty_builder.add_column(
+        name="test_structured_output",
+        column_type="llm-structured",
+        model_alias="stub-structured-alias",
+        prompt="Generate a structured output",
+        output_format=DummyStructuredModel,
+    )
+    stub_empty_builder.add_column(
+        name="test_judge",
+        column_type="llm-judge",
+        model_alias="stub-judge-alias",
+        prompt="Judge this",
+        scores=[
+            {
+                "name": "test_rubric",
+                "description": "test",
+                "options": {"0": "Not Good", "1": "Good"},
+            }
+        ],
+    )
+    stub_empty_builder.add_column(
+        name="test_validation",
+        column_type="validation",
+        target_columns=["test_code"],
+        validator_type="code",
+        validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+    )
+    stub_empty_builder.add_column(
+        name="test_expression",
+        column_type="expression",
+        expr="1 + 1",
+    )
+    assert stub_empty_builder.get_column_config("test_id").name == "test_id"
+    assert stub_empty_builder.get_column_config("test_code").name == "test_code"
+    assert stub_empty_builder.get_column_config("test_structured_output").name == "test_structured_output"
+    assert (
+        stub_empty_builder.get_column_config("test_structured_output").output_format
+        == DummyStructuredModel.model_json_schema()
+    )
+    assert stub_empty_builder.get_column_config("test_judge").name == "test_judge"
+    assert stub_empty_builder.get_column_config("test_validation").name == "test_validation"
+    assert len(stub_empty_builder.get_column_configs()) == 6
+
+    # replace existing column
+    stub_empty_builder.add_column(
+        name="test_code",
+        column_type="llm-code",
+        prompt="Write some zig but call it Swift.",
+        code_lang=CodeLang.SWIFT,
+        model_alias="stub-code-alias",
+    )
+    assert stub_empty_builder.get_column_config(name="test_code").prompt == "Write some zig but call it Swift."
+
+
+def test_add_column_exceptions(stub_empty_builder):
+    with pytest.raises(
+        BuilderConfigurationError,
+        match="You must provide either a 'column_config' object or 'name' \\*and\\* 'column_type'",
+    ):
+        stub_empty_builder.add_column(
+            prompt="Write some zig but call it Swift.",
+        )
+    with patch("data_designer.config.config_builder.get_column_config_from_kwargs") as mock_get_column_config:
+        mock_get_column_config.return_value = "invalid"
+        with pytest.raises(InvalidColumnTypeError, match="Invalid column config object: 'invalid'."):
+            stub_empty_builder.add_column(
+                name="test_code",
+                column_type="llm-code",
+                code_lang=CodeLang.SWIFT,
+                model_alias="stub-code-alias",
+                prompt="Test",
+            )
+
+
+def test_add_constraint_with_types(stub_empty_builder):
+    stub_empty_builder.add_column(
+        name="no_constraint",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.UNIFORM,
+        params={"low": 1, "high": 100},
+    )
+    stub_empty_builder.add_column(
+        name="age",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.GAUSSIAN,
+        params={"mean": 35, "stddev": 5},
+    )
+    stub_empty_builder.add_constraint(ScalarInequalityConstraint(target_column="age", operator="gt", rhs=30))
+    stub_empty_builder.add_constraint(ScalarInequalityConstraint(target_column="age", operator="lt", rhs=35))
+    stub_empty_builder.add_constraint(ColumnInequalityConstraint(target_column="height", operator="gt", rhs="age"))
+
+    assert len(stub_empty_builder.get_constraints(target_column="no_constraint")) == 0
+    assert len(stub_empty_builder.get_constraints(target_column="age")) == 2
+    assert len(stub_empty_builder.get_constraints(target_column="height")) == 1
+    assert stub_empty_builder.get_constraints(target_column="age")[0].operator == "gt"
+    assert stub_empty_builder.get_constraints(target_column="age")[1].rhs == 35
+
+    stub_empty_builder.delete_constraints(target_column="height")
+    assert len(stub_empty_builder.get_constraints(target_column="height")) == 0
+
+
+def test_add_constraint_with_kwargs(stub_empty_builder):
+    stub_empty_builder.add_column(
+        name="age",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.UNIFORM,
+        params={"low": 1, "high": 100},
+    )
+    stub_empty_builder.add_column(
+        name="height",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.UNIFORM,
+        params={"low": 15, "high": 200},
+    )
+    stub_empty_builder.add_constraint(constraint_type="scalar_inequality", target_column="age", operator="gt", rhs=30)
+    stub_empty_builder.add_constraint(
+        constraint_type="column_inequality", target_column="age", operator="gt", rhs="height"
+    )
+
+    assert len(stub_empty_builder.get_constraints(target_column="age")) == 2
+    assert stub_empty_builder.get_constraints(target_column="age")[0].operator == "gt"
+    assert stub_empty_builder.get_constraints(target_column="age")[0].rhs == 30
+    assert stub_empty_builder.get_constraints(target_column="age")[1].rhs == "height"
+    assert stub_empty_builder.get_constraints(target_column="age")[1].operator == "gt"
+
+    with pytest.raises(BuilderConfigurationError):
+        stub_empty_builder.add_constraint(constraint_type="invalid", target_column="age", operator="gt", rhs=30)
+
+    with pytest.raises(ValidationError):
+        stub_empty_builder.add_constraint(
+            constraint_type="scalar_inequality", target_column="age", operator="gt", rhs="string"
+        )
+
+
+def test_add_constraint_exceptions(stub_empty_builder):
+    with pytest.raises(
+        BuilderConfigurationError,
+        match="You must provide either a 'constraint' object or 'constraint_type' with additional keyword arguments.",
+    ):
+        stub_empty_builder.add_constraint()
+    with pytest.raises(
+        BuilderConfigurationError,
+        match="Invalid constraint type: invalid. Valid options are: scalar_inequality, column_inequality",
+    ):
+        stub_empty_builder.add_constraint(constraint_type="invalid", target_column="age", operator="gt", rhs=30)
+    with pytest.raises(
+        BuilderConfigurationError,
+        match="Invalid constraint object. Valid constraint options are: ScalarInequalityConstraint, ColumnInequalityConstraint",
+    ):
+        stub_empty_builder.add_constraint(constraint="invalid")
+    with pytest.raises(ValidationError):
+        stub_empty_builder.add_constraint(
+            constraint_type="scalar_inequality", target_column="age", operator="gt", rhs="string"
+        )
+
+
+def test_add_profiler(stub_empty_builder):
+    judge_profiler_config = JudgeScoreProfilerConfig(model_alias="test-alias", summary_score_sample_size=100)
+    stub_empty_builder.add_profiler(judge_profiler_config)
+    assert len(stub_empty_builder.get_profilers()) == 1
+    assert stub_empty_builder.get_profilers()[0] == judge_profiler_config
+
+    with pytest.raises(
+        BuilderConfigurationError, match="Invalid profiler object. Valid profiler options are: JudgeScoreProfilerConfig"
+    ):
+        stub_empty_builder.add_profiler("invalid")
+
+
+def test_builder_config_library_version(stub_data_designer_builder):
+    builder_config = stub_data_designer_builder.get_builder_config()
+    assert isinstance(builder_config.library_version, str)
+    assert builder_config.library_version == get_library_version()
+
+    # Verify it is included in serialization
+    dumped = builder_config.model_dump()
+    assert "library_version" in dumped
+    assert dumped["library_version"] == builder_config.library_version
+
+
+def test_build(stub_data_designer_builder):
+    # verify transformation to config object
+    ndd_config = stub_data_designer_builder.build()
+    assert isinstance(ndd_config, DataDesignerConfig)
+
+
+def test_config_export_to_files(stub_data_designer_builder):
+    """Test config export to JSON and YAML files via DataDesignerConfig methods."""
+    ndd_config = stub_data_designer_builder.build()
+
+    # verify transformation to dict
+    ndd_config_dict = ndd_config.to_dict()
+    assert isinstance(ndd_config_dict, dict)
+
+    # verify config export to JSON file
+    with tempfile.NamedTemporaryFile(prefix="config", suffix=".json") as tmp_file:
+        ndd_config.to_json(path=tmp_file.name)
+        with open(tmp_file.name, "r") as f:
+            assert json.loads(f.read())["model_configs"] == ndd_config.to_dict()["model_configs"]
+
+    # verify config export to YAML file
+    with tempfile.NamedTemporaryFile(prefix="config", suffix=".yaml") as tmp_file:
+        ndd_config.to_yaml(path=tmp_file.name)
+        with open(tmp_file.name, "r") as f:
+            deserialized_config = yaml.safe_load(f.read())
+            assert deserialized_config["model_configs"] == ndd_config.to_dict()["model_configs"]
+            # verify enums are rendered as plain strings in the yaml file
+            assert isinstance(deserialized_config["model_configs"][0], dict)
+
+    # verify config export to .yml file
+    with tempfile.NamedTemporaryFile(prefix="config", suffix=".yml") as tmp_file:
+        ndd_config.to_yaml(path=tmp_file.name)
+        with open(tmp_file.name, "r") as f:
+            assert yaml.safe_load(f.read())["model_configs"] == ndd_config.to_dict()["model_configs"]
+
+
+def test_delete_constraints(stub_data_designer_builder):
+    assert len(stub_data_designer_builder.get_constraints(target_column="age")) == 1
+    stub_data_designer_builder.delete_constraints(target_column="age")
+    assert len(stub_data_designer_builder.get_constraints(target_column="age")) == 0
+
+
+def test_delete_column(stub_data_designer_builder):
+    assert len(stub_data_designer_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)) == 4
+    stub_data_designer_builder.delete_column(column_name="code_id")
+    assert len(stub_data_designer_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)) == 3
+
+
+def test_getters(stub_data_designer_builder):
+    assert len(stub_data_designer_builder.get_column_configs()) == 8
+    assert stub_data_designer_builder.get_column_config(name="code_id").name == "code_id"
+    assert len(stub_data_designer_builder.get_constraints(target_column="age")) == 1
+    assert len(stub_data_designer_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)) == 4
+    assert len(stub_data_designer_builder.get_columns_excluding_type(DataDesignerColumnType.SAMPLER)) == 4
+    assert stub_data_designer_builder.get_seed_config().source.path == "datasets/test-repo/testing/data.csv"
+    assert stub_data_designer_builder.num_columns_of_type(DataDesignerColumnType.SAMPLER) == 4
+
+
+def test_write_config(stub_data_designer_builder):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir) / "test.yaml"
+        stub_data_designer_builder.write_config(temp_path)
+        assert temp_path.exists()
+        assert temp_path.read_text() == stub_data_designer_builder.get_builder_config().to_yaml()
+
+        temp_path = Path(temp_dir) / "test.yml"
+        stub_data_designer_builder.write_config(temp_path)
+        assert temp_path.exists()
+        assert temp_path.read_text() == stub_data_designer_builder.get_builder_config().to_yaml()
+
+        temp_path = Path(temp_dir) / "test.json"
+        stub_data_designer_builder.write_config(temp_path)
+        assert temp_path.exists()
+        assert temp_path.read_text() == stub_data_designer_builder.get_builder_config().to_json()
+
+        with pytest.raises(BuilderConfigurationError, match="Unsupported file type"):
+            stub_data_designer_builder.write_config(temp_path.with_suffix(".txt"))
+
+
+def test_write_config_round_trip(stub_data_designer_builder):
+    """Verify that configs written with write_config can be loaded back via from_config."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for suffix in [".yaml", ".json"]:
+            temp_path = Path(temp_dir) / f"round_trip{suffix}"
+            stub_data_designer_builder.write_config(temp_path)
+            loaded_builder = DataDesignerConfigBuilder.from_config(temp_path)
+            assert len(loaded_builder.get_column_configs()) == len(stub_data_designer_builder.get_column_configs())
+            for original, loaded in zip(
+                stub_data_designer_builder.get_column_configs(), loaded_builder.get_column_configs()
+            ):
+                assert original.name == loaded.name
+                assert original.column_type == loaded.column_type
+
+
+def test_get_column_config_from_kwargs():
+    # Test column creation and serialization
+
+    llm_text_column = get_column_config_from_kwargs(
+        name="test_llm_text",
+        column_type=DataDesignerColumnType.LLM_TEXT,
+        prompt="Write some text",
+        model_alias="stub-alias",
+    )
+    assert isinstance(llm_text_column, LLMTextColumnConfig)
+    assert llm_text_column.name == "test_llm_text"
+    assert llm_text_column.prompt == "Write some text"
+    assert llm_text_column.model_alias == "stub-alias"
+
+    llm_code_column = get_column_config_from_kwargs(
+        name="test_llm_code",
+        column_type=DataDesignerColumnType.LLM_CODE,
+        prompt="Write some code",
+        code_lang="python",
+        model_alias="stub-alias",
+    )
+    assert isinstance(llm_code_column, LLMCodeColumnConfig)
+    assert llm_code_column.name == "test_llm_code"
+    assert llm_code_column.prompt == "Write some code"
+    assert llm_code_column.code_lang == CodeLang.PYTHON
+    assert llm_code_column.model_alias == "stub-alias"
+
+    llm_structured_column = get_column_config_from_kwargs(
+        name="test_llm_structured",
+        column_type=DataDesignerColumnType.LLM_STRUCTURED,
+        model_alias="stub-alias",
+        prompt="Generate a structured output",
+        output_format=DummyStructuredModel.model_json_schema(),
+    )
+    assert isinstance(llm_structured_column, LLMStructuredColumnConfig)
+    assert llm_structured_column.name == "test_llm_structured"
+    assert llm_structured_column.prompt == "Generate a structured output"
+    assert llm_structured_column.output_format == DummyStructuredModel.model_json_schema()
+    assert llm_structured_column.model_alias == "stub-alias"
+
+    llm_judge_column = get_column_config_from_kwargs(
+        name="test_judge",
+        column_type=DataDesignerColumnType.LLM_JUDGE,
+        model_alias="stub-judge-alias",
+        prompt="Judge this code",
+        scores=[
+            Score(
+                name="test_rubric",
+                description="test",
+                options={"0": "Bad", "1": "Good"},
+            )
+        ],
+    )
+    assert isinstance(llm_judge_column, LLMJudgeColumnConfig)
+    assert llm_judge_column.name == "test_judge"
+    assert llm_judge_column.prompt == "Judge this code"
+    assert len(llm_judge_column.scores) == 1
+
+    code_validation_column = get_column_config_from_kwargs(
+        name="test_validation",
+        column_type=DataDesignerColumnType.VALIDATION,
+        target_columns=["test_code"],
+        validator_type="code",
+        validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+    )
+    assert isinstance(code_validation_column, ValidationColumnConfig)
+    assert code_validation_column.name == "test_validation"
+    assert code_validation_column.validator_params.code_lang == CodeLang.PYTHON
+    assert code_validation_column.target_columns == ["test_code"]
+
+    expression_column = get_column_config_from_kwargs(
+        name="test_expression", column_type=DataDesignerColumnType.EXPRESSION, expr="1 + 1"
+    )
+    assert isinstance(expression_column, ExpressionColumnConfig)
+    assert expression_column.name == "test_expression"
+    assert expression_column.expr == "1 + 1"
+
+    # Test empty expression validation
+    with pytest.raises(
+        InvalidConfigError, match="Expression column 'test_empty_expression' has an empty or whitespace-only expression"
+    ):
+        get_column_config_from_kwargs(
+            name="test_empty_expression", column_type=DataDesignerColumnType.EXPRESSION, expr=""
+        )
+
+    # Test whitespace-only expression validation
+    with pytest.raises(
+        InvalidConfigError,
+        match="Expression column 'test_whitespace_expression' has an empty or whitespace-only expression",
+    ):
+        get_column_config_from_kwargs(
+            name="test_whitespace_expression", column_type=DataDesignerColumnType.EXPRESSION, expr="   \t\n  "
+        )
+
+    # Test Sampler columns with nullable params
+    # UUID type with params provided
+    sampler_column = get_column_config_from_kwargs(
+        name="test_sampler",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.UUID,
+        params={"prefix": "test_", "short_form": True},
+    )
+    assert isinstance(sampler_column, SamplerColumnConfig)
+    assert sampler_column.name == "test_sampler"
+    assert sampler_column.sampler_type == SamplerType.UUID
+    assert sampler_column.params.prefix == "test_"
+    assert sampler_column.params.short_form is True
+    assert sampler_column.params.uppercase is False
+
+    # UUID type without params provided
+    sampler_column_no_params = get_column_config_from_kwargs(
+        name="test_sampler_no_params",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.UUID,
+    )
+    assert isinstance(sampler_column_no_params, SamplerColumnConfig)
+    assert sampler_column_no_params.name == "test_sampler_no_params"
+    assert sampler_column_no_params.sampler_type == SamplerType.UUID
+    assert sampler_column_no_params.params.prefix is None
+    assert sampler_column_no_params.params.short_form is False
+    assert sampler_column_no_params.params.uppercase is False
+
+    # PERSON type with params provided (must use locale with managed dataset)
+    person_sampler_column = get_column_config_from_kwargs(
+        name="test_person_sampler",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.PERSON,
+        params={
+            "locale": "en_US",
+            "sex": "Male",
+            "city": "New York",
+            "age_range": [18, 30],
+        },
+    )
+    assert isinstance(person_sampler_column, SamplerColumnConfig)
+    assert person_sampler_column.name == "test_person_sampler"
+    assert person_sampler_column.sampler_type == SamplerType.PERSON
+    assert person_sampler_column.params.locale == "en_US"
+    assert person_sampler_column.params.sex == "Male"
+    assert person_sampler_column.params.city == "New York"
+
+    person_sampler_column_no_params = get_column_config_from_kwargs(
+        name="test_person_sampler_no_params",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.PERSON,
+    )
+    assert isinstance(person_sampler_column_no_params, SamplerColumnConfig)
+    assert person_sampler_column_no_params.name == "test_person_sampler_no_params"
+    assert person_sampler_column_no_params.sampler_type == SamplerType.PERSON
+    assert person_sampler_column_no_params.params.locale == "en_US"
+    assert person_sampler_column_no_params.params.sex is None
+    assert person_sampler_column_no_params.params.city is None
+
+
+def test_seed_config(stub_complete_builder):
+    seed_config = stub_complete_builder.get_seed_config()
+    assert seed_config is not None
+    assert seed_config.source.path == "datasets/test-repo/testing/data.csv"
+    assert seed_config.sampling_strategy == SamplingStrategy.SHUFFLE
+
+
+def test_with_seed_dataset_basic(stub_empty_builder):
+    """Test with_seed_dataset method with basic parameters."""
+    path = "datasets/test-repo/testing/data.csv"
+    source = HuggingFaceSeedSource(path=path)
+    result = stub_empty_builder.with_seed_dataset(source)
+
+    assert result is stub_empty_builder
+    assert stub_empty_builder.get_seed_config().source.path == path
+
+
+def test_with_seed_dataset_sampling_strategy(stub_empty_builder):
+    """Test with_seed_dataset with different sampling strategies."""
+    config = HuggingFaceSeedSource(path="datasets/test-repo/test-data.parquet", token="test-token")
+
+    stub_empty_builder.with_seed_dataset(
+        config,
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+    )
+
+    seed_config = stub_empty_builder.get_seed_config()
+    assert seed_config.sampling_strategy == SamplingStrategy.SHUFFLE
+
+
+def test_repr_includes_seed_dataset_when_no_columns(stub_empty_builder) -> None:
+    """repr should still show seed dataset when it is the only configured item."""
+    source = HuggingFaceSeedSource(path="datasets/test-repo/testing/data.csv")
+    stub_empty_builder.with_seed_dataset(source)
+
+    repr_string = repr(stub_empty_builder)
+
+    assert "seed_dataset: hf seed" in repr_string
+
+
+def test_add_model_config(stub_empty_builder):
+    assert len(stub_empty_builder.model_configs) == 1
+    assert stub_empty_builder.model_configs[0].alias == "stub-model"
+
+    # Test basic model config addition with inference parameters
+    new_model_config = ModelConfig(
+        alias="new-model",
+        model="openai/gpt-4",
+        provider="openai",
+        inference_parameters=ChatCompletionInferenceParams(
+            temperature=0.7,
+            top_p=0.95,
+            max_tokens=1024,
+        ),
+    )
+    result = stub_empty_builder.add_model_config(new_model_config)
+
+    assert result is stub_empty_builder
+    assert len(stub_empty_builder.model_configs) == 2
+    assert stub_empty_builder.model_configs[1].alias == "new-model"
+    assert stub_empty_builder.model_configs[1].model == "openai/gpt-4"
+    assert stub_empty_builder.model_configs[1].inference_parameters.temperature == 0.7
+    assert stub_empty_builder.model_configs[1].inference_parameters.top_p == 0.95
+    assert stub_empty_builder.model_configs[1].inference_parameters.max_tokens == 1024
+
+    # Test adding model config with provider
+    provider_model_config = ModelConfig(
+        alias="provider-model",
+        model="anthropic/claude-3",
+        provider="anthropic",
+        inference_parameters=ChatCompletionInferenceParams(temperature=0.8),
+    )
+    stub_empty_builder.add_model_config(provider_model_config)
+
+    assert len(stub_empty_builder.model_configs) == 3
+    assert stub_empty_builder.model_configs[2].alias == "provider-model"
+    assert stub_empty_builder.model_configs[2].provider == "anthropic"
+
+    # Test that model configs persist in built config
+    stub_empty_builder.add_column(
+        name="test_column",
+        column_type=DataDesignerColumnType.SAMPLER,
+        sampler_type=SamplerType.UUID,
+    )
+    config = stub_empty_builder.build()
+
+    assert len(config.model_configs) == 3
+    assert any(mc.alias == "new-model" for mc in config.model_configs)
+    assert any(mc.alias == "provider-model" for mc in config.model_configs)
+    assert any(mc.alias == "stub-model" for mc in config.model_configs)
+
+
+def test_add_model_config_duplicate_alias(stub_empty_builder):
+    duplicate_model_config = ModelConfig(
+        alias="stub-model",
+        model="different/model",
+        provider="some-provider",
+        inference_parameters=ChatCompletionInferenceParams(temperature=0.5),
+    )
+
+    with pytest.raises(
+        BuilderConfigurationError,
+        match="Model configuration with alias stub-model already exists. Please delete the existing model configuration or choose a different alias.",
+    ):
+        stub_empty_builder.add_model_config(duplicate_model_config)
+
+    assert len(stub_empty_builder.model_configs) == 1
+
+
+def test_delete_model_config(stub_empty_builder):
+    model_config_1 = ModelConfig(
+        alias="model-to-delete",
+        model="model/delete",
+        provider="some-provider",
+        inference_parameters=ChatCompletionInferenceParams(temperature=0.5),
+    )
+    model_config_2 = ModelConfig(
+        alias="model-to-keep",
+        model="model/keep",
+        provider="some-provider",
+        inference_parameters=ChatCompletionInferenceParams(temperature=0.6),
+    )
+    stub_empty_builder.add_model_config(model_config_1)
+    stub_empty_builder.add_model_config(model_config_2)
+
+    assert len(stub_empty_builder.model_configs) == 3
+
+    # Test successful deletion
+    result = stub_empty_builder.delete_model_config("model-to-delete")
+
+    assert result is stub_empty_builder
+    assert len(stub_empty_builder.model_configs) == 2
+    assert all(mc.alias != "model-to-delete" for mc in stub_empty_builder.model_configs)
+    assert any(mc.alias == "model-to-keep" for mc in stub_empty_builder.model_configs)
+    assert any(mc.alias == "stub-model" for mc in stub_empty_builder.model_configs)
+
+    # Test deleting nonexistent model (should not raise error)
+    result = stub_empty_builder.delete_model_config("nonexistent-alias")
+
+    assert result is stub_empty_builder
+    assert len(stub_empty_builder.model_configs) == 2
+
+
+def test_cannot_write_config_with_dataframe_seed(stub_model_configs):
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+
+    df = lazy.pd.DataFrame(data={"hello": [1, 2], "world": [10, 20]})
+    df_seed = DataFrameSeedSource(df=df)
+    builder.with_seed_dataset(df_seed)
+
+    sampler_column = SamplerColumnConfig(
+        name="test_id",
+        sampler_type=SamplerType.UUID,
+        params=UUIDSamplerParams(prefix="code_", short_form=True, uppercase=True),
+    )
+    builder.add_column(sampler_column)
+
+    with pytest.raises(BuilderSerializationError) as excinfo:
+        builder.write_config("./config.json")
+
+    assert "DataFrame seed dataset" in str(excinfo.value)
+
+
+@pytest.fixture
+def builder_with_columns(stub_empty_builder):
+    for name in ("col_a", "col_b", "other"):
+        stub_empty_builder.add_column(SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams()))
+    return stub_empty_builder
+
+
+@pytest.mark.parametrize("first_drop", [["col_a"], ["col_*"]])
+def test_add_processor_upsert_reverts_drop_flags(builder_with_columns, first_drop):
+    builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=first_drop))
+    assert builder_with_columns.get_column_config("col_a").drop is True
+
+    builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]))
+    assert len(builder_with_columns.get_processor_configs()) == 1
+    assert builder_with_columns.get_column_config("col_a").drop is False
+    assert builder_with_columns.get_column_config("col_b").drop is True
+
+
+def test_add_processor_different_names_appends(builder_with_columns):
+    builder_with_columns.add_processor(DropColumnsProcessorConfig(name="drop", column_names=["col_a"]))
+    builder_with_columns.add_processor(SchemaTransformProcessorConfig(name="transform", template={"x": "{{ col_a }}"}))
+    assert len(builder_with_columns.get_processor_configs()) == 2
+
+
+def test_add_processor_replaces_non_drop_processor(stub_empty_builder):
+    stub_empty_builder.add_processor(SchemaTransformProcessorConfig(name="t", template={"x": "old"}))
+    stub_empty_builder.add_processor(SchemaTransformProcessorConfig(name="t", template={"x": "new"}))
+    assert len(stub_empty_builder.get_processor_configs()) == 1
+    assert stub_empty_builder.get_processor_configs()[0].template == {"x": "new"}
+
+
+def test_add_processor_glob_marks_matching_columns_as_drop(builder_with_columns):
+    builder_with_columns.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]))
+    assert builder_with_columns.get_column_config("col_a").drop is True
+    assert builder_with_columns.get_column_config("col_b").drop is True
+    assert builder_with_columns.get_column_config("other").drop is False
+
+
+def test_replace_preserves_drop_from_other_processor(builder_with_columns):
+    builder_with_columns.add_processor(DropColumnsProcessorConfig(name="drop1", column_names=["col_a"]))
+    builder_with_columns.add_processor(DropColumnsProcessorConfig(name="drop2", column_names=["col_a"]))
+    assert builder_with_columns.get_column_config("col_a").drop is True
+
+    builder_with_columns.add_processor(DropColumnsProcessorConfig(name="drop1", column_names=[]))
+    assert builder_with_columns.get_column_config("col_a").drop is True
+    assert len(builder_with_columns.get_processor_configs()) == 2
+
+
+class TestToolConfigDuplicateValidation:
+    """Tests for duplicate tool name validation at config build time."""
+
+    @staticmethod
+    def _add_dummy_column(builder: DataDesignerConfigBuilder) -> None:
+        """Add a dummy column to satisfy DataDesignerConfig's requirement for at least 1 column."""
+        builder.add_column(
+            SamplerColumnConfig(
+                name="dummy_id",
+                sampler_type=SamplerType.UUID,
+                params=UUIDSamplerParams(),
+            )
+        )
+
+    def test_build_with_duplicate_allow_tools_raises_error(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() raises BuilderConfigurationError when allow_tools has duplicates."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="test-tools",
+                providers=["test-provider"],
+                allow_tools=["lookup", "search", "lookup"],  # duplicate
+            )
+        )
+
+        with pytest.raises(BuilderConfigurationError, match="duplicate tool names"):
+            builder.build()
+
+    def test_build_with_multiple_duplicates_reports_all(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() error message reports all duplicate tool names."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="test-tools",
+                providers=["test-provider"],
+                allow_tools=["lookup", "search", "lookup", "search", "fetch"],  # multiple duplicates
+            )
+        )
+
+        with pytest.raises(BuilderConfigurationError) as exc_info:
+            builder.build()
+
+        assert "lookup" in str(exc_info.value)
+        assert "search" in str(exc_info.value)
+
+    def test_build_with_no_duplicates_passes(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() succeeds when allow_tools has no duplicates."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="test-tools",
+                providers=["test-provider"],
+                allow_tools=["lookup", "search", "fetch"],  # no duplicates
+            )
+        )
+
+        # Should not raise
+        config = builder.build()
+        assert config.tool_configs is not None
+        assert len(config.tool_configs) == 1
+
+    def test_build_with_no_allow_tools_passes(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() succeeds when allow_tools is None."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="test-tools",
+                providers=["test-provider"],
+                allow_tools=None,  # no allowlist
+            )
+        )
+
+        # Should not raise
+        config = builder.build()
+        assert config.tool_configs is not None
+
+    def test_build_validates_each_tool_config_independently(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() validates each ToolConfig for duplicates independently."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        # First tool config has no duplicates
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="tools-1",
+                providers=["provider-1"],
+                allow_tools=["lookup"],
+            )
+        )
+        # Second tool config has duplicates
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="tools-2",
+                providers=["provider-2"],
+                allow_tools=["search", "search"],  # duplicate
+            )
+        )
+
+        with pytest.raises(BuilderConfigurationError, match="tools-2"):
+            builder.build()
+
+    def test_same_tool_in_different_tool_configs_is_allowed(self, stub_model_configs: list[ModelConfig]) -> None:
+        """Same tool name in different ToolConfigs is allowed (not a duplicate)."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        # Both tool configs use "lookup" but in different configs - this is allowed
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="tools-1",
+                providers=["provider-1"],
+                allow_tools=["lookup"],
+            )
+        )
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="tools-2",
+                providers=["provider-2"],
+                allow_tools=["lookup"],  # same as tools-1, but different ToolConfig
+            )
+        )
+
+        # Should not raise
+        config = builder.build()
+        assert len(config.tool_configs) == 2

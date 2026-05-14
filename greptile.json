@@ -1,0 +1,31 @@
+{
+  "triggerOnUpdates": true,
+  "statusCommentsEnabled": false,
+  "statusCheck": true,
+  "shouldUpdateDescription": false,
+  "updateExistingSummaryComment": true,
+  "fixWithAI": true,
+  "strictness": 3,
+  "commentTypes": ["logic"],
+  "instructions": "Do not suggest defensive coding patterns such as adding error handling, null checks, try/catch blocks, or input validation unless there is a concrete, demonstrable bug. Focus on logic errors, correctness issues, and actual bugs. Do not suggest adding logging, comments, or docstrings.",
+  "summarySection": {
+    "included": true,
+    "collapsible": false,
+    "defaultOpen": false
+  },
+  "issuesTableSection": {
+    "included": true,
+    "collapsible": false,
+    "defaultOpen": false
+  },
+  "confidenceScoreSection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": true
+  },
+  "sequenceDiagramSection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": false
+  }
+}

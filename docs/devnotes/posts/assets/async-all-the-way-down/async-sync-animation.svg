@@ -1,0 +1,326 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 420" style="font-family: 'Avenir Next', 'Segoe UI', system-ui, sans-serif;">
+  <defs>
+    <linearGradient id="ag-darkGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2A2A2A"/>
+      <stop offset="100%" stop-color="#1A1A1A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="880" height="420" fill="#0D0D0D" rx="12"/>
+
+  <!-- ==================== LEFT: SYNC ENGINE ==================== -->
+  <text x="210" y="32" text-anchor="middle" fill="#ccc" font-size="14" font-weight="bold">Sync Engine</text>
+  <text x="210" y="50" text-anchor="middle" fill="#999" font-size="10">one column at a time</text>
+
+  <!-- Column headers -->
+  <text x="90"  y="80" text-anchor="middle" fill="#76B900" font-size="10" font-weight="bold">topic</text>
+  <text x="160" y="80" text-anchor="middle" fill="#76B900" font-size="10" font-weight="bold">summary</text>
+  <text x="230" y="80" text-anchor="middle" fill="#76B900" font-size="10" font-weight="bold">trivia</text>
+  <text x="300" y="80" text-anchor="middle" fill="#76B900" font-size="10" font-weight="bold">analysis</text>
+  <!-- dep hints -->
+  <text x="160" y="92" text-anchor="middle" fill="#999" font-size="7">&#x2190; topic</text>
+  <text x="230" y="92" text-anchor="middle" fill="#999" font-size="7">&#x2190; topic</text>
+  <text x="300" y="92" text-anchor="middle" fill="#999" font-size="7">&#x2190; summary</text>
+
+  <!-- Row labels -->
+  <text x="38" y="117" text-anchor="middle" fill="#999" font-size="9">row 0</text>
+  <text x="38" y="147" text-anchor="middle" fill="#999" font-size="9">row 1</text>
+  <text x="38" y="177" text-anchor="middle" fill="#999" font-size="9">row 2</text>
+  <text x="38" y="207" text-anchor="middle" fill="#999" font-size="9">row 3</text>
+  <text x="38" y="237" text-anchor="middle" fill="#999" font-size="9">row 4</text>
+  <text x="38" y="267" text-anchor="middle" fill="#999" font-size="9">row 5</text>
+  <text x="38" y="297" text-anchor="middle" fill="#999" font-size="9">row 6</text>
+  <text x="38" y="327" text-anchor="middle" fill="#999" font-size="9">row 7</text>
+
+  <!-- Grid cells: 8 rows x 4 cols. Sync fills column by column, top to bottom. -->
+  <!-- Each cell: empty (#1A1A1A) -> active (#3A5A00) -> done (#76B900) -->
+  <!-- Total 32 cells. Sync order: col0 rows 0-7, col1 rows 0-7, col2 rows 0-7, col3 rows 0-7 -->
+  <!-- 16s cycle. Each cell gets ~0.4s active + done. 32 cells * 0.4 = 12.8s, leave gap for reset. -->
+
+  <!-- Column 0 (topic) - sampler, fills fast: steps 0-7 -->
+  <rect x="65" y="103" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="65" y="133" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="65" y="163" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="65" y="193" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="65" y="223" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="65" y="253" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="65" y="283" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="65" y="313" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Column 1 (summary) - steps 9-16, waits for ALL topic to finish -->
+  <rect x="135" y="103" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="135" y="133" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="135" y="163" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="135" y="193" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="135" y="223" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="135" y="253" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="135" y="283" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="135" y="313" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Column 2 (trivia) - steps 17-24, waits for ALL summary to finish -->
+  <rect x="205" y="103" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="205" y="133" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="205" y="163" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="205" y="193" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="205" y="223" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="205" y="253" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="205" y="283" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="205" y="313" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Column 3 (analysis) - steps 25-32, waits for ALL trivia to finish -->
+  <rect x="275" y="103" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="275" y="133" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="275" y="163" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="275" y="193" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="275" y="223" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="275" y="253" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="275" y="283" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="275" y="313" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Sync active column indicator (vertical highlight) -->
+  <!-- Col 0 highlight -->
+  <rect x="63" y="99" width="54" height="240" rx="3" fill="#76B900" opacity="0">
+    <animate attributeName="opacity" values="0;0.06;0.06;0.06;0.06;0.06;0.06;0.06;0.06;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <!-- Col 1 highlight -->
+  <rect x="133" y="99" width="54" height="240" rx="3" fill="#76B900" opacity="0">
+    <animate attributeName="opacity" values="0;0;0;0;0;0;0;0;0;0.06;0.06;0.06;0.06;0.06;0.06;0.06;0.06;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <!-- Col 2 highlight -->
+  <rect x="203" y="99" width="54" height="240" rx="3" fill="#76B900" opacity="0">
+    <animate attributeName="opacity" values="0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0.06;0.06;0.06;0.06;0.06;0.06;0.06;0.06;0;0;0;0;0;0;0;0;0" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <!-- Col 3 highlight -->
+  <rect x="273" y="99" width="54" height="240" rx="3" fill="#76B900" opacity="0">
+    <animate attributeName="opacity" values="0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0.06;0.06;0.06;0.06;0.06;0.06;0.06;0.06;0" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Sync timer -->
+  <text x="210" y="365" text-anchor="middle" fill="#999" font-size="11">
+    <animate attributeName="fill" values="#555;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#76B900;#555" dur="16s" repeatCount="indefinite"/>
+    32 steps to complete
+  </text>
+
+  <!-- ==================== DIVIDER ==================== -->
+  <line x1="440" y1="30" x2="440" y2="390" stroke="#333" stroke-width="1"/>
+
+  <!-- ==================== RIGHT: ASYNC ENGINE ==================== -->
+  <text x="660" y="32" text-anchor="middle" fill="#76B900" font-size="14" font-weight="bold">Async Engine</text>
+  <text x="660" y="50" text-anchor="middle" fill="#999" font-size="10">cells dispatch as dependencies resolve</text>
+
+  <!-- Column headers -->
+  <text x="540" y="80" text-anchor="middle" fill="#76B900" font-size="10" font-weight="bold">topic</text>
+  <text x="610" y="80" text-anchor="middle" fill="#76B900" font-size="10" font-weight="bold">summary</text>
+  <text x="680" y="80" text-anchor="middle" fill="#76B900" font-size="10" font-weight="bold">trivia</text>
+  <text x="750" y="80" text-anchor="middle" fill="#76B900" font-size="10" font-weight="bold">analysis</text>
+  <text x="610" y="92" text-anchor="middle" fill="#999" font-size="7">&#x2190; topic</text>
+  <text x="680" y="92" text-anchor="middle" fill="#999" font-size="7">&#x2190; topic</text>
+  <text x="750" y="92" text-anchor="middle" fill="#999" font-size="7">&#x2190; summary</text>
+
+  <!-- Row labels -->
+  <text x="488" y="117" text-anchor="middle" fill="#999" font-size="9">row 0</text>
+  <text x="488" y="147" text-anchor="middle" fill="#999" font-size="9">row 1</text>
+  <text x="488" y="177" text-anchor="middle" fill="#999" font-size="9">row 2</text>
+  <text x="488" y="207" text-anchor="middle" fill="#999" font-size="9">row 3</text>
+  <text x="488" y="237" text-anchor="middle" fill="#999" font-size="9">row 4</text>
+  <text x="488" y="267" text-anchor="middle" fill="#999" font-size="9">row 5</text>
+  <text x="488" y="297" text-anchor="middle" fill="#999" font-size="9">row 6</text>
+  <text x="488" y="327" text-anchor="middle" fill="#999" font-size="9">row 7</text>
+
+  <!-- ASYNC GRID -->
+  <!-- DAG: topic -> summary, topic -> trivia (independent), summary -> analysis -->
+  <!-- Async schedule: topic rows fire immediately, then summary+trivia overlap per row, then analysis per row after its summary -->
+  <!-- Steps (16s, 34 keyframes): -->
+  <!--   1-2:   topic rows 0-7 (sampler, fast, 2 steps for all 8)        -->
+  <!--   3-4:   summary r0, trivia r0 START simultaneously               -->
+  <!--   5:     summary r1, trivia r1 START; summary r0 DONE             -->
+  <!--   6:     summary r2, trivia r2 START; trivia r0 DONE; analysis r0 START (summary r0 done) -->
+  <!--   7:     summary r3, trivia r3; summary r1 DONE; analysis r0 DONE -->
+  <!--   ...pattern continues with overlap                                -->
+
+  <!-- topic col (sampler - all 8 fire in steps 1-2) -->
+  <rect x="515" y="103" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="515" y="133" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="515" y="163" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="515" y="193" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="515" y="223" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="515" y="253" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="515" y="283" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="515" y="313" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- summary col: starts as soon as each topic row is done. Staggered ~2 step LLM latency. -->
+  <!-- summary and trivia overlap because they share topic as dep but are independent of each other -->
+  <rect x="585" y="103" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="585" y="133" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="585" y="163" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="585" y="193" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="585" y="223" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="585" y="253" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="585" y="283" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="585" y="313" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- trivia col: runs in parallel with summary (same dep: topic) -->
+  <rect x="655" y="103" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="655" y="133" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="655" y="163" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="655" y="193" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="655" y="223" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="655" y="253" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="655" y="283" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="655" y="313" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- analysis col: depends on summary. Each row fires as soon as its summary row completes. -->
+  <!-- summary r0 done at step 5, so analysis r0 starts step 5 -->
+  <rect x="725" y="103" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="725" y="133" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="725" y="163" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="725" y="193" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="725" y="223" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="725" y="253" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="725" y="283" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="725" y="313" width="50" height="22" rx="3" fill="#1A1A1A" stroke="#333" stroke-width="0.5">
+    <animate attributeName="fill" values="#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#1A1A1A;#3A5A00;#3A5A00;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#1A1A1A" dur="16s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Async timer -->
+  <text x="660" y="365" text-anchor="middle" fill="#999" font-size="11">
+    <animate attributeName="fill" values="#555;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#777;#76B900;#76B900;#76B900;#76B900;#76B900;#76B900;#555" dur="16s" repeatCount="indefinite"/>
+    ~14 steps to complete
+  </text>
+
+  <!-- ==================== LEGEND ==================== -->
+  <rect x="270" y="390" width="14" height="14" rx="2" fill="#1A1A1A" stroke="#333" stroke-width="0.5"/>
+  <text x="290" y="401" fill="#aaa" font-size="9">waiting</text>
+  <rect x="350" y="390" width="14" height="14" rx="2" fill="#3A5A00"/>
+  <text x="370" y="401" fill="#aaa" font-size="9">generating</text>
+  <rect x="445" y="390" width="14" height="14" rx="2" fill="#76B900"/>
+  <text x="465" y="401" fill="#aaa" font-size="9">done</text>
+  <line x1="510" y1="397" x2="540" y2="397" stroke="#555" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="548" y="401" fill="#aaa" font-size="9">dependency</text>
+</svg>

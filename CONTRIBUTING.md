@@ -1,0 +1,119 @@
+# 🎨✨ Contributing to NeMo Data Designer 🎨✨
+
+The skills and workflows in this repository are for **developing** DataDesigner. If you're looking to **use** DataDesigner to build datasets, see the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) instead.
+
+---
+
+This project uses agent-assisted development. Contributors are expected to use agents for investigation, planning, and implementation. The repository includes [skills and guidance](.agents/) that make agents effective contributors.
+
+Agents accelerate work; humans stay accountable. People make design decisions and own quality — agents help get there faster.
+
+## How to Contribute
+
+1. **Open an issue** using the appropriate [issue template](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new/choose).
+2. **Include investigation output.** If you used an agent, paste its diagnostics. If you didn't, include the troubleshooting you tried.
+3. **For non-trivial changes, create a plan document** at `plans/<issue-number>/` before building. Have your agent draft the plan — it should describe the approach, trade-offs considered, affected subsystems, and a delivery strategy. See existing plans in [`plans/`](plans/) for reference. Submit the plan in a PR for review.
+4. **Once the plan is approved, implement** using agent-assisted development. See [DEVELOPMENT.md](DEVELOPMENT.md) for local setup and workflow.
+
+## Before You Open an Issue
+
+- Clone the repo and point your agent at it
+- Have the agent search docs and existing issues (the `search-docs` and `search-github` skills can help)
+- If the agent can't resolve it, include the diagnostics in your issue
+- If you didn't use an agent, include the troubleshooting you already tried
+
+## When to Open an Issue
+
+- Real bugs — reproduced or agent-confirmed
+- Feature proposals with design context
+- Problems that `search-docs` / `search-github` couldn't resolve
+
+## When NOT to Open an Issue
+
+- Questions about how things work — an agent can answer these from the codebase
+- Configuration problems — an agent can diagnose these
+- "How do I..." requests — try the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) first
+
+---
+
+## Development Skills
+
+The repository includes skills for common development tasks. These are located in [`.agents/skills/`](.agents/skills/) and are automatically discovered by agent harnesses.
+
+| Category      | Skills                             | Purpose                                |
+| ------------- | ---------------------------------- | -------------------------------------- |
+| Investigation | `search-docs`, `search-github`     | Find information, check for duplicates |
+| Development   | `commit`, `create-pr`, `update-pr` | Standard development cycle             |
+| Review        | `review-code`                      | Multi-pass code review                 |
+
+---
+
+## Pull Requests
+
+- PRs must link to the issue they address (`Fixes #NNN` or `Closes #NNN`). For external contributors, this is enforced by a required status check: the linked issue must exist and carry the `triaged` label (added by a maintainer after review). Collaborators are exempt from this check. You can open the PR before the issue is triaged - the check re-runs automatically once a maintainer adds the label.
+- PRs with failing checks that remain inactive are automatically reminded after 7 days and closed after 14 days (collaborators: 14/28 days). Push an update or leave a comment to reset the timer. If you need more time, ask a maintainer to add the `keep-open` label.
+- Use the `create-pr` skill for well-formatted PR descriptions, or follow the PR template
+- Ensure all checks pass before requesting review:
+  ```bash
+  make check-all-fix
+  make test
+  ```
+- Run a self-review before opening the PR using the `review-code` skill. Address any critical or warning-level findings before requesting human review. If you have access to multiple models, run the review with different models across passes — different models surface different issues, and a single pass rarely catches everything.
+
+### Pull Request Review Process
+
+- PRs receive an automated CI code review. You must address all critical and warning-level findings from the automated review before requesting human review.
+- Maintainers will review your PR and may request changes
+- Address feedback by pushing additional commits to your branch
+- Reply to each comment before resolving it. If the comment resulted in a code change, include the commit hash that addresses it. Do not resolve comments without a response.
+- Once approved, a maintainer will merge your PR
+
+---
+
+## Documentation Changes
+
+Data Designer is migrating from MkDocs to Fern over several releases. Until the migration is complete, keep both docs builds working.
+
+- Edit docs content in `docs/`.
+- Edit tutorial notebooks in `docs/notebook_source/*.py`.
+- Use `make serve-docs-locally` to preview the legacy MkDocs site.
+- Use `make check-fern-docs` to regenerate local Fern artifacts and validate the Fern site.
+- Fern release publishing snapshots versioned docs into the CI-managed `docs-website` branch automatically.
+- Do not commit generated Fern API reference or notebook artifacts.
+
+---
+
+## Commit Messages
+
+- Use imperative mood ("add feature" not "added feature")
+- Keep the subject line under 50 characters (hard limit: 72)
+- Reference issue numbers when applicable (`Fixes #123`)
+
+---
+
+## License Headers
+
+All code files must include the NVIDIA copyright header:
+
+```python
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+```
+
+Use `make update-license-headers` to add headers automatically.
+
+## Signing Off on Your Work (DCO)
+
+When contributing, you must agree that you have authored 100% of the content, that you have the necessary rights to the content, and that the content you contribute may be provided under the project license. All contributors are asked to sign the [Developer Certificate of Origin (DCO)](DCO) when submitting their first pull request. The process is automated by a bot that will comment on the pull request.
+
+## Code of Conduct
+
+Data Designer follows the Contributor Covenant Code of Conduct. Please read our complete [Code of Conduct](CODE_OF_CONDUCT.md) for full details.
+
+---
+
+## Reference
+
+- [AGENTS.md](AGENTS.md) — architecture, layering, design principles
+- [STYLEGUIDE.md](STYLEGUIDE.md) — code style, naming, imports, type annotations
+- [DEVELOPMENT.md](DEVELOPMENT.md) — local setup, testing, day-to-day workflow

@@ -1,0 +1,743 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Agentic CI: Daily Audit"
+
+on:
+  schedule:
+    - cron: "0 8 * * 1-5"  # weekdays at 08:00 UTC
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Override which suite to run (docs-and-references, dependencies, structure, code-quality, test-health, all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: agentic-ci-daily
+  cancel-in-progress: false
+
+jobs:
+  determine-suite:
+    runs-on: ubuntu-latest
+    outputs:
+      suites: ${{ steps.pick.outputs.suites }}
+    steps:
+      - name: Pick suite(s) for today
+        id: pick
+        run: |
+          OVERRIDE="${{ github.event.inputs.suite }}"
+
+          if [ -n "$OVERRIDE" ] && [ "$OVERRIDE" != "all" ]; then
+            echo "suites=[\"${OVERRIDE}\"]" >> "$GITHUB_OUTPUT"
+            echo "Running override suite: ${OVERRIDE}"
+            exit 0
+          fi
+
+          if [ "$OVERRIDE" = "all" ]; then
+            echo 'suites=["docs-and-references","dependencies","structure","code-quality","test-health"]' >> "$GITHUB_OUTPUT"
+            echo "Running all suites"
+            exit 0
+          fi
+
+          # Day-of-week rotation: 1=Mon .. 5=Fri
+          DOW=$(date -u +%u)
+          case "$DOW" in
+            1) SUITE="docs-and-references" ;;
+            2) SUITE="dependencies" ;;
+            3) SUITE="structure" ;;
+            4) SUITE="code-quality" ;;
+            5) SUITE="test-health" ;;
+            *) echo "suites=[]" >> "$GITHUB_OUTPUT"; echo "Weekend - no suite"; exit 0 ;;
+          esac
+
+          echo "suites=[\"${SUITE}\"]" >> "$GITHUB_OUTPUT"
+          echo "Running ${DOW}/weekday suite: ${SUITE}"
+
+  audit:
+    needs: determine-suite
+    if: needs.determine-suite.outputs.suites != '[]'
+    runs-on: [self-hosted, agentic-ci]
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.determine-suite.outputs.suites) }}
+
+    concurrency:
+      # cancel-in-progress is intentionally false: a cancellation between
+      # the agent's git push and gh pr create would leave an orphaned
+      # branch with no attempted_fixes record. Queueing a duplicate run is
+      # the lesser evil. See _fix-policy.md "Atomicity".
+      group: agentic-ci-daily-${{ matrix.suite }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Check required config
+        env:
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          if [ -z "$AGENTIC_CI_MODEL" ]; then
+            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            exit 1
+          fi
+
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Restore runner memory
+        id: cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            .agentic-ci-state
+            graphify-out
+          key: agentic-ci-state-${{ matrix.suite }}-${{ github.run_id }}
+          restore-keys: |
+            agentic-ci-state-${{ matrix.suite }}-
+
+      - name: Initialize runner memory
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          mkdir -p .agentic-ci-state
+          if [ ! -f .agentic-ci-state/runner-state.json ]; then
+            printf '{"suite":"%s","last_run":null,"known_issues":[],"baselines":{}}\n' \
+              "${SUITE}" > .agentic-ci-state/runner-state.json
+          fi
+          echo "Runner memory state:"
+          cat .agentic-ci-state/runner-state.json
+
+      - name: Install dev environment
+        run: |
+          make install-dev
+          echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/python - <<'PY' 2>/dev/null || echo "  (version check skipped)"
+          from data_designer.config._version import __version__ as cv
+          from data_designer.engine._version import __version__ as ev
+          print(f'  config: {cv}  engine: {ev}')
+          PY
+
+      - name: Install graphify
+        if: matrix.suite == 'structure'
+        run: |
+          python -m venv /tmp/graphify-venv
+          /tmp/graphify-venv/bin/python -m pip install graphifyy==0.4.23 --quiet 2>&1 | tail -3
+
+      - name: Configure git identity
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+      - name: Pre-flight checks
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          if ! command -v claude &> /dev/null; then
+            echo "::error::claude CLI not found in PATH"
+            exit 1
+          fi
+          echo "Claude CLI version: $(claude --version 2>&1 || true)"
+
+          if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
+              exit 1
+            fi
+            echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+          fi
+
+      - name: Run audit recipe
+        id: audit
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          DISABLE_PROMPT_CACHING: "1"
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -o pipefail
+
+          RECIPE_DIR=".agents/recipes/${SUITE}"
+          if [ ! -f "${RECIPE_DIR}/recipe.md" ]; then
+            echo "::error::Recipe not found: ${RECIPE_DIR}/recipe.md"
+            exit 1
+          fi
+
+          # Build prompt: phase directive + _runner.md + _fix-policy.md + recipe body (strip YAML frontmatter)
+          PHASE_DIRECTIVE=$(cat .agents/recipes/_phase-audit.md)
+          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
+          FIX_POLICY=$(cat .agents/recipes/_fix-policy.md)
+          RECIPE_BODY=$(sed '1,/^---$/{ /^---$/,/^---$/d }' "${RECIPE_DIR}/recipe.md")
+
+          PROMPT=$(printf '%s\n\n%s\n\n%s\n\n%s\n' "${PHASE_DIRECTIVE}" "${RUNNER_CTX}" "${FIX_POLICY}" "${RECIPE_BODY}" \
+            | sed "s|{{suite}}|${SUITE}|g" \
+            | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
+            | sed "s|{{memory_path}}|.agentic-ci-state|g")
+
+          stdbuf -oL -eL claude \
+            --model "$AGENTIC_CI_MODEL" \
+            -p "$PROMPT" \
+            --max-turns 50 \
+            --output-format stream-json \
+            --verbose \
+            2>&1 | tee /tmp/claude-audit-log.txt
+
+      - name: Check fix backlog
+        id: backlog
+        if: steps.audit.outcome == 'success' && matrix.suite != 'test-health'
+        run: |
+          BACKLOG_SIZE=$(jq '.fix_backlog // [] | length' .agentic-ci-state/runner-state.json 2>/dev/null || echo 0)
+          echo "size=${BACKLOG_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "fix_backlog has ${BACKLOG_SIZE} entries"
+
+      - name: Snapshot pre-fix attempted_fixes
+        # Captures (id, attempts-length) pairs before the fix step runs so
+        # the post-fix gates can identify which entry grew during *this*
+        # run, instead of grabbing the last globally-open entry (which
+        # might be a stale orphan from a prior crashed run).
+        id: snapshot
+        if: steps.audit.outcome == 'success' && steps.backlog.outcome == 'success' && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
+        run: |
+          jq -c '.attempted_fixes // [] | map({id, n: (.attempts | length)})' \
+            .agentic-ci-state/runner-state.json > /tmp/prior-attempted-fixes.json
+          echo "Snapshot: $(cat /tmp/prior-attempted-fixes.json)"
+
+      - name: Run fix recipe
+        id: fix
+        # Custom if: bypasses implicit success(), so snapshot.outcome must
+        # be checked explicitly. Without it, a snapshot failure (corrupt
+        # runner-state, disk error) would leave /tmp/prior-attempted-fixes.json
+        # missing, the scope gate's jq --slurpfile would short-circuit, and
+        # the gate would exit 0 — silently approving the agent's PR.
+        if: steps.audit.outcome == 'success' && steps.backlog.outcome == 'success' && steps.snapshot.outcome == 'success' && matrix.suite != 'test-health' && fromJSON(steps.backlog.outputs.size || '0') > 0
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+          DISABLE_PROMPT_CACHING: "1"
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -o pipefail
+
+          RECIPE_DIR=".agents/recipes/${SUITE}"
+
+          # Build prompt: phase directive + _runner.md + _fix-policy.md + recipe body (strip YAML frontmatter)
+          PHASE_DIRECTIVE=$(cat .agents/recipes/_phase-fix.md)
+          RUNNER_CTX=$(cat .agents/recipes/_runner.md)
+          FIX_POLICY=$(cat .agents/recipes/_fix-policy.md)
+          RECIPE_BODY=$(sed '1,/^---$/{ /^---$/,/^---$/d }' "${RECIPE_DIR}/recipe.md")
+
+          PROMPT=$(printf '%s\n\n%s\n\n%s\n\n%s\n' "${PHASE_DIRECTIVE}" "${RUNNER_CTX}" "${FIX_POLICY}" "${RECIPE_BODY}" \
+            | sed "s|{{suite}}|${SUITE}|g" \
+            | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
+            | sed "s|{{memory_path}}|.agentic-ci-state|g")
+
+          stdbuf -oL -eL claude \
+            --model "$AGENTIC_CI_MODEL" \
+            -p "$PROMPT" \
+            --max-turns 50 \
+            --output-format stream-json \
+            --verbose \
+            2>&1 | tee /tmp/claude-fix-log.txt
+
+      - name: Validate fix scope (allowlist + LOC + file cap)
+        # Workflow-level enforcement of the localized-fix bar from
+        # _fix-policy.md. Recipe instructions alone cannot bind the agent;
+        # this gate re-derives the diff and closes the PR if the agent
+        # escaped the allowlist or the LOC/file caps. The docs-and-references
+        # suite additionally gets AST-based docstring-only enforcement on
+        # .py edits (no non-docstring/non-comment lines may change).
+        id: scope_gate
+        # Run even if the fix step failed after opening a PR. The snapshot
+        # is the only hard precondition for identifying newly-open attempts.
+        if: always() && steps.snapshot.outcome == 'success'
+        env:
+          SUITE: ${{ matrix.suite }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+
+          # Identify every attempted_fixes entry that grew during *this* run
+          # (vs the pre-fix snapshot), not just the last globally-open entry.
+          OPEN_ENTRIES=$(jq -c --slurpfile prior /tmp/prior-attempted-fixes.json '
+            (($prior[0] // []) | map({key: .id, value: .n}) | from_entries) as $p
+            | [
+              .attempted_fixes // []
+              | .[]
+              | select(
+                ((.attempts | last | .outcome) == "open")
+                and ((.attempts | length) > ($p[.id] // 0))
+              )
+            ]
+          ' .agentic-ci-state/runner-state.json)
+          OPEN_COUNT=$(echo "$OPEN_ENTRIES" | jq 'length')
+          if [ "$OPEN_COUNT" -eq 0 ]; then
+            echo "No new open attempted_fix recorded by this run; nothing to validate."
+            exit 0
+          fi
+
+          echo "Validating ${OPEN_COUNT} new open attempted_fix entries."
+          REJECTED=0
+
+          while IFS= read -r OPEN; do
+            BRANCH=$(echo "$OPEN" | jq -r '.attempts | last | .branch // empty')
+            PR_NUMBER=$(echo "$OPEN" | jq -r '.attempts | last | .pr_number // empty')
+            FINDING_ID=$(echo "$OPEN" | jq -r '.id')
+            DIFF_REF=""
+            REASONS=""
+
+            if [ -z "$BRANCH" ] && [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+              BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || true)
+              if [ -n "$BRANCH" ]; then
+                echo "::warning::Open attempt had no branch; recovered $BRANCH from PR #$PR_NUMBER."
+              fi
+            fi
+            if [ -z "$BRANCH" ]; then
+              REASONS="${REASONS}- open attempt has no branch and could not be recovered from PR ${PR_NUMBER:-unknown}\n"
+            fi
+
+            # Diff against the actual pushed branch (origin/$BRANCH), not
+            # local HEAD — HEAD may not match what was pushed if the agent
+            # left the working tree in an unexpected state.
+            if [ -n "$BRANCH" ]; then
+              if git fetch --depth=50 origin "$BRANCH" 2>/dev/null; then
+                DIFF_REF="FETCH_HEAD"
+              else
+                REASONS="${REASONS}- origin/$BRANCH was not fetchable for scope validation\n"
+              fi
+            fi
+
+            case "$SUITE" in
+              docs-and-references)
+                ALLOW='^(architecture/|docs/|README\.md$|CONTRIBUTING\.md$|DEVELOPMENT\.md$|STYLEGUIDE\.md$|packages/[^/]+/src/.*\.py$)'
+                ;;
+              dependencies)
+                ALLOW='^packages/[^/]+/pyproject\.toml$'
+                ;;
+              structure|code-quality)
+                ALLOW='^packages/[^/]+/src/.*\.py$'
+                ;;
+              *)
+                echo "::error::No allowlist defined for suite: $SUITE"
+                exit 1
+                ;;
+            esac
+
+            if [ -n "$DIFF_REF" ]; then
+              mapfile -t FILE_ARR < <(git diff --name-only "origin/main...$DIFF_REF")
+              FILE_COUNT=${#FILE_ARR[@]}
+              if [ "$FILE_COUNT" -gt 0 ]; then
+                BAD=$(printf '%s\n' "${FILE_ARR[@]}" | grep -vE "$ALLOW" | grep -v '^$' || true)
+              else
+                BAD=""
+              fi
+              LOC_DELTA=$(git diff --shortstat "origin/main...$DIFF_REF" \
+                | awk '{ a=0; d=0; for (i=1;i<=NF;i++) { if ($i ~ /insertion/) a=$(i-1); if ($i ~ /deletion/) d=$(i-1) } print a+d }')
+              : "${LOC_DELTA:=0}"
+            else
+              FILE_ARR=()
+              FILE_COUNT=0
+              BAD=""
+              LOC_DELTA=0
+            fi
+
+            if [ -n "$BAD" ]; then
+              REASONS="${REASONS}- files outside allowlist:\n$(echo "$BAD" | sed 's/^/  - /')\n"
+            fi
+            if [ "$FILE_COUNT" -gt 3 ]; then
+              REASONS="${REASONS}- file count ($FILE_COUNT) exceeds 3-file cap\n"
+            fi
+            if [ "$LOC_DELTA" -gt 50 ]; then
+              REASONS="${REASONS}- LOC delta ($LOC_DELTA) exceeds 50-line cap\n"
+            fi
+
+            # Docs suite: AST-enforce the docstring-only caveat on .py edits.
+            if [ "$SUITE" = "docs-and-references" ] && [ "$FILE_COUNT" -gt 0 ]; then
+              PY_FILES=$(printf '%s\n' "${FILE_ARR[@]}" | grep -E '^packages/[^/]+/src/.*\.py$' || true)
+              if [ -n "$PY_FILES" ]; then
+                NON_DOCSTRING=$(PY_FILES="$PY_FILES" DIFF_REF="$DIFF_REF" python3 - <<'PY'
+          import ast
+          import os
+          import re
+          import subprocess
+          import sys
+
+          files = [p for p in os.environ['PY_FILES'].splitlines() if p]
+          diff_ref = os.environ['DIFF_REF']
+          violations = []
+          hunk_re = re.compile(r'@@ -(?P<old>\d+)(?:,\d+)? \+(?P<new>\d+)(?:,\d+)? @@')
+
+          try:
+              base_ref = subprocess.check_output(
+                  ['git', 'merge-base', 'origin/main', diff_ref], text=True
+              ).strip()
+          except subprocess.CalledProcessError:
+              violations.append(f'could not compute merge base for origin/main...{diff_ref}')
+              base_ref = 'origin/main'
+
+          def collect_docstring_lines(ref, path, *, missing_ok=False):
+              try:
+                  content = subprocess.check_output(
+                      ['git', 'show', f'{ref}:{path}'], text=True, errors='replace'
+                  )
+              except subprocess.CalledProcessError:
+                  if missing_ok:
+                      return set()
+                  violations.append(f'{path}: file missing at {ref}')
+                  return None
+              try:
+                  tree = ast.parse(content)
+              except SyntaxError as e:
+                  violations.append(f'{path}: parse error at {ref} ({e})')
+                  return None
+
+              lines = set()
+              for node in ast.walk(tree):
+                  if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                      body = getattr(node, 'body', None) or []
+                      if (body and isinstance(body[0], ast.Expr)
+                              and isinstance(body[0].value, ast.Constant)
+                              and isinstance(body[0].value.value, str)):
+                          start, end = body[0].lineno, body[0].end_lineno
+                          if start and end:
+                              lines.update(range(start, end + 1))
+              return lines
+
+          for path in files:
+              old_docstring_lines = collect_docstring_lines(base_ref, path, missing_ok=True)
+              new_docstring_lines = collect_docstring_lines(diff_ref, path)
+              if new_docstring_lines is None:
+                  violations.append(f'{path}: file deleted or unreadable at {diff_ref}')
+                  continue
+              if old_docstring_lines is None:
+                  continue
+              try:
+                  hunks = subprocess.check_output(
+                      ['git', 'diff', '-U0', f'origin/main...{diff_ref}', '--', path],
+                      text=True, errors='replace',
+                  )
+              except subprocess.CalledProcessError:
+                  violations.append(f'{path}: could not compute diff')
+                  continue
+              old_cur = None
+              new_cur = None
+              for line in hunks.splitlines():
+                  if line.startswith('@@'):
+                      match = hunk_re.match(line)
+                      if match:
+                          old_cur = int(match.group('old'))
+                          new_cur = int(match.group('new'))
+                      else:
+                          old_cur = None
+                          new_cur = None
+                      continue
+                  if old_cur is None or new_cur is None:
+                      continue
+                  if line.startswith('+') and not line.startswith('+++'):
+                      stripped = line[1:].strip()
+                      ln = new_cur
+                      new_cur += 1
+                      if not stripped or stripped.startswith('#'):
+                          continue
+                      if ln not in new_docstring_lines:
+                          violations.append(f'{path}:{ln} added outside docstring')
+                  elif line.startswith('-') and not line.startswith('---'):
+                      stripped = line[1:].strip()
+                      ln = old_cur
+                      old_cur += 1
+                      if not stripped or stripped.startswith('#'):
+                          continue
+                      if ln not in old_docstring_lines:
+                          violations.append(f'{path}:{ln} removed outside docstring')
+                  elif line.startswith(' '):
+                      old_cur += 1
+                      new_cur += 1
+
+          if violations:
+              print('\n'.join(violations))
+              sys.exit(1)
+          PY
+                ) || true
+                if [ -n "$NON_DOCSTRING" ]; then
+                  REASONS="${REASONS}- non-docstring/non-comment .py edits in docs suite:\n$(echo "$NON_DOCSTRING" | sed 's/^/  - /')\n"
+                fi
+              fi
+            fi
+
+            if [ -z "$REASONS" ]; then
+              echo "Scope gate passed for ${FINDING_ID}: ${FILE_COUNT} file(s), ${LOC_DELTA} LOC, all within allowlist."
+              continue
+            fi
+
+            REJECTED=1
+            echo "::error::Scope gate violation for ${FINDING_ID}"
+            printf '%b' "$REASONS"
+
+            if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+              MSG=$(printf 'Closed by workflow scope gate. The pushed diff violated the localized-fix bar (see `.agents/recipes/_fix-policy.md`):\n\n%b\nThe `attempted_fixes` entry has been flipped to `abandoned`.' "$REASONS")
+              gh pr close "$PR_NUMBER" --comment "$MSG" --delete-branch || \
+                echo "::warning::gh pr close failed; branch may need manual cleanup"
+            elif [ -n "$BRANCH" ]; then
+              git push origin --delete "$BRANCH" || \
+                echo "::warning::Could not delete remote branch $BRANCH"
+            else
+              echo "::warning::No PR number or branch available for cleanup"
+            fi
+
+            FINDING_ID="$FINDING_ID" python3 - <<'PY'
+          import json, os
+          finding_id = os.environ['FINDING_ID']
+          path = '.agentic-ci-state/runner-state.json'
+          with open(path) as f:
+              state = json.load(f)
+          for entry in state.get('attempted_fixes', []):
+              if entry.get('id') != finding_id:
+                  continue
+              attempts = entry.get('attempts') or []
+              if attempts and attempts[-1].get('outcome') == 'open':
+                  attempts[-1]['outcome'] = 'abandoned'
+                  attempts[-1]['gate_violation'] = True
+          tmp = path + '.tmp'
+          with open(tmp, 'w') as f:
+              json.dump(state, f, indent=2)
+          os.replace(tmp, path)
+          PY
+
+          done < <(echo "$OPEN_ENTRIES" | jq -c '.[]')
+
+          if [ "$REJECTED" -eq 1 ]; then
+            echo "rejected=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: Verify dependencies lockfile
+        # Dependencies suite only: re-run make install-dev against the
+        # agent's pyproject.toml changes. This catches the failure mode
+        # where the per-package test target passed against the *old*
+        # lockfile but the proposed dep does not actually resolve.
+        id: lockfile_gate
+        if: always() && matrix.suite == 'dependencies' && steps.snapshot.outcome == 'success' && steps.scope_gate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+
+          # Same snapshot-based selector as the scope gate: target every
+          # entry whose attempts grew during this run.
+          OPEN_ENTRIES=$(jq -c --slurpfile prior /tmp/prior-attempted-fixes.json '
+            (($prior[0] // []) | map({key: .id, value: .n}) | from_entries) as $p
+            | [
+              .attempted_fixes // []
+              | .[]
+              | select(
+                ((.attempts | last | .outcome) == "open")
+                and ((.attempts | length) > ($p[.id] // 0))
+              )
+            ]
+          ' .agentic-ci-state/runner-state.json)
+          OPEN_COUNT=$(echo "$OPEN_ENTRIES" | jq 'length')
+          if [ "$OPEN_COUNT" -eq 0 ]; then
+            echo "No new open attempted_fix; skipping lockfile verification."
+            exit 0
+          fi
+
+          echo "Verifying dependencies lockfile for ${OPEN_COUNT} new open attempted_fix entries."
+          REJECTED=0
+          BASE_REF=$(git rev-parse HEAD)
+
+          abandon_open_attempt() {
+            local finding_id="$1"
+            local marker="$2"
+            FINDING_ID="$finding_id" MARKER="$marker" python3 - <<'PY'
+          import json, os
+          finding_id = os.environ['FINDING_ID']
+          marker = os.environ['MARKER']
+          path = '.agentic-ci-state/runner-state.json'
+          with open(path) as f:
+              state = json.load(f)
+          for entry in state.get('attempted_fixes', []):
+              if entry.get('id') != finding_id:
+                  continue
+              attempts = entry.get('attempts') or []
+              if attempts and attempts[-1].get('outcome') == 'open':
+                  attempts[-1]['outcome'] = 'abandoned'
+                  attempts[-1][marker] = True
+          tmp = path + '.tmp'
+          with open(tmp, 'w') as f:
+              json.dump(state, f, indent=2)
+          os.replace(tmp, path)
+          PY
+          }
+
+          while IFS= read -r OPEN; do
+            PR_NUMBER=$(echo "$OPEN" | jq -r '.attempts | last | .pr_number // empty')
+            BRANCH=$(echo "$OPEN" | jq -r '.attempts | last | .branch // empty')
+            FINDING_ID=$(echo "$OPEN" | jq -r '.id')
+            CHECKOUT_REASON=""
+
+            # Verify against the actually-pushed branch, not local HEAD.
+            if [ -z "$BRANCH" ] && [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+              BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || true)
+              if [ -n "$BRANCH" ]; then
+                echo "::warning::Open attempt had no branch; recovered $BRANCH from PR #$PR_NUMBER."
+              fi
+            fi
+            git checkout --force --detach "$BASE_REF" >/dev/null 2>&1 || true
+            if [ -z "$BRANCH" ]; then
+              CHECKOUT_REASON="open attempt has no branch and could not be recovered from PR ${PR_NUMBER:-unknown}"
+            elif ! git fetch --depth=50 origin "$BRANCH" 2>/dev/null; then
+              CHECKOUT_REASON="origin/$BRANCH was not fetchable for lockfile verification"
+            elif ! git checkout --force --detach FETCH_HEAD 2>/dev/null; then
+              CHECKOUT_REASON="origin/$BRANCH could not be checked out for lockfile verification"
+            fi
+
+            if [ -n "$CHECKOUT_REASON" ]; then
+              REJECTED=1
+              echo "::error::${CHECKOUT_REASON}"
+              if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+                MSG="Closed by workflow lockfile verification. ${CHECKOUT_REASON}; refusing to validate the previous working tree."
+                gh pr close "$PR_NUMBER" --comment "$MSG" --delete-branch || \
+                  echo "::warning::gh pr close failed"
+              elif [ -n "$BRANCH" ]; then
+                git push origin --delete "$BRANCH" || true
+              else
+                echo "::warning::No PR number or branch available for cleanup"
+              fi
+              abandon_open_attempt "$FINDING_ID" "lockfile_checkout_failed"
+              continue
+            fi
+
+            if make install-dev 2>&1 | tee /tmp/install-dev-verify.log; then
+              echo "Lockfile resolves cleanly for ${FINDING_ID}."
+              continue
+            fi
+
+            REJECTED=1
+            echo "::error::make install-dev failed against the agent's pyproject changes for ${FINDING_ID}"
+
+            if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+              MSG="Closed by workflow lockfile verification. \`make install-dev\` failed against the agent's \`pyproject.toml\` changes — the dependency edit does not resolve cleanly. See \`/tmp/install-dev-verify.log\` in the workflow artifact."
+              gh pr close "$PR_NUMBER" --comment "$MSG" --delete-branch || \
+                echo "::warning::gh pr close failed"
+            elif [ -n "$BRANCH" ]; then
+              git push origin --delete "$BRANCH" || true
+            else
+              echo "::warning::No PR number or branch available for cleanup"
+            fi
+
+            abandon_open_attempt "$FINDING_ID" "lockfile_verification_failed"
+
+          done < <(echo "$OPEN_ENTRIES" | jq -c '.[]')
+
+          if [ "$REJECTED" -eq 1 ]; then
+            echo "rejected=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: Update runner memory
+        if: always()
+        env:
+          SUITE: ${{ matrix.suite }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          # Always validate state before cache save/post-job handling.
+          python3 - <<'PY'
+          import json, datetime, os
+          try:
+              with open('.agentic-ci-state/runner-state.json') as f:
+                  state = json.load(f)
+          except (json.JSONDecodeError, FileNotFoundError) as e:
+              print(f'::warning::runner-state.json is invalid ({e}), resetting')
+              state = {'suite': os.environ['SUITE'], 'known_issues': [], 'baselines': {}}
+          # Only stamp last_run if the audit actually succeeded.
+          # Fix phase manages its own state via attempted_fixes; its outcome
+          # does not gate last_run.
+          if os.environ.get('AUDIT_OUTCOME') == 'success':
+              state['last_run'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          state['suite'] = os.environ['SUITE']
+          with open('.agentic-ci-state/runner-state.json', 'w') as f:
+              json.dump(state, f, indent=2)
+          PY
+
+      - name: Upload agent log
+        # Always upload: for autonomous PR generation, the most interesting
+        # failure mode is "the workflow succeeded but the PR was wrong".
+        # The full event stream is the only way to look back days later.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: claude-audit-log-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/claude-audit-log.txt
+            /tmp/claude-fix-log.txt
+            /tmp/audit-${{ matrix.suite }}.md
+            /tmp/pr-body-${{ matrix.suite }}.md
+            /tmp/install-dev-verify.log
+            .agentic-ci-state/runner-state.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Write job summary
+        if: always()
+        env:
+          SUITE: ${{ matrix.suite }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          FIX_OUTCOME: ${{ steps.fix.outcome }}
+          BACKLOG_SIZE: ${{ steps.backlog.outputs.size }}
+          SCOPE_REJECTED: ${{ steps.scope_gate.outputs.rejected }}
+          LOCKFILE_REJECTED: ${{ steps.lockfile_gate.outputs.rejected }}
+        run: |
+          echo "## Daily Audit: ${SUITE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Audit: \`${AUDIT_OUTCOME:-unknown}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fix backlog size: \`${BACKLOG_SIZE:-n/a}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fix: \`${FIX_OUTCOME:-skipped}\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${SCOPE_REJECTED}" = "true" ]; then
+            echo "- Scope gate: \`rejected and closed PR\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${LOCKFILE_REJECTED}" = "true" ]; then
+            echo "- Lockfile gate: \`rejected and closed PR\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -s "/tmp/audit-${SUITE}.md" ]; then
+            cat "/tmp/audit-${SUITE}.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report generated. See the \`claude-audit-log-*\` artifact on failures for the full event stream." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Save rejected gate state
+        if: always() && (steps.scope_gate.outputs.rejected == 'true' || steps.lockfile_gate.outputs.rejected == 'true')
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            .agentic-ci-state
+            graphify-out
+          key: agentic-ci-state-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}-rejected
+
+      - name: Fail rejected fix gates
+        if: always() && (steps.scope_gate.outputs.rejected == 'true' || steps.lockfile_gate.outputs.rejected == 'true')
+        run: |
+          echo "::error::A post-fix gate rejected and closed the agent PR. Runner memory was saved before failing."
+          exit 1

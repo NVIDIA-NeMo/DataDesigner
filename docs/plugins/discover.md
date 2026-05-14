@@ -1,0 +1,101 @@
+# Discover Plugins
+
+The Data Designer CLI is the recommended way to discover and install published plugins. It uses plugin catalogs to show install details and compatibility before installing the selected plugin package into your current environment or active `uv` project.
+
+Plugins are distributed as Python packages. A single package can expose one or more runtime plugins, so the CLI installs and uninstalls packages rather than individual runtime plugin names.
+
+## NVIDIA catalog
+
+The default `nvidia` catalog is maintained in the [DataDesignerPlugins repository](https://github.com/NVIDIA-NeMo/DataDesignerPlugins). You do not need to configure it before using the CLI.
+
+You can also browse the first-party [plugin documentation](https://nvidia-nemo.github.io/DataDesignerPlugins/plugins/) and [plugin package source](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins) directly.
+
+## Find a plugin package
+
+When a CLI command requires a plugin package argument, you can pass either the full package name or the package alias. The package alias is the package name without the `data-designer-` prefix. For example, `data-designer-github` can be addressed as `github`.
+
+Start by listing or searching the compatible packages in the default catalog. Search can match package names, package aliases, descriptions, runtime plugin names, and runtime plugin types.
+
+```bash
+# List compatible plugin packages from the default NVIDIA catalog
+data-designer plugin list
+
+# Search for a package
+data-designer plugin search github
+
+# Inspect one package before installing it
+data-designer plugin info github
+```
+
+## Install a plugin package
+
+Install the package by full package name or package alias:
+
+```bash
+data-designer plugin install github
+```
+
+After installation, Data Designer discovers the package's `data_designer.plugins` entry points. Use `installed` to see the plugin packages available in the current Python environment and the runtime plugins they expose:
+
+```bash
+data-designer plugin installed
+```
+
+Uninstall with the same package name or alias:
+
+```bash
+data-designer plugin uninstall github
+```
+
+!!! note
+    Plugins are ordinary Python packages. You can still publish a plugin to PyPI or another package index and install it directly with `pip` or `uv`. This is the path we recommend for individual plugin developers from the community. See [Community plugins](#community-plugins) below.
+
+## How catalogs work
+
+A plugin catalog is a JSON file that tells Data Designer which plugin packages are available and how to install them. The catalog can be hosted anywhere that serves raw JSON. Each entry points to an installable Python package and includes its docs URL, Python and Data Designer compatibility requirements, the runtime plugins it exposes after installation, and the installer metadata needed to fetch the package.
+
+The package itself can live in any Python package index, or be referenced with any valid [PEP 508 direct reference](https://packaging.python.org/en/latest/specifications/dependency-specifiers/#direct-references). The package does not have to live in the same repository as the catalog.
+
+The NVIDIA catalog is published at:
+
+```text
+https://nvidia-nemo.github.io/DataDesignerPlugins/catalog/plugins.json
+```
+
+The NVIDIA plugin packages are served from a PyPI-compatible Python Simple API index published beside that catalog:
+
+```text
+https://nvidia-nemo.github.io/DataDesignerPlugins/simple/
+```
+
+Catalog discovery and runtime plugin discovery are separate. Reading a catalog lets the CLI show available packages and install plans without importing plugin code. Runtime plugins become available only after their package is installed and Data Designer discovers the package's `data_designer.plugins` entry points.
+
+Other catalogs can follow the same pattern as the NVIDIA plugin repository: publish a raw `catalog/plugins.json` file and, for index-backed packages, a PyPI-compatible hosted package index. Catalog entries can also point to packages on the installer's default index or to direct package references.
+
+## Use another catalog
+
+Add a catalog when a team or community publishes a compatible catalog JSON file. For example, an internal platform team might publish a catalog that lists approved Data Designer plugin packages and points each package at an internal Python package index. Teammates can then add that catalog once and install approved plugins by package name or alias.
+
+Choose a short catalog name and use it with `--catalog`:
+
+```bash
+data-designer plugin catalog add <name> <catalog-url-or-path>
+data-designer plugin --catalog <name> list
+data-designer plugin --catalog <name> install <package-or-alias>
+```
+
+For published catalogs, prefer sharing the raw catalog JSON URL. Local catalog files and directories are useful while authoring or testing a catalog before publishing it.
+
+```bash
+# See configured catalog names
+data-designer plugin catalog list
+
+# Remove a catalog
+data-designer plugin catalog remove <name>
+```
+
+## Community plugins
+
+We do not have any community plugins to list here yet, but yours could be the first! If you build a plugin that could be useful to other Data Designer users, we would love to hear about it.
+
+To get started, follow the patterns in the [plugin overview](overview.md) and [Build Your Own](build_your_own.md) guides, then publish your plugin package to PyPI. When your plugin is ready, open an issue on the [Data Designer GitHub repository](https://github.com/NVIDIA-NeMo/DataDesigner/issues) with the package name, source repository, documentation link, supported Data Designer versions, and the plugin types it provides. The Data Designer team will review the plugin and add it here if it seems generally useful for the community.
