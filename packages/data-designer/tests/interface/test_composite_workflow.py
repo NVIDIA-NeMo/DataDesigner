@@ -630,6 +630,60 @@ def test_composite_workflow_postprocessors_can_feed_from_processor_artifact(
     ]
 
 
+def test_composite_workflow_output_can_select_main_processor_with_postprocessors(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada", "scratch": "drop me"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage.add_processor(SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"}))
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="main-processor-output"
+    )
+    workflow.add_stage(
+        "compact",
+        stage,
+        num_records=1,
+        postprocessors=[DropColumnsProcessorConfig(name="drop_scratch", column_names=["scratch"])],
+        output="processor:compact",
+    )
+
+    assert workflow.run().load_dataset().to_dict(orient="records") == [{"compact_name": "Ada"}]
+
+
+def test_composite_workflow_callback_receives_main_stage_artifact_with_postprocessors(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada", "scratch": "drop me"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    callback_paths = []
+
+    def keep_postprocessed(stage_path: Path) -> Path:
+        callback_paths.append(stage_path)
+        assert (stage_path / "postprocessors" / "parquet-files").is_dir()
+        return stage_path / "postprocessors" / "parquet-files"
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="postprocessor-callback"
+    )
+    workflow.add_stage(
+        "base",
+        stage,
+        num_records=1,
+        postprocessors=[DropColumnsProcessorConfig(name="drop_scratch", column_names=["scratch"])],
+        on_success=keep_postprocessed,
+    )
+
+    result = workflow.run()
+
+    assert callback_paths == [tmp_path / "artifacts" / "postprocessor-callback" / "stage-0-base"]
+    assert "scratch" not in result.load_dataset().columns
+
+
 def test_composite_workflow_export_uses_selected_final_output(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],

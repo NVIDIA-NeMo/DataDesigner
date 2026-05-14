@@ -164,6 +164,10 @@ class DatasetBuilder:
         return self._resource_provider.artifact_storage
 
     @property
+    def data_designer_config(self) -> DataDesignerConfig:
+        return self._data_designer_config
+
+    @property
     def processors(self) -> tuple[Processor, ...]:
         return self._processor_runner.processors
 

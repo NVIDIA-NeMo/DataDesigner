@@ -276,6 +276,7 @@ class CompositeWorkflow:
                 )
                 actual_records = result.count_records()
                 output_result = result
+                output_source_result = result
                 if stage.postprocessors:
                     postprocessor_builder = _postprocessor_config_builder(
                         stage_builder=stage_builder,
@@ -288,13 +289,14 @@ class CompositeWorkflow:
                         dataset_name="postprocessors",
                         artifact_path=workflow_path / stage_dir_name,
                     )
+                    output_source_result = _select_output_result(stage, result, output_result)
 
-                output_seed_path = _resolve_stage_output_path(output_result, stage.output)
+                output_seed_path = _resolve_stage_output_path(output_source_result, stage.output)
                 callback_output_path = None
                 output_records = _count_parquet_records(output_seed_path)
 
                 if stage.on_success is not None:
-                    callback_output_path = Path(stage.on_success(output_result.artifact_storage.base_dataset_path))
+                    callback_output_path = Path(stage.on_success(result.artifact_storage.base_dataset_path))
                     output_seed_path = callback_output_path
                     output_records = _count_parquet_records(callback_output_path)
 
@@ -429,6 +431,19 @@ def _resolve_stage_output_path(result: DatasetCreationResults, output: str) -> P
     raise DataDesignerWorkflowError(f"Stage output processor {processor_name!r} did not produce artifacts.")
 
 
+def _select_output_result(
+    stage: _WorkflowStage,
+    result: DatasetCreationResults,
+    output_result: DatasetCreationResults,
+) -> DatasetCreationResults:
+    if stage.output == "final":
+        return output_result
+    processor_name = stage.output.removeprefix("processor:")
+    if processor_name in {processor.name for processor in stage.postprocessors}:
+        return output_result
+    return result
+
+
 def _count_parquet_records(path: Path) -> int:
     parquet_files = sorted(path.glob("*.parquet")) if path.is_dir() else [path]
     if not parquet_files:
@@ -449,7 +464,7 @@ def _export_parquet_dataset(source_path: Path, output_path: Path, *, format: Exp
         raise InvalidFileFormatError(
             f"Unsupported export format: {resolved_format!r}. Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
         )
-    parquet_files = sorted(source_path.glob("*.parquet")) if source_path.is_dir() else [source_path]
+    parquet_files = _export_parquet_files(source_path)
     if not parquet_files:
         raise ArtifactStorageError("No parquet files found to export.")
     if resolved_format == "jsonl":
@@ -459,6 +474,12 @@ def _export_parquet_dataset(source_path: Path, output_path: Path, *, format: Exp
     elif resolved_format == "parquet":
         _export_parquet(parquet_files, output_path)
     return output_path
+
+
+def _export_parquet_files(source_path: Path) -> list[Path]:
+    if not source_path.is_dir():
+        return [source_path]
+    return sorted(source_path.glob("batch_*.parquet")) or sorted(source_path.glob("*.parquet"))
 
 
 def _write_workflow_metadata(workflow_path: Path, metadata: dict[str, Any]) -> None:

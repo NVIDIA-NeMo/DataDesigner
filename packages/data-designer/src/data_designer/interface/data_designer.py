@@ -351,7 +351,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             )
 
         try:
-            profiler_column_configs = config_builder.get_column_configs() or builder._data_designer_config.columns
+            profiler_column_configs = config_builder.get_column_configs() or builder.data_designer_config.columns
             profiler = self._create_dataset_profiler(
                 config_builder,
                 resource_provider,
@@ -571,6 +571,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             due to error-rate thresholds. Errors are still tracked for reporting.
         """
         self._run_config = run_config
+        self._throttle_manager = self._create_throttle_manager()
 
     def get_models(self, model_aliases: list[str]) -> dict[str, ModelFacade]:
         """Get a dict of ModelFacade instances for custom column development.
