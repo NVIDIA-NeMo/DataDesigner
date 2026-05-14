@@ -327,6 +327,17 @@ def test_composite_workflow_rejects_invalid_stage_outputs(
         workflow.add_stage("base", _category_builder(stub_model_configs), output=output)
 
 
+def test_composite_workflow_rejects_unknown_processor_stage_output(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    workflow = _data_designer(stub_artifact_path, stub_model_providers).compose_workflow(name="unknown-output")
+
+    with pytest.raises(DataDesignerWorkflowError, match="not configured"):
+        workflow.add_stage("base", _category_builder(stub_model_configs), output="processor:missing")
+
+
 def test_composite_workflow_rejects_duplicate_stage_names(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -617,6 +628,44 @@ def test_composite_workflow_postprocessors_can_feed_from_processor_artifact(
         {"name": "Ada", "persona": "Ada"},
         {"name": "Linus", "persona": "Linus"},
     ]
+
+
+def test_composite_workflow_export_uses_selected_final_output(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada"}, {"name": "Linus"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage.add_processor(SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"}))
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="selected-export"
+    )
+    workflow.add_stage("compact", stage, num_records=2, output="processor:compact")
+
+    output = workflow.run().export(tmp_path / "selected.jsonl")
+
+    assert [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()] == [
+        {"compact_name": "Ada"},
+        {"compact_name": "Linus"},
+    ]
+
+
+def test_composite_workflow_push_to_hub_rejects_selected_processor_output(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage.add_processor(SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"}))
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="selected-push")
+    workflow.add_stage("compact", stage, num_records=1, output="processor:compact")
+
+    with pytest.raises(DataDesignerWorkflowError, match="selected workflow outputs"):
+        workflow.run().push_to_hub("user/selected", "description")
 
 
 def test_composite_workflow_runs_custom_generator_in_downstream_stage(

@@ -17,12 +17,21 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ProcessorConfig
 from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
+from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 from data_designer.config.version import get_library_version
+from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.interface.errors import DataDesignerWorkflowError
-from data_designer.interface.results import DatasetCreationResults
+from data_designer.interface.results import (
+    SUPPORTED_EXPORT_FORMATS,
+    DatasetCreationResults,
+    ExportFormat,
+    _export_csv,
+    _export_jsonl,
+    _export_parquet,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -121,11 +130,18 @@ class CompositeWorkflowResults:
     def count_stage_output_records(self, stage_name: str) -> int:
         return _count_parquet_records(self.get_stage_output_path(stage_name))
 
-    def export(self, *args: Any, **kwargs: Any) -> Path:
-        return self.final_result.export(*args, **kwargs)
+    def export(self, path: Path | str, *, format: ExportFormat | None = None) -> Path:
+        self.final_result
+        return _export_parquet_dataset(self.get_stage_output_path(self.final_stage_name), Path(path), format=format)
 
     def push_to_hub(self, *args: Any, **kwargs: Any) -> str:
-        return self.final_result.push_to_hub(*args, **kwargs)
+        final_result = self.final_result
+        if self.get_stage_output_path(self.final_stage_name) != final_result.artifact_storage.final_dataset_path:
+            raise DataDesignerWorkflowError(
+                "push_to_hub() does not support selected workflow outputs yet. "
+                "Use export() for the selected output, or push the stage result directly."
+            )
+        return final_result.push_to_hub(*args, **kwargs)
 
 
 class CompositeWorkflow:
@@ -155,6 +171,7 @@ class CompositeWorkflow:
         if num_records is not None and num_records < 1:
             raise DataDesignerWorkflowError("Stage num_records must be at least 1.")
         _validate_stage_output(output)
+        _validate_stage_output_processor(output, config_builder, postprocessors or [])
         self._stages.append(
             _WorkflowStage(
                 name=name,
@@ -426,6 +443,24 @@ def _load_parquet_dataset(path: Path) -> pd.DataFrame:
     return lazy.pd.concat([lazy.pd.read_parquet(file_path) for file_path in parquet_files], ignore_index=True)
 
 
+def _export_parquet_dataset(source_path: Path, output_path: Path, *, format: ExportFormat | None = None) -> Path:
+    resolved_format: str = format if format is not None else output_path.suffix.lstrip(".").lower()
+    if resolved_format not in SUPPORTED_EXPORT_FORMATS:
+        raise InvalidFileFormatError(
+            f"Unsupported export format: {resolved_format!r}. Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
+        )
+    parquet_files = sorted(source_path.glob("*.parquet")) if source_path.is_dir() else [source_path]
+    if not parquet_files:
+        raise ArtifactStorageError("No parquet files found to export.")
+    if resolved_format == "jsonl":
+        _export_jsonl(parquet_files, output_path)
+    elif resolved_format == "csv":
+        _export_csv(parquet_files, output_path)
+    elif resolved_format == "parquet":
+        _export_parquet(parquet_files, output_path)
+    return output_path
+
+
 def _write_workflow_metadata(workflow_path: Path, metadata: dict[str, Any]) -> None:
     path = workflow_path / "workflow-metadata.json"
     path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
@@ -438,6 +473,20 @@ def _validate_stage_output(output: str) -> None:
         raise DataDesignerWorkflowError("Stage output must be 'final' or 'processor:<name>'.")
     processor_name = output.removeprefix("processor:")
     _validate_dir_name(processor_name, "processor output name")
+
+
+def _validate_stage_output_processor(
+    output: str,
+    config_builder: DataDesignerConfigBuilder,
+    postprocessors: list[ProcessorConfig],
+) -> None:
+    if not output.startswith("processor:"):
+        return
+    processor_name = output.removeprefix("processor:")
+    processor_names = {processor.name for processor in config_builder.get_processor_configs()}
+    processor_names.update(processor.name for processor in postprocessors)
+    if processor_name not in processor_names:
+        raise DataDesignerWorkflowError(f"Stage output processor {processor_name!r} is not configured on this stage.")
 
 
 def _validate_dir_name(name: str, label: str) -> None:
