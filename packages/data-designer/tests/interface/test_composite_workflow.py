@@ -314,6 +314,19 @@ def test_composite_workflow_rejects_invalid_stage_names(
         workflow.add_stage(name, _category_builder(stub_model_configs))
 
 
+@pytest.mark.parametrize("output", ["processor:", "callback", "processor:bad/name"])
+def test_composite_workflow_rejects_invalid_stage_outputs(
+    output: str,
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    workflow = _data_designer(stub_artifact_path, stub_model_providers).compose_workflow(name="invalid-output")
+
+    with pytest.raises(DataDesignerWorkflowError):
+        workflow.add_stage("base", _category_builder(stub_model_configs), output=output)
+
+
 def test_composite_workflow_rejects_duplicate_stage_names(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -451,6 +464,123 @@ def test_composite_workflow_can_seed_from_processor_output_callback(
         name="processor-callback"
     )
     workflow.add_stage("compact", stage_1, num_records=2, on_success=use_processor_output)
+    workflow.add_stage("final", stage_2)
+
+    df = workflow.run().load_dataset().sort_values("compact_name").reset_index(drop=True)
+
+    assert df.to_dict(orient="records") == [
+        {"compact_name": "Ada", "final": "Ada final"},
+        {"compact_name": "Linus", "final": "Linus final"},
+    ]
+
+
+def test_composite_workflow_runs_seeded_processor_only_stage(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(stub_model_configs, [{"name": "Ada", "secret": "hidden"}])
+    stage_1.add_column(ExpressionColumnConfig(name="public_name", expr="{{ name }}"))
+
+    stage_2 = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    stage_2.add_processor(DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"]))
+
+    stage_3 = _expression_builder(stub_model_configs, "final", "{{ public_name }} final")
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="processor-only-stage"
+    )
+    workflow.add_stage("base", stage_1, num_records=1)
+    workflow.add_stage("redacted", stage_2)
+    workflow.add_stage("final", stage_3)
+
+    results = workflow.run()
+    redacted = results["redacted"].load_dataset()
+    final = results.load_dataset()
+
+    assert "secret" not in redacted.columns
+    assert final.to_dict(orient="records") == [{"name": "Ada", "public_name": "Ada", "final": "Ada final"}]
+
+
+def test_composite_workflow_postprocessors_transform_stage_output(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(stub_model_configs, [{"name": "Ada", "secret": "hidden"}])
+    stage_1.add_column(ExpressionColumnConfig(name="public_name", expr="{{ name }}"))
+
+    stage_2 = _expression_builder(stub_model_configs, "final", "{{ public_name }} final")
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="postprocessor-stage"
+    )
+    workflow.add_stage(
+        "base",
+        stage_1,
+        num_records=1,
+        postprocessors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+    workflow.add_stage("final", stage_2)
+
+    results = workflow.run()
+    base = results["base"].load_dataset()
+    final = results.load_dataset()
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "postprocessor-stage")
+
+    assert "secret" not in base.columns
+    assert final.to_dict(orient="records") == [{"name": "Ada", "public_name": "Ada", "final": "Ada final"}]
+    assert metadata["stages"][0]["postprocessor_output_path"].endswith("stage-0-base/postprocessors")
+
+
+def test_composite_workflow_output_can_select_processor_artifact(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(stub_model_configs, [{"name": "Ada"}, {"name": "Linus"}])
+    stage_1.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage_1.add_processor(SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"}))
+
+    stage_2 = _expression_builder(stub_model_configs, "final", "{{ compact_name }} final")
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="processor-output"
+    )
+    workflow.add_stage("compact", stage_1, num_records=2, output="processor:compact")
+    workflow.add_stage("final", stage_2)
+
+    df = workflow.run().load_dataset().sort_values("compact_name").reset_index(drop=True)
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "processor-output")
+
+    assert df.to_dict(orient="records") == [
+        {"compact_name": "Ada", "final": "Ada final"},
+        {"compact_name": "Linus", "final": "Linus final"},
+    ]
+    assert metadata["stages"][0]["output"] == "processor:compact"
+    assert metadata["stages"][0]["output_seed_path"].endswith("stage-0-compact/processors-files/compact")
+
+
+def test_composite_workflow_postprocessors_can_feed_from_processor_artifact(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(stub_model_configs, [{"name": "Ada"}, {"name": "Linus"}])
+    stage_1.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+
+    stage_2 = _expression_builder(stub_model_configs, "final", "{{ compact_name }} final")
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="postprocessor-output"
+    )
+    workflow.add_stage(
+        "compact",
+        stage_1,
+        num_records=2,
+        postprocessors=[SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"})],
+        output="processor:compact",
+    )
     workflow.add_stage("final", stage_2)
 
     df = workflow.run().load_dataset().sort_values("compact_name").reset_index(drop=True)

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.base import ProcessorConfig
 from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
@@ -43,6 +44,8 @@ class _WorkflowStage:
     num_records: int | None
     on_success: OnSuccessCallback | None
     on_success_version: str | None
+    postprocessors: tuple[ProcessorConfig, ...]
+    output: str
     allow_empty: bool
     sampling_strategy: SamplingStrategy
     selection_strategy: IndexRange | PartitionBlock | None
@@ -57,10 +60,9 @@ class SkippedStageResult:
 class CompositeWorkflowResults:
     """Results for a composite workflow run.
 
-    Per-stage entries are the original ``DataDesigner.create()`` results. If a
+    Per-stage entries are the effective ``DataDesigner.create()`` results. If a
     stage uses ``on_success``, metadata and downstream seeding use the callback
-    output path while the stage result still points at the stage's generated
-    dataset.
+    output path while the stage result still points at the stage's dataset.
     """
 
     def __init__(
@@ -69,10 +71,12 @@ class CompositeWorkflowResults:
         name: str,
         stage_results: dict[str, DatasetCreationResults | SkippedStageResult],
         final_stage_name: str,
+        final_output_path: Path | None = None,
     ) -> None:
         self.name = name
         self.stage_results = stage_results
         self.final_stage_name = final_stage_name
+        self._final_output_path = final_output_path
 
     def __getitem__(self, stage_name: str) -> DatasetCreationResults | SkippedStageResult:
         return self.stage_results[stage_name]
@@ -94,12 +98,18 @@ class CompositeWorkflowResults:
         return result
 
     def load_dataset(self) -> pd.DataFrame:
+        self.final_result
+        if self._final_output_path is not None:
+            return _load_parquet_dataset(self._final_output_path)
         return self.final_result.load_dataset()
 
     def load_analysis(self) -> DatasetProfilerResults:
         return self.final_result.load_analysis()
 
     def count_records(self) -> int:
+        self.final_result
+        if self._final_output_path is not None:
+            return _count_parquet_records(self._final_output_path)
         return self.final_result.count_records()
 
     def export(self, *args: Any, **kwargs: Any) -> Path:
@@ -124,6 +134,8 @@ class CompositeWorkflow:
         num_records: int | None = None,
         on_success: OnSuccessCallback | None = None,
         on_success_version: str | None = None,
+        postprocessors: list[ProcessorConfig] | None = None,
+        output: str = "final",
         allow_empty: bool = False,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
         selection_strategy: IndexRange | PartitionBlock | None = None,
@@ -133,6 +145,7 @@ class CompositeWorkflow:
             raise DataDesignerWorkflowError(f"Stage name {name!r} is already used in workflow {self.name!r}.")
         if num_records is not None and num_records < 1:
             raise DataDesignerWorkflowError("Stage num_records must be at least 1.")
+        _validate_stage_output(output)
         self._stages.append(
             _WorkflowStage(
                 name=name,
@@ -141,6 +154,8 @@ class CompositeWorkflow:
                 num_records=num_records,
                 on_success=on_success,
                 on_success_version=on_success_version,
+                postprocessors=_clone_processors(postprocessors or []),
+                output=output,
                 allow_empty=allow_empty,
                 sampling_strategy=sampling_strategy,
                 selection_strategy=selection_strategy,
@@ -233,12 +248,26 @@ class CompositeWorkflow:
                     artifact_path=workflow_path,
                 )
                 actual_records = result.count_records()
-                output_seed_path = result.artifact_storage.final_dataset_path
+                output_result = result
+                if stage.postprocessors:
+                    postprocessor_builder = _postprocessor_config_builder(
+                        stage_builder=stage_builder,
+                        seed_path=result.artifact_storage.final_dataset_path,
+                        postprocessors=stage.postprocessors,
+                    )
+                    output_result = self._data_designer.create(
+                        postprocessor_builder,
+                        num_records=actual_records,
+                        dataset_name="postprocessors",
+                        artifact_path=workflow_path / stage_dir_name,
+                    )
+
+                output_seed_path = _resolve_stage_output_path(output_result, stage.output)
                 callback_output_path = None
-                output_records = actual_records
+                output_records = _count_parquet_records(output_seed_path)
 
                 if stage.on_success is not None:
-                    callback_output_path = Path(stage.on_success(result.artifact_storage.base_dataset_path))
+                    callback_output_path = Path(stage.on_success(output_result.artifact_storage.base_dataset_path))
                     output_seed_path = callback_output_path
                     output_records = _count_parquet_records(callback_output_path)
 
@@ -257,6 +286,9 @@ class CompositeWorkflow:
                         "output_records": output_records,
                         "output_seed_path": str(output_seed_path),
                         "callback_output_path": str(callback_output_path) if callback_output_path else None,
+                        "postprocessor_output_path": (
+                            str(output_result.artifact_storage.base_dataset_path) if stage.postprocessors else None
+                        ),
                         "duration_sec": time.monotonic() - start_time,
                     }
                 )
@@ -265,7 +297,7 @@ class CompositeWorkflow:
                 _write_workflow_metadata(workflow_path, metadata)
                 raise
 
-            stage_results[stage.name] = result
+            stage_results[stage.name] = output_result
             previous_seed_path = output_seed_path
             previous_output_records = output_records
             previous_stage_name = stage.name
@@ -276,11 +308,31 @@ class CompositeWorkflow:
             name=self.name,
             stage_results=stage_results,
             final_stage_name=self._stages[-1].name,
+            final_output_path=previous_seed_path,
         )
 
 
 def _clone_config_builder(config_builder: DataDesignerConfigBuilder) -> DataDesignerConfigBuilder:
     return DataDesignerConfigBuilder.from_config(BuilderConfig(data_designer=config_builder.build()))
+
+
+def _clone_processors(processors: list[ProcessorConfig]) -> tuple[ProcessorConfig, ...]:
+    return tuple(processor.model_copy(deep=True) for processor in processors)
+
+
+def _postprocessor_config_builder(
+    *,
+    stage_builder: DataDesignerConfigBuilder,
+    seed_path: Path,
+    postprocessors: tuple[ProcessorConfig, ...],
+) -> DataDesignerConfigBuilder:
+    builder = DataDesignerConfigBuilder(
+        model_configs=stage_builder.model_configs,
+        tool_configs=stage_builder.tool_configs,
+    ).with_seed_dataset(_local_seed_source_from_path(seed_path))
+    for processor in postprocessors:
+        builder.add_processor(processor.model_copy(deep=True))
+    return builder
 
 
 def _stage_dir_name(index: int, name: str) -> str:
@@ -295,6 +347,8 @@ def _base_stage_metadata(index: int, stage: _WorkflowStage, stage_dir_name: str)
         "depends_on": list(stage.depends_on),
         "allow_empty": stage.allow_empty,
         "on_success_version": stage.on_success_version,
+        "postprocessors": [processor.model_dump(mode="json") for processor in stage.postprocessors],
+        "output": stage.output,
         "sampling_strategy": stage.sampling_strategy.value,
         "selection_strategy": _selection_strategy_payload(stage.selection_strategy),
     }
@@ -314,6 +368,8 @@ def _stage_fingerprint(
         "selection_strategy": _selection_strategy_payload(stage.selection_strategy),
         "allow_empty": stage.allow_empty,
         "on_success_version": stage.on_success_version,
+        "postprocessors": [processor.model_dump(mode="json") for processor in stage.postprocessors],
+        "output": stage.output,
         "library_version": get_library_version(),
         "upstream_fingerprint": upstream_fingerprint,
     }
@@ -332,6 +388,19 @@ def _local_seed_source_from_path(path: Path) -> LocalFileSeedSource:
     return LocalFileSeedSource(path=str(path))
 
 
+def _resolve_stage_output_path(result: DatasetCreationResults, output: str) -> Path:
+    if output == "final":
+        return result.artifact_storage.final_dataset_path
+    processor_name = output.removeprefix("processor:")
+    processor_path = result.artifact_storage.processors_outputs_path / processor_name
+    if processor_path.exists():
+        return processor_path
+    processor_file_path = result.artifact_storage.processors_outputs_path / f"{processor_name}.parquet"
+    if processor_file_path.exists():
+        return processor_file_path
+    raise DataDesignerWorkflowError(f"Stage output processor {processor_name!r} did not produce artifacts.")
+
+
 def _count_parquet_records(path: Path) -> int:
     parquet_files = sorted(path.glob("*.parquet")) if path.is_dir() else [path]
     if not parquet_files:
@@ -339,9 +408,25 @@ def _count_parquet_records(path: Path) -> int:
     return sum(lazy.pq.read_metadata(file_path).num_rows for file_path in parquet_files)
 
 
+def _load_parquet_dataset(path: Path) -> pd.DataFrame:
+    parquet_files = sorted(path.glob("*.parquet")) if path.is_dir() else [path]
+    if not parquet_files:
+        raise DataDesignerWorkflowError(f"No parquet files found at {str(path)!r}.")
+    return lazy.pd.concat([lazy.pd.read_parquet(file_path) for file_path in parquet_files], ignore_index=True)
+
+
 def _write_workflow_metadata(workflow_path: Path, metadata: dict[str, Any]) -> None:
     path = workflow_path / "workflow-metadata.json"
     path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _validate_stage_output(output: str) -> None:
+    if output == "final":
+        return
+    if not output.startswith("processor:"):
+        raise DataDesignerWorkflowError("Stage output must be 'final' or 'processor:<name>'.")
+    processor_name = output.removeprefix("processor:")
+    _validate_dir_name(processor_name, "processor output name")
 
 
 def _validate_dir_name(name: str, label: str) -> None:

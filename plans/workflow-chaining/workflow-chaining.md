@@ -401,7 +401,7 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - Add `compose_workflow(name: str)` factory method on `DataDesigner`.
 - Tests: multi-stage runs, explode/filter via callbacks, num_records defaulting, duplicate stage-name rejection, artifact layout, throttle reuse across stages.
 
-**Status after PR #636:** Implemented `CompositeWorkflow`, `compose_workflow()`, `to_config_builder()`, disk handoff, stage metadata, `acreate()`, shared throttle manager reuse, explicit stage artifact roots, cloned stage builders, and concurrent-safe seed reader/resource-provider handling. Still deferred: stage-level resume, DAG branches, `allow_resize` removal, seeded processor-only configs, postprocessors, stage output selection, config bundles, and first-class artifact seeding.
+**Status after PR #636:** Implemented `CompositeWorkflow`, `compose_workflow()`, `to_config_builder()`, disk handoff, stage metadata, `acreate()`, shared throttle manager reuse, explicit stage artifact roots, cloned stage builders, concurrent-safe seed reader/resource-provider handling, seeded processor-only configs, stage postprocessors, and stage output selection. Still deferred: stage-level resume, DAG branches, `allow_resize` removal, config bundles, and broader first-class artifact seeding.
 
 ### Sidecar: `acreate()` on `DataDesigner` (independent of chaining v1)
 
@@ -456,7 +456,7 @@ Items not on the current roadmap but worth flagging so they don't get accidental
 
 **Failure hooks.** v1 should raise on failure by default. A future `on_failure` callback could support cleanup, custom recovery, or explicit handling of all-rows-filtered cases, but it should not obscure the default failure semantics.
 
-**Seeded processor-only configs.** Do not introduce a separate public `stages` wrapper module or a workflow-specific `processors=[...]` stage argument. Keep `CompositeWorkflow.add_stage()` as the orchestration surface, and make processor-only work expressible as a normal seeded config:
+**Seeded processor-only configs (implemented in #636).** Do not introduce a separate public `stages` wrapper module or a workflow-specific `processors=[...]` stage argument. Keep `CompositeWorkflow.add_stage()` as the orchestration surface, and make processor-only work expressible as a normal seeded config:
 
 ```python
 workflow.add_stage("drafts", config_drafts, num_records=1000)
@@ -475,9 +475,9 @@ config = (
 result = data_designer.create(config)
 ```
 
-This requires validation to allow a seed-only config when it has processors and a seed dataset, while still rejecting processor-only configs with no seed and configs that drop all output columns.
+Validation allows a seed-only config when it has processors and a seed dataset, while still rejecting processor-only configs with no seed and configs that drop all output columns.
 
-**Stage postprocessors.** Add `postprocessors=[ProcessorConfig, ...]` to `CompositeWorkflow.add_stage()` for compact inline transforms at a stage boundary. Internally this can reuse the seeded processor-only config path above: seed a temporary processor config from the completed stage output, run it under a deterministic subdirectory, and use its final dataset as the stage output. This keeps row-count-changing 1:N and N:1 operations out of the async generation batch path while making the common case concise. Custom arbitrary transforms should use `CustomProcessor` when #159 lands; until then, keep raw `on_success` as the escape hatch.
+**Stage postprocessors (implemented in #636).** `CompositeWorkflow.add_stage()` accepts `postprocessors=[ProcessorConfig, ...]` for compact inline transforms at a stage boundary. Internally this reuses the seeded processor-only config path above: seed a temporary processor config from the completed stage output, run it under a deterministic subdirectory, and use its final dataset as the stage output. This keeps row-count-changing 1:N and N:1 operations out of the async generation batch path while making the common case concise. Custom arbitrary transforms should use `CustomProcessor` when #159 lands; until then, keep raw `on_success` as the escape hatch.
 
 **Config bundles.** Built-in or plugin-provided bundles should be reusable config fragments/factories, not execution stages. A bundle can return or extend a `DataDesignerConfigBuilder`, and `add_stage()` can accept either a builder or a bundle by normalizing the bundle to a builder:
 
@@ -489,7 +489,7 @@ workflow.add_stage("sft", bundles.sft_export(), output="processor:sft")
 
 Bundles can cover DataArc-like document QA, refinement, distillation, SFT export, or GRPO export shapes without introducing another workflow abstraction. Plugins can contribute bundles alongside existing column, seed-reader, and processor plugins.
 
-**First-class artifact seeding.** v1 can bridge named processor outputs or schema-transform artifacts through `on_success` callbacks. A later API could support `seed_from_artifact(...)` or named processor output references directly.
+**First-class artifact seeding.** v1 can select named processor outputs with `output="processor:<name>"`. Broader artifact seeding, such as media assets or arbitrary artifact folders, still requires `on_success` callbacks. A later API could support `seed_from_artifact(...)` references directly.
 
 **Auto-composition from a single config.** Auto-detecting stage boundaries in one config is possible, but likely overkill for the initial roadmap. If it returns later, it should be a convenience layer on top of `CompositeWorkflow`, not a separate execution model.
 
@@ -505,7 +505,7 @@ These were open in earlier drafts; recording the resolutions here so the design 
 
 4. **CompositeWorkflow construction** -> `CompositeWorkflow` is created via `data_designer.compose_workflow(name=...)` and reuses the parent `DataDesigner`'s `ModelRegistry` and `ThrottleManager` across all stages. The explicit name is the durable artifact identity used for resume, and the workflow does not construct its own `DataDesigner` instances. This is the throttle-coordination invariant (see Composability section).
 
-5. **Downstream seeding scope** -> v1 seeds downstream stages from the upstream stage's final dataset only. Named processor outputs, dropped columns, schema-transform artifacts, and media forwarding require an `on_success` callback in v1 and can become first-class APIs later.
+5. **Downstream seeding scope** -> v1 seeds downstream stages from the upstream stage's final dataset by default. Named processor outputs can be selected with `output="processor:<name>"`. Dropped columns, media forwarding, and arbitrary artifacts require an `on_success` callback in v1 and can become first-class APIs later.
 
 6. **Export and push semantics** -> v1 export/push defaults to the final stage's dataset only. Exporting selected stages or a full composite workflow artifact bundle is future work.
 

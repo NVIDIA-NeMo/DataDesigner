@@ -351,7 +351,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             )
 
         try:
-            profiler = self._create_dataset_profiler(config_builder, resource_provider)
+            profiler_column_configs = config_builder.get_column_configs() or builder._data_designer_config.columns
+            profiler = self._create_dataset_profiler(
+                config_builder,
+                resource_provider,
+                column_configs=profiler_column_configs,
+            )
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
@@ -613,11 +618,15 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def _create_dataset_profiler(
-        self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        resource_provider: ResourceProvider,
+        *,
+        column_configs: list | None = None,
     ) -> DataDesignerDatasetProfiler:
         return DataDesignerDatasetProfiler(
             config=DatasetProfilerConfig(
-                column_configs=config_builder.get_column_configs(),
+                column_configs=column_configs or config_builder.get_column_configs(),
                 column_profiler_configs=config_builder.get_profilers(),
             ),
             resource_provider=resource_provider,

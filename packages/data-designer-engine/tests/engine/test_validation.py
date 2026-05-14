@@ -13,6 +13,7 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
     SamplerColumnConfig,
     Score,
+    SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
 from data_designer.config.models import ImageContext, ModalityDataType
@@ -264,6 +265,36 @@ def test_validate_columns_not_all_dropped():
             ),
         ]
     )
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
+
+
+def test_validate_columns_not_all_dropped_allows_seeded_processor_only_config():
+    violations = validate_columns_not_all_dropped(
+        [SeedDatasetColumnConfig(name="seed_text")],
+        processor_configs=[
+            SchemaTransformProcessorConfig(name="format", template={"text": "{{ seed_text }}"}),
+        ],
+    )
+
+    assert violations == []
+
+
+def test_validate_columns_not_all_dropped_rejects_seeded_processor_only_config_with_no_output_columns():
+    violations = validate_columns_not_all_dropped(
+        [SeedDatasetColumnConfig(name="seed_text")],
+        processor_configs=[
+            DropColumnsProcessorConfig(name="drop_seed", column_names=["seed_text"]),
+        ],
+    )
+
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
+
+
+def test_validate_columns_not_all_dropped_still_rejects_seed_only_config():
+    violations = validate_columns_not_all_dropped([SeedDatasetColumnConfig(name="seed_text")])
+
     assert len(violations) == 1
     assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
 
