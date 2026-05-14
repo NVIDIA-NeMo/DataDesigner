@@ -4,125 +4,170 @@
 from __future__ import annotations
 
 import heapq
-from collections import deque
-from collections.abc import Callable
+from collections import Counter, defaultdict, deque
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Literal
 
-from data_designer.engine.dataset_builders.utils.task_model import Task
-
-
-@dataclass(frozen=True, order=True)
-class TaskGroupKey:
-    """Stable identity for a stream of related scheduler tasks."""
-
-    kind: Literal["model", "custom_model", "local"]
-    identity: tuple[str, ...]
+from data_designer.engine.dataset_builders.utils.task_scheduling import (
+    SchedulableTask,
+    SchedulerResourceKey,
+    TaskGroupKey,
+    TaskGroupSpec,
+)
 
 
 @dataclass(frozen=True)
-class TaskGroupSpec:
-    """Scheduling metadata for a task group."""
+class QueueView:
+    """Read-only queue facts supplied to task admission policies."""
 
-    key: TaskGroupKey
-    weight: float = 1.0
-    admitted_limit: int | None = None
+    queued_total: int
+    queued_by_group: Mapping[TaskGroupKey, int]
+    queued_resource_demand_by_group: Mapping[TaskGroupKey, Mapping[SchedulerResourceKey, int]]
+    first_candidate_resources_by_group: Mapping[TaskGroupKey, Mapping[SchedulerResourceKey, int]]
+    first_candidate_group_specs_by_group: Mapping[TaskGroupKey, TaskGroupSpec]
+    queued_peer_demand_by_resource: Mapping[SchedulerResourceKey, int]
 
 
 @dataclass(frozen=True)
-class TaskSelection:
-    """A task selected for dispatch with the group metadata used to choose it."""
+class QueueSelection:
+    """Non-mutating fair-queue selection returned to the scheduler."""
 
-    task: Task
-    group: TaskGroupSpec
+    item: SchedulableTask
+    queue_view: QueueView
+    sequence_version: int
 
 
 class FairTaskQueue:
-    """Virtual-time fair queue with peer-sensitive per-group FIFO admission limits."""
+    """Virtual-time fair queue that owns ready membership and ordering only."""
 
     def __init__(self) -> None:
-        self._queues: dict[TaskGroupKey, deque[Task]] = {}
-        self._queued: set[Task] = set()
-        self._task_groups: dict[Task, TaskGroupKey] = {}
+        self._queues: dict[TaskGroupKey, deque[SchedulableTask]] = {}
+        self._queued: dict[str, SchedulableTask] = {}
+        self._task_groups: dict[str, TaskGroupKey] = {}
         self._group_specs: dict[TaskGroupKey, TaskGroupSpec] = {}
         self._group_finish: dict[TaskGroupKey, float] = {}
-        self._admitted_by_group: dict[TaskGroupKey, int] = {}
-        self._admitted_task_groups: dict[Task, TaskGroupKey] = {}
         self._heap: list[tuple[float, int, TaskGroupKey]] = []
         self._active_heap_keys: set[TaskGroupKey] = set()
+        self._active_heap_entries: dict[TaskGroupKey, tuple[float, int]] = {}
         self._sequence = 0
+        self._sequence_version = 0
         self._virtual_time = 0.0
 
     @property
     def has_queued_tasks(self) -> bool:
         return bool(self._queued)
 
-    def enqueue(self, task: Task, group: TaskGroupSpec) -> None:
-        """Add one ready task to its fair scheduling group."""
-        self._group_specs[group.key] = group
-        if task in self._queued:
-            return
-        queue = self._queues.setdefault(group.key, deque())
-        queue.append(task)
-        self._queued.add(task)
-        self._task_groups[task] = group.key
-        self._activate_group(group.key)
+    def enqueue(self, items: Iterable[SchedulableTask]) -> tuple[str, ...]:
+        """Add ready tasks idempotently and return newly accepted task ids."""
+        accepted: list[str] = []
+        for item in items:
+            if item.task_id in self._queued:
+                continue
+            self._group_specs[item.group.key] = item.group
+            queue = self._queues.setdefault(item.group.key, deque())
+            queue.append(item)
+            self._queued[item.task_id] = item
+            self._task_groups[item.task_id] = item.group.key
+            self._activate_group(item.group.key)
+            accepted.append(item.task_id)
+        if accepted:
+            self._sequence_version += 1
+        return tuple(accepted)
 
-    def discard(self, task: Task) -> None:
+    def discard(self, task_id: str) -> None:
         """Remove a queued task lazily if it is no longer dispatchable."""
-        self._queued.discard(task)
-        self._task_groups.pop(task, None)
+        if task_id in self._queued:
+            self._sequence_version += 1
+        self._queued.pop(task_id, None)
+        self._task_groups.pop(task_id, None)
 
-    def discard_where(self, predicate: Callable[[Task], bool]) -> None:
+    def discard_where(self, predicate: Callable[[SchedulableTask], bool]) -> None:
         """Remove queued tasks matching a predicate."""
-        for task in tuple(self._queued):
-            if predicate(task):
-                self.discard(task)
+        for task_id, item in tuple(self._queued.items()):
+            if predicate(item):
+                self.discard(task_id)
 
-    def admit_next(self) -> TaskSelection | None:
-        """Admit the next eligible task, or ``None`` if no queued group can run."""
-        blocked: list[TaskGroupKey] = []
-        try:
-            while self._heap:
-                finish, _, key = heapq.heappop(self._heap)
-                self._active_heap_keys.discard(key)
-                self._purge_queue_head(key)
-                queue = self._queues.get(key)
-                if not queue:
-                    continue
-                if not self._can_admit_group(key):
-                    blocked.append(key)
-                    continue
+    def select_next(self, is_eligible: Callable[[SchedulableTask, QueueView], bool]) -> QueueSelection | None:
+        """Return the next eligible task without mutating queue state."""
+        view = self.view()
+        blocked: list[tuple[float, int, TaskGroupKey]] = []
+        heap_copy = list(self._heap)
+        heapq.heapify(heap_copy)
+        active_seen: set[TaskGroupKey] = set()
+        while heap_copy:
+            finish, sequence, key = heapq.heappop(heap_copy)
+            if key in active_seen:
+                continue
+            if self._active_heap_entries.get(key) != (finish, sequence):
+                continue
+            active_seen.add(key)
+            item = self._first_valid_item(key)
+            if item is None:
+                continue
+            if not is_eligible(item, view):
+                blocked.append((finish, sequence, key))
+                continue
+            return QueueSelection(item=item, queue_view=view, sequence_version=self._sequence_version)
+        return None
 
-                task = queue.popleft()
-                self._queued.discard(task)
-                self._task_groups.pop(task, None)
-                self._admitted_task_groups[task] = key
-                self._admitted_by_group[key] = self._admitted_by_group.get(key, 0) + 1
-
-                group = self._group_specs[key]
-                self._virtual_time = max(self._virtual_time, finish)
-                self._group_finish[key] = self._virtual_time + (1.0 / max(group.weight, 1.0))
-                self._purge_queue_head(key)
-                if queue:
-                    self._activate_group(key)
-                return TaskSelection(task=task, group=group)
+    def commit(self, selection: QueueSelection) -> SchedulableTask | None:
+        """Remove a previously selected task and advance fair-queue state."""
+        if selection.sequence_version != self._sequence_version:
             return None
-        finally:
-            for key in blocked:
-                self._activate_group(key)
+        item = selection.item
+        key = self._task_groups.get(item.task_id)
+        if key is None or key != item.group.key:
+            return None
+        queue = self._queues.get(key)
+        if queue is None:
+            return None
+        self._purge_queue_head(key)
+        if not queue or queue[0].task_id != item.task_id:
+            return None
 
-    def release(self, task: Task) -> None:
-        """Release one previously admitted task from its group limit."""
-        key = self._admitted_task_groups.pop(task, None)
-        if key is None:
-            return
-        admitted = self._admitted_by_group.get(key, 0)
-        if admitted <= 1:
-            self._admitted_by_group.pop(key, None)
-        else:
-            self._admitted_by_group[key] = admitted - 1
-        self._activate_group(key)
+        queue.popleft()
+        self._queued.pop(item.task_id, None)
+        self._task_groups.pop(item.task_id, None)
+        self._active_heap_keys.discard(key)
+        self._active_heap_entries.pop(key, None)
+        group = self._group_specs[key]
+        finish = self._group_finish.get(key, self._virtual_time)
+        self._virtual_time = max(self._virtual_time, finish)
+        self._group_finish[key] = self._virtual_time + (1.0 / max(group.weight, 1.0))
+        self._sequence_version += 1
+        self._purge_queue_head(key)
+        if queue:
+            self._activate_group(key)
+        return item
+
+    def view(self) -> QueueView:
+        queued_by_group: Counter[TaskGroupKey] = Counter()
+        demand_by_group: dict[TaskGroupKey, dict[SchedulerResourceKey, int]] = defaultdict(lambda: defaultdict(int))
+        first_by_group: dict[TaskGroupKey, Mapping[SchedulerResourceKey, int]] = {}
+        first_group_specs: dict[TaskGroupKey, TaskGroupSpec] = {}
+        demand_by_resource: Counter[SchedulerResourceKey] = Counter()
+
+        for item in self._queued.values():
+            key = item.group.key
+            queued_by_group[key] += 1
+            for resource, amount in item.resource_request.amounts.items():
+                demand_by_group[key][resource] += amount
+                demand_by_resource[resource] += amount
+
+        for key, queue in self._queues.items():
+            first = self._first_valid_item(key)
+            if first is not None:
+                first_by_group[key] = dict(first.resource_request.amounts)
+                first_group_specs[key] = first.group
+
+        return QueueView(
+            queued_total=len(self._queued),
+            queued_by_group=dict(queued_by_group),
+            queued_resource_demand_by_group={key: dict(value) for key, value in demand_by_group.items()},
+            first_candidate_resources_by_group=first_by_group,
+            first_candidate_group_specs_by_group=first_group_specs,
+            queued_peer_demand_by_resource=dict(demand_by_resource),
+        )
 
     def _activate_group(self, key: TaskGroupKey) -> None:
         self._purge_queue_head(key)
@@ -133,24 +178,23 @@ class FairTaskQueue:
         finish = self._group_finish.get(key, self._virtual_time)
         heapq.heappush(self._heap, (finish, self._sequence, key))
         self._active_heap_keys.add(key)
+        self._active_heap_entries[key] = (finish, self._sequence)
+
+    def _first_valid_item(self, key: TaskGroupKey) -> SchedulableTask | None:
+        queue = self._queues.get(key)
+        if queue is None:
+            return None
+        for item in queue:
+            if item.task_id in self._queued and self._task_groups.get(item.task_id) == key:
+                return item
+        return None
 
     def _purge_queue_head(self, key: TaskGroupKey) -> None:
         queue = self._queues.get(key)
         if queue is None:
             return
         while queue:
-            task = queue[0]
-            if task in self._queued and self._task_groups.get(task) == key:
+            item = queue[0]
+            if item.task_id in self._queued and self._task_groups.get(item.task_id) == key:
                 break
             queue.popleft()
-
-    def _can_admit_group(self, key: TaskGroupKey) -> bool:
-        group = self._group_specs[key]
-        if group.admitted_limit is None:
-            return True
-        if self._admitted_by_group.get(key, 0) < group.admitted_limit:
-            return True
-        return not self._has_queued_peer_group(key)
-
-    def _has_queued_peer_group(self, key: TaskGroupKey) -> bool:
-        return any(queued_key != key for queued_key in self._task_groups.values())

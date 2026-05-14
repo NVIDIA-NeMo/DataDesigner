@@ -81,9 +81,9 @@ If `fallback` is present, the resolver may continue and must emit diagnostics. I
 amounts: Mapping[SchedulerResourceKey, int]
 ```
 
-`SchedulerResourceKey` identifies a scheduler-owned task-stage resource such as `submission`, `llm_wait`, `local`, or a future internal resource-vector key. It is not a provider request-domain key.
+`SchedulerResourceKey` identifies a scheduler-owned task-stage resource such as `submission`, `local`, or a future internal resource-vector key. It is not a provider request-domain key.
 
-The first implementation can model submission and LLM-wait style resources. Future resource-vector work may add provider/model, local, GPU, or other scheduler resources, but those remain scheduler-internal unless a later design explicitly changes the public contract.
+The first implementation models scheduler task-stage pressure with explicit scheduler resources. Concrete provider/model/domain request pressure belongs to `RequestResourceKey` and request admission. Future resource-vector work may add local, GPU, or other scheduler resources, but those remain scheduler-internal unless a later design explicitly changes the public contract.
 
 `SchedulableTask` contains:
 

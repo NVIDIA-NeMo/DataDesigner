@@ -85,7 +85,7 @@ if DATA_DESIGNER_ASYNC_ENGINE:
 
     from data_designer.engine.dataset_builders.async_scheduler import (
         DEFAULT_TASK_POOL_SIZE,
-        GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER,
+        MODEL_TASK_ADMISSION_HEADROOM_MULTIPLIER,
         AsyncTaskScheduler,
     )
     from data_designer.engine.dataset_builders.utils.async_concurrency import (
@@ -1015,9 +1015,9 @@ class DatasetBuilder:
             df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
 
-        # Coarse upper bound: sums all registered aliases, not just those used
-        # in this build. Oversizing is harmless - ThrottleManager enforces
-        # the real per-key limit; the semaphore is a memory-safety cap.
+        # Coarse upper bound used only for scheduler task-stage model admission.
+        # Concrete provider/model request capacity is enforced by request admission
+        # at the model-call boundary.
         aggregate = self._resource_provider.model_registry.get_aggregate_max_parallel_requests()
 
         scheduler = AsyncTaskScheduler(
@@ -1027,7 +1027,7 @@ class DatasetBuilder:
             row_groups=row_groups,
             buffer_manager=buffer_manager,
             max_submitted_tasks=DEFAULT_TASK_POOL_SIZE,
-            max_llm_wait_tasks=max(DEFAULT_TASK_POOL_SIZE, GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER * aggregate),
+            max_model_task_admission=max(DEFAULT_TASK_POOL_SIZE, MODEL_TASK_ADMISSION_HEADROOM_MULTIPLIER * aggregate),
             on_finalize_row_group=on_finalize_row_group,
             on_seeds_complete=(
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None

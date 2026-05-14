@@ -10,10 +10,11 @@ from data_designer.engine.models.clients.adapters.anthropic import AnthropicClie
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.base import ModelClient
+from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
+from data_designer.engine.models.clients.request_admission import RequestAdmissionController
 from data_designer.engine.models.clients.retry import RetryConfig
-from data_designer.engine.models.clients.throttle_manager import ThrottleManager
-from data_designer.engine.models.clients.throttled import ThrottledModelClient
 from data_designer.engine.models.errors import FormattedLLMErrorMessage
+from data_designer.engine.observability import RequestAdmissionEventSink
 from data_designer.engine.secret_resolver import SecretResolver
 
 _SUPPORTED_PROVIDER_TYPES = ("openai", "anthropic")
@@ -26,7 +27,8 @@ def create_model_client(
     *,
     retry_config: RetryConfig | None = None,
     client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
-    throttle_manager: ThrottleManager | None = None,
+    request_admission: RequestAdmissionController | None = None,
+    request_event_sink: RequestAdmissionEventSink | None = None,
 ) -> ModelClient:
     """Create a ``ModelClient`` for the given model configuration.
 
@@ -40,12 +42,12 @@ def create_model_client(
         client_concurrency_mode: ``"sync"`` (default) for the sync engine path,
             ``"async"`` for the async engine path.  Native HTTP adapters are
             constrained to a single concurrency mode.
-        throttle_manager: Optional throttle manager for per-request AIMD
-            concurrency control.  When provided, the returned client is wrapped
-            with ``ThrottledModelClient``.
+        request_admission: Optional request-admission controller for per-request
+            provider/model/domain admission. When provided, the returned client
+            is wrapped with ``ModelRequestExecutor``.
 
             **Ordering invariant:** the ``(provider_name, model_id)`` pair must
-            be registered on the ``ThrottleManager`` via ``register()`` before
+            be registered on the request-admission controller via ``register()`` before
             the returned client makes its first request.  In the standard flow,
             ``ModelRegistry._get_model()`` calls ``register()`` during model
             setup, which happens before any generation task invokes the client.
@@ -102,12 +104,13 @@ def create_model_client(
             )
         )
 
-    if throttle_manager is not None:
-        client = ThrottledModelClient(
+    if request_admission is not None:
+        client = ModelRequestExecutor(
             inner=client,
-            throttle_manager=throttle_manager,
+            request_admission=request_admission,
             provider_name=provider.name,
             model_id=model_config.model,
+            event_sink=request_event_sink,
         )
 
     return client

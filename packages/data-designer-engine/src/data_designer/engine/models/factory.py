@@ -40,21 +40,21 @@ def create_model_registry(
         client_concurrency_mode: ``"sync"`` (default) or ``"async"``.  Forwarded
             to native HTTP adapters so each client is constrained to a single
             concurrency mode.
-        run_config: Optional runtime configuration.  The nested
-            ``run_config.throttle`` (a ``ThrottleConfig``) is forwarded to the
-            ``ThrottleManager`` constructor.
+        run_config: Optional runtime configuration. Request admission uses
+            engine-internal defaults in V1; no public run-config knob is exposed.
 
     Returns:
         A configured ModelRegistry instance.
     """
     from data_designer.config.run_config import RunConfig
     from data_designer.engine.models.clients.factory import create_model_client
+    from data_designer.engine.models.clients.request_admission import AdaptiveRequestAdmissionController
     from data_designer.engine.models.clients.retry import RetryConfig
-    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.registry import ModelRegistry
 
-    throttle_manager = ThrottleManager((run_config or RunConfig()).throttle)
+    _ = run_config or RunConfig()
+    request_admission = AdaptiveRequestAdmissionController()
 
     def model_facade_factory(
         model_config: ModelConfig,
@@ -68,7 +68,7 @@ def create_model_registry(
             model_provider_registry,
             retry_config=retry_config,
             client_concurrency_mode=client_concurrency_mode,
-            throttle_manager=throttle_manager,
+            request_admission=request_admission,
         )
         return ModelFacade(
             model_config,
@@ -82,6 +82,6 @@ def create_model_registry(
         secret_resolver=secret_resolver,
         model_provider_registry=model_provider_registry,
         model_facade_factory=model_facade_factory,
-        throttle_manager=throttle_manager,
+        request_admission=request_admission,
         retry_config=RetryConfig(),
     )

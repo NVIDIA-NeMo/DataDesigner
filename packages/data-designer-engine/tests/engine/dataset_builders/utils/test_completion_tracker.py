@@ -189,7 +189,7 @@ def test_get_ready_tasks_seed_frontier(ready_ctx: ReadyTasksFixture) -> None:
 
     assert len(ready) == 1
     assert ready[0].column == "topic"
-    assert ready[0].task_type == "batch"
+    assert ready[0].task_type == "from_scratch"
 
 
 def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> None:

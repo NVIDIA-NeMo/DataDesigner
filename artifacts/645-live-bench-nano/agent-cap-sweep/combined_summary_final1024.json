@@ -1,0 +1,493 @@
+[
+  {
+    "buffer_size": 32,
+    "cap_enforced": true,
+    "env": {
+      "DATA_DESIGNER_ASYNC_ENGINE": "1",
+      "DATA_DESIGNER_ASYNC_TRACE": "1"
+    },
+    "error": null,
+    "expected_llm_requests": 1024,
+    "final_pressure": {
+      "active_lease_count": 0,
+      "blocked_until_monotonic": null,
+      "captured_at": 173951.761318291,
+      "consecutive_rate_limits": 0,
+      "cooldown_remaining_seconds": 0.0,
+      "current_limit": 8,
+      "effective_max": 8,
+      "in_flight_count": 0,
+      "last_outcome": "success",
+      "leak_diagnostics": {},
+      "rate_limit_ceiling": 0,
+      "resource": {
+        "domain": "chat",
+        "model_id": "openai/openai/gpt-5-nano",
+        "provider_name": "nvidia-internal"
+      },
+      "sequence": 7189,
+      "waiters": 0
+    },
+    "first_event_monotonic": 173797.088315333,
+    "last_event_monotonic": 173951.761623333,
+    "llm_columns": 2,
+    "max_observed_request_in_flight": 8,
+    "max_observed_scheduler_in_flight": 0,
+    "max_observed_waiters": 37,
+    "max_parallel_requests": 8,
+    "max_tokens": 32,
+    "model_name_configured": "openai/openai/gpt-5-nano",
+    "model_usage": {
+      "openai/openai/gpt-5-nano": {
+        "request_usage": {
+          "failed_requests": 0,
+          "successful_requests": 1024,
+          "total_requests": 1024
+        },
+        "requests_per_minute": 396,
+        "token_usage": {
+          "input_tokens": 26624,
+          "output_tokens": 32768,
+          "total_tokens": 59392
+        },
+        "tokens_per_second": 382
+      }
+    },
+    "provider": "nvidia-internal",
+    "request_event_count": 6164,
+    "request_event_counts_by_kind": {
+      "model_request_completed": 1024,
+      "model_request_started": 1024,
+      "request_effective_cap_changed": 1,
+      "request_lease_acquired": 1024,
+      "request_lease_released": 1024,
+      "request_queue_drained": 9,
+      "request_queue_formed": 9,
+      "request_resource_registered": 1,
+      "request_wait_completed": 1024,
+      "request_wait_started": 1024
+    },
+    "rows_generated": 512,
+    "rows_requested": 512,
+    "scenario": "final1024_cap8_buffer32_rows512_cols2",
+    "scheduler_event_count": 8287,
+    "scheduler_event_counts_by_kind": {
+      "dependency_ready": 1040,
+      "group_capped": 1006,
+      "queue_drained": 1,
+      "ready_enqueued": 1040,
+      "selected": 1040,
+      "task_completed": 1040,
+      "task_lease_acquired": 1040,
+      "task_lease_released": 1040,
+      "worker_spawned": 1040
+    },
+    "skip_health_check": true,
+    "started_wall_time": 1778787860.077785,
+    "status": "success",
+    "task_trace_count": 1040,
+    "temperature_omitted": true,
+    "traffic_shape": {
+      "bin_seconds": 10.0,
+      "bins": [
+        {
+          "request_starts": 64,
+          "start_offset_seconds": 0.0
+        },
+        {
+          "request_starts": 61,
+          "start_offset_seconds": 10.0
+        },
+        {
+          "request_starts": 72,
+          "start_offset_seconds": 20.0
+        },
+        {
+          "request_starts": 76,
+          "start_offset_seconds": 30.0
+        },
+        {
+          "request_starts": 67,
+          "start_offset_seconds": 40.0
+        },
+        {
+          "request_starts": 67,
+          "start_offset_seconds": 50.0
+        },
+        {
+          "request_starts": 62,
+          "start_offset_seconds": 60.0
+        },
+        {
+          "request_starts": 72,
+          "start_offset_seconds": 70.0
+        },
+        {
+          "request_starts": 73,
+          "start_offset_seconds": 80.0
+        },
+        {
+          "request_starts": 72,
+          "start_offset_seconds": 90.0
+        },
+        {
+          "request_starts": 59,
+          "start_offset_seconds": 100.0
+        },
+        {
+          "request_starts": 72,
+          "start_offset_seconds": 110.0
+        },
+        {
+          "request_starts": 67,
+          "start_offset_seconds": 120.0
+        },
+        {
+          "request_starts": 64,
+          "start_offset_seconds": 130.0
+        },
+        {
+          "request_starts": 66,
+          "start_offset_seconds": 140.0
+        },
+        {
+          "request_starts": 10,
+          "start_offset_seconds": 150.0
+        }
+      ],
+      "classification": "steady",
+      "coefficient_of_variation": 0.22997165671148478,
+      "first_start_monotonic": 173797.124120125,
+      "last_start_monotonic": 173948.406894416,
+      "request_start_count": 1024,
+      "zero_bin_fraction": 0.0
+    },
+    "wall_time_seconds": 155.36664783401648
+  },
+  {
+    "buffer_size": 128,
+    "cap_enforced": true,
+    "env": {
+      "DATA_DESIGNER_ASYNC_ENGINE": "1",
+      "DATA_DESIGNER_ASYNC_TRACE": "1"
+    },
+    "error": null,
+    "expected_llm_requests": 1024,
+    "final_pressure": {
+      "active_lease_count": 0,
+      "blocked_until_monotonic": null,
+      "captured_at": 174106.610647125,
+      "consecutive_rate_limits": 0,
+      "cooldown_remaining_seconds": 0.0,
+      "current_limit": 8,
+      "effective_max": 8,
+      "in_flight_count": 0,
+      "last_outcome": "success",
+      "leak_diagnostics": {},
+      "rate_limit_ceiling": 0,
+      "resource": {
+        "domain": "chat",
+        "model_id": "openai/openai/gpt-5-nano",
+        "provider_name": "nvidia-internal"
+      },
+      "sequence": 7189,
+      "waiters": 0
+    },
+    "first_event_monotonic": 173953.297322375,
+    "last_event_monotonic": 174106.610886208,
+    "llm_columns": 2,
+    "max_observed_request_in_flight": 8,
+    "max_observed_scheduler_in_flight": 0,
+    "max_observed_waiters": 31,
+    "max_parallel_requests": 8,
+    "max_tokens": 32,
+    "model_name_configured": "openai/openai/gpt-5-nano",
+    "model_usage": {
+      "openai/openai/gpt-5-nano": {
+        "request_usage": {
+          "failed_requests": 0,
+          "successful_requests": 1024,
+          "total_requests": 1024
+        },
+        "requests_per_minute": 399,
+        "token_usage": {
+          "input_tokens": 26624,
+          "output_tokens": 32768,
+          "total_tokens": 59392
+        },
+        "tokens_per_second": 386
+      }
+    },
+    "provider": "nvidia-internal",
+    "request_event_count": 6164,
+    "request_event_counts_by_kind": {
+      "model_request_completed": 1024,
+      "model_request_started": 1024,
+      "request_effective_cap_changed": 1,
+      "request_lease_acquired": 1024,
+      "request_lease_released": 1024,
+      "request_queue_drained": 9,
+      "request_queue_formed": 9,
+      "request_resource_registered": 1,
+      "request_wait_completed": 1024,
+      "request_wait_started": 1024
+    },
+    "rows_generated": 512,
+    "rows_requested": 512,
+    "scenario": "final1024_cap8_buffer128_rows512_cols2",
+    "scheduler_event_count": 8184,
+    "scheduler_event_counts_by_kind": {
+      "dependency_ready": 1028,
+      "group_capped": 987,
+      "queue_drained": 1,
+      "ready_enqueued": 1028,
+      "selected": 1028,
+      "task_completed": 1028,
+      "task_lease_acquired": 1028,
+      "task_lease_released": 1028,
+      "worker_spawned": 1028
+    },
+    "skip_health_check": true,
+    "started_wall_time": 1778788016.288474,
+    "status": "success",
+    "task_trace_count": 1028,
+    "temperature_omitted": true,
+    "traffic_shape": {
+      "bin_seconds": 10.0,
+      "bins": [
+        {
+          "request_starts": 75,
+          "start_offset_seconds": 0.0
+        },
+        {
+          "request_starts": 61,
+          "start_offset_seconds": 10.0
+        },
+        {
+          "request_starts": 65,
+          "start_offset_seconds": 20.0
+        },
+        {
+          "request_starts": 66,
+          "start_offset_seconds": 30.0
+        },
+        {
+          "request_starts": 66,
+          "start_offset_seconds": 40.0
+        },
+        {
+          "request_starts": 71,
+          "start_offset_seconds": 50.0
+        },
+        {
+          "request_starts": 72,
+          "start_offset_seconds": 60.0
+        },
+        {
+          "request_starts": 77,
+          "start_offset_seconds": 70.0
+        },
+        {
+          "request_starts": 74,
+          "start_offset_seconds": 80.0
+        },
+        {
+          "request_starts": 65,
+          "start_offset_seconds": 90.0
+        },
+        {
+          "request_starts": 69,
+          "start_offset_seconds": 100.0
+        },
+        {
+          "request_starts": 63,
+          "start_offset_seconds": 110.0
+        },
+        {
+          "request_starts": 65,
+          "start_offset_seconds": 120.0
+        },
+        {
+          "request_starts": 69,
+          "start_offset_seconds": 130.0
+        },
+        {
+          "request_starts": 64,
+          "start_offset_seconds": 140.0
+        },
+        {
+          "request_starts": 2,
+          "start_offset_seconds": 150.0
+        }
+      ],
+      "classification": "steady",
+      "coefficient_of_variation": 0.2596407712169354,
+      "first_start_monotonic": 173953.646338458,
+      "last_start_monotonic": 174103.847372708,
+      "request_start_count": 1024,
+      "zero_bin_fraction": 0.0
+    },
+    "wall_time_seconds": 153.95940983400214
+  },
+  {
+    "buffer_size": 512,
+    "cap_enforced": true,
+    "env": {
+      "DATA_DESIGNER_ASYNC_ENGINE": "1",
+      "DATA_DESIGNER_ASYNC_TRACE": "1"
+    },
+    "error": null,
+    "expected_llm_requests": 1024,
+    "final_pressure": {
+      "active_lease_count": 0,
+      "blocked_until_monotonic": null,
+      "captured_at": 174257.867132375,
+      "consecutive_rate_limits": 0,
+      "cooldown_remaining_seconds": 0.0,
+      "current_limit": 8,
+      "effective_max": 8,
+      "in_flight_count": 0,
+      "last_outcome": "success",
+      "leak_diagnostics": {},
+      "rate_limit_ceiling": 0,
+      "resource": {
+        "domain": "chat",
+        "model_id": "openai/openai/gpt-5-nano",
+        "provider_name": "nvidia-internal"
+      },
+      "sequence": 7189,
+      "waiters": 0
+    },
+    "first_event_monotonic": 174108.252816083,
+    "last_event_monotonic": 174257.867387333,
+    "llm_columns": 2,
+    "max_observed_request_in_flight": 8,
+    "max_observed_scheduler_in_flight": 0,
+    "max_observed_waiters": 31,
+    "max_parallel_requests": 8,
+    "max_tokens": 32,
+    "model_name_configured": "openai/openai/gpt-5-nano",
+    "model_usage": {
+      "openai/openai/gpt-5-nano": {
+        "request_usage": {
+          "failed_requests": 0,
+          "successful_requests": 1024,
+          "total_requests": 1024
+        },
+        "requests_per_minute": 409,
+        "token_usage": {
+          "input_tokens": 26624,
+          "output_tokens": 32768,
+          "total_tokens": 59392
+        },
+        "tokens_per_second": 395
+      }
+    },
+    "provider": "nvidia-internal",
+    "request_event_count": 6164,
+    "request_event_counts_by_kind": {
+      "model_request_completed": 1024,
+      "model_request_started": 1024,
+      "request_effective_cap_changed": 1,
+      "request_lease_acquired": 1024,
+      "request_lease_released": 1024,
+      "request_queue_drained": 9,
+      "request_queue_formed": 9,
+      "request_resource_registered": 1,
+      "request_wait_completed": 1024,
+      "request_wait_started": 1024
+    },
+    "rows_generated": 512,
+    "rows_requested": 512,
+    "scenario": "final1024_cap8_buffer512_rows512_cols2",
+    "scheduler_event_count": 8159,
+    "scheduler_event_counts_by_kind": {
+      "dependency_ready": 1025,
+      "group_capped": 983,
+      "queue_drained": 1,
+      "ready_enqueued": 1025,
+      "selected": 1025,
+      "task_completed": 1025,
+      "task_lease_acquired": 1025,
+      "task_lease_released": 1025,
+      "worker_spawned": 1025
+    },
+    "skip_health_check": true,
+    "started_wall_time": 1778788171.2434812,
+    "status": "success",
+    "task_trace_count": 1025,
+    "temperature_omitted": true,
+    "traffic_shape": {
+      "bin_seconds": 10.0,
+      "bins": [
+        {
+          "request_starts": 74,
+          "start_offset_seconds": 0.0
+        },
+        {
+          "request_starts": 71,
+          "start_offset_seconds": 10.0
+        },
+        {
+          "request_starts": 71,
+          "start_offset_seconds": 20.0
+        },
+        {
+          "request_starts": 76,
+          "start_offset_seconds": 30.0
+        },
+        {
+          "request_starts": 82,
+          "start_offset_seconds": 40.0
+        },
+        {
+          "request_starts": 75,
+          "start_offset_seconds": 50.0
+        },
+        {
+          "request_starts": 73,
+          "start_offset_seconds": 60.0
+        },
+        {
+          "request_starts": 68,
+          "start_offset_seconds": 70.0
+        },
+        {
+          "request_starts": 77,
+          "start_offset_seconds": 80.0
+        },
+        {
+          "request_starts": 62,
+          "start_offset_seconds": 90.0
+        },
+        {
+          "request_starts": 59,
+          "start_offset_seconds": 100.0
+        },
+        {
+          "request_starts": 72,
+          "start_offset_seconds": 110.0
+        },
+        {
+          "request_starts": 57,
+          "start_offset_seconds": 120.0
+        },
+        {
+          "request_starts": 59,
+          "start_offset_seconds": 130.0
+        },
+        {
+          "request_starts": 48,
+          "start_offset_seconds": 140.0
+        }
+      ],
+      "classification": "steady",
+      "coefficient_of_variation": 0.13117964539224206,
+      "first_start_monotonic": 174109.32116575,
+      "last_start_monotonic": 174256.884750083,
+      "request_start_count": 1024,
+      "zero_bin_fraction": 0.0
+    },
+    "wall_time_seconds": 150.2723574169795
+  }
+]

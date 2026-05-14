@@ -4,18 +4,18 @@ The epic is not complete until replaced names and compatibility paths are remove
 
 ## Scheduling Metadata Cleanup
 
-Remove or collapse the legacy `SchedulingHintResolver` path after `SchedulingMetadata` and `TaskSchedulingResolver` are stable.
+Remove or collapse the legacy scheduling resolver path after `SchedulingMetadata` and `TaskSchedulingResolver` are stable.
 
 Accepted end states:
 
-- delete `SchedulingHintResolver`, or
+- delete the legacy resolver types, or
 - refactor/rename it into a metadata-oriented adapter where all model/provider inference lives behind `ColumnGenerator.get_scheduling_metadata()` and typed `SchedulingMetadataError` fallback behavior.
 
 Unacceptable end state:
 
 - a parallel fallback that independently introspects generators, configs, model registries, aliases, or admitted policy data under the old resolver contract.
 
-Final search gate should have no production/current-doc matches for:
+Final legacy-name search gate should have no production/current-doc matches for these historical strings:
 
 ```text
 SchedulingHintResolver
@@ -23,7 +23,7 @@ SchedulingHint
 _model_aliases_for_generator
 ```
 
-Independent scheduler-side `is_llm_bound` fallback is also migration-only and should be folded behind metadata/resource requests by epic completion.
+Independent scheduler-side model-bound fallback logic is also migration-only and should be folded behind metadata/resource requests by epic completion.
 
 ## Request Admission Cleanup
 
@@ -35,7 +35,7 @@ The durable request-admission names are:
 - `RequestAdmissionConfig`
 - `RequestDomain`
 
-Final search gate should have no production/current-doc matches for:
+Final legacy-name search gate should have no production/current-doc matches for these historical strings:
 
 ```text
 ThrottleManager
@@ -96,7 +96,7 @@ User/operator docs should expose public run config fields, `AsyncCapacityPlan`, 
 
 Current architecture docs, diagrams, generated assets, and plan files must be checked as part of final cleanup. Existing historical dev notes may retain old names only when the text clearly says the name is historical and no longer current API.
 
-Current user/operator architecture docs must also remove or mark as historical semaphore/throttling descriptions that imply the pre-epic architecture. This includes old model-client throttling names and semaphore-based scheduling explanations.
+Current user/operator architecture docs must also remove or mark as historical capacity-control descriptions that imply the pre-epic architecture. This includes old model-client request-capacity names and scheduler-slot handoff explanations.
 
 ## Validation Commands
 
@@ -108,6 +108,7 @@ rg "ThrottleManager|ThrottleDomain|ThrottleConfig|RunConfig\\.throttle|throttle_
 rg "_submission_semaphore|_llm_wait_semaphore|get_semaphore_permits|TrackingSemaphore" packages docs fern architecture plans/645
 rg "throttl(e|ed|ing)|semaphore" docs fern architecture plans/645
 rg "needs_llm_wait|held_llm_wait|max_llm_wait_tasks" packages docs fern architecture plans/645
+rg "SchedulingMetadata|TaskSchedulingResolver|FairTaskQueue|TaskAdmissionController|TaskAdmissionLease|ModelRequestExecutor|RequestAdmissionController|AdaptiveRequestAdmissionController|AsyncCapacityPlan|SchedulerResourceRequest|RequestResourceKey" docs fern architecture plans/645
 ```
 
-Any remaining hit must be intentionally historical, not a current implementation or docs path. Allowed plan hits are limited to explicit cleanup/search-gate sections that name the legacy strings so reviewers know what to remove. The task-stage semaphore-specific search distinguishes obsolete submission/LLM-wait scheduling semaphores from unrelated internal synchronization primitives that may remain after review.
+Any remaining hit must be intentionally historical, not a current implementation or docs path. Allowed plan hits are limited to explicit cleanup/search-gate sections that name the legacy strings so reviewers know what to remove. The task-stage wait-specific search distinguishes obsolete scheduler-slot handoff primitives from unrelated internal synchronization primitives that may remain after review.

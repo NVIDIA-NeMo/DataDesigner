@@ -1,0 +1,968 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import asyncio
+import heapq
+import math
+import threading
+import time
+import uuid
+from collections import Counter, deque
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Literal, Protocol
+
+from data_designer.engine.observability import (
+    RequestAdmissionEvent,
+    RequestAdmissionEventSink,
+    runtime_correlation_provider,
+)
+
+
+class RequestDomain(str, Enum):
+    CHAT = "chat"
+    EMBEDDING = "embedding"
+    IMAGE = "image"
+    HEALTHCHECK = "healthcheck"
+
+
+@dataclass(frozen=True, order=True)
+class ProviderModelKey:
+    provider_name: str
+    model_id: str
+
+
+@dataclass(frozen=True, order=True)
+class RequestResourceKey:
+    provider_name: str
+    model_id: str
+    domain: RequestDomain
+
+    @property
+    def provider_model_key(self) -> ProviderModelKey:
+        return ProviderModelKey(self.provider_name, self.model_id)
+
+
+@dataclass(frozen=True)
+class ResolvedRequestResource:
+    provider_model: ProviderModelKey
+    resource: RequestResourceKey
+    aliases: tuple[str, ...] = ()
+    generation_kind: str | None = None
+
+
+class RequestResourceResolver:
+    """Canonical provider/model/domain request-resource identity factory."""
+
+    def resolve(
+        self,
+        *,
+        provider_name: str,
+        model_id: str,
+        domain: RequestDomain,
+        model_alias: str | None = None,
+        provider_alias: str | None = None,
+        generation_kind: str | None = None,
+    ) -> ResolvedRequestResource:
+        resource = RequestResourceKey(provider_name=provider_name, model_id=model_id, domain=domain)
+        aliases = tuple(alias for alias in (provider_alias, model_alias) if alias)
+        return ResolvedRequestResource(
+            provider_model=resource.provider_model_key,
+            resource=resource,
+            aliases=aliases,
+            generation_kind=generation_kind,
+        )
+
+
+@dataclass(frozen=True)
+class RequestGroupSpec:
+    key: RequestResourceKey
+    weight: float = 1.0
+
+
+@dataclass(frozen=True)
+class RequestEventContext:
+    captured_correlation: object | None = None
+    task_execution_id: str | None = None
+    request_attempt_id: str | None = None
+
+
+@dataclass(frozen=True)
+class RequestAdmissionItem:
+    resource: RequestResourceKey
+    group: RequestGroupSpec
+    queue_wait_timeout_seconds: float | None = None
+    event_context: RequestEventContext | None = None
+
+
+RequestDenyReason = Literal[
+    "no_capacity",
+    "cooldown",
+    "queue_timeout",
+    "queued_waiters_ahead",
+    "cancellation",
+    "shutdown",
+    "hard_policy_denial",
+]
+
+
+@dataclass(frozen=True)
+class RequestAdmissionDenied:
+    item: RequestAdmissionItem
+    reason: RequestDenyReason
+    retry_after_seconds: float | None = None
+    available_after_monotonic: float | None = None
+    snapshot: object | None = None
+    diagnostics: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RequestAdmissionLease:
+    lease_id: str
+    item: RequestAdmissionItem
+    acquired_at: float
+    current_adaptive_limit: int
+    effective_max: int
+    controller_generation: str
+
+
+RequestAdmissionDecision = RequestAdmissionLease | RequestAdmissionDenied
+
+
+@dataclass(frozen=True)
+class RequestReleaseOutcome:
+    kind: Literal[
+        "success",
+        "rate_limited",
+        "provider_failure",
+        "provider_timeout",
+        "local_cancelled",
+        "local_timeout",
+        "unexpected_exception",
+    ]
+    retry_after_seconds: float | None = None
+    provider_status: int | None = None
+    diagnostics: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ReleaseResult:
+    released: bool
+    reason: Literal["released", "duplicate", "stale_lease", "wrong_controller_generation", "unknown_lease"]
+    diagnostics: Mapping[str, object] = field(default_factory=dict)
+
+
+class RequestAdmissionError(RuntimeError):
+    """Raised by blocking acquire paths when no request lease is acquired."""
+
+    def __init__(self, decision: RequestAdmissionDenied) -> None:
+        super().__init__(f"Request admission failed: {decision.reason}")
+        self.decision = decision
+
+
+@dataclass(frozen=True)
+class RequestAdmissionConfig:
+    initial_limits: Mapping[RequestResourceKey, int] = field(default_factory=dict)
+    max_limit_clamps: Mapping[RequestResourceKey, int | None] = field(default_factory=dict)
+    cooldown_seconds: float = 2.0
+    multiplicative_decrease_factor: float = 0.75
+    additive_increase_step: int = 1
+    increase_after_successes: int = 25
+    default_queue_wait_timeout_seconds: float | None = None
+
+
+@dataclass
+class AdaptiveRequestLimitState:
+    current_limit: int
+    in_flight: int = 0
+    blocked_until: float = 0.0
+    success_streak: int = 0
+    waiters: int = 0
+    rate_limit_ceiling: int = 0
+    consecutive_rate_limits: int = 0
+    active_lease_count: int = 0
+    last_outcome: str | None = None
+
+
+@dataclass
+class ProviderModelStaticCap:
+    cap: int
+    aliases: tuple[str, ...]
+    raw_caps: Mapping[str, int | None]
+    merge_rule: str = "min_same_endpoint"
+
+
+@dataclass(frozen=True)
+class RequestPressureSnapshot:
+    captured_at: float
+    sequence: int
+    resource: RequestResourceKey
+    effective_max: int
+    current_limit: int
+    in_flight_count: int
+    active_lease_count: int
+    waiters: int
+    blocked_until_monotonic: float | None
+    cooldown_remaining_seconds: float
+    rate_limit_ceiling: int
+    consecutive_rate_limits: int
+    last_outcome: str | None
+    leak_diagnostics: Mapping[str, int]
+
+
+@dataclass(frozen=True)
+class ProviderModelPressureSnapshot:
+    captured_at: float
+    sequence: int
+    provider_model: ProviderModelKey
+    static_cap: int
+    aggregate_in_flight: int
+    aggregate_active_lease_count: int
+    aliases: tuple[str, ...]
+    raw_caps: Mapping[str, int | None]
+    domains: Mapping[RequestDomain, int]
+
+
+class RequestPressureSnapshotProvider(Protocol):
+    def snapshot(self, resource: RequestResourceKey) -> RequestPressureSnapshot | None: ...
+
+    def snapshots(self) -> Mapping[RequestResourceKey, RequestPressureSnapshot]: ...
+
+    def global_snapshot(self, provider: str, model: str) -> ProviderModelPressureSnapshot | None: ...
+
+    def global_snapshots(self) -> Mapping[ProviderModelKey, ProviderModelPressureSnapshot]: ...
+
+
+class RequestAdmissionController(Protocol):
+    def try_acquire(self, item: RequestAdmissionItem) -> RequestAdmissionDecision: ...
+
+    def acquire_sync(self, item: RequestAdmissionItem) -> RequestAdmissionLease: ...
+
+    async def acquire_async(self, item: RequestAdmissionItem) -> RequestAdmissionLease: ...
+
+    def release(self, lease: RequestAdmissionLease, outcome: RequestReleaseOutcome) -> ReleaseResult: ...
+
+    @property
+    def pressure(self) -> RequestPressureSnapshotProvider: ...
+
+
+@dataclass
+class RequestWaiter:
+    waiter_id: str
+    item: RequestAdmissionItem
+    enqueued_at: float
+    deadline_monotonic: float | None = None
+    assigned_lease: RequestAdmissionLease | None = None
+
+
+@dataclass(frozen=True)
+class RequestQueueView:
+    queued_total: int
+    queued_by_group: Mapping[RequestResourceKey, int]
+    queued_demand_by_resource: Mapping[RequestResourceKey, int]
+    aggregate_provider_model_waiters: Mapping[ProviderModelKey, int]
+
+
+@dataclass(frozen=True)
+class RequestQueueSelection:
+    waiter: RequestWaiter
+    item: RequestAdmissionItem
+    waiter_id: str
+    queue_view: RequestQueueView
+    sequence_version: int
+
+
+class RequestFairQueue:
+    """Weighted fair waiter queue used by request admission."""
+
+    def __init__(self) -> None:
+        self._queues: dict[RequestResourceKey, deque[RequestWaiter]] = {}
+        self._queued: dict[str, RequestWaiter] = {}
+        self._waiter_groups: dict[str, RequestResourceKey] = {}
+        self._group_finish: dict[RequestResourceKey, float] = {}
+        self._heap: list[tuple[float, int, RequestResourceKey]] = []
+        self._active_heap_entries: dict[RequestResourceKey, tuple[float, int]] = {}
+        self._sequence = 0
+        self._sequence_version = 0
+        self._virtual_time = 0.0
+
+    @property
+    def has_waiters(self) -> bool:
+        return bool(self._queued)
+
+    def contains(self, waiter_id: str) -> bool:
+        return waiter_id in self._queued
+
+    def enqueue(self, waiter: RequestWaiter) -> bool:
+        if waiter.waiter_id in self._queued:
+            return False
+        key = waiter.item.group.key
+        queue = self._queues.setdefault(key, deque())
+        queue.append(waiter)
+        self._queued[waiter.waiter_id] = waiter
+        self._waiter_groups[waiter.waiter_id] = key
+        self._activate_group(key)
+        self._sequence_version += 1
+        return True
+
+    def remove(self, waiter_id: str) -> RequestWaiter | None:
+        waiter = self._queued.pop(waiter_id, None)
+        if waiter is None:
+            return None
+        self._waiter_groups.pop(waiter_id, None)
+        self._sequence_version += 1
+        return waiter
+
+    def select_next(
+        self, is_eligible: Callable[[RequestWaiter, RequestQueueView], bool]
+    ) -> RequestQueueSelection | None:
+        view = self.view()
+        heap_copy = list(self._heap)
+        heapq.heapify(heap_copy)
+        active_seen: set[RequestResourceKey] = set()
+        while heap_copy:
+            finish, sequence, key = heapq.heappop(heap_copy)
+            if key in active_seen:
+                continue
+            if self._active_heap_entries.get(key) != (finish, sequence):
+                continue
+            active_seen.add(key)
+            waiter = self._first_valid_waiter(key)
+            if waiter is None:
+                continue
+            if not is_eligible(waiter, view):
+                continue
+            return RequestQueueSelection(
+                waiter=waiter,
+                item=waiter.item,
+                waiter_id=waiter.waiter_id,
+                queue_view=view,
+                sequence_version=self._sequence_version,
+            )
+        return None
+
+    def commit(self, selection: RequestQueueSelection) -> RequestWaiter | None:
+        if selection.sequence_version != self._sequence_version:
+            return None
+        key = self._waiter_groups.get(selection.waiter_id)
+        if key is None or key != selection.item.group.key:
+            return None
+        queue = self._queues.get(key)
+        if queue is None:
+            return None
+        self._purge_queue_head(key)
+        if not queue or queue[0].waiter_id != selection.waiter_id:
+            return None
+
+        waiter = queue.popleft()
+        self._queued.pop(waiter.waiter_id, None)
+        self._waiter_groups.pop(waiter.waiter_id, None)
+        self._active_heap_entries.pop(key, None)
+        weight = max(selection.item.group.weight, 1.0)
+        finish = self._group_finish.get(key, self._virtual_time)
+        self._virtual_time = max(self._virtual_time, finish)
+        self._group_finish[key] = self._virtual_time + (1.0 / weight)
+        self._sequence_version += 1
+        self._purge_queue_head(key)
+        if queue:
+            self._activate_group(key)
+        return waiter
+
+    def view(self) -> RequestQueueView:
+        queued_by_group: Counter[RequestResourceKey] = Counter()
+        demand_by_resource: Counter[RequestResourceKey] = Counter()
+        aggregate_waiters: Counter[ProviderModelKey] = Counter()
+        for waiter in self._queued.values():
+            resource = waiter.item.resource
+            queued_by_group[waiter.item.group.key] += 1
+            demand_by_resource[resource] += 1
+            aggregate_waiters[resource.provider_model_key] += 1
+        return RequestQueueView(
+            queued_total=len(self._queued),
+            queued_by_group=dict(queued_by_group),
+            queued_demand_by_resource=dict(demand_by_resource),
+            aggregate_provider_model_waiters=dict(aggregate_waiters),
+        )
+
+    def _activate_group(self, key: RequestResourceKey) -> None:
+        self._purge_queue_head(key)
+        queue = self._queues.get(key)
+        if not queue or key in self._active_heap_entries:
+            return
+        self._sequence += 1
+        finish = self._group_finish.get(key, self._virtual_time)
+        heapq.heappush(self._heap, (finish, self._sequence, key))
+        self._active_heap_entries[key] = (finish, self._sequence)
+
+    def _first_valid_waiter(self, key: RequestResourceKey) -> RequestWaiter | None:
+        queue = self._queues.get(key)
+        if queue is None:
+            return None
+        for waiter in queue:
+            if waiter.waiter_id in self._queued and self._waiter_groups.get(waiter.waiter_id) == key:
+                return waiter
+        return None
+
+    def _purge_queue_head(self, key: RequestResourceKey) -> None:
+        queue = self._queues.get(key)
+        if queue is None:
+            return
+        while queue:
+            waiter = queue[0]
+            if waiter.waiter_id in self._queued and self._waiter_groups.get(waiter.waiter_id) == key:
+                break
+            queue.popleft()
+
+
+@dataclass
+class _GlobalCapState:
+    limits_by_alias: dict[str, int] = field(default_factory=dict)
+    effective_max: int = 0
+
+    def register_alias(self, alias: str, max_parallel: int) -> None:
+        self.limits_by_alias[alias] = max(1, max_parallel)
+        self.effective_max = min(self.limits_by_alias.values())
+
+
+class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
+    """AIMD-backed request admission controller with exact request leases."""
+
+    def __init__(
+        self,
+        config: RequestAdmissionConfig | None = None,
+        *,
+        event_sink: RequestAdmissionEventSink | None = None,
+    ) -> None:
+        self._config = config or RequestAdmissionConfig()
+        self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+        self._generation = uuid.uuid4().hex
+        self._global_caps: dict[ProviderModelKey, _GlobalCapState] = {}
+        self._domains: dict[RequestResourceKey, AdaptiveRequestLimitState] = {}
+        self._active_leases: dict[str, RequestAdmissionLease] = {}
+        self._released: set[str] = set()
+        self._aggregate_in_flight: Counter[ProviderModelKey] = Counter()
+        self._aggregate_active_leases: Counter[ProviderModelKey] = Counter()
+        self._sequence = 0
+        self._release_diagnostics: Counter[str] = Counter()
+        self._queue = RequestFairQueue()
+        self._event_sink = event_sink
+
+    @property
+    def pressure(self) -> RequestPressureSnapshotProvider:
+        return self
+
+    @property
+    def config(self) -> RequestAdmissionConfig:
+        return self._config
+
+    def register(
+        self,
+        *,
+        provider_name: str,
+        model_id: str,
+        alias: str,
+        max_parallel_requests: int,
+    ) -> None:
+        events: list[RequestAdmissionEvent] = []
+        with self._lock:
+            key = ProviderModelKey(provider_name, model_id)
+            cap = self._global_caps.setdefault(key, _GlobalCapState())
+            before = cap.effective_max
+            cap.register_alias(alias, max_parallel_requests)
+            self._sequence += 1
+            for resource, state in self._domains.items():
+                if resource.provider_model_key == key:
+                    effective_max = self._effective_max_for_resource(resource)
+                    state.current_limit = min(state.current_limit, effective_max)
+            events.append(
+                self._request_event_locked(
+                    "request_resource_registered",
+                    request_resource_key=RequestResourceKey(provider_name, model_id, RequestDomain.CHAT),
+                    diagnostics={"alias": alias, "provider_model": key, "max_parallel_requests": max_parallel_requests},
+                )
+            )
+            if before != cap.effective_max:
+                events.append(
+                    self._request_event_locked(
+                        "request_effective_cap_changed",
+                        request_resource_key=RequestResourceKey(provider_name, model_id, RequestDomain.CHAT),
+                        diagnostics={"provider_model": key, "previous": before, "current": cap.effective_max},
+                    )
+                )
+            self._condition.notify_all()
+        self._emit_events(events)
+
+    def try_acquire(self, item: RequestAdmissionItem) -> RequestAdmissionDecision:
+        now = time.monotonic()
+        events: list[RequestAdmissionEvent] = []
+        decision: RequestAdmissionDecision
+        with self._lock:
+            events.append(self._request_event_locked("request_wait_started", item=item))
+            if self._queued_waiter_ahead_locked(item, now):
+                decision = RequestAdmissionDenied(
+                    item=item,
+                    reason="queued_waiters_ahead",
+                    snapshot=self._snapshot_locked(item.resource, now),
+                )
+                events.append(self._request_event_locked("request_acquire_denied", item=item, decision=decision))
+            else:
+                denied = self._denial_for(item, now)
+                if denied is not None:
+                    decision = denied
+                    events.append(self._request_event_locked("request_acquire_denied", item=item, decision=decision))
+                else:
+                    decision = self._acquire_locked(item, now)
+                    events.append(self._request_event_locked("request_wait_completed", item=item, lease=decision))
+                    events.append(self._request_event_locked("request_lease_acquired", item=item, lease=decision))
+        self._emit_events(events)
+        return decision
+
+    def acquire_sync(self, item: RequestAdmissionItem) -> RequestAdmissionLease:
+        timeout = (
+            item.queue_wait_timeout_seconds
+            if item.queue_wait_timeout_seconds is not None
+            else self._config.default_queue_wait_timeout_seconds
+        )
+        now = time.monotonic()
+        deadline = now + timeout if timeout is not None else None
+        waiter = RequestWaiter(waiter_id=uuid.uuid4().hex, item=item, enqueued_at=now, deadline_monotonic=deadline)
+        events: list[RequestAdmissionEvent] = []
+        try:
+            while True:
+                with self._lock:
+                    if not self._queue.contains(waiter.waiter_id) and waiter.assigned_lease is None:
+                        self._enqueue_waiter_locked(waiter, events)
+                    self._admit_waiters_locked(events)
+                    if waiter.assigned_lease is not None:
+                        return waiter.assigned_lease
+                    now = time.monotonic()
+                    if deadline is not None and now >= deadline:
+                        self._remove_waiter_locked(waiter)
+                        denied = RequestAdmissionDenied(
+                            item=item,
+                            reason="queue_timeout",
+                            snapshot=self._snapshot_locked(item.resource, now),
+                        )
+                        events.append(self._request_event_locked("request_wait_timeout", item=item, decision=denied))
+                        raise RequestAdmissionError(denied)
+                    wait = self._wait_seconds_locked(item, now, deadline)
+                    self._condition.wait(timeout=wait)
+        finally:
+            self._emit_events(events)
+
+    async def acquire_async(self, item: RequestAdmissionItem) -> RequestAdmissionLease:
+        timeout = (
+            item.queue_wait_timeout_seconds
+            if item.queue_wait_timeout_seconds is not None
+            else self._config.default_queue_wait_timeout_seconds
+        )
+        now = time.monotonic()
+        deadline = now + timeout if timeout is not None else None
+        waiter = RequestWaiter(waiter_id=uuid.uuid4().hex, item=item, enqueued_at=now, deadline_monotonic=deadline)
+        events: list[RequestAdmissionEvent] = []
+        try:
+            while True:
+                with self._lock:
+                    if not self._queue.contains(waiter.waiter_id) and waiter.assigned_lease is None:
+                        self._enqueue_waiter_locked(waiter, events)
+                    self._admit_waiters_locked(events)
+                    if waiter.assigned_lease is not None:
+                        return waiter.assigned_lease
+                    now = time.monotonic()
+                    if deadline is not None and now >= deadline:
+                        self._remove_waiter_locked(waiter)
+                        denied = RequestAdmissionDenied(
+                            item=item,
+                            reason="queue_timeout",
+                            snapshot=self._snapshot_locked(item.resource, now),
+                        )
+                        events.append(self._request_event_locked("request_wait_timeout", item=item, decision=denied))
+                        raise RequestAdmissionError(denied)
+                    wait = self._wait_seconds_locked(item, now, deadline)
+                await asyncio.sleep(wait)
+        except asyncio.CancelledError:
+            lease_to_release: RequestAdmissionLease | None = None
+            with self._lock:
+                lease_to_release = waiter.assigned_lease
+                if lease_to_release is None:
+                    self._remove_waiter_locked(waiter)
+                denied = RequestAdmissionDenied(item=item, reason="cancellation")
+                events.append(
+                    self._request_event_locked(
+                        "request_wait_cancelled",
+                        item=item,
+                        lease=lease_to_release,
+                        decision=denied,
+                    )
+                )
+                self._condition.notify_all()
+            if lease_to_release is not None:
+                self._emit_events(events)
+                events.clear()
+                self.release(lease_to_release, RequestReleaseOutcome(kind="local_cancelled"))
+            raise
+        finally:
+            self._emit_events(events)
+
+    def release(self, lease: RequestAdmissionLease, outcome: RequestReleaseOutcome) -> ReleaseResult:
+        now = time.monotonic()
+        events: list[RequestAdmissionEvent] = []
+        result: ReleaseResult
+        with self._lock:
+            if lease.controller_generation != self._generation:
+                self._release_diagnostics["wrong_controller_generation"] += 1
+                result = ReleaseResult(released=False, reason="wrong_controller_generation")
+                events.append(
+                    self._request_event_locked(
+                        "request_release_diagnostic", item=lease.item, lease=lease, result=result
+                    )
+                )
+            elif (active := self._active_leases.pop(lease.lease_id, None)) is None:
+                reason = "duplicate" if lease.lease_id in self._released else "unknown_lease"
+                self._release_diagnostics[reason] += 1
+                result = ReleaseResult(released=False, reason=reason)
+                events.append(
+                    self._request_event_locked(
+                        "request_release_diagnostic", item=lease.item, lease=lease, result=result
+                    )
+                )
+            elif active.item.resource != lease.item.resource:
+                self._active_leases[lease.lease_id] = active
+                self._release_diagnostics["stale_lease"] += 1
+                result = ReleaseResult(released=False, reason="stale_lease")
+                events.append(
+                    self._request_event_locked(
+                        "request_release_diagnostic", item=lease.item, lease=lease, result=result
+                    )
+                )
+            else:
+                self._released.add(lease.lease_id)
+                resource = active.item.resource
+                provider_model = resource.provider_model_key
+                state = self._get_or_create_state(resource)
+                state.in_flight = max(0, state.in_flight - 1)
+                state.active_lease_count = max(0, state.active_lease_count - 1)
+                state.last_outcome = outcome.kind
+                self._aggregate_in_flight[provider_model] = max(0, self._aggregate_in_flight[provider_model] - 1)
+                self._aggregate_active_leases[provider_model] = max(
+                    0,
+                    self._aggregate_active_leases[provider_model] - 1,
+                )
+                self._apply_outcome(state, resource, outcome, now, events)
+                self._sequence += 1
+                result = ReleaseResult(released=True, reason="released")
+                if outcome.kind == "rate_limited":
+                    events.append(self._request_event_locked("request_rate_limited", item=lease.item, lease=lease))
+                events.append(
+                    self._request_event_locked("request_lease_released", item=lease.item, lease=lease, result=result)
+                )
+                self._admit_waiters_locked(events)
+            self._condition.notify_all()
+        self._emit_events(events)
+        return result
+
+    def snapshot(self, resource: RequestResourceKey) -> RequestPressureSnapshot | None:
+        with self._lock:
+            if resource not in self._domains:
+                return None
+            return self._snapshot_locked(resource, time.monotonic())
+
+    def snapshots(self) -> Mapping[RequestResourceKey, RequestPressureSnapshot]:
+        with self._lock:
+            now = time.monotonic()
+            return {resource: self._snapshot_locked(resource, now) for resource in self._domains}
+
+    def global_snapshot(self, provider: str, model: str) -> ProviderModelPressureSnapshot | None:
+        with self._lock:
+            key = ProviderModelKey(provider, model)
+            if key not in self._global_caps:
+                return None
+            return self._global_snapshot_locked(key, time.monotonic())
+
+    def global_snapshots(self) -> Mapping[ProviderModelKey, ProviderModelPressureSnapshot]:
+        with self._lock:
+            now = time.monotonic()
+            return {key: self._global_snapshot_locked(key, now) for key in self._global_caps}
+
+    def _queued_waiter_ahead_locked(self, item: RequestAdmissionItem, now: float) -> bool:
+        if not self._queue.has_waiters:
+            return False
+        selection = self._queue.select_next(lambda waiter, _view: self._denial_for(waiter.item, now) is None)
+        if selection is None:
+            return False
+        selected_key = selection.item.resource.provider_model_key
+        return selected_key == item.resource.provider_model_key or selection.item.resource == item.resource
+
+    def _enqueue_waiter_locked(self, waiter: RequestWaiter, events: list[RequestAdmissionEvent]) -> None:
+        if self._queue.enqueue(waiter):
+            self._get_or_create_state(waiter.item.resource).waiters += 1
+            self._sequence += 1
+            if self._queue.view().queued_total == 1:
+                events.append(self._request_event_locked("request_queue_formed", item=waiter.item))
+            events.append(self._request_event_locked("request_wait_started", item=waiter.item))
+
+    def _remove_waiter_locked(self, waiter: RequestWaiter) -> None:
+        removed = self._queue.remove(waiter.waiter_id)
+        if removed is None:
+            return
+        state = self._get_or_create_state(waiter.item.resource)
+        state.waiters = max(0, state.waiters - 1)
+        self._sequence += 1
+
+    def _admit_waiters_locked(self, events: list[RequestAdmissionEvent]) -> None:
+        while self._queue.has_waiters:
+            now = time.monotonic()
+            selection = self._queue.select_next(lambda waiter, _view: self._denial_for(waiter.item, now) is None)
+            if selection is None:
+                return
+            waiter = self._queue.commit(selection)
+            if waiter is None:
+                return
+            state = self._get_or_create_state(waiter.item.resource)
+            state.waiters = max(0, state.waiters - 1)
+            lease = self._acquire_locked(waiter.item, now)
+            waiter.assigned_lease = lease
+            events.append(self._request_event_locked("request_wait_completed", item=waiter.item, lease=lease))
+            events.append(self._request_event_locked("request_lease_acquired", item=waiter.item, lease=lease))
+            if not self._queue.has_waiters:
+                events.append(self._request_event_locked("request_queue_drained", item=waiter.item))
+
+    def _wait_seconds_locked(
+        self,
+        item: RequestAdmissionItem,
+        now: float,
+        deadline: float | None,
+    ) -> float:
+        candidates = [0.05]
+        if deadline is not None:
+            candidates.append(max(0.0, deadline - now))
+        state = self._domains.get(item.resource)
+        if state is not None and state.blocked_until > now:
+            candidates.append(max(0.0, state.blocked_until - now))
+        return max(0.0, min(candidates))
+
+    def _denial_for(self, item: RequestAdmissionItem, now: float) -> RequestAdmissionDenied | None:
+        resource = item.resource
+        provider_model = resource.provider_model_key
+        if provider_model not in self._global_caps:
+            return RequestAdmissionDenied(item=item, reason="hard_policy_denial", diagnostics={"unregistered": True})
+        state = self._get_or_create_state(resource)
+        if now < state.blocked_until:
+            return RequestAdmissionDenied(
+                item=item,
+                reason="cooldown",
+                retry_after_seconds=state.blocked_until - now,
+                available_after_monotonic=state.blocked_until,
+                snapshot=self._snapshot_locked(resource, now),
+            )
+        effective_max = self._effective_max_for_resource(resource)
+        aggregate_cap = self._global_caps[provider_model].effective_max
+        if state.in_flight >= min(state.current_limit, effective_max):
+            return RequestAdmissionDenied(
+                item=item, reason="no_capacity", snapshot=self._snapshot_locked(resource, now)
+            )
+        if self._aggregate_in_flight[provider_model] >= aggregate_cap:
+            return RequestAdmissionDenied(
+                item=item, reason="no_capacity", snapshot=self._snapshot_locked(resource, now)
+            )
+        return None
+
+    def _acquire_locked(self, item: RequestAdmissionItem, now: float) -> RequestAdmissionLease:
+        resource = item.resource
+        provider_model = resource.provider_model_key
+        state = self._get_or_create_state(resource)
+        state.in_flight += 1
+        state.active_lease_count += 1
+        self._aggregate_in_flight[provider_model] += 1
+        self._aggregate_active_leases[provider_model] += 1
+        lease = RequestAdmissionLease(
+            lease_id=uuid.uuid4().hex,
+            item=item,
+            acquired_at=now,
+            current_adaptive_limit=state.current_limit,
+            effective_max=self._effective_max_for_resource(resource),
+            controller_generation=self._generation,
+        )
+        self._active_leases[lease.lease_id] = lease
+        self._sequence += 1
+        return lease
+
+    def _apply_outcome(
+        self,
+        state: AdaptiveRequestLimitState,
+        resource: RequestResourceKey,
+        outcome: RequestReleaseOutcome,
+        now: float,
+        events: list[RequestAdmissionEvent],
+    ) -> None:
+        effective_max = self._effective_max_for_resource(resource)
+        if outcome.kind == "rate_limited":
+            prev_limit = state.current_limit
+            first_in_cascade = state.consecutive_rate_limits == 0
+            state.consecutive_rate_limits += 1
+            cooldown = (
+                outcome.retry_after_seconds
+                if outcome.retry_after_seconds is not None and outcome.retry_after_seconds > 0
+                else self._config.cooldown_seconds
+            )
+            state.blocked_until = now + cooldown
+            state.success_streak = 0
+            if first_in_cascade:
+                state.current_limit = max(
+                    1, math.floor(state.current_limit * self._config.multiplicative_decrease_factor)
+                )
+                state.rate_limit_ceiling = (
+                    prev_limit if state.rate_limit_ceiling == 0 else min(state.rate_limit_ceiling, prev_limit)
+                )
+                if state.current_limit != prev_limit:
+                    events.append(
+                        self._request_event_locked(
+                            "request_limit_decreased",
+                            request_resource_key=resource,
+                            diagnostics={"previous": prev_limit, "current": state.current_limit},
+                        )
+                    )
+            return
+        if outcome.kind == "success" and now >= state.blocked_until:
+            prev_limit = state.current_limit
+            state.consecutive_rate_limits = 0
+            state.success_streak += 1
+            if state.success_streak >= self._config.increase_after_successes:
+                state.current_limit = min(effective_max, state.current_limit + self._config.additive_increase_step)
+                state.success_streak = 0
+                if state.current_limit != prev_limit:
+                    events.append(
+                        self._request_event_locked(
+                            "request_limit_increased",
+                            request_resource_key=resource,
+                            diagnostics={"previous": prev_limit, "current": state.current_limit},
+                        )
+                    )
+                    if state.rate_limit_ceiling and state.current_limit > state.rate_limit_ceiling:
+                        events.append(
+                            self._request_event_locked(
+                                "request_soft_ceiling_recovered",
+                                request_resource_key=resource,
+                                diagnostics={"rate_limit_ceiling": state.rate_limit_ceiling},
+                            )
+                        )
+                    if state.current_limit == effective_max and state.blocked_until <= now:
+                        events.append(
+                            self._request_event_locked("request_fully_recovered", request_resource_key=resource)
+                        )
+            return
+        if state.in_flight == 0 and outcome.kind not in {"local_cancelled", "local_timeout"}:
+            state.consecutive_rate_limits = 0
+
+    def _increment_waiter(self, item: RequestAdmissionItem) -> None:
+        with self._lock:
+            self._get_or_create_state(item.resource).waiters += 1
+            self._sequence += 1
+
+    def _decrement_waiter(self, item: RequestAdmissionItem) -> None:
+        with self._lock:
+            state = self._get_or_create_state(item.resource)
+            state.waiters = max(0, state.waiters - 1)
+            self._sequence += 1
+
+    def _get_or_create_state(self, resource: RequestResourceKey) -> AdaptiveRequestLimitState:
+        state = self._domains.get(resource)
+        if state is None:
+            effective_max = self._effective_max_for_resource(resource)
+            initial = self._config.initial_limits.get(resource, effective_max)
+            state = AdaptiveRequestLimitState(current_limit=max(1, min(initial, effective_max)))
+            self._domains[resource] = state
+        return state
+
+    def _effective_max_for_resource(self, resource: RequestResourceKey) -> int:
+        provider_model_cap = self._global_caps.get(resource.provider_model_key)
+        static_cap = provider_model_cap.effective_max if provider_model_cap is not None else 1
+        clamp = self._config.max_limit_clamps.get(resource)
+        return max(1, min(static_cap, clamp if clamp is not None else static_cap))
+
+    def _snapshot_locked(self, resource: RequestResourceKey, now: float) -> RequestPressureSnapshot:
+        state = self._get_or_create_state(resource)
+        blocked_until = state.blocked_until if state.blocked_until > now else None
+        return RequestPressureSnapshot(
+            captured_at=now,
+            sequence=self._sequence,
+            resource=resource,
+            effective_max=self._effective_max_for_resource(resource),
+            current_limit=state.current_limit,
+            in_flight_count=state.in_flight,
+            active_lease_count=state.active_lease_count,
+            waiters=state.waiters,
+            blocked_until_monotonic=blocked_until,
+            cooldown_remaining_seconds=max(0.0, state.blocked_until - now),
+            rate_limit_ceiling=state.rate_limit_ceiling,
+            consecutive_rate_limits=state.consecutive_rate_limits,
+            last_outcome=state.last_outcome,
+            leak_diagnostics=dict(self._release_diagnostics),
+        )
+
+    def _global_snapshot_locked(self, key: ProviderModelKey, now: float) -> ProviderModelPressureSnapshot:
+        cap = self._global_caps[key]
+        domains = {
+            resource.domain: state.current_limit
+            for resource, state in self._domains.items()
+            if resource.provider_model_key == key
+        }
+        return ProviderModelPressureSnapshot(
+            captured_at=now,
+            sequence=self._sequence,
+            provider_model=key,
+            static_cap=cap.effective_max,
+            aggregate_in_flight=self._aggregate_in_flight[key],
+            aggregate_active_lease_count=self._aggregate_active_leases[key],
+            aliases=tuple(sorted(cap.limits_by_alias)),
+            raw_caps=dict(cap.limits_by_alias),
+            domains=domains,
+        )
+
+    def _request_event_locked(
+        self,
+        event_kind: str,
+        *,
+        item: RequestAdmissionItem | None = None,
+        lease: RequestAdmissionLease | None = None,
+        decision: RequestAdmissionDenied | None = None,
+        result: ReleaseResult | None = None,
+        request_resource_key: RequestResourceKey | None = None,
+        diagnostics: Mapping[str, object] | None = None,
+    ) -> RequestAdmissionEvent:
+        self._sequence += 1
+        event_context = item.event_context if item is not None else None
+        resource = request_resource_key or (item.resource if item is not None else None)
+        group_key = item.group.key if item is not None else None
+        reason_or_outcome = None
+        if decision is not None:
+            reason_or_outcome = decision.reason
+        elif result is not None:
+            reason_or_outcome = result.reason
+        return RequestAdmissionEvent.capture(
+            event_kind,  # type: ignore[arg-type]
+            sequence=self._sequence,
+            correlation=event_context.captured_correlation
+            if event_context is not None
+            else runtime_correlation_provider.current(),
+            request_attempt_id=event_context.request_attempt_id if event_context is not None else None,
+            request_lease_id=lease.lease_id if lease is not None else None,
+            request_resource_key=resource,
+            request_group_key=group_key,
+            reason_or_outcome=reason_or_outcome,
+            pressure_snapshot=self._snapshot_locked(resource, time.monotonic()) if resource is not None else None,
+            diagnostics=dict(diagnostics or {}),
+        )
+
+    def _emit_events(self, events: list[RequestAdmissionEvent]) -> None:
+        if self._event_sink is None:
+            return
+        for event in events:
+            try:
+                self._event_sink.emit_request_event(event)
+            except Exception:
+                continue

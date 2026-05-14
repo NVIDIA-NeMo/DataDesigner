@@ -1,0 +1,176 @@
+{
+  "buffers": [
+    2
+  ],
+  "models": {
+    "downstream": "openai/openai/gpt-5-nano",
+    "upstream": "openai/openai/gpt-5.5"
+  },
+  "provider": "nvidia-internal",
+  "rows": 2,
+  "summaries": [
+    {
+      "artifacts": {
+        "flow_buckets": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-mixed-pipeline/smoke/mixed_rows2_buf2_heavy1_nano1/flow_buckets.json",
+        "idle_times": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-mixed-pipeline/smoke/mixed_rows2_buf2_heavy1_nano1/idle_times.json",
+        "request_events": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-mixed-pipeline/smoke/mixed_rows2_buf2_heavy1_nano1/request_events.jsonl",
+        "summary": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-mixed-pipeline/smoke/mixed_rows2_buf2_heavy1_nano1/summary.json",
+        "task_traces_csv": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-mixed-pipeline/smoke/mixed_rows2_buf2_heavy1_nano1/task_traces.csv",
+        "task_traces_json": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-mixed-pipeline/smoke/mixed_rows2_buf2_heavy1_nano1/task_traces.json",
+        "timeline": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-mixed-pipeline/smoke/mixed_rows2_buf2_heavy1_nano1/timeline.jsonl"
+      },
+      "buffer_size": 2,
+      "cap_violations": {
+        "openai/openai/gpt-5-nano": false,
+        "openai/openai/gpt-5.5": false
+      },
+      "configured_caps": {
+        "openai/openai/gpt-5-nano": 1,
+        "openai/openai/gpt-5.5": 1
+      },
+      "error": null,
+      "expected_model_generations": 4,
+      "final_pressure_by_model": {
+        "openai/openai/gpt-5-nano": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 173981.798141416,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 1,
+          "effective_max": 1,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5-nano",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 42,
+          "waiters": 0
+        },
+        "openai/openai/gpt-5.5": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 173980.912700375,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 1,
+          "effective_max": 1,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5.5",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 33,
+          "waiters": 0
+        }
+      },
+      "idle_times": {
+        "count": 0,
+        "seconds": {
+          "max": null,
+          "p50": null,
+          "p95": null
+        }
+      },
+      "max_tokens": {
+        "downstream": 16,
+        "upstream": 32
+      },
+      "model_completion_outcomes": {
+        "success": 4
+      },
+      "models": {
+        "downstream": "openai/openai/gpt-5-nano",
+        "upstream": "openai/openai/gpt-5.5"
+      },
+      "provider": "nvidia-internal",
+      "request_event_counts": {
+        "model_request_completed": 4,
+        "model_request_started": 4,
+        "request_effective_cap_changed": 2,
+        "request_lease_acquired": 4,
+        "request_lease_released": 4,
+        "request_queue_drained": 4,
+        "request_queue_formed": 4,
+        "request_resource_registered": 2,
+        "request_wait_completed": 4,
+        "request_wait_started": 4
+      },
+      "request_wait_seconds_by_model": {
+        "openai/openai/gpt-5-nano": {
+          "count": 2,
+          "max": 2.2666004952043295e-05,
+          "p50": 2.204100019298494e-05,
+          "p95": 2.2666004952043295e-05
+        },
+        "openai/openai/gpt-5.5": {
+          "count": 1,
+          "max": 2.5834015104919672e-05,
+          "p50": 2.5834015104919672e-05,
+          "p95": 2.5834015104919672e-05
+        }
+      },
+      "rows": 2,
+      "scenario": "mixed_rows2_buf2_heavy1_nano1",
+      "success": true,
+      "task_failure_count": 5,
+      "task_success_count": 0,
+      "task_trace_count": 5,
+      "traffic": {
+        "active_intervals_by_model": {
+          "openai/openai/gpt-5-nano": [
+            {
+              "duration_s": 1.3914966669981368,
+              "end": 173980.88520775,
+              "start": 173979.493711083
+            },
+            {
+              "duration_s": 0.8845595419988967,
+              "end": 173981.798155333,
+              "start": 173980.913595791
+            }
+          ],
+          "openai/openai/gpt-5.5": [
+            {
+              "duration_s": 1.7167455829912797,
+              "end": 173979.491799958,
+              "start": 173977.775054375
+            },
+            {
+              "duration_s": 1.397769832983613,
+              "end": 173980.912711916,
+              "start": 173979.514942083
+            }
+          ]
+        },
+        "completion_count_by_model": {
+          "openai/openai/gpt-5-nano": 2,
+          "openai/openai/gpt-5.5": 2
+        },
+        "max_in_flight_by_model": {
+          "openai/openai/gpt-5-nano": 1,
+          "openai/openai/gpt-5.5": 1
+        },
+        "max_start_gap_seconds_by_model": {
+          "openai/openai/gpt-5-nano": 1.419884708011523,
+          "openai/openai/gpt-5.5": 1.7398877080122475
+        },
+        "overlap_duration_seconds": 1.3702656669775024,
+        "start_count_by_model": {
+          "openai/openai/gpt-5-nano": 2,
+          "openai/openai/gpt-5.5": 2
+        }
+      },
+      "wall_time_seconds": 4.6713245830032974,
+      "wave_diagnosis": "wave_or_serialized"
+    }
+  ]
+}

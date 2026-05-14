@@ -1,0 +1,121 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+
+from data_designer.config.column_configs import ExpressionColumnConfig
+from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError
+from data_designer.engine.dataset_builders.utils.task_model import Task
+from data_designer.engine.dataset_builders.utils.task_scheduling import TaskSchedulingResolver
+
+
+class _LocalGenerator:
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        return SchedulingMetadata.local()
+
+
+class _ModelGenerator:
+    def __init__(self, metadata: SchedulingMetadata) -> None:
+        self._metadata = metadata
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        return self._metadata
+
+
+class _FallbackGenerator:
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        raise SchedulingMetadataError(
+            code="partial",
+            message="using fallback",
+            fallback=SchedulingMetadata.local("fallback"),
+            diagnostics={"reason": "test"},
+        )
+
+
+class _FatalGenerator:
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        raise SchedulingMetadataError(code="fatal", message="fatal")
+
+
+def _task(column: str = "answer") -> Task:
+    return Task(column=column, row_group=0, row_index=0, task_type="cell")
+
+
+def test_task_scheduling_resolver_uses_local_default_metadata() -> None:
+    resolver = TaskSchedulingResolver({"answer": _LocalGenerator()})  # type: ignore[arg-type]
+
+    schedulable = resolver.schedulable_task(_task(), ("answer",))
+
+    assert schedulable.group.key.kind == "local"
+    assert schedulable.resource_request.amounts == {"submission": 1}
+
+
+def test_task_scheduling_resolver_maps_model_metadata_to_model_resource() -> None:
+    metadata = SchedulingMetadata.model("nvidia", "nemotron", "chat", weight=3)
+    resolver = TaskSchedulingResolver({"answer": _ModelGenerator(metadata)})  # type: ignore[arg-type]
+
+    schedulable = resolver.schedulable_task(_task(), ("answer",))
+
+    assert schedulable.group.key.kind == "model"
+    assert schedulable.group.weight == 3.0
+    assert schedulable.group.admitted_limit == 6
+    assert schedulable.resource_request.amounts == {"submission": 1, "llm_wait": 1}
+
+
+def test_task_scheduling_resolver_records_safe_fallback_diagnostics() -> None:
+    resolver = TaskSchedulingResolver({"answer": _FallbackGenerator()})  # type: ignore[arg-type]
+
+    schedulable = resolver.schedulable_task(_task(), ("answer",))
+
+    assert schedulable.group.key.identity[:2] == ("local", "fallback")
+    assert resolver.diagnostics[0]["code"] == "partial"
+
+
+def test_task_scheduling_resolver_raises_fatal_metadata_error() -> None:
+    with pytest.raises(SchedulingMetadataError):
+        TaskSchedulingResolver({"answer": _FatalGenerator()})  # type: ignore[arg-type]
+
+
+def test_model_registry_generator_metadata_deduplicates_same_endpoint_aliases() -> None:
+    from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
+
+    class _RegistryGenerator(ColumnGeneratorWithModelRegistry[ExpressionColumnConfig]):
+        @staticmethod
+        def get_generation_strategy() -> object:
+            return object()
+
+        def generate(self, data: object) -> object:
+            return data
+
+    config = ExpressionColumnConfig(name="answer", expr="{{ x }}", dtype="str")
+    generator = _RegistryGenerator(config=config, resource_provider=MagicMock())
+    generator._get_scheduling_model_aliases = lambda: ["primary", "secondary"]  # type: ignore[method-assign]
+    configs = {
+        "primary": SimpleNamespace(
+            model="endpoint",
+            generation_type="chat",
+            inference_parameters=SimpleNamespace(max_parallel_requests=4),
+        ),
+        "secondary": SimpleNamespace(
+            model="endpoint",
+            generation_type="chat",
+            inference_parameters=SimpleNamespace(max_parallel_requests=2),
+        ),
+    }
+    providers = {
+        "primary": SimpleNamespace(name="nvidia"),
+        "secondary": SimpleNamespace(name="nvidia"),
+    }
+    generator.get_model_config = lambda model_alias: configs[model_alias]  # type: ignore[method-assign]
+    generator.get_model_provider_name = lambda model_alias: providers[model_alias].name  # type: ignore[method-assign]
+
+    metadata = generator.get_scheduling_metadata()
+
+    assert metadata.identity == ("model", "nvidia", "endpoint", "chat")
+    assert metadata.weight == 2
+    assert metadata.diagnostics["merge_rule"] == "min_same_endpoint"

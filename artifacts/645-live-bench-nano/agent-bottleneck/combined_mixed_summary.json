@@ -1,0 +1,369 @@
+{
+  "created_at_epoch": 1778787927.324943,
+  "notes": [
+    "Previous smaller bottleneck runs are preserved separately in combined_summary.json.",
+    "Mixed runs use exact upstream openai/openai/gpt-5.5 and downstream openai/openai/gpt-5-nano with temperature omitted and skip_health_check=True.",
+    "Initial mixed attempt against https://integrate.api.nvidia.com/v1 returned not_found for gpt-5.5; rerun used configured nvidia-internal endpoint https://inference-api.nvidia.com/v1 and exact requested models succeeded. No model fallback was used."
+  ],
+  "previous_small_runs_location": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/combined_summary.json",
+  "run_class": "final mixed 1024+ generation scale",
+  "scenarios": [
+    {
+      "buffer_size": 256,
+      "cap_enforced_by_model": {
+        "openai/openai/gpt-5-nano": true,
+        "openai/openai/gpt-5.5": true
+      },
+      "dataset_path": "None",
+      "expected_model_generations": 1024,
+      "failures": [],
+      "final_pressure_by_model": {
+        "openai/openai/gpt-5-nano": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 174420.160102208,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 16,
+          "effective_max": 16,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5-nano",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 7210,
+          "waiters": 0
+        },
+        "openai/openai/gpt-5.5": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 174418.987495666,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 8,
+          "effective_max": 8,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5.5",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 7199,
+          "waiters": 0
+        }
+      },
+      "max_inflight_by_model": {
+        "openai/openai/gpt-5-nano": 7,
+        "openai/openai/gpt-5.5": 8
+      },
+      "max_waiters_by_model": {
+        "openai/openai/gpt-5-nano": 1,
+        "openai/openai/gpt-5.5": 248
+      },
+      "model_request_outcomes": {
+        "openai/openai/gpt-5-nano": {
+          "success": 512
+        },
+        "openai/openai/gpt-5.5": {
+          "success": 512
+        }
+      },
+      "models": {
+        "downstream_fast": {
+          "alias": "gpt-5-nano-fast",
+          "max_parallel_requests": 16,
+          "max_tokens": 64,
+          "model": "openai/openai/gpt-5-nano"
+        },
+        "upstream_heavy": {
+          "alias": "gpt-5.5-heavy",
+          "max_parallel_requests": 8,
+          "max_tokens": 128,
+          "model": "openai/openai/gpt-5.5"
+        }
+      },
+      "observed_model_request_completed": 1024,
+      "paths": {
+        "request_events": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf256_1024gens/request_events.jsonl",
+        "summary": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf256_1024gens/summary.json",
+        "task_traces_csv": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf256_1024gens/task_traces.csv",
+        "task_traces_json": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf256_1024gens/task_traces.json",
+        "timeline": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf256_1024gens/timeline.jsonl",
+        "traffic_flow_csv": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf256_1024gens/traffic_flow.csv",
+        "traffic_flow_json": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf256_1024gens/traffic_flow.json"
+      },
+      "provider": "nvidia-internal",
+      "request_event_counts": {
+        "model_request_completed": 1024,
+        "model_request_started": 1024,
+        "request_effective_cap_changed": 2,
+        "request_lease_acquired": 1024,
+        "request_lease_released": 1024,
+        "request_queue_drained": 18,
+        "request_queue_formed": 18,
+        "request_resource_registered": 2,
+        "request_wait_completed": 1024,
+        "request_wait_started": 1024
+      },
+      "request_wait_seconds_by_model": {
+        "openai/openai/gpt-5-nano": {
+          "max": 0.005292,
+          "p50": 0.000496,
+          "p95": 0.00113
+        },
+        "openai/openai/gpt-5.5": {
+          "max": 131.423565,
+          "p50": 119.00833,
+          "p95": 129.106918
+        }
+      },
+      "result_columns": [
+        "case_id",
+        "source",
+        "sink",
+        "constraint",
+        "heavy_upstream",
+        "fast_downstream"
+      ],
+      "result_rows": 512,
+      "rows_requested": 512,
+      "scenario": "mixed_rows512_buf256_1024gens",
+      "scenario_dir": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf256_1024gens",
+      "scheduler_admission_blocked_count": 472,
+      "scheduler_event_counts": {
+        "admission_blocked": 472,
+        "dependency_ready": 1026,
+        "queue_drained": 256,
+        "ready_enqueued": 1026,
+        "selected": 1026,
+        "task_completed": 1026,
+        "task_lease_acquired": 1026,
+        "task_lease_released": 1026,
+        "worker_spawned": 1026
+      },
+      "scheduler_group_capped_count": 0,
+      "skip_health_check": true,
+      "task_traces": {
+        "by_column": {
+          "case_id": 2,
+          "fast_downstream": 512,
+          "heavy_upstream": 512
+        },
+        "count": 1026,
+        "status_counts": {
+          "ok": 1026
+        }
+      },
+      "temperature_omitted": true,
+      "traffic_shape": {
+        "openai/openai/gpt-5-nano": {
+          "active_seconds": 232,
+          "burst_ratio": 3.541,
+          "interpretation": "waves",
+          "max_started_per_second": 7,
+          "mean_started_per_second": 1.977,
+          "zero_bins_inside_active_window": 27
+        },
+        "openai/openai/gpt-5.5": {
+          "active_seconds": 224,
+          "burst_ratio": 4.016,
+          "interpretation": "waves",
+          "max_started_per_second": 8,
+          "mean_started_per_second": 1.992,
+          "zero_bins_inside_active_window": 33
+        }
+      },
+      "upstream_to_downstream_idle_seconds": {
+        "max": 0.356167,
+        "p50": 0.053224,
+        "p95": 0.111947
+      },
+      "wall_time_seconds": 264.457
+    },
+    {
+      "buffer_size": 32,
+      "cap_enforced_by_model": {
+        "openai/openai/gpt-5-nano": true,
+        "openai/openai/gpt-5.5": true
+      },
+      "dataset_path": "None",
+      "expected_model_generations": 1024,
+      "failures": [],
+      "final_pressure_by_model": {
+        "openai/openai/gpt-5-nano": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 174146.476839041,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 16,
+          "effective_max": 16,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5-nano",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 7210,
+          "waiters": 0
+        },
+        "openai/openai/gpt-5.5": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 174137.719422166,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 8,
+          "effective_max": 8,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5.5",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 7199,
+          "waiters": 0
+        }
+      },
+      "max_inflight_by_model": {
+        "openai/openai/gpt-5-nano": 9,
+        "openai/openai/gpt-5.5": 8
+      },
+      "max_waiters_by_model": {
+        "openai/openai/gpt-5-nano": 1,
+        "openai/openai/gpt-5.5": 88
+      },
+      "model_request_outcomes": {
+        "openai/openai/gpt-5-nano": {
+          "success": 512
+        },
+        "openai/openai/gpt-5.5": {
+          "success": 512
+        }
+      },
+      "models": {
+        "downstream_fast": {
+          "alias": "gpt-5-nano-fast",
+          "max_parallel_requests": 16,
+          "max_tokens": 64,
+          "model": "openai/openai/gpt-5-nano"
+        },
+        "upstream_heavy": {
+          "alias": "gpt-5.5-heavy",
+          "max_parallel_requests": 8,
+          "max_tokens": 128,
+          "model": "openai/openai/gpt-5.5"
+        }
+      },
+      "observed_model_request_completed": 1024,
+      "paths": {
+        "request_events": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf32_1024gens/request_events.jsonl",
+        "summary": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf32_1024gens/summary.json",
+        "task_traces_csv": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf32_1024gens/task_traces.csv",
+        "task_traces_json": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf32_1024gens/task_traces.json",
+        "timeline": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf32_1024gens/timeline.jsonl",
+        "traffic_flow_csv": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf32_1024gens/traffic_flow.csv",
+        "traffic_flow_json": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf32_1024gens/traffic_flow.json"
+      },
+      "provider": "nvidia-internal",
+      "request_event_counts": {
+        "model_request_completed": 1024,
+        "model_request_started": 1024,
+        "request_effective_cap_changed": 2,
+        "request_lease_acquired": 1024,
+        "request_lease_released": 1024,
+        "request_queue_drained": 18,
+        "request_queue_formed": 18,
+        "request_resource_registered": 2,
+        "request_wait_completed": 1024,
+        "request_wait_started": 1024
+      },
+      "request_wait_seconds_by_model": {
+        "openai/openai/gpt-5-nano": {
+          "max": 0.001512,
+          "p50": 0.000276,
+          "p95": 0.000618
+        },
+        "openai/openai/gpt-5.5": {
+          "max": 45.718323,
+          "p50": 31.02182,
+          "p95": 39.684837
+        }
+      },
+      "result_columns": [
+        "case_id",
+        "source",
+        "sink",
+        "constraint",
+        "heavy_upstream",
+        "fast_downstream"
+      ],
+      "result_rows": 512,
+      "rows_requested": 512,
+      "scenario": "mixed_rows512_buf32_1024gens",
+      "scenario_dir": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-bottleneck/mixed_rows512_buf32_1024gens",
+      "scheduler_admission_blocked_count": 0,
+      "scheduler_event_counts": {
+        "dependency_ready": 1040,
+        "queue_drained": 542,
+        "ready_enqueued": 1040,
+        "selected": 1040,
+        "task_completed": 1040,
+        "task_lease_acquired": 1040,
+        "task_lease_released": 1040,
+        "worker_spawned": 1040
+      },
+      "scheduler_group_capped_count": 0,
+      "skip_health_check": true,
+      "task_traces": {
+        "by_column": {
+          "case_id": 16,
+          "fast_downstream": 512,
+          "heavy_upstream": 512
+        },
+        "count": 1040,
+        "status_counts": {
+          "ok": 1040
+        }
+      },
+      "temperature_omitted": true,
+      "traffic_shape": {
+        "openai/openai/gpt-5-nano": {
+          "active_seconds": 220,
+          "burst_ratio": 2.412,
+          "interpretation": "waves",
+          "max_started_per_second": 5,
+          "mean_started_per_second": 2.073,
+          "zero_bins_inside_active_window": 27
+        },
+        "openai/openai/gpt-5.5": {
+          "active_seconds": 217,
+          "burst_ratio": 3.828,
+          "interpretation": "waves",
+          "max_started_per_second": 8,
+          "mean_started_per_second": 2.09,
+          "zero_bins_inside_active_window": 28
+        }
+      },
+      "upstream_to_downstream_idle_seconds": {
+        "max": 0.028367,
+        "p50": 0.000646,
+        "p95": 0.002748
+      },
+      "wall_time_seconds": 259.315
+    }
+  ]
+}
