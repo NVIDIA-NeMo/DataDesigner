@@ -138,8 +138,8 @@ package "Task scheduling contracts" {
   }
 
   class TaskAdmissionController {
-    +is_eligible(item, queue)
-    +try_acquire(item, queue)
+    +is_eligible(item, view)
+    +try_acquire(item, view)
     +release(lease)
     +view()
   }
