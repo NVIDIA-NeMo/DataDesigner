@@ -1,0 +1,134 @@
+name: "Agentic CI Authorization Checks"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Agentic CI PR number"
+        required: true
+        type: string
+      expected_head_sha:
+        description: "PR head SHA authorized by the maintainer"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  pr:
+    runs-on: ubuntu-latest
+    outputs:
+      title_b64: ${{ steps.metadata.outputs.title_b64 }}
+      trusted: ${{ steps.metadata.outputs.trusted }}
+    steps:
+      - name: Load PR metadata
+        id: metadata
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid PR number: ${PR_NUMBER}"
+            exit 1
+          fi
+
+          PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+          PR_AUTHOR=$(printf '%s' "$PR_JSON" | jq -r '.user.login')
+          HEAD_REPO=$(printf '%s' "$PR_JSON" | jq -r '.head.repo.full_name')
+          HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.head.ref')
+          HEAD_SHA=$(printf '%s' "$PR_JSON" | jq -r '.head.sha')
+          TITLE=$(printf '%s' "$PR_JSON" | jq -r '.title')
+          PR_BODY=$(printf '%s' "$PR_JSON" | jq -r '.body // ""')
+
+          if [ "$HEAD_SHA" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "::error::PR head moved from ${EXPECTED_HEAD_SHA} to ${HEAD_SHA}."
+            exit 1
+          fi
+
+          if [ "$GITHUB_SHA" != "$HEAD_SHA" ]; then
+            echo "::error::Workflow SHA ${GITHUB_SHA} does not match PR head ${HEAD_SHA}."
+            exit 1
+          fi
+
+          TRUSTED=false
+          printf '%s' "$PR_BODY" > /tmp/pr-body-raw.txt
+          # Commit authors can be spoofed; trust only PR metadata GitHub controls.
+          if { [ "$PR_AUTHOR" = "github-actions[bot]" ] || [ "$PR_AUTHOR" = "agentic-ci" ]; } && \
+             [ "$HEAD_REPO" = "$REPO" ] && \
+             [[ "$HEAD_REF" == agentic-ci/* ]] && \
+             grep -q '<!-- agentic-ci ' /tmp/pr-body-raw.txt; then
+            TRUSTED=true
+          fi
+
+          echo "trusted=${TRUSTED}" >> "$GITHUB_OUTPUT"
+          echo "title_b64=$(printf '%s' "$TITLE" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+  DCOAssistant:
+    needs: pr
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate authorization
+        env:
+          PR_RESULT: ${{ needs.pr.result }}
+          TRUSTED: ${{ needs.pr.outputs.trusted }}
+        run: |
+          if [ "$PR_RESULT" != "success" ] || [ "$TRUSTED" != "true" ]; then
+            echo "::error::This PR is not an authorized Agentic CI PR."
+            exit 1
+          fi
+          echo "Trusted Agentic CI PR authorized by a maintainer."
+
+  semantic-pull-request:
+    name: semantic-pull-request / semantic-pull-request
+    needs: pr
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        env:
+          PR_RESULT: ${{ needs.pr.result }}
+          TITLE_B64: ${{ needs.pr.outputs.title_b64 }}
+          TRUSTED: ${{ needs.pr.outputs.trusted }}
+        run: |
+          if [ "$PR_RESULT" != "success" ] || [ "$TRUSTED" != "true" ]; then
+            echo "::error::This PR is not an authorized Agentic CI PR."
+            exit 1
+          fi
+
+          TITLE=$(printf '%s' "$TITLE_B64" | base64 -d)
+          TYPES='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|cp'
+          REGEX="^(${TYPES})(\\([^)]+\\))?!?: .+"
+          if ! [[ "$TITLE" =~ $REGEX ]]; then
+            echo "::error::PR title is not semantic: ${TITLE}"
+            exit 1
+          fi
+
+          if [ "${#TITLE}" -gt 80 ]; then
+            echo "::error::PR title is longer than 80 characters: ${#TITLE}"
+            exit 1
+          fi
+
+  check:
+    needs: pr
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate linked issue authorization
+        env:
+          PR_RESULT: ${{ needs.pr.result }}
+          TRUSTED: ${{ needs.pr.outputs.trusted }}
+        run: |
+          if [ "$PR_RESULT" != "success" ] || [ "$TRUSTED" != "true" ]; then
+            echo "::error::This PR is not an authorized Agentic CI PR."
+            exit 1
+          fi
+          echo "Trusted Agentic CI PRs do not require a linked issue."

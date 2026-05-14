@@ -1,0 +1,127 @@
+name: "Authorize Agentic CI"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+  pull-requests: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  authorize:
+    if: >-
+      github.repository_owner == 'NVIDIA-NeMo'
+      && github.event.issue.pull_request != null
+      && github.event.comment.body == '/authorize-agentic-ci'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check commenter permission
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          PERMISSION=$(gh api "repos/${REPO}/collaborators/${COMMENT_AUTHOR}/permission" \
+            --jq '.permission' 2>/dev/null || echo "none")
+          echo "Comment author ${COMMENT_AUTHOR} has ${PERMISSION} permission."
+
+          case "$PERMISSION" in
+            admin|maintain|write)
+              ;;
+            *)
+              gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
+                "Only maintainers with write access can authorize Agentic CI checks."
+              exit 1
+              ;;
+          esac
+
+      - name: Load PR metadata
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+
+          PR_AUTHOR=$(printf '%s' "$PR_JSON" | jq -r '.user.login')
+          HEAD_REPO=$(printf '%s' "$PR_JSON" | jq -r '.head.repo.full_name')
+          HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.head.ref')
+          HEAD_SHA=$(printf '%s' "$PR_JSON" | jq -r '.head.sha')
+          STATE=$(printf '%s' "$PR_JSON" | jq -r '.state')
+          PR_BODY=$(printf '%s' "$PR_JSON" | jq -r '.body // ""')
+
+          TRUSTED=false
+          printf '%s' "$PR_BODY" > /tmp/pr-body-raw.txt
+          # Commit authors can be spoofed; trust only PR metadata GitHub controls.
+          if { [ "$PR_AUTHOR" = "github-actions[bot]" ] || [ "$PR_AUTHOR" = "agentic-ci" ]; } && \
+             [ "$HEAD_REPO" = "$REPO" ] && \
+             [[ "$HEAD_REF" == agentic-ci/* ]] && \
+             grep -q '<!-- agentic-ci ' /tmp/pr-body-raw.txt; then
+            TRUSTED=true
+          fi
+
+          echo "author=${PR_AUTHOR}" >> "$GITHUB_OUTPUT"
+          echo "head_ref=${HEAD_REF}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "state=${STATE}" >> "$GITHUB_OUTPUT"
+          echo "trusted=${TRUSTED}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Agentic CI PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          STATE: ${{ steps.pr.outputs.state }}
+          TRUSTED: ${{ steps.pr.outputs.trusted }}
+        run: |
+          if [ "$STATE" != "open" ]; then
+            gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
+              "Agentic CI checks were not authorized because this PR is not open."
+            exit 1
+          fi
+
+          if [ "$TRUSTED" != "true" ]; then
+            gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
+              "Agentic CI checks were not authorized because this PR does not match the trusted Agentic CI metadata."
+            exit 1
+          fi
+
+          BLOCKED=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only \
+            | grep -E '^\.github/(workflows|actions|scripts)/' || true)
+          if [ -n "$BLOCKED" ]; then
+            {
+              echo "Agentic CI checks were not authorized because this PR changes privileged workflow files:"
+              echo
+              printf '%s\n' "$BLOCKED" | sed 's/^/- `/' | sed 's/$/`/'
+            } > /tmp/agentic-ci-auth-failed.md
+            gh issue comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/agentic-ci-auth-failed.md
+            exit 1
+          fi
+
+          echo "Authorizing checks for ${HEAD_SHA}."
+
+      - name: Dispatch checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh workflow run ci.yml --repo "$REPO" --ref "$HEAD_REF"
+          gh workflow run agentic-ci-authorized-checks.yml --repo "$REPO" --ref "$HEAD_REF" \
+            -f pr_number="$PR_NUMBER" \
+            -f expected_head_sha="$HEAD_SHA"
+
+          gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
+            "Authorized Agentic CI checks for \`${HEAD_SHA}\`. Launched CI and authorization checks."
