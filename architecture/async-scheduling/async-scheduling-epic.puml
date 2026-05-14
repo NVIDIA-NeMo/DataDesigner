@@ -1,0 +1,584 @@
+@startuml AsyncSchedulingEpicComponent
+title Data Designer Async Scheduling Epic - Component View
+
+left to right direction
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 45
+
+legend right
+  Epic issue 645 target shape.
+  Issue tags show primary ownership.
+  Solid arrows are runtime/data flow.
+  Dashed arrows are observability or policy inputs.
+endlegend
+
+actor "Generator / Plugin Author" as Author
+actor "Operator / Integrator" as Operator
+
+component "Generator Metadata\nColumnGenerator\nSchedulingMetadata\nTaskSchedulingResolver\nissues 641, 646, 653, 652" as MetadataStage
+component "Task Readiness and Ordering\nCompletionTracker\nFairTaskQueue\nSchedulableTask" as TaskQueueStage
+component "Task Admission\nTaskAdmissionController\nTaskAdmissionPolicy\nTaskAdmissionLease\nissues 644, 650, 651" as TaskAdmissionStage
+component "AsyncTaskScheduler\nexecution owner" as SchedulerStage
+component "Model Request Boundary\nModelRequestExecutor" as ModelBoundaryStage
+component "Request Admission\nRequestAdmissionController\nRequestFairQueue\nRequestAdmissionPolicy\nAdaptiveRequestLimitState\nissue 657" as RequestAdmissionStage
+component "Provider / Model Endpoint" as ProviderStage
+
+component "Capacity Plan\nAsyncCapacityPlan\nTaskAdmissionConfig\nRequestAdmissionConfig\nissue 654" as CapacityStage
+component "Telemetry and Correlation\nSchedulerAdmissionEventSink\nRequestAdmissionEventSink\nRuntimeCorrelationProvider\nCorrelated Runtime View\nissues 635, 647, 648" as TelemetryStage
+component "Benchmark and Future Design\nbenchmark harness\nresource-vector design\nissues 649, 651" as EvidenceStage
+
+Author --> MetadataStage
+MetadataStage -right-> TaskQueueStage : resolved task DTOs
+TaskQueueStage -right-> TaskAdmissionStage : selected ready work
+TaskAdmissionStage -right-> SchedulerStage : task lease
+SchedulerStage -right-> ModelBoundaryStage : execute task code
+ModelBoundaryStage -right-> RequestAdmissionStage : model request item
+RequestAdmissionStage -right-> ModelBoundaryStage : request lease
+ModelBoundaryStage -right-> ProviderStage : admitted model call
+
+CapacityStage ..> TaskAdmissionStage
+CapacityStage ..> RequestAdmissionStage
+TaskAdmissionStage ..> TelemetryStage
+RequestAdmissionStage ..> TelemetryStage
+SchedulerStage ..> TelemetryStage
+TelemetryStage --> Operator
+EvidenceStage ..> CapacityStage
+EvidenceStage ..> TaskAdmissionStage
+EvidenceStage ..> RequestAdmissionStage
+
+note bottom of TaskAdmissionStage
+  Controller owns scheduler leases.
+  Policy decides admissibility.
+  FairTaskQueue owns only ready-work ordering.
+end note
+
+note bottom of MetadataStage
+  SchedulingMetadata is static declaration only.
+  It does not encode queue depth, AIMD state,
+  admitted limits, RequestDomain, or runtime pressure.
+end note
+
+@enduml
+
+@startuml AsyncSchedulingTaskAdmissionClassModel
+title Data Designer Async Scheduling Epic - Task Admission Contracts
+
+left to right direction
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+package "Metadata contracts" {
+  class ColumnGenerator {
+    +get_scheduling_metadata()
+  }
+
+  class SchedulingMetadata {
+    +kind
+    +identity
+    +weight
+  }
+
+  class TaskSchedulingResolver {
+    +resolve(generator)
+  }
+
+  class ResolvedTaskScheduling {
+    +group
+    +resource_request
+  }
+}
+
+package "Task scheduling contracts" {
+  class CompletionTracker {
+    +ready_frontier()
+    +mark_complete(task)
+  }
+
+  class TaskGroupSpec {
+    +key
+    +weight
+  }
+
+  class SchedulerResourceRequest {
+    +amounts
+  }
+
+  class SchedulableTask {
+    +task
+    +group
+    +resource_request
+  }
+
+  class FairTaskQueue {
+    +enqueue(item)
+    +select_next(is_eligible)
+    +commit(selection)
+    +view()
+  }
+
+  interface TaskAdmissionPolicy {
+    +is_eligible(item, queue, view)
+    +on_acquire(lease)
+    +on_release(lease)
+  }
+
+  class StrictFairTaskAdmissionPolicy {
+    +enforce hard per-group limits
+  }
+
+  class BoundedBorrowTaskAdmissionPolicy {
+    +borrow_debt(group, resource)
+  }
+
+  class TaskAdmissionController {
+    +is_eligible(item, queue)
+    +try_acquire(item, queue)
+    +release(lease)
+    +view()
+  }
+
+  class TaskAdmissionDecision {
+    +lease
+    +denied_reason
+  }
+
+  class TaskAdmissionLease {
+    +item
+    +resources
+    +acquired_at
+  }
+
+  class AsyncTaskScheduler <<boundary>> {
+    +coordinate_ready_work()
+    +execute_admitted_task()
+  }
+}
+
+package "Task config" {
+  class TaskAdmissionConfig {
+    +submission_capacity
+    +resource_limits
+  }
+}
+
+ColumnGenerator --> SchedulingMetadata
+TaskSchedulingResolver --> SchedulingMetadata
+TaskSchedulingResolver --> ResolvedTaskScheduling
+ResolvedTaskScheduling --> TaskGroupSpec
+ResolvedTaskScheduling --> SchedulerResourceRequest
+ResolvedTaskScheduling --> SchedulableTask
+CompletionTracker --> FairTaskQueue : ready tasks
+FairTaskQueue --> TaskAdmissionController : QueueSelection
+TaskAdmissionController --> TaskAdmissionPolicy
+StrictFairTaskAdmissionPolicy ..|> TaskAdmissionPolicy
+BoundedBorrowTaskAdmissionPolicy ..|> TaskAdmissionPolicy
+TaskAdmissionController --> TaskAdmissionDecision
+TaskAdmissionDecision --> TaskAdmissionLease
+TaskAdmissionLease --> SchedulableTask
+AsyncTaskScheduler --> CompletionTracker
+AsyncTaskScheduler --> FairTaskQueue
+AsyncTaskScheduler --> TaskAdmissionController
+TaskAdmissionController ..> TaskAdmissionConfig : reads config
+
+note right of SchedulingMetadata
+  Static declaration only.
+  Must not encode queue depth,
+  AIMD state, admitted limits,
+  RequestDomain, or runtime pressure.
+end note
+
+note bottom of SchedulerResourceRequest
+  Replaces legacy needs_llm_wait-style booleans
+  once the resource-vector design lands.
+end note
+
+@enduml
+
+@startuml AsyncSchedulingRequestAdmissionClassModel
+title Data Designer Async Scheduling Epic - Request Admission Contracts
+
+left to right direction
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+package "Model request boundary" {
+  class ModelRequestExecutor <<boundary>> {
+    +execute(request)
+  }
+
+  class ProviderModelEndpoint <<external>> {
+    +request()
+  }
+}
+
+package "Request admission contracts" {
+  class RequestResourceKey {
+    +provider_name
+    +model_id
+    +domain
+  }
+
+  class RequestGroupSpec {
+    +key
+    +weight
+  }
+
+  class RequestAdmissionItem {
+    +resource
+    +group
+    +timeout
+  }
+
+  class RequestFairQueue <<internal>> {
+    +enqueue(item)
+    +select_next(is_eligible)
+    +commit(selection)
+    +view()
+  }
+
+  interface RequestAdmissionPolicy <<internal>> {
+    +is_eligible(item, queue, limits)
+    +on_success(lease)
+    +on_rate_limited(lease, retry_after)
+    +on_failure(lease)
+  }
+
+  class AdaptiveRequestLimitState {
+    +current_limit(resource)
+    +effective_max(resource)
+    +record_success(resource)
+    +record_rate_limit(resource, retry_after)
+    +record_failure(resource)
+  }
+
+  class RequestAdmissionController {
+    +try_acquire(item)
+    +acquire_sync(item)
+    +acquire_async(item)
+    +release_success(lease)
+    +release_rate_limited(lease, retry_after)
+    +release_failure(lease)
+    +pressure_snapshots()
+  }
+
+  class AdaptiveRequestAdmissionController {
+    +AIMD reduce/increase behavior
+  }
+
+  class RequestAdmissionDecision <<union>> {
+    RequestAdmissionLease | RequestAdmissionDenied
+  }
+
+  class RequestAdmissionLease {
+    +item
+    +acquired_at
+    +current_limit
+    +effective_max
+  }
+
+  class RequestAdmissionDenied {
+    +item
+    +reason
+    +retry_after_seconds
+    +available_after
+    +snapshot
+  }
+
+  class RequestPressureSnapshotProvider {
+    +snapshot(resource)
+    +snapshots()
+    +global_snapshot(provider, model)
+    +global_snapshots()
+  }
+}
+
+package "Request config" {
+  class RequestAdmissionConfig {
+    +resources
+    +initial_limit
+    +max_limit
+  }
+}
+
+ModelRequestExecutor --> RequestAdmissionController
+RequestAdmissionController --> RequestFairQueue
+RequestAdmissionController --> RequestAdmissionPolicy
+RequestAdmissionPolicy --> AdaptiveRequestLimitState
+AdaptiveRequestAdmissionController --|> RequestAdmissionController
+AdaptiveRequestAdmissionController --> RequestFairQueue
+AdaptiveRequestAdmissionController --> RequestAdmissionPolicy
+AdaptiveRequestAdmissionController --> AdaptiveRequestLimitState
+RequestAdmissionController --> RequestAdmissionDecision
+RequestAdmissionDecision --> RequestAdmissionLease
+RequestAdmissionDecision --> RequestAdmissionDenied
+RequestAdmissionController --> RequestPressureSnapshotProvider
+RequestAdmissionController ..> RequestAdmissionConfig : reads config
+RequestAdmissionItem --> RequestResourceKey
+RequestAdmissionItem --> RequestGroupSpec
+RequestAdmissionLease --> RequestAdmissionItem
+RequestAdmissionDenied --> RequestAdmissionItem
+ModelRequestExecutor --> ProviderModelEndpoint
+
+note bottom of RequestFairQueue
+  Internal waiter ordering.
+  This is not a second public wrapper around
+  RequestAdmissionController.
+end note
+
+note right of RequestAdmissionController
+  Owns concrete provider/model/domain
+  request admission at model-call time.
+  Does not own DAG readiness or task
+  scheduler admission.
+  No durable Throttle*, needs_llm_wait,
+  or held_llm_wait compatibility concepts.
+end note
+
+@enduml
+
+@startuml AsyncSchedulingSupportContractsClassModel
+title Data Designer Async Scheduling Epic - Capacity, Telemetry, and Evidence Contracts
+
+left to right direction
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+package "Capacity planning (issue 654)" {
+  class RunConfigRuntimeArgs <<input>> {
+    +env
+    +runtime_args
+    +run_config
+  }
+
+  class AsyncCapacityPlan {
+    +buffer_size
+    +row_group_concurrency
+    +submission_capacity
+    +task_admission
+    +request_admission
+  }
+
+  class TaskAdmissionConfig {
+    +submission_capacity
+    +resource_limits
+  }
+
+  class RequestAdmissionConfig {
+    +resources
+    +initial_limit
+    +max_limit
+  }
+}
+
+package "Telemetry and correlation (issues 635, 647, 648)" {
+  class RuntimeCorrelation {
+    +run_id
+    +row_group
+    +task_column
+    +task_type
+    +scheduling_group_kind
+    +scheduling_group_identity_hash
+  }
+
+  class RuntimeCorrelationProvider {
+    +set(context)
+    +reset(token)
+    +current()
+  }
+
+  class SchedulerAdmissionEventSink {
+    +emit(event)
+  }
+
+  class RequestAdmissionEventSink {
+    +emit(event)
+  }
+
+  class CorrelatedRuntimeView {
+    +join scheduler and request timelines
+  }
+}
+
+package "Evidence and future design (issues 649, 650, 651)" {
+  class AsyncSchedulingBenchmarkHarness {
+    +run_ab(baseline_ref, candidate_ref)
+    +emit_json_csv_artifacts()
+  }
+
+  class SchedulerResourceVectorDesign {
+    +static task resources
+    +read-only request pressure
+  }
+
+  class BoundedBorrowTaskAdmissionPolicy {
+    +borrow_debt(group, resource)
+  }
+}
+
+RunConfigRuntimeArgs --> AsyncCapacityPlan
+AsyncCapacityPlan --> TaskAdmissionConfig
+AsyncCapacityPlan --> RequestAdmissionConfig
+SchedulerAdmissionEventSink ..> RuntimeCorrelationProvider : attach current context
+RequestAdmissionEventSink ..> RuntimeCorrelationProvider : attach current context
+RuntimeCorrelationProvider --> RuntimeCorrelation
+SchedulerAdmissionEventSink --> CorrelatedRuntimeView
+RequestAdmissionEventSink --> CorrelatedRuntimeView
+AsyncSchedulingBenchmarkHarness ..> AsyncCapacityPlan
+AsyncSchedulingBenchmarkHarness ..> SchedulerAdmissionEventSink
+AsyncSchedulingBenchmarkHarness ..> RequestAdmissionEventSink
+AsyncSchedulingBenchmarkHarness ..> BoundedBorrowTaskAdmissionPolicy
+SchedulerResourceVectorDesign ..> BoundedBorrowTaskAdmissionPolicy
+
+@enduml
+
+@startuml AsyncSchedulingEpicRuntimeSequence
+title Data Designer Async Scheduling Epic - Runtime Sequence
+
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+
+actor User
+participant "ColumnGenerator" as Gen
+participant "TaskSchedulingResolver\nissue 646" as Resolver
+participant "CompletionTracker" as Tracker
+participant "AsyncTaskScheduler" as Scheduler
+participant "FairTaskQueue" as Queue
+participant "TaskAdmissionController\nissue 644" as TaskAdmit
+participant "TaskAdmissionPolicy" as TaskPolicy
+participant "ModelRequestExecutor" as Executor
+participant "RequestAdmissionController\nissue 657" as ReqAdmit
+participant "RequestFairQueue" as ReqQueue
+participant "RequestAdmissionPolicy" as ReqPolicy
+participant "AdaptiveRequestLimitState" as ReqLimits
+participant "Provider / Model" as Provider
+participant "SchedulerAdmissionEventSink\nissue 647" as SchedEvents
+participant "RequestAdmissionEventSink\nissue 635" as ReqEvents
+participant "RuntimeCorrelationProvider\nissue 648" as Correlation
+
+User -> Gen : declare columns / plugins
+Gen -> Resolver : get_scheduling_metadata()
+Resolver -> Resolver : resolve TaskGroupSpec\nand SchedulerResourceRequest
+Resolver -> Tracker : provide SchedulableTask inputs
+
+Scheduler -> Tracker : ready_frontier()
+Tracker -> Queue : enqueue ready SchedulableTask
+Scheduler -> Queue : select_next(TaskAdmit.is_eligible)
+Queue -> TaskAdmit : is_eligible(candidate, queue.view)
+TaskAdmit -> TaskPolicy : evaluate candidate against leases/capacity
+TaskPolicy --> TaskAdmit : eligible or denied
+TaskAdmit --> Queue : eligibility result
+Queue --> Scheduler : QueueSelection
+Scheduler -> TaskAdmit : try_acquire(selection.item, queue.view)
+TaskAdmit -> TaskPolicy : on_acquire if admitted
+TaskAdmit --> Scheduler : TaskAdmissionLease
+Scheduler -> Queue : commit(selection)
+Scheduler -> Correlation : set RuntimeCorrelation
+TaskAdmit -> SchedEvents : lease_acquired
+SchedEvents -> Correlation : current()
+
+Scheduler -> Executor : execute task
+Executor -> ReqAdmit : acquire_async(RequestAdmissionItem)
+ReqAdmit -> ReqQueue : enqueue waiter if needed
+ReqAdmit -> ReqQueue : select_next(ReqPolicy.is_eligible)
+ReqQueue --> ReqAdmit : RequestQueueSelection
+ReqAdmit -> ReqPolicy : evaluate resource/group against limits
+ReqPolicy -> ReqLimits : read current/effective limit
+ReqLimits --> ReqPolicy : limit snapshot
+ReqPolicy --> ReqAdmit : eligible or denied
+ReqAdmit -> ReqQueue : commit(selection) if admitted
+ReqAdmit -> ReqEvents : wait_started / lease_acquired
+ReqEvents -> Correlation : current()
+ReqAdmit --> Executor : RequestAdmissionLease
+Executor -> Provider : concrete model request
+Provider --> Executor : response or rate limit
+
+alt success
+  Executor -> ReqAdmit : release_success(lease)
+  ReqAdmit -> ReqPolicy : on_success(lease)
+  ReqPolicy -> ReqLimits : record_success(resource)
+else rate limit
+  Executor -> ReqAdmit : release_rate_limited(lease, retry_after)
+  ReqAdmit -> ReqPolicy : on_rate_limited(lease, retry_after)
+  ReqPolicy -> ReqLimits : record_rate_limit(resource, retry_after)
+else non-rate-limit failure or cancellation
+  Executor -> ReqAdmit : release_failure(lease)
+  ReqAdmit -> ReqPolicy : on_failure(lease)
+  ReqPolicy -> ReqLimits : record_failure(resource)
+end
+
+ReqAdmit -> ReqQueue : wake/select next waiter
+ReqAdmit -> ReqEvents : request admission event
+ReqEvents -> Correlation : current()
+Executor --> Scheduler : generated value / error
+Scheduler -> TaskAdmit : release TaskAdmissionLease
+TaskAdmit -> TaskPolicy : on_release(lease)
+TaskAdmit -> SchedEvents : lease_released / completed
+SchedEvents -> Correlation : current()
+Scheduler -> Correlation : reset RuntimeCorrelation
+
+@enduml
+
+@startuml AsyncSchedulingEpicIssueMap
+title Data Designer Async Scheduling Epic - Issue Dependency Map
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam linetype ortho
+
+component "issue 641\nSchedulingMetadata" as I641
+component "issue 646\nTaskSchedulingResolver" as I646
+component "issue 653\nRemove legacy hints" as I653
+component "issue 652\nDocs" as I652
+component "issue 644\nTask admission" as I644
+component "issue 654\nAsyncCapacityPlan" as I654
+component "issue 657\nRequestAdmissionController" as I657
+component "issue 635\nRequest admission telemetry" as I635
+component "issue 647\nScheduler admission telemetry" as I647
+component "issue 648\nCorrelation" as I648
+component "issue 649\nBenchmark harness" as I649
+component "issue 650\nBounded borrow task policy" as I650
+component "issue 651\nResource-vector design" as I651
+
+I641 --> I646
+I646 --> I653
+I653 --> I652
+I646 --> I644
+I641 --> I654
+I646 --> I654
+I644 --> I654
+I654 --> I657
+I644 --> I657
+I657 --> I635
+I654 ..> I635 : metric vocabulary
+I644 --> I647
+I635 --> I647
+I657 --> I648
+I635 --> I648
+I647 --> I648
+I644 --> I649
+I649 --> I650
+I644 --> I650
+I641 --> I651
+I646 --> I651
+I644 --> I651
+I649 --> I651
+I650 --> I651
+
+note bottom
+  Native GitHub subissue order:
+  issue 641 -> issue 646 -> issue 653 -> issue 652 -> issue 644
+  -> issue 654 -> issue 657 -> issue 635 -> issue 647
+  -> issue 648 -> issue 649 -> issue 650 -> issue 651
+end note
+
+@enduml
