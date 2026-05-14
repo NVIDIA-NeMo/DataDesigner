@@ -169,7 +169,7 @@ navigation:
             path: ./latest/pages/code_reference/config/processors.mdx
           - page: analysis
             path: ./latest/pages/code_reference/config/analysis.mdx
-          - folder: ../code-reference/data-designer
+          - folder: ../code-reference/data-designer/data_designer/config
             title: Config API
       - section: Interface
         contents:
@@ -181,7 +181,7 @@ navigation:
             path: ./latest/pages/code_reference/interface/results.mdx
           - page: errors
             path: ./latest/pages/code_reference/interface/errors.mdx
-          - folder: ../code-reference/interface
+          - folder: ../code-reference/interface/data_designer/interface
             title: Interface API
       - section: Engine Extension API
         contents:
@@ -195,13 +195,13 @@ navigation:
             path: ./latest/pages/code_reference/engine/mcp.mdx
           - page: column_generators
             path: ./latest/pages/code_reference/engine/column_generators.mdx
-          - folder: ../code-reference/engine/seed-readers
+          - folder: ../code-reference/engine/seed-readers/data_designer/engine/resources/seed_reader
             title: Seed Reader API
-          - folder: ../code-reference/engine/processors
+          - folder: ../code-reference/engine/processors/data_designer/engine/processing/processors
             title: Processor API
-          - folder: ../code-reference/engine/mcp
+          - folder: ../code-reference/engine/mcp/data_designer/engine/mcp
             title: MCP Runtime API
-          - folder: ../code-reference/engine/column-generators
+          - folder: ../code-reference/engine/column-generators/data_designer/engine/column_generators/generators/base
             title: Column Generator API
   - section: Dev Notes
     contents:
