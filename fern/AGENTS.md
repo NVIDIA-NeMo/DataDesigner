@@ -26,6 +26,8 @@ Published release snapshots live on the CI-managed `docs-website` branch. Do not
 
 The `docs-website` branch must already contain the historical Fern archive (`v0.6.0`, `v0.5.9`, `v0.5.8`, and `older`). The release workflow fails if those redirect targets are missing.
 
+Frozen `vX.Y.Z.yml` navs on `docs-website` must point only at their own `vX.Y.Z/pages/...` files. The release sync materializes shared historical pages into each version folder before publishing.
+
 Dev Notes publishing patches only Dev Notes from `main` into the current latest docs on `docs-website`, mirroring the MkDocs workflow.
 
 ## Release Prep

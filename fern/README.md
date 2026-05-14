@@ -101,6 +101,8 @@ fern/versions/
 └── older/pages/...
 ```
 
+Each frozen `vX.Y.Z.yml` nav on `docs-website` must point only at that version's own `vX.Y.Z/pages/...` files. The release sync materializes shared historical pages into each version folder before publishing.
+
 Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow snapshots the release into `docs-website` and publishes from that branch.
 
 Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages from `main` into the current latest docs on `docs-website`, then republishes Fern.

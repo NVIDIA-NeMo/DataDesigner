@@ -295,6 +295,37 @@ def sync_code_reference_archive(source_root: Path, published_root: Path) -> None
         )
 
 
+def materialize_version_nav_pages(published_root: Path) -> None:
+    versions_dir = published_root / "fern" / "versions"
+    for nav in sorted(versions_dir.glob("v*.yml")):
+        slug = nav.stem
+        lines = nav.read_text().splitlines(keepends=True)
+        changed = False
+        if lines and lines[0].startswith(f"# Frozen {slug} release nav. Reuses shared pages"):
+            lines[0] = f"# Frozen {slug} release nav. Pages are materialized under ./{slug}/pages/.\n"
+            changed = True
+        for index, line in enumerate(lines):
+            match = NAV_PATH_RE.match(line)
+            if not match:
+                continue
+            rel_path = Path(match.group(2))
+            if len(rel_path.parts) < 3 or rel_path.parts[1] != "pages":
+                continue
+
+            target_rel = Path(slug, "pages", *rel_path.parts[2:])
+            source_file = versions_dir / rel_path
+            target_file = versions_dir / target_rel
+            if not source_file.exists():
+                raise PublishedBranchError(f"{nav} references missing page {source_file}")
+            if source_file != target_file:
+                copy_path(source_file, target_file)
+            lines[index] = f"{match.group(1)}./{target_rel.as_posix()}{match.group(3)}\n"
+            changed = True
+
+        if changed:
+            nav.write_text("".join(lines))
+
+
 def sync_source(args: argparse.Namespace) -> int:
     source_root = Path(args.source_root)
     published_root = Path(args.published_root)
@@ -313,6 +344,7 @@ def sync_source(args: argparse.Namespace) -> int:
             source_root / "fern" / "versions", published_root / "fern" / "versions", preserved_versions
         )
         sync_code_reference_archive(source_root, published_root)
+        materialize_version_nav_pages(published_root)
         restore_versions_block(published_root / "fern" / "docs.yml", preserved_versions_block)
         validate_redirect_targets(published_root)
     return 0
