@@ -121,17 +121,7 @@ jobs:
           set -o pipefail
           npx -y "fern-api@$fern_version" generate --docs --preview --id "pr-$PR_NUMBER" --force --no-prompt 2>&1 | tee "$log_file"
 
-          url=$(sed -nE 's#.*(https://[^[:space:]]+docs\.buildwithfern\.com[^[:space:]]*).*#\1#p' "$log_file" | tail -n 1)
-          while [[ "$url" =~ [\)\>\.,]$ ]]; do
-            url="${url%?}"
-          done
-
-          if [ -z "$url" ]; then
-            echo "::error::Could not find Fern preview URL in CLI output."
-            exit 1
-          fi
-
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "url=https://nvidia-preview-pr-$PR_NUMBER.docs.buildwithfern.com/nemo/datadesigner" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to Cloudflare Pages
         if: github.event.pull_request.head.repo.full_name == github.repository
