@@ -19,12 +19,14 @@ endlegend
 actor "Generator / Plugin Author" as Author
 actor "Operator / Integrator" as Operator
 
-component "Generator Metadata\nColumnGenerator\nSchedulingMetadata\nTaskSchedulingResolver\nissues 641, 646, 653, 652" as MetadataStage
-component "Task Readiness and Ordering\nCompletionTracker\nFairTaskQueue\nSchedulableTask" as TaskQueueStage
+component "Plugin Metadata Surface\nColumnGenerator.get_scheduling_metadata\nSchedulingMetadata\nissues 641, 652" as MetadataStage
+component "Scheduler Metadata Resolver\nTaskSchedulingResolver\nResolvedTaskScheduling\nissues 646, 653" as ResolverStage
+component "Dependency Readiness\nCompletionTracker" as ReadinessStage
+component "Ready Work Ordering\nFairTaskQueue\nQueueView\nQueueSelection" as TaskQueueStage
 component "Task Admission\nTaskAdmissionController\nTaskAdmissionPolicy\nTaskAdmissionLease\nissue 644" as TaskAdmissionStage
 component "AsyncTaskScheduler\nexecution owner" as SchedulerStage
-component "Model Request Boundary\nModelRequestExecutor" as ModelBoundaryStage
-component "Request Admission\nRequestAdmissionController\nRequestFairQueue\nRequestAdmissionPolicy\nAdaptiveRequestLimitState\nissue 657" as RequestAdmissionStage
+component "Model Request Boundary\nModel facade/provider boundary\nModelRequestExecutor\nper concrete request attempt" as ModelBoundaryStage
+component "Request Admission\nRequestAdmissionController interface\nAdaptiveRequestAdmissionController\nRequestFairQueue / Policy / LimitState\nissue 657" as RequestAdmissionStage
 component "Provider / Model Endpoint" as ProviderStage
 
 component "Capacity Plan\nAsyncCapacityPlan\nTaskAdmissionConfig\nRequestAdmissionConfig\nissue 654" as CapacityStage
@@ -32,11 +34,13 @@ component "Telemetry and Correlation\nSchedulerAdmissionEventSink\nRequestAdmiss
 component "Benchmark and Future Design\nbenchmark harness\nbounded-borrow policy\nresource-vector design\nissues 649, 650, 651" as EvidenceStage
 
 Author --> MetadataStage
-MetadataStage -right-> TaskQueueStage : resolved task DTOs
-SchedulerStage -left-> TaskQueueStage : select_next(...)
-SchedulerStage -down-> TaskAdmissionStage : try_acquire(...)
+MetadataStage -right-> ResolverStage : static metadata
+ResolverStage -right-> ReadinessStage : SchedulableTask inputs
+SchedulerStage -left-> ReadinessStage : ready_frontier()
+SchedulerStage -left-> TaskQueueStage : enqueue / select_next / commit
+SchedulerStage -down-> TaskAdmissionStage : eligibility / try_acquire
 TaskAdmissionStage -up-> SchedulerStage : TaskAdmissionLease
-SchedulerStage -right-> ModelBoundaryStage : execute task code
+SchedulerStage -right-> ModelBoundaryStage : admitted task makes model call
 ModelBoundaryStage -right-> RequestAdmissionStage : model request item
 RequestAdmissionStage -right-> ModelBoundaryStage : request lease
 ModelBoundaryStage -right-> ProviderStage : admitted model call
@@ -85,6 +89,13 @@ package "Metadata contracts" {
     +weight
   }
 
+  class SchedulingMetadataError {
+    +code
+    +message
+    +fallback
+    +diagnostics
+  }
+
   class TaskSchedulingResolver {
     +resolve(generator)
   }
@@ -98,6 +109,7 @@ package "Metadata contracts" {
 package "Task scheduling contracts" {
   class CompletionTracker {
     +ready_frontier()
+    +mark_enqueued(task_ids)
     +mark_complete(task)
   }
 
@@ -110,34 +122,55 @@ package "Task scheduling contracts" {
     +amounts
   }
 
+  class SchedulerResourceKey {
+    +kind
+    +identity
+  }
+
   class SchedulableTask {
+    +task_id
     +task
     +group
     +resource_request
   }
 
   class FairTaskQueue {
-    +enqueue(item)
-    +select_next(is_eligible)
-    +commit(selection)
-    +view()
+    +enqueue(items) -> Sequence[task_id]
+    +select_next(is_eligible) -> QueueSelection | None
+    +commit(selection) -> SchedulableTask | None
+    +view() -> QueueView
   }
 
   class QueueSelection {
     +item
-    +sequence
+    +queue_view
+    +sequence_version
   }
 
   class QueueView {
     +queued_total
     +queued_by_group
-    +has_queued_peer(group)
+    +queued_demand_by_group_resource
+    +first_candidate_resource_by_group
+    +queued_peer_demand_by_resource
   }
 
   interface TaskAdmissionPolicy {
-    +is_eligible(item, queue, view)
-    +on_acquire(lease)
+    +evaluate(item, queue_view, admission_view)
+    +on_acquire(lease, decision)
     +on_release(lease)
+  }
+
+  class TaskAdmissionPolicyDecision {
+    +allowed
+    +reason
+    +available_after
+    +diagnostics
+  }
+
+  class PolicyStateDelta {
+    +borrow_debt_delta
+    +diagnostics
   }
 
   class StrictFairTaskAdmissionPolicy {
@@ -149,27 +182,52 @@ package "Task scheduling contracts" {
   }
 
   class TaskAdmissionController {
-    +is_eligible(item, queue_view)
-    +try_acquire(item, queue_view)
-    +release(lease)
-    +view()
+    +is_eligible(item, queue_view) -> bool
+    +try_acquire(item, queue_view) -> TaskAdmissionDecision
+    +release(lease) -> ReleaseResult
+    +view() -> TaskAdmissionView
+    +explain_blocked(queue_view) -> TaskAdmissionBlockSummary
   }
 
   class TaskAdmissionView {
-    +resources_available
-    +leased_by_group
-    +running_by_group
+    +limits_by_resource
+    +available_by_resource
+    +leased_by_resource
+    +leased_by_group_resource
+    +running_by_group_resource
+    +policy_debt_by_group_resource
   }
 
-  class TaskAdmissionDecision {
-    +lease
-    +denied_reason
+  class TaskAdmissionBlockSummary {
+    +queued_count
+    +dominant_reasons
+    +available_after
+    +diagnostics
+  }
+
+  class TaskAdmissionDecision <<union>> {
+    TaskAdmissionLease | TaskAdmissionDenied
+  }
+
+  class TaskAdmissionDenied {
+    +item
+    +reason
+    +available_after
+    +snapshot
   }
 
   class TaskAdmissionLease {
+    +lease_id
     +item
     +resources
     +acquired_at
+    +controller_generation
+  }
+
+  class ReleaseResult {
+    +released
+    +reason
+    +diagnostics
   }
 
   class AsyncTaskScheduler <<boundary>> {
@@ -182,29 +240,36 @@ package "Task config" {
   class TaskAdmissionConfig {
     +submission_capacity
     +resource_limits
+    +policy_config
   }
 }
 
 ColumnGenerator --> SchedulingMetadata
+SchedulingMetadataError --> SchedulingMetadata : optional fallback
 TaskSchedulingResolver --> SchedulingMetadata
 TaskSchedulingResolver --> ResolvedTaskScheduling
 ResolvedTaskScheduling --> TaskGroupSpec
 ResolvedTaskScheduling --> SchedulerResourceRequest
+SchedulerResourceRequest --> SchedulerResourceKey
 ResolvedTaskScheduling --> SchedulableTask
-CompletionTracker --> FairTaskQueue : ready tasks
+AsyncTaskScheduler --> CompletionTracker : ready_frontier / mark_enqueued
 FairTaskQueue --> QueueSelection : returns
 FairTaskQueue --> QueueView : view()
-FairTaskQueue --> TaskAdmissionController : is_eligible(candidate)
 TaskAdmissionController --> TaskAdmissionPolicy
+TaskAdmissionPolicy --> TaskAdmissionPolicyDecision
+TaskAdmissionPolicy --> PolicyStateDelta
+TaskAdmissionController --> TaskAdmissionBlockSummary
 StrictFairTaskAdmissionPolicy ..|> TaskAdmissionPolicy
 BoundedBorrowTaskAdmissionPolicy ..|> TaskAdmissionPolicy
 TaskAdmissionController --> TaskAdmissionView
 TaskAdmissionController --> TaskAdmissionDecision
+TaskAdmissionController --> ReleaseResult
 TaskAdmissionDecision --> TaskAdmissionLease
+TaskAdmissionDecision --> TaskAdmissionDenied
 TaskAdmissionLease --> SchedulableTask
 AsyncTaskScheduler --> CompletionTracker
-AsyncTaskScheduler --> FairTaskQueue : select_next returns QueueSelection
-AsyncTaskScheduler --> TaskAdmissionController : try_acquire(selection.item, queue.view)
+AsyncTaskScheduler --> FairTaskQueue : enqueue / select_next / commit
+AsyncTaskScheduler --> TaskAdmissionController : eligibility callback / try_acquire
 TaskAdmissionController ..> TaskAdmissionConfig : reads config
 
 note right of SchedulingMetadata
@@ -215,8 +280,14 @@ note right of SchedulingMetadata
 end note
 
 note bottom of SchedulerResourceRequest
-  Replaces legacy needs_llm_wait-style booleans
+  Replaces legacy hidden-wait booleans
   once the resource-vector design lands.
+end note
+
+note bottom of FairTaskQueue
+  select_next receives an opaque scheduler-owned
+  eligibility predicate. The queue owns ordering only;
+  it does not depend on TaskAdmissionController.
 end note
 
 @enduml
@@ -232,7 +303,7 @@ skinparam linetype ortho
 
 package "Model request boundary" {
   class ModelRequestExecutor <<boundary>> {
-    +execute(request)
+    +execute_attempt(request)
   }
 
   class ProviderModelEndpoint <<external>> {
@@ -247,6 +318,23 @@ package "Request admission contracts" {
     +domain
   }
 
+  class RequestResourceResolver {
+    +resolve_provider_model(...)
+    +resolve_request_resource(...)
+  }
+
+  class ProviderModelKey {
+    +provider_name
+    +model_id
+  }
+
+  enum RequestDomain {
+    chat
+    embedding
+    image
+    healthcheck
+  }
+
   class RequestGroupSpec {
     +key
     +weight
@@ -256,38 +344,65 @@ package "Request admission contracts" {
     +resource
     +group
     +timeout
+    +event_context
+  }
+
+  class RequestWaiter {
+    +waiter_id
+    +item
+    +enqueued_at
+    +deadline
+    +completion_handle
+  }
+
+  class RequestEventContext {
+    +captured_correlation
+    +task_execution_id
+    +request_attempt_id
   }
 
   class RequestFairQueue <<internal>> {
-    +enqueue(item)
-    +select_next(is_eligible)
-    +commit(selection)
-    +view()
+    +enqueue(waiter)
+    +select_next(is_eligible) -> RequestQueueSelection | None
+    +commit(selection) -> RequestWaiter | None
+    +remove(waiter_id)
+    +view() -> RequestQueueView
+  }
+
+  class RequestQueueSelection {
+    +waiter
+    +item
+    +waiter_id
+    +queue_view
+    +sequence_version
+  }
+
+  class RequestQueueView {
+    +queued_total
+    +queued_by_group
+    +queued_demand_by_resource
+    +aggregate_waiters
   }
 
   interface RequestAdmissionPolicy <<internal>> {
-    +is_eligible(item, queue, limits)
-    +on_success(lease)
-    +on_rate_limited(lease, retry_after)
-    +on_failure(lease)
+    +is_eligible(item, queue_view, limits)
+    +on_release(lease, outcome)
   }
 
   class AdaptiveRequestLimitState {
-    +current_limit(resource)
-    +effective_max(resource)
-    +record_success(resource)
-    +record_rate_limit(resource, retry_after)
-    +record_failure(resource)
+    +current_limit(domain_resource)
+    +effective_max(domain_resource)
+    +aggregate_in_flight(provider, model)
+    +record_acquire(resource)
+    +record_outcome(resource, outcome)
   }
 
-  class RequestAdmissionController {
-    +try_acquire(item)
-    +acquire_sync(item)
-    +acquire_async(item)
-    +release_success(lease)
-    +release_rate_limited(lease, retry_after)
-    +release_failure(lease)
-    +pressure
+  interface RequestAdmissionController {
+    +try_acquire(item) -> RequestAdmissionDecision
+    +acquire_sync(item) -> RequestAdmissionLease
+    +acquire_async(item) -> RequestAdmissionLease
+    +release(lease, outcome) -> ReleaseResult
+    +pressure -> RequestPressureSnapshotProvider
   }
 
   class AdaptiveRequestAdmissionController {
@@ -299,18 +414,36 @@ package "Request admission contracts" {
   }
 
   class RequestAdmissionLease {
+    +lease_id
     +item
     +acquired_at
     +current_limit
     +effective_max
+    +controller_generation
   }
 
   class RequestAdmissionDenied {
     +item
     +reason
     +retry_after_seconds
-    +available_after
+    +available_after_monotonic
     +snapshot
+  }
+
+  class RequestAdmissionError {
+    +denial
+  }
+
+  class RequestReleaseOutcome {
+    +kind
+    +retry_after_seconds
+    +safe_status_metadata
+  }
+
+  class ReleaseResult {
+    +released
+    +reason
+    +diagnostics
   }
 
   class RequestPressureSnapshotProvider {
@@ -325,25 +458,41 @@ package "Request config" {
   class RequestAdmissionConfig {
     +resources
     +initial_limit
-    +max_limit
+    +max_limit_clamp
+    +cooldown_seconds
+    +multiplicative_decrease_factor
+    +additive_increase_step
+    +increase_after_successes
+    +default_queue_wait_timeout
   }
 }
 
 ModelRequestExecutor --> RequestAdmissionController
-RequestAdmissionController --> RequestFairQueue
-RequestAdmissionController --> RequestAdmissionPolicy
+ModelRequestExecutor --> RequestResourceResolver
+RequestResourceResolver --> ProviderModelKey
+RequestResourceResolver --> RequestResourceKey
 RequestAdmissionPolicy --> AdaptiveRequestLimitState
-AdaptiveRequestAdmissionController --|> RequestAdmissionController
+AdaptiveRequestAdmissionController ..|> RequestAdmissionController
 AdaptiveRequestAdmissionController --> RequestFairQueue
 AdaptiveRequestAdmissionController --> RequestAdmissionPolicy
 AdaptiveRequestAdmissionController --> AdaptiveRequestLimitState
 RequestAdmissionController --> RequestAdmissionDecision
+RequestAdmissionController --> RequestReleaseOutcome
+RequestAdmissionController --> ReleaseResult
 RequestAdmissionDecision --> RequestAdmissionLease
 RequestAdmissionDecision --> RequestAdmissionDenied
+RequestAdmissionError --> RequestAdmissionDenied
 RequestAdmissionController --> RequestPressureSnapshotProvider
-RequestAdmissionController ..> RequestAdmissionConfig : reads config
+AdaptiveRequestAdmissionController ..> RequestAdmissionConfig : reads config
 RequestAdmissionItem --> RequestResourceKey
+RequestAdmissionItem --> RequestEventContext
+RequestWaiter --> RequestAdmissionItem
+RequestResourceKey --> ProviderModelKey
+RequestResourceKey --> RequestDomain
 RequestAdmissionItem --> RequestGroupSpec
+RequestFairQueue --> RequestQueueSelection
+RequestFairQueue --> RequestQueueView
+RequestQueueSelection --> RequestWaiter
 RequestAdmissionLease --> RequestAdmissionItem
 RequestAdmissionDenied --> RequestAdmissionItem
 ModelRequestExecutor --> ProviderModelEndpoint
@@ -359,8 +508,8 @@ note right of RequestAdmissionController
   request admission at model-call time.
   Does not own DAG readiness or task
   scheduler admission.
-  No durable Throttle*, needs_llm_wait,
-  or held_llm_wait compatibility concepts.
+  No durable legacy request-control or hidden-wait
+  compatibility concepts.
 end note
 
 @enduml
@@ -382,22 +531,60 @@ package "Capacity planning (issue 654)" {
   }
 
   class AsyncCapacityPlan {
-    +buffer_size
+    +configured
+    +runtime_snapshot
+    +observed_maxima
+  }
+
+  class CapacityValue {
+    +value
+    +source
+    +fallback_from
+    +missing_reason
+  }
+
+  class CapacityObservedMaxima {
+    +row_groups_in_flight
+    +queued_tasks_by_group
+    +task_leases_by_resource
+    +request_waiters_by_resource
+    +request_in_flight_by_resource
+    +provider_model_aggregate_in_flight
+    +request_domain_current_limits
+    +transport_pool_utilization
+  }
+
+  class RowGroupAdmission {
     +row_group_concurrency
-    +submission_capacity
-    +task_admission
-    +request_admission
+    +observed_in_flight
+  }
+
+  class TransportPoolConfig {
+    +pool_limits
+  }
+
+  class ProviderModelStaticCap {
+    +cap
+    +aliases
+    +raw_caps
+    +merge_rule
   }
 
   class TaskAdmissionConfig {
     +submission_capacity
     +resource_limits
+    +policy_config
   }
 
   class RequestAdmissionConfig {
     +resources
     +initial_limit
-    +max_limit
+    +max_limit_clamp
+    +cooldown_seconds
+    +multiplicative_decrease_factor
+    +additive_increase_step
+    +increase_after_successes
+    +default_queue_wait_timeout
   }
 }
 
@@ -409,6 +596,7 @@ package "Telemetry and correlation (issues 635, 647, 648)" {
     +task_type
     +scheduling_group_kind
     +scheduling_group_identity_hash
+    +task_execution_id
   }
 
   class RuntimeCorrelationProvider {
@@ -425,6 +613,34 @@ package "Telemetry and correlation (issues 635, 647, 648)" {
     +emit(event)
   }
 
+  class SchedulerAdmissionEvent {
+    +event_kind
+    +captured_at_monotonic
+    +sequence
+    +captured_correlation
+    +task_id
+    +task_execution_id
+    +task_lease_id
+    +scheduler_resource_key
+    +reason_or_result
+    +snapshot
+    +diagnostics
+  }
+
+  class RequestAdmissionEvent {
+    +event_kind
+    +captured_at_monotonic
+    +sequence
+    +captured_correlation
+    +request_attempt_id
+    +request_lease_id
+    +request_resource
+    +request_group_key
+    +reason_or_outcome
+    +snapshot
+    +diagnostics
+  }
+
   class CorrelatedRuntimeView {
     +join scheduler and request timelines
   }
@@ -434,6 +650,7 @@ package "Evidence and future design (issues 649, 650, 651)" {
   class AsyncSchedulingBenchmarkHarness {
     +run_ab(baseline_ref, candidate_ref)
     +emit_json_csv_artifacts()
+    +verify_final_snapshots()
   }
 
   class SchedulerResourceVectorDesign {
@@ -449,11 +666,18 @@ package "Evidence and future design (issues 649, 650, 651)" {
 RunConfigRuntimeArgs --> AsyncCapacityPlan
 AsyncCapacityPlan --> TaskAdmissionConfig
 AsyncCapacityPlan --> RequestAdmissionConfig
-SchedulerAdmissionEventSink ..> RuntimeCorrelationProvider : attach current context
-RequestAdmissionEventSink ..> RuntimeCorrelationProvider : attach current context
+AsyncCapacityPlan --> CapacityValue
+AsyncCapacityPlan --> CapacityObservedMaxima
+AsyncCapacityPlan --> RowGroupAdmission
+AsyncCapacityPlan --> TransportPoolConfig
+AsyncCapacityPlan --> ProviderModelStaticCap
+SchedulerAdmissionEvent --> RuntimeCorrelation : captured at construction
+RequestAdmissionEvent --> RuntimeCorrelation : captured at construction
+SchedulerAdmissionEventSink --> SchedulerAdmissionEvent
+RequestAdmissionEventSink --> RequestAdmissionEvent
 RuntimeCorrelationProvider --> RuntimeCorrelation
-SchedulerAdmissionEventSink --> CorrelatedRuntimeView
-RequestAdmissionEventSink --> CorrelatedRuntimeView
+CorrelatedRuntimeView --> SchedulerAdmissionEvent : consumes
+CorrelatedRuntimeView --> RequestAdmissionEvent : consumes
 AsyncSchedulingBenchmarkHarness ..> AsyncCapacityPlan
 AsyncSchedulingBenchmarkHarness ..> SchedulerAdmissionEventSink
 AsyncSchedulingBenchmarkHarness ..> RequestAdmissionEventSink
@@ -476,6 +700,7 @@ participant "AsyncTaskScheduler" as Scheduler
 participant "FairTaskQueue" as Queue
 participant "TaskAdmissionController\nissue 644" as TaskAdmit
 participant "TaskAdmissionPolicy" as TaskPolicy
+participant "Admitted Task /\nGenerator Code" as TaskCode
 participant "ModelRequestExecutor" as Executor
 participant "RequestAdmissionController\nissue 657" as ReqAdmit
 participant "RequestFairQueue" as ReqQueue
@@ -487,65 +712,187 @@ participant "RequestAdmissionEventSink\nissue 635" as ReqEvents
 participant "RuntimeCorrelationProvider\nissue 648" as Correlation
 
 User -> Gen : declare columns / plugins
-Gen -> Resolver : get_scheduling_metadata()
+Resolver -> Gen : get_scheduling_metadata()
+alt valid metadata
+  Gen --> Resolver : SchedulingMetadata
+else generator omitted override
+  Resolver -> Resolver : use documented default metadata
+else recoverable metadata error
+  Gen --> Resolver : SchedulingMetadataError(fallback)
+  Resolver -> Resolver : emit metadata diagnostic
+else fatal metadata error
+  Gen --> Resolver : SchedulingMetadataError(no fallback)
+  Resolver --> User : fail before scheduling
+end
 Resolver -> Resolver : resolve TaskGroupSpec\nand SchedulerResourceRequest
 Resolver -> Tracker : provide SchedulableTask inputs
 
 Scheduler -> Tracker : ready_frontier()
-Tracker -> Queue : enqueue ready SchedulableTask
-Scheduler -> Queue : select_next(TaskAdmit.is_eligible)
-Queue -> TaskAdmit : is_eligible(candidate, queue.view)
-TaskAdmit -> TaskPolicy : evaluate candidate against leases/capacity
-TaskPolicy --> TaskAdmit : eligible or denied
-TaskAdmit --> Queue : eligibility result
-Queue --> Scheduler : QueueSelection
-Scheduler -> TaskAdmit : try_acquire(selection.item, queue.view)
-TaskAdmit -> TaskPolicy : on_acquire if admitted
-TaskAdmit --> Scheduler : TaskAdmissionLease
-Scheduler -> Queue : commit(selection)
-Scheduler -> Correlation : set RuntimeCorrelation
-TaskAdmit -> SchedEvents : lease_acquired
-SchedEvents -> Correlation : current()
+Tracker --> Scheduler : un-enqueued ready SchedulableTasks
+Scheduler -> SchedEvents : dependency_ready\n(correlation captured now)
+Scheduler -> Queue : enqueue ready SchedulableTasks
+Queue --> Scheduler : accepted task_ids
+Scheduler -> Tracker : mark_enqueued(accepted task_ids)
+Scheduler -> SchedEvents : ready_enqueued\n(correlation captured now)
 
-Scheduler -> Executor : execute task
-Executor -> ReqAdmit : acquire_async(RequestAdmissionItem)
-ReqAdmit -> ReqQueue : enqueue waiter if needed
-ReqAdmit -> ReqQueue : select_next(ReqPolicy.is_eligible)
-ReqQueue --> ReqAdmit : RequestQueueSelection
-ReqAdmit -> ReqPolicy : evaluate resource/group against limits
-ReqPolicy -> ReqLimits : read current/effective limit
-ReqLimits --> ReqPolicy : limit snapshot
-ReqPolicy --> ReqAdmit : eligible or denied
-ReqAdmit -> ReqQueue : commit(selection) if admitted
-ReqAdmit -> ReqEvents : wait_started / lease_acquired
-ReqEvents -> Correlation : current()
-ReqAdmit --> Executor : RequestAdmissionLease
-Executor -> Provider : concrete model request
-Provider --> Executor : response or rate limit
+loop dispatch while capacity and ready work may exist
+  Scheduler -> Queue : select_next(scheduler eligibility predicate)
+  Queue -> Scheduler : is_eligible(candidate, queue_view)
+  Scheduler -> TaskAdmit : is_eligible(candidate, queue_view)
+  TaskAdmit -> TaskPolicy : evaluate candidate against queue/admission views
+  TaskPolicy --> TaskAdmit : eligible or denied
+  TaskAdmit --> Scheduler : eligibility result
 
-alt success
-  Executor -> ReqAdmit : release_success(lease)
-  ReqAdmit -> ReqPolicy : on_success(lease)
-  ReqPolicy -> ReqLimits : record_success(resource)
-else rate limit
-  Executor -> ReqAdmit : release_rate_limited(lease, retry_after)
-  ReqAdmit -> ReqPolicy : on_rate_limited(lease, retry_after)
-  ReqPolicy -> ReqLimits : record_rate_limit(resource, retry_after)
-else non-rate-limit failure or cancellation
-  Executor -> ReqAdmit : release_failure(lease)
-  ReqAdmit -> ReqPolicy : on_failure(lease)
-  ReqPolicy -> ReqLimits : record_failure(resource)
+  alt no eligible selection
+    Queue --> Scheduler : None
+    Scheduler -> TaskAdmit : explain_blocked(queue.view())
+    TaskAdmit --> Scheduler : TaskAdmissionBlockSummary
+    Scheduler -> SchedEvents : queue_empty / admission_blocked\n(correlation captured now)
+    Scheduler -> Scheduler : wait_for_wake_or_deadline()
+  else selection returned
+    Queue --> Scheduler : QueueSelection(item, queue_view, sequence_version)
+    Scheduler -> SchedEvents : selected\n(correlation captured now)
+    Scheduler -> TaskAdmit : try_acquire(selection.item, selection.queue_view)
+
+    alt admission denied
+      TaskAdmit --> Scheduler : TaskAdmissionDenied
+      Scheduler -> SchedEvents : admission_denied\n(correlation captured now)
+      Scheduler -> Scheduler : wake_dispatch_loop()
+    else lease acquired
+      TaskAdmit -> TaskPolicy : on_acquire(lease, decision)
+      TaskAdmit --> Scheduler : TaskAdmissionLease
+      Scheduler -> Queue : commit(selection)
+
+      alt stale selection
+        Queue --> Scheduler : None
+        Scheduler -> TaskAdmit : release(lease)
+        TaskAdmit -> TaskPolicy : on_release(lease)
+        Scheduler -> SchedEvents : stale_selection / task_lease_released\n(correlation captured now)
+        Scheduler -> Scheduler : wake_dispatch_loop()
+      else committed
+        Queue --> Scheduler : SchedulableTask
+        Scheduler -> Correlation : set RuntimeCorrelation
+        Scheduler -> SchedEvents : task_lease_acquired\n(correlation captured now)
+
+        alt worker spawn failed
+          Scheduler -> TaskAdmit : release(lease)
+          TaskAdmit -> TaskPolicy : on_release(lease)
+          Scheduler -> SchedEvents : worker_spawn_failed / task_lease_released\n(correlation captured now)
+          Scheduler -> Correlation : reset RuntimeCorrelation
+        else worker spawned
+          Scheduler -> SchedEvents : worker_spawned\n(correlation captured now)
+          Scheduler -> TaskCode : execute admitted task
+
+          loop zero, one, or many concrete model calls
+            TaskCode -> Executor : model call attempt
+            Executor -> Correlation : current()
+            Executor -> ReqAdmit : acquire_async(RequestAdmissionItem\nwith RequestEventContext)
+
+            ReqAdmit -> ReqEvents : request_wait_started\n(correlation captured now)
+
+            alt immediate eligible and no queued waiter selected first
+              ReqAdmit -> ReqPolicy : evaluate resource/group against limits
+              ReqPolicy -> ReqLimits : read domain limit\nand aggregate in-flight
+              ReqLimits --> ReqPolicy : limit snapshot
+              ReqPolicy --> ReqAdmit : eligible
+            else queued waiter path
+              ReqAdmit -> ReqQueue : enqueue waiter
+
+              loop until admitted, timeout, cancel, or shutdown
+                ReqAdmit -> ReqQueue : select_next(ReqPolicy.is_eligible)
+                ReqQueue --> ReqAdmit : RequestQueueSelection | None
+                ReqAdmit -> ReqPolicy : evaluate resource/group against limits
+                ReqPolicy -> ReqLimits : read domain limit\nand aggregate in-flight
+                ReqLimits --> ReqPolicy : limit snapshot
+                ReqPolicy --> ReqAdmit : eligible or denied
+                ReqAdmit -> ReqAdmit : timed wait to next\nblocked_until / timeout
+              end
+            end
+
+            alt no lease: timeout, shutdown, or hard denial
+              ReqAdmit -> ReqQueue : remove waiter if queued
+              ReqAdmit -> ReqEvents : request_wait_timeout / request_acquire_denied\n(correlation captured now)
+              ReqAdmit --> Executor : raise RequestAdmissionError
+            else async cancellation before lease
+              ReqAdmit -> ReqQueue : remove waiter
+              ReqAdmit -> ReqEvents : request_wait_cancelled\n(correlation captured now)
+              ReqAdmit --> Executor : re-raise cancellation
+            else request lease acquired
+              ReqAdmit -> ReqQueue : commit(selection) if queued\nand fulfill selected waiter
+              ReqAdmit -> ReqLimits : record_acquire(resource)
+              note right of ReqAdmit
+                Once record_acquire succeeds,
+                cancellation either delivers the lease
+                for caller cleanup or internally releases
+                it as local_cancelled.
+              end note
+              ReqAdmit -> ReqEvents : request_wait_completed\n(correlation captured now)
+              ReqAdmit -> ReqEvents : request_lease_acquired\n(correlation captured now)
+              ReqAdmit --> Executor : RequestAdmissionLease
+              Executor -> ReqEvents : model_request_started\n(correlation captured now)
+              Executor -> Provider : concrete provider/model attempt
+              Provider --> Executor : response / rate limit / failure
+              Executor -> ReqEvents : model_request_completed\n(correlation captured now)
+
+              alt success
+                Executor -> ReqAdmit : release(lease, success)
+                ReqAdmit -> ReqPolicy : on_release(lease, success)
+                ReqPolicy -> ReqLimits : record_outcome(resource, success)
+              else rate limit
+                Executor -> ReqAdmit : release(lease, rate_limited)
+                ReqAdmit -> ReqPolicy : on_release(lease, rate_limited)
+                ReqPolicy -> ReqLimits : record_outcome(resource, rate_limited)
+                ReqAdmit -> ReqEvents : request_rate_limited / request_limit_decreased\n(correlation captured now)
+              else provider failure or timeout
+                Executor -> ReqAdmit : release(lease, provider_failure/provider_timeout)
+                ReqAdmit -> ReqPolicy : on_release(lease, provider outcome)
+                ReqPolicy -> ReqLimits : record_outcome(resource, provider outcome)
+              else local_cancelled or local_timeout
+                Executor -> ReqAdmit : release(lease, local_cancelled/local_timeout)
+                ReqAdmit -> ReqPolicy : on_release(lease, local outcome)
+                ReqPolicy -> ReqLimits : record_outcome(resource, local outcome)
+              else unexpected exception
+                Executor -> ReqAdmit : release(lease, unexpected_exception)
+                ReqAdmit -> ReqPolicy : on_release(lease, unexpected_exception)
+                ReqPolicy -> ReqLimits : record_outcome(resource, unexpected_exception)
+              end
+
+              ReqAdmit -> ReqQueue : wake/select next waiter
+              ReqAdmit -> ReqEvents : request_lease_released\n(+ request_limit_increased if changed)
+            end
+          end
+
+          TaskCode --> Scheduler : generated value / terminal outcome
+          alt success
+            Scheduler -> Tracker : mark_complete(task)
+            Scheduler -> SchedEvents : task_completed\n(correlation captured now)
+          else retryable failure
+            Scheduler -> SchedEvents : retry_deferred\n(correlation captured now)
+            Scheduler -> Scheduler : record retry requested
+          else non-retryable failure or cancellation
+            Scheduler -> Tracker : mark_complete(task)
+            Scheduler -> SchedEvents : non_retryable_dropped / cancelled\n(correlation captured now)
+          else salvage redispatch
+            Scheduler -> SchedEvents : salvage_redispatched\n(correlation captured now)
+            Scheduler -> Scheduler : record salvage requested
+          end
+
+          Scheduler -> TaskAdmit : release TaskAdmissionLease
+          TaskAdmit -> TaskPolicy : on_release(lease)
+          Scheduler -> SchedEvents : task_lease_released\n(correlation captured now)
+          Scheduler -> Correlation : reset RuntimeCorrelation
+
+          alt retry or salvage replacement requested
+            Scheduler -> Tracker : record replacement work
+            Scheduler -> Scheduler : replacement re-enters ready_frontier path
+          else no replacement
+            Scheduler -> Scheduler : terminal accounting complete
+          end
+        end
+      end
+    end
+  end
 end
-
-ReqAdmit -> ReqQueue : wake/select next waiter
-ReqAdmit -> ReqEvents : request admission event
-ReqEvents -> Correlation : current()
-Executor --> Scheduler : generated value / error
-Scheduler -> TaskAdmit : release TaskAdmissionLease
-TaskAdmit -> TaskPolicy : on_release(lease)
-TaskAdmit -> SchedEvents : lease_released / completed
-SchedEvents -> Correlation : current()
-Scheduler -> Correlation : reset RuntimeCorrelation
 
 @enduml
 
@@ -577,6 +924,7 @@ I641 --> I652
 I646 --> I653
 I646 --> I652
 I653 --> I652
+I652 --> I644
 I646 --> I644
 I641 --> I654
 I646 --> I654
@@ -591,11 +939,17 @@ I657 --> I648
 I635 --> I648
 I647 --> I648
 I644 --> I649
+I654 --> I649
+I657 --> I649
+I635 --> I649
+I647 --> I649
+I648 --> I649
 I652 --> I660
 I654 --> I660
 I657 --> I660
 I648 --> I660
 I649 --> I660
+I660 --> I650
 I649 --> I650
 I644 --> I650
 I641 --> I651
@@ -603,12 +957,16 @@ I646 --> I651
 I644 --> I651
 I649 --> I651
 I650 --> I651
+I660 --> I651
 
 note bottom
   Native GitHub subissue order:
   issue 641 -> issue 646 -> issue 653 -> issue 652 -> issue 644
   -> issue 654 -> issue 657 -> issue 635 -> issue 647
   -> issue 648 -> issue 649 -> issue 660 -> issue 650 -> issue 651
+
+  Issues before 649 that need evidence emit provisional artifacts.
+  Issue 649 normalizes and reruns representative scenarios.
 end note
 
 @enduml
