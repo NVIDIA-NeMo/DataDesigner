@@ -45,7 +45,7 @@ jobs:
 
           printf '%s' "$PR_BODY" > /tmp/pr-body-raw.txt
           # Commit authors can be spoofed; trust only PR metadata GitHub controls.
-          if { [ "$USER" = "github-actions[bot]" ] || [ "$USER" = "agentic-ci" ]; } && \
+          if [ "$USER" = "github-actions[bot]" ] && \
              [ "$HEAD_REPO" = "$REPO" ] && \
              [[ "$HEAD_REF" == agentic-ci/* ]] && \
              grep -Eq '<!-- agentic-ci finding=[^[:space:]]+ suite=[^[:space:]]+ -->' /tmp/pr-body-raw.txt; then
