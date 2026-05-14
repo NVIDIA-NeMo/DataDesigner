@@ -1,1 +1,197 @@
-v0.5.8.yml
+# Rolling default version. Dev Notes can include posts from main that are not
+# part of a frozen release nav yet.
+navigation:
+  - section: Getting Started
+    contents:
+      - page: Welcome
+        path: ./v0.5.8/pages/index.mdx
+      - page: Contributing
+        path: ./v0.5.8/pages/CONTRIBUTING.mdx
+  - section: Concepts
+    contents:
+      - page: Columns
+        path: ./v0.5.8/pages/concepts/columns.mdx
+      - page: Seed Datasets
+        path: ./v0.5.8/pages/concepts/seed-datasets.mdx
+      - page: Agent Rollout Ingestion
+        path: ./v0.5.8/pages/concepts/agent-rollout-ingestion.mdx
+      - section: Models
+        contents:
+          - page: Default Model Settings
+            path: ./v0.5.8/pages/concepts/models/default-model-settings.mdx
+          - page: Configure with the CLI
+            path: ./v0.5.8/pages/concepts/models/configure-model-settings-with-the-cli.mdx
+          - page: Custom Model Settings
+            path: ./v0.5.8/pages/concepts/models/custom-model-settings.mdx
+          - page: Model Providers
+            path: ./v0.5.8/pages/concepts/models/model-providers.mdx
+          - page: Model Configs
+            path: ./v0.5.8/pages/concepts/models/model-configs.mdx
+          - page: Inference Parameters
+            path: ./v0.5.8/pages/concepts/models/inference-parameters.mdx
+      - page: Custom Columns
+        path: ./v0.5.8/pages/concepts/custom_columns.mdx
+      - page: Validators
+        path: ./v0.5.8/pages/concepts/validators.mdx
+      - page: Processors
+        path: ./v0.5.8/pages/concepts/processors.mdx
+      - page: Person Sampling
+        path: ./v0.5.8/pages/concepts/person_sampling.mdx
+      - page: Traces
+        path: ./v0.5.8/pages/concepts/traces.mdx
+      - section: Tool Use & MCP
+        contents:
+          - page: Overview
+            path: ./v0.5.8/pages/concepts/tool_use_and_mcp.mdx
+          - page: MCP Providers
+            path: ./v0.5.8/pages/concepts/mcp/mcp-providers.mdx
+          - page: Tool Configs
+            path: ./v0.5.8/pages/concepts/mcp/tool-configs.mdx
+          - page: Enabling Tools
+            path: ./v0.5.8/pages/concepts/mcp/enabling-tools.mdx
+          - page: CLI Configuration
+            path: ./v0.5.8/pages/concepts/mcp/configure-mcp-cli.mdx
+          - page: Safety & Limits
+            path: ./v0.5.8/pages/concepts/mcp/safety-and-limits.mdx
+      - page: Architecture & Performance
+        path: ./v0.5.8/pages/concepts/architecture-and-performance.mdx
+      - page: Deployment Options
+        path: ./v0.5.8/pages/concepts/deployment-options.mdx
+      - page: Security
+        path: ./v0.5.8/pages/concepts/security.mdx
+  - section: Tutorials
+    contents:
+      - page: Overview
+        path: ./v0.5.8/pages/notebooks/README.mdx
+      - page: The Basics
+        path: ./v0.5.8/pages/notebooks/1-the-basics.mdx
+      - page: Structured Outputs, Jinja Expressions, and Conditional Generation
+        path: ./v0.5.8/pages/notebooks/2-structured-outputs-and-jinja-expressions.mdx
+      - page: Seeding with an External Dataset
+        path: ./v0.5.8/pages/notebooks/3-seeding-with-a-dataset.mdx
+      - page: Providing Images as Context
+        path: ./v0.5.8/pages/notebooks/4-providing-images-as-context.mdx
+      - page: Generating Images
+        path: ./v0.5.8/pages/notebooks/5-generating-images.mdx
+      - page: Image-to-Image Editing
+        path: ./v0.5.8/pages/notebooks/6-editing-images-with-image-context.mdx
+  - section: Recipes
+    contents:
+      - page: Recipe Cards
+        path: ./v0.5.9/pages/recipes/cards.mdx
+      - section: Code Generation
+        contents:
+          - page: Text to Python
+            path: ./v0.5.8/pages/recipes/code_generation/text_to_python.mdx
+          - page: Text to SQL
+            path: ./v0.5.8/pages/recipes/code_generation/text_to_sql.mdx
+          - page: Nemotron Super Text to SQL
+            path: ./v0.5.8/pages/recipes/code_generation/enterprise_text_to_sql.mdx
+      - section: Plugin Development
+        contents:
+          - page: Markdown Section Seed Reader Plugin
+            path: ./v0.5.8/pages/recipes/plugin_development/markdown_seed_reader.mdx
+      - section: QA and Chat
+        contents:
+          - page: Product Info QA
+            path: ./v0.5.8/pages/recipes/qa_and_chat/product_info_qa.mdx
+          - page: Multi-Turn Chat
+            path: ./v0.5.8/pages/recipes/qa_and_chat/multi_turn_chat.mdx
+      - section: Trace Ingestion
+        contents:
+          - page: Agent Rollout Trace Distillation
+            path: ./v0.5.8/pages/recipes/trace_ingestion/agent_rollout_distillation.mdx
+      - section: MCP and Tool Use
+        contents:
+          - page: Basic MCP Tool Use
+            path: ./v0.5.8/pages/recipes/mcp_and_tooluse/basic_mcp.mdx
+          - page: PDF Document QA
+            path: ./v0.5.8/pages/recipes/mcp_and_tooluse/pdf_qa.mdx
+          - page: Nemotron Super Search Agent
+            path: ./v0.5.8/pages/recipes/mcp_and_tooluse/search_agent.mdx
+      - section: VLM Long-Document Understanding
+        contents:
+          - page: Seed Dataset Preparation
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/seed_dataset_preparation.mdx
+          - page: Nemotron Parse OCR
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/nemotron_parse_ocr.mdx
+          - page: Text QA from OCR Transcripts
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/text_qa.mdx
+          - page: Page Classification
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/page_classification.mdx
+          - page: Visual QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/visual_qa.mdx
+          - page: Single-Page QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/single_page_qa.mdx
+          - page: Multi-Page Windowed QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/multi_page_windowed_qa.mdx
+          - page: Whole-Document QA
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/whole_document_qa.mdx
+          - page: Frontier Judge QA Filter
+            path: ./v0.5.9/pages/recipes/vlm_long_doc/frontier_judge.mdx
+  - section: Plugins
+    contents:
+      - page: Overview
+        path: ./v0.5.8/pages/plugins/overview.mdx
+      - page: Example Plugin
+        path: ./v0.5.8/pages/plugins/example.mdx
+      - page: FileSystemSeedReader Plugins
+        path: ./v0.5.8/pages/plugins/filesystem_seed_reader.mdx
+      - page: Discover
+        path: ./v0.5.8/pages/plugins/discover.mdx
+  - section: Code Reference
+    contents:
+      - section: Topic Overviews
+        contents:
+          - page: models
+            path: ./v0.5.8/pages/code_reference/models.mdx
+          - page: mcp
+            path: ./v0.5.8/pages/code_reference/mcp.mdx
+          - page: column_configs
+            path: ./v0.5.8/pages/code_reference/column_configs.mdx
+          - page: config_builder
+            path: ./v0.5.8/pages/code_reference/config_builder.mdx
+          - page: data_designer_config
+            path: ./v0.5.8/pages/code_reference/data_designer_config.mdx
+          - page: run_config
+            path: ./v0.5.8/pages/code_reference/run_config.mdx
+          - page: sampler_params
+            path: ./v0.5.8/pages/code_reference/sampler_params.mdx
+          - page: validator_params
+            path: ./v0.5.8/pages/code_reference/validator_params.mdx
+          - page: processors
+            path: ./v0.5.8/pages/code_reference/processors.mdx
+          - page: analysis
+            path: ./v0.5.8/pages/code_reference/analysis.mdx
+      - folder: ../code-reference/data-designer
+        title: Python API
+  - section: Dev Notes
+    contents:
+      - page: Overview
+        path: ./latest/pages/devnotes/index.mdx
+      - page: VLM Long Document Understanding
+        path: ./latest/pages/devnotes/posts/vlm-long-document-understanding.mdx
+      - page: Push Datasets to Hugging Face Hub
+        path: ./v0.5.8/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
+      - page: Text-to-SQL for Nemotron Super
+        path: ./v0.5.8/pages/devnotes/posts/text-to-sql.mdx
+      - page: Async All the Way Down
+        path: ./v0.5.8/pages/devnotes/posts/async-all-the-way-down.mdx
+      - page: Owning the Model Stack
+        path: ./v0.5.8/pages/devnotes/posts/owning-the-model-stack.mdx
+      - section: Older Dev Notes
+        collapsed: true
+        skip-slug: true
+        contents:
+          - page: Data Designer Got Skills
+            path: ./v0.5.8/pages/devnotes/posts/data-designer-got-skills.mdx
+          - page: Search Agent
+            path: ./v0.5.8/pages/devnotes/posts/search-agent.mdx
+          - page: Structured Outputs from Nemotron
+            path: ./v0.5.8/pages/devnotes/posts/structured-outputs-from-nemotron.mdx
+          - page: Deep Research Trajectories
+            path: ./v0.5.8/pages/devnotes/posts/deep-research-trajectories.mdx
+          - page: Design Principles
+            path: ./v0.5.8/pages/devnotes/posts/design-principles.mdx
+          - page: RQA Dataset
+            path: ./v0.5.8/pages/devnotes/posts/rqa.mdx

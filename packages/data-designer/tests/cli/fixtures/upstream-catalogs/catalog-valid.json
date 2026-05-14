@@ -1,0 +1,204 @@
+{
+  "schema_version": 2,
+  "packages": [
+    {
+      "name": "data-designer-compatible-column",
+      "description": "Compatible index-backed column generator fixture",
+      "install": {
+        "requirement": "data-designer-compatible-column",
+        "index_url": "https://docs.example.test/simple/"
+      },
+      "compatibility": {
+        "python": {
+          "specifier": ">=3.10"
+        },
+        "data_designer": {
+          "requirement": "data-designer>=0.5.7",
+          "specifier": ">=0.5.7",
+          "marker": null
+        }
+      },
+      "docs": {
+        "url": "https://docs.example.test/plugins/data-designer-compatible-column/"
+      },
+      "plugins": [
+        {
+          "name": "compatible-column",
+          "plugin_type": "column-generator",
+          "entry_point": {
+            "group": "data_designer.plugins",
+            "name": "compatible-column",
+            "value": "data_designer_compatible_column.plugin:plugin"
+          }
+        }
+      ]
+    },
+    {
+      "name": "data-designer-git-seed-reader",
+      "description": "Compatible Git direct reference seed reader fixture",
+      "install": {
+        "requirement": "data-designer-git-seed-reader @ git+https://github.com/NVIDIA-NeMo/DataDesignerPlugins.git@data-designer-git-seed-reader/v0.2.0#subdirectory=plugins/data-designer-git-seed-reader"
+      },
+      "compatibility": {
+        "python": {
+          "specifier": ">=3.10"
+        },
+        "data_designer": {
+          "requirement": "data-designer>=0.5.7",
+          "specifier": ">=0.5.7",
+          "marker": null
+        }
+      },
+      "docs": {
+        "url": "https://docs.example.test/plugins/data-designer-git-seed-reader/"
+      },
+      "plugins": [
+        {
+          "name": "compatible-git-seed-reader",
+          "plugin_type": "seed-reader",
+          "entry_point": {
+            "group": "data_designer.plugins",
+            "name": "compatible-git-seed-reader",
+            "value": "data_designer_git_seed_reader.plugin:plugin"
+          }
+        }
+      ]
+    },
+    {
+      "name": "data-designer-url-processor",
+      "description": "Compatible direct URL processor fixture",
+      "install": {
+        "requirement": "data-designer-url-processor @ https://packages.example.test/data_designer_url_processor-0.2.1-py3-none-any.whl"
+      },
+      "compatibility": {
+        "python": {
+          "specifier": ">=3.10"
+        },
+        "data_designer": {
+          "requirement": "data-designer>=0.5.7",
+          "specifier": ">=0.5.7",
+          "marker": null
+        }
+      },
+      "docs": {
+        "url": "https://docs.example.test/plugins/data-designer-url-processor/"
+      },
+      "plugins": [
+        {
+          "name": "compatible-url-processor",
+          "plugin_type": "processor",
+          "entry_point": {
+            "group": "data_designer.plugins",
+            "name": "compatible-url-processor",
+            "value": "data_designer_url_processor.plugin:plugin"
+          }
+        }
+      ]
+    },
+    {
+      "name": "data-designer-python312-column",
+      "description": "Python compatibility rejection fixture",
+      "install": {
+        "requirement": "data-designer-python312-column",
+        "index_url": "https://docs.example.test/simple/"
+      },
+      "compatibility": {
+        "python": {
+          "specifier": ">=3.12"
+        },
+        "data_designer": {
+          "requirement": "data-designer>=0.5.7",
+          "specifier": ">=0.5.7",
+          "marker": null
+        }
+      },
+      "docs": {
+        "url": "https://docs.example.test/plugins/data-designer-python312-column/"
+      },
+      "plugins": [
+        {
+          "name": "python312-column",
+          "plugin_type": "column-generator",
+          "entry_point": {
+            "group": "data_designer.plugins",
+            "name": "python312-column",
+            "value": "data_designer_python312_column.plugin:plugin"
+          }
+        }
+      ]
+    },
+    {
+      "name": "data-designer-future-dd-processor",
+      "description": "Data Designer compatibility rejection fixture",
+      "install": {
+        "requirement": "data-designer-future-dd-processor",
+        "index_url": "https://docs.example.test/simple/"
+      },
+      "compatibility": {
+        "python": {
+          "specifier": ">=3.10"
+        },
+        "data_designer": {
+          "requirement": "data-designer>=999.0",
+          "specifier": ">=999.0",
+          "marker": null
+        }
+      },
+      "docs": {
+        "url": "https://docs.example.test/plugins/data-designer-future-dd-processor/"
+      },
+      "plugins": [
+        {
+          "name": "future-dd-processor",
+          "plugin_type": "processor",
+          "entry_point": {
+            "group": "data_designer.plugins",
+            "name": "future-dd-processor",
+            "value": "data_designer_future_dd_processor.plugin:plugin"
+          }
+        }
+      ]
+    },
+    {
+      "name": "data-designer-multi-plugin-package",
+      "description": "Multi-plugin package fixture",
+      "install": {
+        "requirement": "data-designer-multi-plugin-package",
+        "index_url": "https://docs.example.test/simple/"
+      },
+      "compatibility": {
+        "python": {
+          "specifier": ">=3.10"
+        },
+        "data_designer": {
+          "requirement": "data-designer>=0.5.7",
+          "specifier": ">=0.5.7",
+          "marker": null
+        }
+      },
+      "docs": {
+        "url": "https://docs.example.test/plugins/data-designer-multi-plugin-package/"
+      },
+      "plugins": [
+        {
+          "name": "multi-seed-reader",
+          "plugin_type": "seed-reader",
+          "entry_point": {
+            "group": "data_designer.plugins",
+            "name": "multi-seed-reader",
+            "value": "data_designer_multi_plugin_package.seed:plugin"
+          }
+        },
+        {
+          "name": "multi-processor",
+          "plugin_type": "processor",
+          "entry_point": {
+            "group": "data_designer.plugins",
+            "name": "multi-processor",
+            "value": "data_designer_multi_plugin_package.processor:plugin"
+          }
+        }
+      ]
+    }
+  ]
+}

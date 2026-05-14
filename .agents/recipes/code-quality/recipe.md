@@ -35,6 +35,15 @@ Read `{{memory_path}}/runner-state.json` for baselines from previous runs
 re-reporting known issues. Flag metrics that are trending in the wrong
 direction compared to the previous baseline.
 
+This recipe also maintains `fix_backlog` and `attempted_fixes` per
+`_fix-policy.md`. Update `fix_backlog` for every detected bare-except
+finding *before* the `known_issues` filter applies. (Other categories
+remain report-only and do not enter `fix_backlog`.)
+
+The `draft_until_proven` flag in runner-state controls whether this
+suite's PRs are opened as draft. Default `true` until a maintainer flips
+it to `false`.
+
 ## Instructions
 
 ### 1. Complexity hotspots
@@ -64,8 +73,10 @@ Check for patterns that violate the project's "errors normalize at
 boundaries" principle (AGENTS.md):
 
 ```bash
-# Bare except clauses (should use specific exception types)
-grep -rn "except:" packages/*/src/ --include='*.py' | grep -v "# noqa"
+# Bare except clauses (should use specific exception types).
+# Catches both `except:` and `except BaseException:` — both swallow
+# everything including KeyboardInterrupt and SystemExit.
+grep -rnE "except\s*:|except\s+BaseException" packages/*/src/ --include='*.py' | grep -v "# noqa"
 
 # Swallowed exceptions (except + pass/continue with no logging)
 grep -rn -A1 "except" packages/*/src/ --include='*.py' | grep -B1 "pass$\|continue$"
@@ -238,9 +249,51 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 If no findings in any category, write `NO_FINDINGS` on the first line instead.
 
+## Fix phase
+
+Follow the standard fix procedure in `_fix-policy.md`. Suite-specific bits:
+
+### Eligible categories
+
+| Category | Branch type | test_required | Eligibility note |
+|----------|-------------|---------------|------------------|
+| bare-except | `refactor` | yes | Replace `except:` / `except BaseException:` with the specific exception type. Eligible only when grep across the try-block confirms **exactly one** exception type is plausibly raised, verified by inspecting the called functions or imported library docs. Multiple plausible types → ineligible. Test files are excluded (different exception-handling standards). |
+
+`fix_backlog.data` should record the proposed replacement exception type
+and the grep evidence used to determine it. Within bare-except findings,
+prefer ones in user-facing modules (`packages/data-designer/src/`) over
+internal helpers (the ranking impact criterion handles this once
+`data.user_facing` is set).
+
+The PR body should include the before/after of the try-block plus the
+grep evidence that justified the chosen exception type, and a note that
+the PR is draft until landing rate is proven (ask reviewers to mark
+ready-for-review if the change is correct).
+
+**Draft mode**: this suite opens PRs as draft until a maintainer flips
+`draft_until_proven` to `false` in runner-state, after at least two
+non-draft PRs have landed clean. Bare-except narrowing is the most
+inference-heavy fix in any suite (confidence 0.6); recipe judgement has
+to be earned before promotion. Two-strike findings here are an
+especially important signal — they suggest the detector is producing
+false positives in an already-cautious category.
+
+**Not eligible** — stays report-only:
+
+- Complexity refactors, type annotation additions, exception hierarchy
+  normalization (judgement-heavy).
+- **TODO line deletion** — the audit's "looks done" judgement is not
+  mechanical enough to delete code on. Deletion is forbidden.
+
 ## Constraints
 
-- Do not modify any files. This is a read-only audit.
+- Outside the fix phase, this recipe is read-only — do not modify files.
+- Within the fix phase, only modify paths in the suite's path allowlist
+  (`packages/*/src/**/*.py`). Test files are excluded.
+- **TODO line deletion is forbidden.** The audit phase still inventories
+  TODOs, but the fix phase does not act on them.
+- Bare-except narrowing is only eligible when the exception type is
+  unambiguous. When in doubt, skip.
 - Do not flag test files for type coverage or exception hygiene. Tests have
   different standards.
 - Do not duplicate ruff checks (W, F, I, ICN, PIE, TID, UP*). Those are

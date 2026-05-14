@@ -654,6 +654,60 @@ def test_init_yaml_default_emits_single_deprecation_warning(
     )
 
 
+def test_init_no_user_providers_no_yaml_default_stays_quiet(
+    stub_artifact_path: Path,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Pin the bare-``DataDesigner()`` happy path: when the caller passes
+    nothing and the YAML carries multiple ``providers:`` but no ``default:``
+    key, ``resolve_model_provider_registry`` synthesises
+    ``default=providers[0].name`` to satisfy ``check_implicit_default``. The
+    user did not opt into the deprecated registry-level default — the library
+    filled it in on their behalf — so ``_warn_on_explicit_default`` must stay
+    quiet. The fresh-install YAML ships exactly this shape (3 providers, no
+    ``default:``), so a regression here is what every user sees on their first
+    ``DataDesigner()`` call.
+
+    Counterpart to ``test_init_user_supplied_providers_preserve_first_wins_over_yaml_default``,
+    which pins that the warning *does* fire when the caller hand-builds a
+    multi-provider list themselves (they wrote the multi-provider intent, so
+    the deprecation nudge applies).
+    """
+    yaml_providers = [
+        ModelProvider(
+            name="yaml-first",
+            endpoint="https://yaml-first.example.com/v1",
+            api_key="yaml-first-key",
+        ),
+        ModelProvider(
+            name="yaml-second",
+            endpoint="https://yaml-second.example.com/v1",
+            api_key="yaml-second-key",
+        ),
+    ]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        with (
+            patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
+            patch.object(dd_mod, "get_default_provider_name", return_value=None),
+        ):
+            data_designer = DataDesigner(
+                artifact_path=stub_artifact_path,
+                secret_resolver=PlaintextResolver(),
+                managed_assets_path=stub_managed_assets_path,
+            )
+
+    deprecation_messages = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
+    registry_default_warnings = [m for m in deprecation_messages if "ModelProviderRegistry.default is deprecated" in m]
+    assert registry_default_warnings == [], (
+        "Library-synthesised default must not emit the registry-level deprecation; "
+        f"the user did not opt into it. Saw: {deprecation_messages}"
+    )
+    # Behavioral pin: first-wins still resolves correctly.
+    assert data_designer.model_provider_registry.get_default_provider_name() == "yaml-first"
+
+
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
