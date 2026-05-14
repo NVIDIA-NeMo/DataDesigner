@@ -33,14 +33,14 @@ Reference diagrams for the async scheduling epic tracked by issue 645. These dia
 ## Render
 
 ```bash
-plantuml architecture/async-scheduling/async-scheduling-epic.puml
+plantuml plans/645/async-scheduling-epic.puml
 ```
 
-The expected design spine is:
+The expected design spine is data provenance plus scheduler-owned control:
 
 ```text
 SchedulingMetadata -> TaskSchedulingResolver -> CompletionTracker
--> FairTaskQueue -> TaskAdmissionController -> AsyncTaskScheduler
+-> AsyncTaskScheduler coordinates FairTaskQueue + TaskAdmissionController
 -> ModelRequestExecutor -> RequestAdmissionController -> provider/model endpoint
 ```
 

@@ -21,7 +21,7 @@ actor "Operator / Integrator" as Operator
 
 component "Generator Metadata\nColumnGenerator\nSchedulingMetadata\nTaskSchedulingResolver\nissues 641, 646, 653, 652" as MetadataStage
 component "Task Readiness and Ordering\nCompletionTracker\nFairTaskQueue\nSchedulableTask" as TaskQueueStage
-component "Task Admission\nTaskAdmissionController\nTaskAdmissionPolicy\nTaskAdmissionLease\nissues 644, 650, 651" as TaskAdmissionStage
+component "Task Admission\nTaskAdmissionController\nTaskAdmissionPolicy\nTaskAdmissionLease\nissue 644" as TaskAdmissionStage
 component "AsyncTaskScheduler\nexecution owner" as SchedulerStage
 component "Model Request Boundary\nModelRequestExecutor" as ModelBoundaryStage
 component "Request Admission\nRequestAdmissionController\nRequestFairQueue\nRequestAdmissionPolicy\nAdaptiveRequestLimitState\nissue 657" as RequestAdmissionStage
@@ -29,7 +29,7 @@ component "Provider / Model Endpoint" as ProviderStage
 
 component "Capacity Plan\nAsyncCapacityPlan\nTaskAdmissionConfig\nRequestAdmissionConfig\nissue 654" as CapacityStage
 component "Telemetry and Correlation\nSchedulerAdmissionEventSink\nRequestAdmissionEventSink\nRuntimeCorrelationProvider\nCorrelated Runtime View\nissues 635, 647, 648" as TelemetryStage
-component "Benchmark and Future Design\nbenchmark harness\nresource-vector design\nissues 649, 651" as EvidenceStage
+component "Benchmark and Future Design\nbenchmark harness\nbounded-borrow policy\nresource-vector design\nissues 649, 650, 651" as EvidenceStage
 
 Author --> MetadataStage
 MetadataStage -right-> TaskQueueStage : resolved task DTOs
