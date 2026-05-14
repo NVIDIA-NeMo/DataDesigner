@@ -550,7 +550,10 @@ component "issue 650\nBounded borrow task policy" as I650
 component "issue 651\nResource-vector design" as I651
 
 I641 --> I646
+I641 --> I653
+I641 --> I652
 I646 --> I653
+I646 --> I652
 I653 --> I652
 I646 --> I644
 I641 --> I654
