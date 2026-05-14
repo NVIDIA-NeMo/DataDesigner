@@ -14,6 +14,10 @@ defaults:
   run:
     shell: bash
 
+concurrency:
+  group: authorize-agentic-ci-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   authorize:
     if: >-
