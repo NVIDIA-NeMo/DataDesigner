@@ -113,12 +113,14 @@ def check_latest_display_name(root: Path) -> list[str]:
 
 def referenced_mdx_paths(nav: Path) -> list[Path]:
     versions_dir = nav.parent
+    seen: set[Path] = set()
     paths: list[Path] = []
     for line in nav.read_text().splitlines():
         match = NAV_PATH_RE.match(line)
         if match:
             path = versions_dir / match.group(1)
-            if path.suffix == ".mdx" and path.exists():
+            if path.suffix == ".mdx" and path.exists() and path not in seen:
+                seen.add(path)
                 paths.append(path)
     return paths
 
