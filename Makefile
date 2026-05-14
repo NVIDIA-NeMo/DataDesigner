@@ -510,6 +510,7 @@ generate-fern-api-reference:
 	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_ENGINE_MCP_SOURCE) --module data_designer.engine.mcp --output $(FERN_API_REFERENCE_OUTPUT)/engine/mcp --clean
 	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_ENGINE_PROCESSORS_SOURCE) --module data_designer.engine.processing.processors --output $(FERN_API_REFERENCE_OUTPUT)/engine/processors --clean
 	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_ENGINE_SEED_READERS_SOURCE) --module data_designer.engine.resources.seed_reader --output $(FERN_API_REFERENCE_OUTPUT)/engine/seed-readers --clean
+	$(DOCS_PYTHON) fern/scripts/normalize-py2fern-indexes.py $(FERN_API_REFERENCE_OUTPUT)
 
 generate-fern-api-reference-native:
 	@echo "📚 Generating Fern API reference with Fern CLI..."
