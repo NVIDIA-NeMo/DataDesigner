@@ -292,6 +292,21 @@ def test_validate_columns_not_all_dropped_rejects_seeded_processor_only_config_w
     assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
 
 
+def test_validate_columns_not_all_dropped_allows_generated_columns_dropped_by_processors():
+    violations = validate_columns_not_all_dropped(
+        [
+            LLMTextColumnConfig(name="question", prompt="Generate a question.", model_alias=STUB_MODEL_ALIAS),
+            LLMTextColumnConfig(name="answer", prompt="Answer {{ question }}.", model_alias=STUB_MODEL_ALIAS),
+        ],
+        processor_configs=[
+            DropColumnsProcessorConfig(name="drop_raw", column_names=["question", "answer"]),
+            SchemaTransformProcessorConfig(name="format", template={"messages": "{{ question }} {{ answer }}"}),
+        ],
+    )
+
+    assert violations == []
+
+
 def test_validate_columns_not_all_dropped_still_rejects_seed_only_config():
     violations = validate_columns_not_all_dropped([SeedDatasetColumnConfig(name="seed_text")])
 

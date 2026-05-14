@@ -266,8 +266,10 @@ def validate_columns_not_all_dropped(
         c
         for c in columns
         if not c.drop
-        and c.name not in processor_dropped_columns
-        and (c.column_type != DataDesignerColumnType.SEED_DATASET or processor_configs)
+        and (
+            c.column_type != DataDesignerColumnType.SEED_DATASET
+            or (processor_configs and c.name not in processor_dropped_columns)
+        )
     ]
 
     if len(remaining_cols) == 0:
