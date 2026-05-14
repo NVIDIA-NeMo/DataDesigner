@@ -184,7 +184,7 @@ TaskAdmissionDecision --> TaskAdmissionLease
 TaskAdmissionLease --> SchedulableTask
 AsyncTaskScheduler --> CompletionTracker
 AsyncTaskScheduler --> FairTaskQueue : select_next returns QueueSelection
-AsyncTaskScheduler --> TaskAdmissionController : try_acquire(selection.item)
+AsyncTaskScheduler --> TaskAdmissionController : try_acquire(selection.item, queue.view)
 TaskAdmissionController ..> TaskAdmissionConfig : reads config
 
 note right of SchedulingMetadata
