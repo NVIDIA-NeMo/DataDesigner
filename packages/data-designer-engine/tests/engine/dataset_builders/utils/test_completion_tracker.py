@@ -193,7 +193,7 @@ def test_get_ready_tasks_seed_frontier(ready_ctx: ReadyTasksFixture) -> None:
 
 
 def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+    delta = ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
@@ -201,6 +201,8 @@ def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> No
     assert len(question_tasks) == 3
     assert all(t.task_type == "cell" for t in question_tasks)
     assert {t.row_index for t in question_tasks} == {0, 1, 2}
+    assert set(delta.added) == set(question_tasks)
+    assert delta.removed == ()
 
 
 def test_get_ready_tasks_skips_dispatched(ready_ctx: ReadyTasksFixture) -> None:
@@ -215,13 +217,16 @@ def test_get_ready_tasks_skips_dispatched(ready_ctx: ReadyTasksFixture) -> None:
 
 def test_get_ready_tasks_skips_dropped_rows(ready_ctx: ReadyTasksFixture) -> None:
     ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
-    ready_ctx.tracker.drop_row(0, 1)
+    removed = Task(column="question", row_group=0, row_index=1, task_type="cell")
+    delta = ready_ctx.tracker.drop_row(0, 1)
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     question_tasks = [t for t in ready if t.column == "question"]
     assert len(question_tasks) == 2
     assert {t.row_index for t in question_tasks} == {0, 2}
+    assert delta.added == ()
+    assert delta.removed == (removed,)
 
 
 def test_drop_row_unblocks_full_column_downstream(ready_ctx: ReadyTasksFixture) -> None:
@@ -230,12 +235,13 @@ def test_drop_row_unblocks_full_column_downstream(ready_ctx: ReadyTasksFixture) 
     ready_ctx.tracker.mark_cell_complete("question", 0, 0)
     ready_ctx.tracker.mark_cell_complete("question", 0, 1)
     # question[2] never completes -- drop it instead
-    ready_ctx.tracker.drop_row(0, 2)
+    delta = ready_ctx.tracker.drop_row(0, 2)
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
     score_tasks = [t for t in ready if t.column == "score"]
     assert len(score_tasks) == 1
     assert score_tasks[0].task_type == "batch"
+    assert score_tasks[0] in delta.added
 
 
 def test_get_ready_tasks_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFixture) -> None:
@@ -252,14 +258,17 @@ def test_get_ready_tasks_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFi
 
 def test_get_ready_tasks_full_column_ready_when_all_cells_done(ready_ctx: ReadyTasksFixture) -> None:
     ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+    delta = None
     for ri in range(3):
-        ready_ctx.tracker.mark_cell_complete("question", 0, ri)
+        delta = ready_ctx.tracker.mark_cell_complete("question", 0, ri)
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     score_tasks = [t for t in ready if t.column == "score"]
     assert len(score_tasks) == 1
     assert score_tasks[0].task_type == "batch"
+    assert delta is not None
+    assert delta.added == (score_tasks[0],)
 
 
 def test_get_ready_tasks_multiple_row_groups() -> None:
@@ -274,6 +283,14 @@ def test_get_ready_tasks_multiple_row_groups() -> None:
 
     question_tasks = [t for t in ready if t.column == "question"]
     assert len(question_tasks) == 5  # 3 from rg0 + 2 from rg1
+
+
+def test_frontier_delta_return_is_empty_when_frontier_does_not_change(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+
+    delta = ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+
+    assert delta.empty
 
 
 def test_get_ready_tasks_skips_already_complete_batch(ready_ctx: ReadyTasksFixture) -> None:

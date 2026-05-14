@@ -147,6 +147,8 @@ navigation:
     contents:
       - page: Overview
         path: ./v0.5.8/pages/devnotes/index.mdx
+      - page: Have It Your Way
+        path: ./v0.5.8/pages/devnotes/posts/have-it-your-way.mdx
       - page: Push Datasets to Hugging Face Hub
         path: ./v0.5.8/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
       - page: Text-to-SQL for Nemotron Super
