@@ -207,7 +207,8 @@ declare only the parts that vary (eligible categories, branch type,
       localized-fix file cap.
    2. Re-verify every finding still applies (re-grep / re-read). If a
       sibling no longer applies, remove it from `fix_backlog`; if the
-      primary no longer applies, continue to the next primary candidate.
+      primary no longer applies, remove it from `fix_backlog` and continue
+      to the next primary candidate.
    3. Apply the fix or batch. If the combined diff exceeds the
       localized-fix bar or touches a non-allowlisted path, abandon and
       continue.
