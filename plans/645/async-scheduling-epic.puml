@@ -175,7 +175,7 @@ ResolvedTaskScheduling --> TaskGroupSpec
 ResolvedTaskScheduling --> SchedulerResourceRequest
 ResolvedTaskScheduling --> SchedulableTask
 CompletionTracker --> FairTaskQueue : ready tasks
-FairTaskQueue --> TaskAdmissionController : QueueSelection
+FairTaskQueue --> TaskAdmissionController : is_eligible(candidate)
 TaskAdmissionController --> TaskAdmissionPolicy
 StrictFairTaskAdmissionPolicy ..|> TaskAdmissionPolicy
 BoundedBorrowTaskAdmissionPolicy ..|> TaskAdmissionPolicy
@@ -183,8 +183,8 @@ TaskAdmissionController --> TaskAdmissionDecision
 TaskAdmissionDecision --> TaskAdmissionLease
 TaskAdmissionLease --> SchedulableTask
 AsyncTaskScheduler --> CompletionTracker
-AsyncTaskScheduler --> FairTaskQueue
-AsyncTaskScheduler --> TaskAdmissionController
+AsyncTaskScheduler --> FairTaskQueue : select_next returns QueueSelection
+AsyncTaskScheduler --> TaskAdmissionController : try_acquire(selection.item)
 TaskAdmissionController ..> TaskAdmissionConfig : reads config
 
 note right of SchedulingMetadata
