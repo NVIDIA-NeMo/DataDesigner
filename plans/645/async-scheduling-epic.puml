@@ -123,6 +123,17 @@ package "Task scheduling contracts" {
     +view()
   }
 
+  class QueueSelection {
+    +item
+    +sequence
+  }
+
+  class QueueView {
+    +queued_total
+    +queued_by_group
+    +has_queued_peer(group)
+  }
+
   interface TaskAdmissionPolicy {
     +is_eligible(item, queue, view)
     +on_acquire(lease)
@@ -138,10 +149,16 @@ package "Task scheduling contracts" {
   }
 
   class TaskAdmissionController {
-    +is_eligible(item, view)
-    +try_acquire(item, view)
+    +is_eligible(item, queue_view)
+    +try_acquire(item, queue_view)
     +release(lease)
     +view()
+  }
+
+  class TaskAdmissionView {
+    +resources_available
+    +leased_by_group
+    +running_by_group
   }
 
   class TaskAdmissionDecision {
@@ -175,10 +192,13 @@ ResolvedTaskScheduling --> TaskGroupSpec
 ResolvedTaskScheduling --> SchedulerResourceRequest
 ResolvedTaskScheduling --> SchedulableTask
 CompletionTracker --> FairTaskQueue : ready tasks
+FairTaskQueue --> QueueSelection : returns
+FairTaskQueue --> QueueView : view()
 FairTaskQueue --> TaskAdmissionController : is_eligible(candidate)
 TaskAdmissionController --> TaskAdmissionPolicy
 StrictFairTaskAdmissionPolicy ..|> TaskAdmissionPolicy
 BoundedBorrowTaskAdmissionPolicy ..|> TaskAdmissionPolicy
+TaskAdmissionController --> TaskAdmissionView
 TaskAdmissionController --> TaskAdmissionDecision
 TaskAdmissionDecision --> TaskAdmissionLease
 TaskAdmissionLease --> SchedulableTask
@@ -267,7 +287,7 @@ package "Request admission contracts" {
     +release_success(lease)
     +release_rate_limited(lease, retry_after)
     +release_failure(lease)
-    +pressure_snapshots()
+    +pressure
   }
 
   class AdaptiveRequestAdmissionController {
@@ -547,6 +567,7 @@ component "issue 635\nRequest admission telemetry" as I635
 component "issue 647\nScheduler admission telemetry" as I647
 component "issue 648\nCorrelation" as I648
 component "issue 649\nBenchmark harness" as I649
+component "issue 660\nArchitecture docs" as I660
 component "issue 650\nBounded borrow task policy" as I650
 component "issue 651\nResource-vector design" as I651
 
@@ -570,6 +591,11 @@ I657 --> I648
 I635 --> I648
 I647 --> I648
 I644 --> I649
+I652 --> I660
+I654 --> I660
+I657 --> I660
+I648 --> I660
+I649 --> I660
 I649 --> I650
 I644 --> I650
 I641 --> I651
@@ -582,7 +608,7 @@ note bottom
   Native GitHub subissue order:
   issue 641 -> issue 646 -> issue 653 -> issue 652 -> issue 644
   -> issue 654 -> issue 657 -> issue 635 -> issue 647
-  -> issue 648 -> issue 649 -> issue 650 -> issue 651
+  -> issue 648 -> issue 649 -> issue 660 -> issue 650 -> issue 651
 end note
 
 @enduml
