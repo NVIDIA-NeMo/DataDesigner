@@ -415,7 +415,9 @@ def test_composite_workflow_callback_can_expand_rows_between_real_async_stages(
     workflow.add_stage("personas", stage_1, num_records=2, on_success=expand, on_success_version="expand-turns")
     workflow.add_stage("messages", stage_2)
 
-    df = workflow.run().load_dataset().sort_values(["name", "turn"]).reset_index(drop=True)
+    results = workflow.run()
+    df = results.load_dataset().sort_values(["name", "turn"]).reset_index(drop=True)
+    stage_output = results.load_stage_output("personas").sort_values(["name", "turn"]).reset_index(drop=True)
 
     assert df["message"].tolist() == [
         "Ada turn 1",
@@ -423,6 +425,9 @@ def test_composite_workflow_callback_can_expand_rows_between_real_async_stages(
         "Linus turn 1",
         "Linus turn 2",
     ]
+    assert stage_output["turn"].tolist() == [1, 2, 1, 2]
+    assert results["personas"].count_records() == 2
+    assert results.count_stage_output_records("personas") == 4
 
 
 def test_composite_workflow_does_not_forward_dropped_processor_columns(
@@ -550,13 +555,25 @@ def test_composite_workflow_output_can_select_processor_artifact(
     workflow.add_stage("compact", stage_1, num_records=2, output="processor:compact")
     workflow.add_stage("final", stage_2)
 
-    df = workflow.run().load_dataset().sort_values("compact_name").reset_index(drop=True)
+    results = workflow.run()
+    df = results.load_dataset().sort_values("compact_name").reset_index(drop=True)
+    stage_output = results.load_stage_output("compact").sort_values("compact_name").reset_index(drop=True)
+    stage_final = results["compact"].load_dataset().sort_values("name").reset_index(drop=True)
     metadata = _load_workflow_metadata(tmp_path / "artifacts", "processor-output")
 
     assert df.to_dict(orient="records") == [
         {"compact_name": "Ada", "final": "Ada final"},
         {"compact_name": "Linus", "final": "Linus final"},
     ]
+    assert stage_output.to_dict(orient="records") == [
+        {"compact_name": "Ada"},
+        {"compact_name": "Linus"},
+    ]
+    assert stage_final[["name", "persona"]].to_dict(orient="records") == [
+        {"name": "Ada", "persona": "Ada"},
+        {"name": "Linus", "persona": "Linus"},
+    ]
+    assert results.count_stage_output_records("compact") == 2
     assert metadata["stages"][0]["output"] == "processor:compact"
     assert metadata["stages"][0]["output_seed_path"].endswith("stage-0-compact/processors-files/compact")
 
@@ -583,11 +600,22 @@ def test_composite_workflow_postprocessors_can_feed_from_processor_artifact(
     )
     workflow.add_stage("final", stage_2)
 
-    df = workflow.run().load_dataset().sort_values("compact_name").reset_index(drop=True)
+    results = workflow.run()
+    df = results.load_dataset().sort_values("compact_name").reset_index(drop=True)
+    stage_output = results.load_stage_output("compact").sort_values("compact_name").reset_index(drop=True)
+    stage_final = results["compact"].load_dataset().sort_values("name").reset_index(drop=True)
 
     assert df.to_dict(orient="records") == [
         {"compact_name": "Ada", "final": "Ada final"},
         {"compact_name": "Linus", "final": "Linus final"},
+    ]
+    assert stage_output.to_dict(orient="records") == [
+        {"compact_name": "Ada"},
+        {"compact_name": "Linus"},
+    ]
+    assert stage_final[["name", "persona"]].to_dict(orient="records") == [
+        {"name": "Ada", "persona": "Ada"},
+        {"name": "Linus", "persona": "Linus"},
     ]
 
 

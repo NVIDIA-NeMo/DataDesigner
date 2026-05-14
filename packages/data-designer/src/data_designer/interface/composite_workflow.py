@@ -63,6 +63,7 @@ class CompositeWorkflowResults:
     Per-stage entries are the effective ``DataDesigner.create()`` results. If a
     stage uses ``on_success``, metadata and downstream seeding use the callback
     output path while the stage result still points at the stage's dataset.
+    Use ``load_stage_output()`` to load the selected output handed downstream.
     """
 
     def __init__(
@@ -71,12 +72,12 @@ class CompositeWorkflowResults:
         name: str,
         stage_results: dict[str, DatasetCreationResults | SkippedStageResult],
         final_stage_name: str,
-        final_output_path: Path | None = None,
+        stage_output_paths: dict[str, Path] | None = None,
     ) -> None:
         self.name = name
         self.stage_results = stage_results
         self.final_stage_name = final_stage_name
-        self._final_output_path = final_output_path
+        self._stage_output_paths = stage_output_paths or {}
 
     def __getitem__(self, stage_name: str) -> DatasetCreationResults | SkippedStageResult:
         return self.stage_results[stage_name]
@@ -99,18 +100,26 @@ class CompositeWorkflowResults:
 
     def load_dataset(self) -> pd.DataFrame:
         self.final_result
-        if self._final_output_path is not None:
-            return _load_parquet_dataset(self._final_output_path)
-        return self.final_result.load_dataset()
+        return self.load_stage_output(self.final_stage_name)
 
     def load_analysis(self) -> DatasetProfilerResults:
         return self.final_result.load_analysis()
 
     def count_records(self) -> int:
         self.final_result
-        if self._final_output_path is not None:
-            return _count_parquet_records(self._final_output_path)
-        return self.final_result.count_records()
+        return self.count_stage_output_records(self.final_stage_name)
+
+    def get_stage_output_path(self, stage_name: str) -> Path:
+        result = self.stage_results[stage_name]
+        if isinstance(result, SkippedStageResult):
+            raise DataDesignerWorkflowError(f"Stage {stage_name!r} was skipped: {result.status}.")
+        return self._stage_output_paths.get(stage_name, result.artifact_storage.final_dataset_path)
+
+    def load_stage_output(self, stage_name: str) -> pd.DataFrame:
+        return _load_parquet_dataset(self.get_stage_output_path(stage_name))
+
+    def count_stage_output_records(self, stage_name: str) -> int:
+        return _count_parquet_records(self.get_stage_output_path(stage_name))
 
     def export(self, *args: Any, **kwargs: Any) -> Path:
         return self.final_result.export(*args, **kwargs)
@@ -176,6 +185,7 @@ class CompositeWorkflow:
             "stages": [],
         }
         stage_results: dict[str, DatasetCreationResults | SkippedStageResult] = {}
+        stage_output_paths: dict[str, Path] = {}
         previous_seed_path: Path | None = None
         previous_output_records: int | None = None
         previous_stage_name: str | None = None
@@ -298,6 +308,7 @@ class CompositeWorkflow:
                 raise
 
             stage_results[stage.name] = output_result
+            stage_output_paths[stage.name] = output_seed_path
             previous_seed_path = output_seed_path
             previous_output_records = output_records
             previous_stage_name = stage.name
@@ -308,7 +319,7 @@ class CompositeWorkflow:
             name=self.name,
             stage_results=stage_results,
             final_stage_name=self._stages[-1].name,
-            final_output_path=previous_seed_path,
+            stage_output_paths=stage_output_paths,
         )
 
 
