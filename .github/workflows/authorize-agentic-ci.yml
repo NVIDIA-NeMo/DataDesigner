@@ -65,7 +65,7 @@ jobs:
           if { [ "$PR_AUTHOR" = "github-actions[bot]" ] || [ "$PR_AUTHOR" = "agentic-ci" ]; } && \
              [ "$HEAD_REPO" = "$REPO" ] && \
              [[ "$HEAD_REF" == agentic-ci/* ]] && \
-             grep -q '<!-- agentic-ci ' /tmp/pr-body-raw.txt; then
+             grep -Eq '<!-- agentic-ci finding=[^[:space:]]+ suite=[^[:space:]]+ -->' /tmp/pr-body-raw.txt; then
             TRUSTED=true
           fi
 
@@ -97,10 +97,10 @@ jobs:
           fi
 
           BLOCKED=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only \
-            | grep -E '^\.github/(workflows|actions|scripts)/' || true)
+            | grep -E '^\.github/' || true)
           if [ -n "$BLOCKED" ]; then
             {
-              echo "Agentic CI checks were not authorized because this PR changes privileged workflow files:"
+              echo "Agentic CI checks were not authorized because this PR changes privileged repository files:"
               echo
               printf '%s\n' "$BLOCKED" | sed 's/^/- `/' | sed 's/$/`/'
             } > /tmp/agentic-ci-auth-failed.md
@@ -118,7 +118,8 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
         run: |
-          gh workflow run ci.yml --repo "$REPO" --ref "$HEAD_REF"
+          gh workflow run ci.yml --repo "$REPO" --ref "$HEAD_REF" \
+            -f expected_head_sha="$HEAD_SHA"
           gh workflow run agentic-ci-authorized-checks.yml --repo "$REPO" --ref "$HEAD_REF" \
             -f pr_number="$PR_NUMBER" \
             -f expected_head_sha="$HEAD_SHA"

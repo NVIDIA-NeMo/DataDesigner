@@ -54,7 +54,7 @@ jobs:
           if { [ "$PR_AUTHOR" = "github-actions[bot]" ] || [ "$PR_AUTHOR" = "agentic-ci" ]; } && \
              [ "$HEAD_REPO" = "$REPO" ] && \
              [[ "$HEAD_REF" == agentic-ci/* ]] && \
-             grep -q '<!-- agentic-ci ' /tmp/pr-body-raw.txt; then
+             grep -Eq '<!-- agentic-ci finding=[^[:space:]]+ suite=[^[:space:]]+ -->' /tmp/pr-body-raw.txt; then
             TRUSTED=true
           fi
 

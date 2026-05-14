@@ -48,7 +48,7 @@ jobs:
           if { [ "$USER" = "github-actions[bot]" ] || [ "$USER" = "agentic-ci" ]; } && \
              [ "$HEAD_REPO" = "$REPO" ] && \
              [[ "$HEAD_REF" == agentic-ci/* ]] && \
-             grep -q '<!-- agentic-ci ' /tmp/pr-body-raw.txt; then
+             grep -Eq '<!-- agentic-ci finding=[^[:space:]]+ suite=[^[:space:]]+ -->' /tmp/pr-body-raw.txt; then
             echo "is_collaborator=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
