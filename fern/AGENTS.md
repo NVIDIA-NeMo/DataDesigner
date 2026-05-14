@@ -24,6 +24,8 @@ This folder contains the Fern docs site for NeMo Data Designer. Use `fern/README
 
 Published release snapshots live on the CI-managed `docs-website` branch. Do not manually edit `docs-website` unless the user explicitly asks for release archive repair.
 
+`docs-website` is an orphan-style publish branch. Published commits should include `fern/publish-metadata.json` with source repository, ref, SHA, release tag when applicable, and published branch.
+
 The `docs-website` branch must already contain the historical Fern archive (`v0.6.0`, `v0.5.9`, `v0.5.8`, and `older`). The release workflow fails if those redirect targets are missing.
 
 Frozen `vX.Y.Z.yml` navs on `docs-website` must point only at their own `vX.Y.Z/pages/...` files. The release sync materializes shared historical pages into each version folder before publishing.

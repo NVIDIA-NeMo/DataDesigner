@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import sys
@@ -31,6 +32,7 @@ SKIP_NAMES = {
     "dist",
     "site",
 }
+PUBLISH_METADATA_PATH = Path("fern/publish-metadata.json")
 FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/assets",
     "fern/components/Authors.tsx",
@@ -164,6 +166,49 @@ def validate_redirect_targets(published_root: Path) -> None:
             f"Published Fern docs.yml is missing version entries required by redirects: {formatted}. "
             "Initialize docs-website with the historical Fern archive before publishing."
         )
+
+
+def write_publish_metadata(published_root: Path, args: argparse.Namespace, action: str) -> None:
+    provided = [
+        args.metadata_source_repository,
+        args.metadata_source_ref,
+        args.metadata_source_sha,
+        args.metadata_release_tag,
+        args.metadata_published_branch,
+    ]
+    if not any(provided):
+        return
+
+    missing = [
+        name
+        for name, value in (
+            ("metadata source repository", args.metadata_source_repository),
+            ("metadata source ref", args.metadata_source_ref),
+            ("metadata source sha", args.metadata_source_sha),
+        )
+        if not value
+    ]
+    if missing:
+        raise PublishedBranchError(f"Incomplete publish metadata; missing {', '.join(missing)}")
+
+    metadata: dict[str, object] = {
+        "schema_version": 1,
+        "kind": "fern-docs-website",
+        "action": action,
+        "source": {
+            "repository": args.metadata_source_repository,
+            "ref": args.metadata_source_ref,
+            "sha": args.metadata_source_sha,
+        },
+    }
+    if args.metadata_release_tag:
+        metadata["release_tag"] = args.metadata_release_tag
+    if args.metadata_published_branch:
+        metadata["published_branch"] = args.metadata_published_branch
+
+    target = published_root / PUBLISH_METADATA_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(metadata, indent=2) + "\n")
 
 
 def ignore_source(_dir: str, names: list[str]) -> set[str]:
@@ -347,6 +392,7 @@ def sync_source(args: argparse.Namespace) -> int:
         materialize_version_nav_pages(published_root)
         restore_versions_block(published_root / "fern" / "docs.yml", preserved_versions_block)
         validate_redirect_targets(published_root)
+        write_publish_metadata(published_root, args, "release-snapshot")
     return 0
 
 
@@ -396,7 +442,16 @@ def patch_devnotes(args: argparse.Namespace) -> int:
 
     source_block = extract_devnotes_block(source_nav)
     replace_devnotes_block(target_nav, rewrite_devnotes_block(source_root, published_root, source_block))
+    write_publish_metadata(published_root, args, "devnotes-patch")
     return 0
+
+
+def add_metadata_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--metadata-source-repository", help="Repository used to produce this published snapshot")
+    parser.add_argument("--metadata-source-ref", help="Git ref used to produce this published snapshot")
+    parser.add_argument("--metadata-source-sha", help="Git commit used to produce this published snapshot")
+    parser.add_argument("--metadata-release-tag", help="Release tag represented by this published snapshot")
+    parser.add_argument("--metadata-published-branch", help="Published branch updated by this snapshot")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -406,11 +461,13 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser = subparsers.add_parser("sync-source")
     sync_parser.add_argument("--source-root", required=True, help="Repository checkout with authoring content")
     sync_parser.add_argument("--published-root", required=True, help="docs-website checkout to update")
+    add_metadata_args(sync_parser)
     sync_parser.set_defaults(func=sync_source)
 
     devnotes_parser = subparsers.add_parser("patch-devnotes")
     devnotes_parser.add_argument("--source-root", required=True, help="Repository checkout with latest Dev Notes")
     devnotes_parser.add_argument("--published-root", required=True, help="docs-website checkout to patch")
+    add_metadata_args(devnotes_parser)
     devnotes_parser.set_defaults(func=patch_devnotes)
     return parser
 

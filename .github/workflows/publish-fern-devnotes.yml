@@ -65,10 +65,19 @@ jobs:
           git checkout -B "$FERN_PUBLISHED_BRANCH" FETCH_HEAD
 
       - name: Patch Dev Notes into latest Fern docs
+        env:
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          PUBLISHED_BRANCH: ${{ env.FERN_PUBLISHED_BRANCH }}
         run: |
+          source_sha=$(git -C source rev-parse HEAD)
           python3 workflow/fern/scripts/fern-published-branch.py patch-devnotes \
             --source-root source \
-            --published-root website
+            --published-root website \
+            --metadata-source-repository "$SOURCE_REPOSITORY" \
+            --metadata-source-ref "$SOURCE_REF" \
+            --metadata-source-sha "$source_sha" \
+            --metadata-published-branch "$PUBLISHED_BRANCH"
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -115,6 +124,9 @@ jobs:
         run: make check-fern-docs
 
       - name: Commit published branch
+        env:
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
         working-directory: website
         run: |
           if [ -z "$(git status --porcelain)" ]; then
@@ -122,10 +134,15 @@ jobs:
             exit 0
           fi
 
+          source_sha=$(git -C ../source rev-parse HEAD)
+          previous_published_sha=$(git rev-parse HEAD)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "docs: patch Fern devnotes into latest"
+          git commit \
+            -m "docs: patch Fern devnotes into latest" \
+            -m "Source: $SOURCE_REPOSITORY@$SOURCE_REF ($source_sha)" \
+            -m "Previous docs-website head: $previous_published_sha"
           git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
 
       - name: Publish Fern docs

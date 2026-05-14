@@ -114,10 +114,19 @@ jobs:
       - name: Prepare Fern release snapshot
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+          SOURCE_REF: ${{ needs.resolve-release.outputs.source_ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          PUBLISHED_BRANCH: ${{ env.FERN_PUBLISHED_BRANCH }}
         run: |
+          source_sha=$(git -C source rev-parse HEAD)
           python3 workflow/fern/scripts/fern-published-branch.py sync-source \
             --source-root source \
-            --published-root website
+            --published-root website \
+            --metadata-source-repository "$SOURCE_REPOSITORY" \
+            --metadata-source-ref "$SOURCE_REF" \
+            --metadata-source-sha "$source_sha" \
+            --metadata-release-tag "$RELEASE_TAG" \
+            --metadata-published-branch "$PUBLISHED_BRANCH"
           python3 workflow/fern/scripts/fern-release-version.py --root website/fern prepare --version "$RELEASE_TAG" --force
           python3 workflow/fern/scripts/fern-release-version.py --root website/fern check --version "$RELEASE_TAG" --require-latest-matches-release
 
@@ -146,6 +155,8 @@ jobs:
       - name: Commit published branch
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+          SOURCE_REF: ${{ needs.resolve-release.outputs.source_ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
         working-directory: website
         run: |
           if [ -z "$(git status --porcelain)" ]; then
@@ -153,10 +164,15 @@ jobs:
             exit 0
           fi
 
+          source_sha=$(git -C ../source rev-parse HEAD)
+          previous_published_sha=$(git rev-parse HEAD)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "docs: publish Fern docs for $RELEASE_TAG"
+          git commit \
+            -m "docs: publish Fern docs for $RELEASE_TAG" \
+            -m "Source: $SOURCE_REPOSITORY@$SOURCE_REF ($source_sha)" \
+            -m "Previous docs-website head: $previous_published_sha"
           git push origin HEAD:"$FERN_PUBLISHED_BRANCH"
 
   build-notebooks:
