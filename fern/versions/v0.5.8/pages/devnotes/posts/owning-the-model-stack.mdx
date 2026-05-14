@@ -66,12 +66,13 @@ What you actually want is a system that *discovers* the provider's capacity at r
 
 If you've studied networking, this will sound familiar. [AIMD](https://en.wikipedia.org/wiki/Additive_increase/multiplicative_decrease) is the algorithm behind TCP congestion control. We apply the same idea to LLM API concurrency:
 
+- **During optional startup ramp**: if `rampup_seconds` is set, start a new route at one concurrent request and climb linearly toward `max_parallel_requests` over that duration.
 - **On success**: after a window of consecutive successful requests (default: 25), increase the concurrency limit by 1. Slow, cautious growth.
 - **On 429**: multiply the current limit by a reduce factor (default: 0.75, a 25% cut). Fast, decisive pullback. Then apply a cooldown using the provider's `Retry-After` header when available, or a default of 2 seconds.
 
 The asymmetry is deliberate. You probe upward slowly because overshooting wastes requests. You pull back quickly because staying above the limit wastes *everything* because every request in the burst gets rejected. This is the same insight that makes TCP work: be optimistic cautiously, be pessimistic decisively.
 
-The result is that the system converges on the provider's actual capacity without you setting it. It starts at your configured `max_parallel_requests`, discovers the real limit through 429 signals, and settles into a steady state that tracks the provider's capacity as it changes.
+The result is that the system converges on the provider's actual capacity without you setting it. By default it starts at your configured `max_parallel_requests`; for cold inference servers, you can set `rampup_seconds` to ease in from 1 request to that configured peak. Either way, once a 429 arrives, the controller discovers the real limit through rate-limit signals and settles into a steady state that tracks the provider's capacity as it changes.
 
 <div style="text-align: center;" markdown>
 
@@ -80,6 +81,12 @@ The result is that the system converges on the provider's actual capacity withou
 </div>
 
 This is especially useful when you're self-hosting your inference stack (running vLLM or NVIDIA NIM on your own hardware) as long as the serving framework returns 429s when it's at capacity. The capacity of a self-hosted endpoint depends on your GPU count, model size, quantization, batch settings, and whatever else is sharing the cluster. That capacity might change between runs, or even mid-run if other workloads spin up. If your serving layer signals overload with 429s, you don't need to figure any of that out. Point Data Designer at your endpoint, set `max_parallel_requests` to a generous upper bound, and the system self-adjusts to whatever your infrastructure can actually handle.
+
+### **Startup ramp**
+
+Some inference servers do not handle an immediate cold burst well, even when their steady-state capacity is high. For those endpoints, `ThrottleConfig(rampup_seconds=...)` enables a time-based startup ramp. Each throttle domain starts at one concurrent request and linearly climbs toward the configured `max_parallel_requests` ceiling over the ramp duration.
+
+The ramp is optimistic but interruptible. If no 429s arrive, it reaches the configured peak. If a 429 arrives during the ramp, the ramp is aborted immediately and the domain switches to normal AIMD behavior: multiplicative decrease, cooldown, ceiling recording when the decrease reveals a higher failed limit, and additive recovery.
 
 ### **Ceiling stabilization**
 
@@ -149,6 +156,7 @@ data_designer.set_run_config(
             success_window=25,
             cooldown_seconds=2.0,
             ceiling_overshoot=0.10,
+            rampup_seconds=0.0,
         )
     )
 )
@@ -180,8 +188,9 @@ create_result = data_designer.create(
 | `success_window` | 25 | Consecutive successes before additive increase |
 | `cooldown_seconds` | 2.0 | Default cooldown when no `Retry-After` header |
 | `ceiling_overshoot` | 0.10 | How far above the observed ceiling to probe (10%) |
+| `rampup_seconds` | 0.0 | Optional startup ramp duration. `0.0` keeps the previous immediate-start behavior |
 
-In practice, the parameter most worth adjusting is `success_window`. A smaller window (say, 10) makes the system more aggressive about reclaiming throughput after a pullback, useful when you know the provider's capacity fluctuates quickly. A larger window (say, 50) makes it more conservative, better for providers with strict, stable rate limits where you'd rather not probe at all.
+In practice, the parameter most worth adjusting after a 429 is `success_window`. A smaller window (say, 10) makes the system more aggressive about reclaiming throughput after a pullback, useful when you know the provider's capacity fluctuates quickly. A larger window (say, 50) makes it more conservative, better for providers with strict, stable rate limits where you'd rather not probe at all. For cold self-hosted endpoints, set `rampup_seconds` to ease into the first burst without changing steady-state AIMD behavior.
 
 Most users will never need to touch any of these. The system adapts automatically.
 

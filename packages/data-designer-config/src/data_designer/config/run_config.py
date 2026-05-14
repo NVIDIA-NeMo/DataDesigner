@@ -40,6 +40,11 @@ class ThrottleConfig(ConfigBase):
         ceiling_overshoot: Fraction above the observed rate-limit ceiling
             that additive increase is allowed to probe before capping.
             Default is 0.10 (10% overshoot).
+        rampup_seconds: Optional startup ramp duration.  When greater than
+            zero, each throttle domain starts at one concurrent request and
+            linearly ramps to its configured peak over this many seconds.
+            A 429 aborts the startup ramp and switches to normal AIMD recovery.
+            Default is 0.0 (disabled).
     """
 
     DEFAULT_REDUCE_FACTOR: ClassVar[float] = 0.75
@@ -47,6 +52,7 @@ class ThrottleConfig(ConfigBase):
     DEFAULT_SUCCESS_WINDOW: ClassVar[int] = 25
     DEFAULT_COOLDOWN_SECONDS: ClassVar[float] = 2.0
     DEFAULT_CEILING_OVERSHOOT: ClassVar[float] = 0.10
+    DEFAULT_RAMPUP_SECONDS: ClassVar[float] = 0.0
 
     reduce_factor: float = Field(
         default=DEFAULT_REDUCE_FACTOR,
@@ -73,6 +79,14 @@ class ThrottleConfig(ConfigBase):
         default=DEFAULT_CEILING_OVERSHOOT,
         ge=0.0,
         description="Fraction above the rate-limit ceiling that additive increase is allowed to probe.",
+    )
+    rampup_seconds: float = Field(
+        default=DEFAULT_RAMPUP_SECONDS,
+        ge=0.0,
+        description=(
+            "Startup ramp duration in seconds. When greater than zero, each throttle domain starts at one "
+            "concurrent request and linearly ramps to the configured peak. A 429 aborts the startup ramp."
+        ),
     )
 
 

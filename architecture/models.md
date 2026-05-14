@@ -39,6 +39,8 @@ Manages concurrency limits per `ThrottleDomain` (CHAT, EMBEDDING, IMAGE, HEALTHC
 
 `ThrottledModelClient` wraps each API call in a context manager that acquires/releases throttle capacity and adjusts limits on success (additive increase) or rate-limit errors (multiplicative decrease).
 
+When `rampup_seconds` is configured, `ThrottleManager` starts new domains at one concurrent request, climbs linearly toward the peak, and aborts to normal AIMD behavior on the first 429.
+
 ### ModelFacade
 
 The primary interface for generators. Holds a `ModelConfig`, `ModelClient`, optional `MCPRegistry`, and `ModelUsageStats`.
