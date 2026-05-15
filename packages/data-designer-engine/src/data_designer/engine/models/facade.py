@@ -40,7 +40,6 @@ from data_designer.engine.models.usage import (
     ImageUsageStats,
     ModelUsageStats,
     RequestUsageStats,
-    TokenCountSource,
     TokenUsageStats,
 )
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
@@ -817,14 +816,11 @@ class ModelFacade:
 
         token_usage = None
         if usage is not None and usage.input_tokens is not None:
-            reasoning_token_count_source = usage.reasoning_token_count_source
-            if usage.reasoning_tokens is not None and reasoning_token_count_source is None:
-                reasoning_token_count_source = TokenCountSource.PROVIDER
             token_usage = TokenUsageStats(
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens or 0,
                 reasoning_tokens=usage.reasoning_tokens,
-                reasoning_token_count_source=reasoning_token_count_source,
+                reasoning_token_count_source=usage.reasoning_token_count_source,
             )
 
         self._usage_stats.extend(

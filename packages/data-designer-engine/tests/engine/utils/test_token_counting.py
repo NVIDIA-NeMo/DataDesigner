@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import tiktoken
+
 from data_designer.engine.utils.token_counting import count_text_tokens, get_cl100k_base_tokenizer
 
 
@@ -10,7 +12,8 @@ def test_count_text_tokens_counts_with_cl100k_base_tokenizer() -> None:
     """count_text_tokens delegates to the shared cl100k_base tokenizer."""
     text = "Hello, token counting."
 
-    assert count_text_tokens(text) == len(get_cl100k_base_tokenizer().encode(text, disallowed_special=()))
+    tokenizer = tiktoken.get_encoding("cl100k_base")
+    assert count_text_tokens(text) == len(tokenizer.encode(text, disallowed_special=()))
 
 
 def test_get_cl100k_base_tokenizer_returns_cached_instance() -> None:
