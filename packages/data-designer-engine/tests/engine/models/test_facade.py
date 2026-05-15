@@ -21,6 +21,7 @@ from data_designer.engine.models.clients.types import (
 from data_designer.engine.models.errors import ImageGenerationError, ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
+from data_designer.engine.models.usage import TokenCountSource
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_stub_completion_response
 
@@ -209,7 +210,12 @@ def test_completion_tracks_reasoning_tokens_without_changing_output_tokens(
 ) -> None:
     stub_model_client.completion.return_value = ChatCompletionResponse(
         message=AssistantMessage(content="ok"),
-        usage=Usage(input_tokens=10, output_tokens=8, reasoning_tokens=3),
+        usage=Usage(
+            input_tokens=10,
+            output_tokens=8,
+            reasoning_tokens=3,
+            reasoning_token_count_source=TokenCountSource.PROVIDER,
+        ),
     )
 
     stub_model_facade.completion([ChatMessage.as_user("hi")])
@@ -218,6 +224,7 @@ def test_completion_tracks_reasoning_tokens_without_changing_output_tokens(
     assert token_usage.input_tokens == 10
     assert token_usage.output_tokens == 8
     assert token_usage.reasoning_tokens == 3
+    assert token_usage.reasoning_token_count_source == TokenCountSource.PROVIDER
     assert token_usage.total_tokens == 18
 
 

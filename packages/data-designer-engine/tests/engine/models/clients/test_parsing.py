@@ -17,6 +17,7 @@ from data_designer.engine.models.clients.types import (
     ImageGenerationRequest,
     TransportKwargs,
 )
+from data_designer.engine.models.usage import TokenCountSource
 
 # --- TransportKwargs.from_request: extra_body flattening (default) ---
 
@@ -291,6 +292,9 @@ def test_extract_usage_reasoning_tokens(raw_usage: dict[str, object], expected_r
 
     assert usage is not None
     assert usage.reasoning_tokens == expected_reasoning_tokens
+    assert usage.reasoning_token_count_source == (
+        TokenCountSource.PROVIDER if expected_reasoning_tokens is not None else None
+    )
 
 
 def test_extract_usage_reasoning_tokens_are_not_added_to_output_or_total_tokens() -> None:
@@ -302,6 +306,7 @@ def test_extract_usage_reasoning_tokens_are_not_added_to_output_or_total_tokens(
     assert usage.input_tokens == 10
     assert usage.output_tokens == 7
     assert usage.reasoning_tokens == 4
+    assert usage.reasoning_token_count_source == TokenCountSource.PROVIDER
     assert usage.total_tokens == 17
 
 
@@ -321,6 +326,7 @@ def test_parse_chat_completion_estimates_reasoning_tokens_from_reasoning_content
     assert result.usage.input_tokens == 10
     assert result.usage.output_tokens == 7
     assert result.usage.reasoning_tokens == 6
+    assert result.usage.reasoning_token_count_source == TokenCountSource.ESTIMATED
     assert result.usage.total_tokens == 17
 
 
@@ -343,3 +349,4 @@ def test_parse_chat_completion_prefers_provider_reasoning_token_count(
 
     assert result.usage is not None
     assert result.usage.reasoning_tokens == 4
+    assert result.usage.reasoning_token_count_source == TokenCountSource.PROVIDER

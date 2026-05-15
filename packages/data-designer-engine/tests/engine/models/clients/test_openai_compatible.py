@@ -16,6 +16,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingRequest,
     ImageGenerationRequest,
 )
+from data_designer.engine.models.usage import TokenCountSource
 from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
 
 PROVIDER = "test-provider"
@@ -92,6 +93,7 @@ def test_completion_maps_canonical_fields() -> None:
     assert result.usage.input_tokens == 10
     assert result.usage.output_tokens == 5
     assert result.usage.reasoning_tokens == 3
+    assert result.usage.reasoning_token_count_source == TokenCountSource.PROVIDER
 
 
 def test_completion_with_tool_calls() -> None:

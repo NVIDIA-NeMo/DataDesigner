@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar, Protocol
 
+from data_designer.engine.models.usage import TokenCountSource
+
 
 class HttpResponse(Protocol):
     """Structural type for HTTP response objects (httpx, requests, etc.)."""
@@ -22,6 +24,7 @@ class Usage:
     output_tokens: int | None = None
     total_tokens: int | None = None
     reasoning_tokens: int | None = None
+    reasoning_token_count_source: TokenCountSource | None = None
     generated_images: int | None = None
 
 

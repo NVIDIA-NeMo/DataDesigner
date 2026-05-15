@@ -24,6 +24,7 @@ from data_designer.engine.models.clients.types import (
     ToolCall,
     Usage,
 )
+from data_designer.engine.models.usage import TokenCountSource
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +275,7 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     output_tokens = coerce_to_int_or_none(output_tokens)
     total_tokens = coerce_to_int_or_none(total_tokens)
     reasoning_tokens = coerce_to_int_or_none(reasoning_tokens)
+    reasoning_token_count_source = TokenCountSource.PROVIDER if reasoning_tokens is not None else None
 
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
         total_tokens = input_tokens + output_tokens
@@ -299,6 +301,7 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
         output_tokens=output_tokens,
         total_tokens=total_tokens,
         reasoning_tokens=reasoning_tokens,
+        reasoning_token_count_source=reasoning_token_count_source,
         generated_images=generated_images,
     )
 
@@ -327,6 +330,7 @@ def fill_reasoning_tokens_from_content(usage: Usage | None, reasoning_content: s
     reasoning_tokens = estimate_text_tokens(reasoning_content)
     if reasoning_tokens is not None:
         usage.reasoning_tokens = reasoning_tokens
+        usage.reasoning_token_count_source = TokenCountSource.ESTIMATED
     return usage
 
 

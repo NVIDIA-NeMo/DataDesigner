@@ -4,16 +4,34 @@
 from __future__ import annotations
 
 import logging
+from enum import Enum
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
 logger = logging.getLogger(__name__)
 
 
+class TokenCountSource(str, Enum):
+    PROVIDER = "provider"
+    ESTIMATED = "estimated"
+    MIXED = "mixed"
+
+
 class TokenUsageStats(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     input_tokens: int = 0
     output_tokens: int = 0
-    reasoning_tokens: int = 0
+    reasoning_tokens: int | None = None
+    reasoning_token_count_source: TokenCountSource | None = None
+
+    @model_validator(mode="after")
+    def validate_reasoning_token_count_source(self) -> TokenUsageStats:
+        if self.reasoning_tokens is None and self.reasoning_token_count_source is not None:
+            raise ValueError("reasoning_token_count_source requires reasoning_tokens")
+        if self.reasoning_tokens is not None and self.reasoning_token_count_source is None:
+            raise ValueError("reasoning_tokens requires reasoning_token_count_source")
+        return self
 
     @computed_field
     def total_tokens(self) -> int:
@@ -23,10 +41,41 @@ class TokenUsageStats(BaseModel):
     def has_usage(self) -> bool:
         return self.total_tokens > 0
 
-    def extend(self, *, input_tokens: int, output_tokens: int, reasoning_tokens: int = 0) -> None:
+    def extend(
+        self,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        reasoning_tokens: int | None = None,
+        reasoning_token_count_source: TokenCountSource | None = None,
+    ) -> None:
+        if reasoning_tokens is not None and reasoning_token_count_source is None:
+            raise ValueError("reasoning_tokens requires reasoning_token_count_source")
+
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
-        self.reasoning_tokens += reasoning_tokens
+        if reasoning_tokens is not None:
+            self.reasoning_tokens = (self.reasoning_tokens or 0) + reasoning_tokens
+            self.reasoning_token_count_source = merge_token_count_sources(
+                self.reasoning_token_count_source,
+                reasoning_token_count_source,
+            )
+
+
+def merge_token_count_sources(
+    current: TokenCountSource | str | None,
+    incoming: TokenCountSource | str | None,
+) -> str | None:
+    if incoming is None:
+        return TokenCountSource(current).value if current is not None else None
+    if current is None:
+        return TokenCountSource(incoming).value
+
+    current_source = TokenCountSource(current)
+    incoming_source = TokenCountSource(incoming)
+    if current_source == incoming_source:
+        return current_source.value
+    return TokenCountSource.MIXED.value
 
 
 class RequestUsageStats(BaseModel):
@@ -108,6 +157,7 @@ class ModelUsageStats(BaseModel):
                 input_tokens=token_usage.input_tokens,
                 output_tokens=token_usage.output_tokens,
                 reasoning_tokens=token_usage.reasoning_tokens,
+                reasoning_token_count_source=token_usage.reasoning_token_count_source,
             )
         if request_usage is not None:
             self.request_usage.extend(
