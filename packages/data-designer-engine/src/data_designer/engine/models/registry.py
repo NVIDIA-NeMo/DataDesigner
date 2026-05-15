@@ -27,9 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def format_reasoning_tokens(reasoning_tokens: int | None, source: TokenCountSource | str | None) -> str:
-    if reasoning_tokens is None:
-        return "unknown"
+def format_reasoning_tokens(reasoning_tokens: int, source: TokenCountSource | str | None) -> str:
     if source == TokenCountSource.ESTIMATED or source == TokenCountSource.ESTIMATED.value:
         return f"{reasoning_tokens} (estimated)"
     return str(reasoning_tokens)
@@ -127,17 +125,15 @@ class ModelRegistry:
             token_usage = stats["token_usage"]
             input_tokens = token_usage["input_tokens"]
             output_tokens = token_usage["output_tokens"]
-            reasoning_tokens = format_reasoning_tokens(
-                token_usage.get("reasoning_tokens"),
-                token_usage.get("reasoning_token_count_source"),
-            )
             total_tokens = token_usage["total_tokens"]
             tokens_per_second = stats["tokens_per_second"]
-            logger.info(
-                f"{LOG_INDENT}tokens: "
-                f"input={input_tokens}, output={output_tokens}, reasoning={reasoning_tokens}, "
-                f"total={total_tokens}, tps={tokens_per_second}"
-            )
+            token_parts = [f"input={input_tokens}", f"output={output_tokens}"]
+            if (reasoning_tokens := token_usage.get("reasoning_tokens")) is not None:
+                token_parts.append(
+                    f"reasoning={format_reasoning_tokens(reasoning_tokens, token_usage.get('reasoning_token_count_source'))}"
+                )
+            token_parts.extend([f"total={total_tokens}", f"tps={tokens_per_second}"])
+            logger.info(f"{LOG_INDENT}tokens: {', '.join(token_parts)}")
             if token_usage.get("reasoning_token_count_source") == TokenCountSource.ESTIMATED.value:
                 logger.info(f"{LOG_INDENT}reasoning token count estimated with tiktoken")
 
