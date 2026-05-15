@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+  <title id="title">Retriever SDG Toolkit Pipeline</title>
+  <desc id="desc">A four-stage Data Designer pipeline that chunks documents, generates grounded QA pairs, deduplicates and judges them, then converts outputs into retriever training and evaluation artifacts.</desc>
+  <defs>
+    <linearGradient id="panel" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#edf7f1"/>
+    </linearGradient>
+    <linearGradient id="stage" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef6ff"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#76b900"/>
+      <stop offset="1" stop-color="#00a4ef"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#3d566f"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#1b2a38" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .label { font-family: Inter, Arial, sans-serif; fill: #152433; }
+      .muted { font-family: Inter, Arial, sans-serif; fill: #587086; }
+      .small { font-size: 18px; }
+      .tiny { font-size: 16px; }
+      .stage-title { font-size: 24px; font-weight: 750; }
+      .stage-number { font-family: Inter, Arial, sans-serif; fill: #ffffff; font-size: 24px; font-weight: 800; }
+      .eyebrow { font-size: 15px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; fill: #4b6b82; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="640" rx="28" fill="url(#panel)"/>
+  <rect x="34" y="34" width="1132" height="572" rx="28" fill="#ffffff" stroke="#d8e4ef"/>
+
+  <text x="68" y="86" class="label" font-size="34" font-weight="800">Retriever SDG Toolkit</text>
+  <text x="68" y="119" class="muted" font-size="19">From source documents to AutoModel-compatible retriever training and BEIR evaluation data</text>
+  <rect x="68" y="140" width="1064" height="7" rx="3.5" fill="url(#accent)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="68" y="196" width="150" height="224" rx="18" fill="#f6fbf7" stroke="#b9d39d"/>
+    <text x="92" y="238" class="eyebrow">Input</text>
+    <text x="92" y="278" class="label stage-title">Source</text>
+    <text x="92" y="308" class="label stage-title">corpus</text>
+    <text x="92" y="352" class="muted tiny">TXT, Markdown,</text>
+    <text x="92" y="377" class="muted tiny">manuals, policies,</text>
+    <text x="92" y="402" class="muted tiny">internal docs</text>
+  </g>
+
+  <line x1="218" y1="308" x2="253" y2="308" stroke="#3d566f" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="260" y="196" width="174" height="224" rx="18" fill="url(#stage)" stroke="#c8d8e5"/>
+    <circle cx="300" cy="240" r="24" fill="#76b900"/>
+    <text x="293" y="248" class="stage-number">1</text>
+    <text x="286" y="292" class="label stage-title">Chunk</text>
+    <text x="286" y="322" class="label stage-title">documents</text>
+    <text x="286" y="364" class="muted tiny">document-chunker</text>
+    <text x="286" y="389" class="muted tiny">stable segment IDs</text>
+  </g>
+
+  <line x1="434" y1="308" x2="469" y2="308" stroke="#3d566f" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="476" y="196" width="202" height="224" rx="18" fill="url(#stage)" stroke="#c8d8e5"/>
+    <circle cx="516" cy="240" r="24" fill="#76b900"/>
+    <text x="509" y="248" class="stage-number">2</text>
+    <text x="502" y="292" class="label stage-title">Generate</text>
+    <text x="502" y="322" class="label stage-title">grounded QA</text>
+    <text x="502" y="364" class="muted tiny">artifact extraction</text>
+    <text x="502" y="389" class="muted tiny">multi-hop questions</text>
+  </g>
+
+  <line x1="678" y1="308" x2="713" y2="308" stroke="#3d566f" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="720" y="196" width="202" height="224" rx="18" fill="url(#stage)" stroke="#c8d8e5"/>
+    <circle cx="760" cy="240" r="24" fill="#008bd2"/>
+    <text x="753" y="248" class="stage-number">3</text>
+    <text x="746" y="292" class="label stage-title">Deduplicate</text>
+    <text x="746" y="322" class="label stage-title">and judge</text>
+    <text x="746" y="364" class="muted tiny">embedding-dedup</text>
+    <text x="746" y="389" class="muted tiny">quality filtering</text>
+  </g>
+
+  <line x1="922" y1="308" x2="957" y2="308" stroke="#3d566f" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="964" y="196" width="168" height="224" rx="18" fill="#f5fbff" stroke="#bfd3e4"/>
+    <circle cx="1004" cy="240" r="24" fill="#008bd2"/>
+    <text x="997" y="248" class="stage-number">4</text>
+    <text x="990" y="292" class="label stage-title">Convert</text>
+    <text x="990" y="334" class="muted tiny">training files</text>
+    <text x="990" y="359" class="muted tiny">BEIR eval</text>
+    <text x="990" y="384" class="muted tiny">corpus metadata</text>
+  </g>
+
+  <line x1="1048" y1="420" x2="1048" y2="464" stroke="#3d566f" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="260" y="472" width="872" height="100" rx="18" fill="#f8fafc" stroke="#d4dde6"/>
+    <text x="292" y="509" class="label" font-size="23" font-weight="760">Converted outputs</text>
+    <line x1="510" y1="492" x2="510" y2="554" stroke="#d4dde6" stroke-width="2"/>
+    <line x1="746" y1="492" x2="746" y2="554" stroke="#d4dde6" stroke-width="2"/>
+    <text x="292" y="541" class="muted small">train.json, val.json</text>
+    <text x="532" y="519" class="muted small">corpus/train.parquet</text>
+    <text x="532" y="546" class="muted small">queries.jsonl, qrels/test.tsv</text>
+    <text x="768" y="519" class="muted small">NVDocs and recipe bootstrap</text>
+    <text x="768" y="546" class="muted small">AutoModel-compatible retrieval data</text>
+  </g>
+</svg>

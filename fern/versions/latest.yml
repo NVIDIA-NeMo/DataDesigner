@@ -169,6 +169,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Retriever SDG Toolkit
+        path: ./latest/pages/devnotes/posts/retrieval-sdg-toolkit.mdx
       - page: VLM Long Document Understanding
         path: ./latest/pages/devnotes/posts/vlm-long-document-understanding.mdx
       - page: Push Datasets to Hugging Face Hub
