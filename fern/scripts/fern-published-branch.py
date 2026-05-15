@@ -29,6 +29,7 @@ SKIP_NAMES = {
     ".pytest_cache",
     ".ruff_cache",
     ".venv",
+    "__pycache__",
     "dist",
     "site",
 }
@@ -212,7 +213,7 @@ def write_publish_metadata(published_root: Path, args: argparse.Namespace, actio
 
 
 def ignore_source(_dir: str, names: list[str]) -> set[str]:
-    return {name for name in names if name in SKIP_NAMES or name == "__pycache__"}
+    return {name for name in names if name in SKIP_NAMES}
 
 
 def copy_path(source: Path, target: Path) -> None:
