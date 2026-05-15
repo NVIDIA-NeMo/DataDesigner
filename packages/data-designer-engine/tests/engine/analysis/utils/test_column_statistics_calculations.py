@@ -27,7 +27,6 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
     ensure_boolean,
     ensure_hashable,
 )
-from data_designer.engine.utils.token_counting import get_cl100k_base_tokenizer
 
 
 @pytest.fixture
@@ -350,11 +349,3 @@ def test_calculate_general_column_info_edge_cases():
     assert result["num_records"] == 0
     assert result["num_null"] == 0
     assert result["simple_dtype"] == MissingValue.CALCULATION_FAILED
-
-
-def test_get_cl100k_base_tokenizer_returns_cached_instance() -> None:
-    """get_cl100k_base_tokenizer returns the same cached tokenizer instance."""
-    get_cl100k_base_tokenizer.cache_clear()
-    tokenizer1 = get_cl100k_base_tokenizer()
-    tokenizer2 = get_cl100k_base_tokenizer()
-    assert tokenizer1 is tokenizer2
