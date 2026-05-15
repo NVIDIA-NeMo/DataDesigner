@@ -101,8 +101,8 @@ jobs:
             workflow="$1"
             shift
 
-            last_run_id=$(gh run list --workflow "$workflow" --status success "$@" --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
-            if [ -n "$last_run_id" ] && gh run download "$last_run_id" --name notebooks --dir website/docs/notebooks; then
+            last_run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --status success "$@" --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
+            if [ -n "$last_run_id" ] && gh run download "$last_run_id" --repo "$GITHUB_REPOSITORY" --name notebooks --dir website/docs/notebooks; then
               echo "::notice::Downloaded notebooks from $workflow run $last_run_id"
               exit 0
             fi
