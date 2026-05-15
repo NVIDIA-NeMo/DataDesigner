@@ -282,8 +282,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 discarded before generation continues.
             artifact_path: Optional artifact root for this create call. Defaults
                 to the path configured on this DataDesigner instance.
-            on_batch_complete: Optional callback called with the completed batch
-                artifact path after each batch is written.
+            on_batch_complete: Optional callback called with the completed batch artifact path after
+                each batch is written. Useful for incremental workflows such as uploading each batch
+                to remote storage, updating an external run monitor, or triggering downstream processing
+                before the full dataset has finished. The callback runs synchronously in the generation
+                path, so it is recommended to keep it lightweight or delegate slow work to a queue, e.g.
+                ``on_batch_complete=lambda path: queue_upload(path)``.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
