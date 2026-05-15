@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from functools import lru_cache
 from typing import Any
 
 from data_designer.config.utils.image_helpers import (
@@ -44,6 +45,7 @@ def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
         images=images,
     )
     usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
+    usage = fill_reasoning_tokens_from_content(usage, assistant_message.reasoning_content)
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
@@ -59,6 +61,7 @@ async def aparse_chat_completion_response(response: Any) -> ChatCompletionRespon
         images=images,
     )
     usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
+    usage = fill_reasoning_tokens_from_content(usage, assistant_message.reasoning_content)
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
@@ -315,6 +318,31 @@ def extract_reasoning_tokens(raw_usage: Any) -> Any:
             return reasoning_tokens
 
     return None
+
+
+def fill_reasoning_tokens_from_content(usage: Usage | None, reasoning_content: str | None) -> Usage | None:
+    if usage is None or usage.reasoning_tokens is not None or not reasoning_content:
+        return usage
+
+    reasoning_tokens = estimate_text_tokens(reasoning_content)
+    if reasoning_tokens is not None:
+        usage.reasoning_tokens = reasoning_tokens
+    return usage
+
+
+def estimate_text_tokens(text: str) -> int | None:
+    try:
+        return len(_get_tokenizer().encode(text, disallowed_special=()))
+    except Exception:
+        logger.debug("Failed to estimate reasoning token count", exc_info=True)
+        return None
+
+
+@lru_cache(maxsize=1)
+def _get_tokenizer() -> Any:
+    import tiktoken
+
+    return tiktoken.get_encoding("cl100k_base")
 
 
 def extract_embedding_vector(item: Any) -> list[float]:

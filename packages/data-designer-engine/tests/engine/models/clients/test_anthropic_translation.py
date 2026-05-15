@@ -237,7 +237,9 @@ def test_merge_system_parts_normalizes_supported_inputs(
     assert merge_system_parts(parts) == expected
 
 
-def test_parse_anthropic_response_maps_tool_use_and_thinking() -> None:
+def test_parse_anthropic_response_maps_tool_use_and_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.estimate_text_tokens", lambda text: 4)
+
     response = parse_anthropic_response(
         {
             "content": [
@@ -254,7 +256,7 @@ def test_parse_anthropic_response_maps_tool_use_and_thinking() -> None:
     assert response.usage is not None
     assert response.usage.input_tokens == 10
     assert response.usage.output_tokens == 5
-    assert response.usage.reasoning_tokens is None
+    assert response.usage.reasoning_tokens == 4
     assert json.loads(response.message.tool_calls[0].arguments_json) == {"query": "weather"}
 
 

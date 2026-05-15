@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any
 
-from data_designer.engine.models.clients.parsing import extract_usage
+from data_designer.engine.models.clients.parsing import extract_usage, fill_reasoning_tokens_from_content
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
     ChatCompletionRequest,
@@ -100,6 +100,7 @@ def parse_anthropic_response(response_json: dict[str, Any]) -> ChatCompletionRes
     usage: Usage | None = None
     if raw_usage:
         usage = extract_usage(raw_usage)
+        usage = fill_reasoning_tokens_from_content(usage, message.reasoning_content)
 
     return ChatCompletionResponse(message=message, usage=usage, raw=response_json)
 

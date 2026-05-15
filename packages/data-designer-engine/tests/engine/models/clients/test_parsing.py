@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import pytest
 
-from data_designer.engine.models.clients.parsing import extract_reasoning_content, extract_tool_calls, extract_usage
+from data_designer.engine.models.clients.parsing import (
+    extract_reasoning_content,
+    extract_tool_calls,
+    extract_usage,
+    parse_chat_completion_response,
+)
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     EmbeddingRequest,
@@ -298,3 +303,43 @@ def test_extract_usage_reasoning_tokens_are_not_added_to_output_or_total_tokens(
     assert usage.output_tokens == 7
     assert usage.reasoning_tokens == 4
     assert usage.total_tokens == 17
+
+
+def test_parse_chat_completion_estimates_reasoning_tokens_from_reasoning_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.estimate_text_tokens", lambda text: 6)
+
+    response = {
+        "choices": [{"message": {"role": "assistant", "content": "final answer", "reasoning": "hidden thinking"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 7, "total_tokens": 17},
+    }
+
+    result = parse_chat_completion_response(response)
+
+    assert result.usage is not None
+    assert result.usage.input_tokens == 10
+    assert result.usage.output_tokens == 7
+    assert result.usage.reasoning_tokens == 6
+    assert result.usage.total_tokens == 17
+
+
+def test_parse_chat_completion_prefers_provider_reasoning_token_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.estimate_text_tokens", lambda text: 999)
+
+    response = {
+        "choices": [{"message": {"role": "assistant", "content": "final answer", "reasoning": "hidden thinking"}}],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 7,
+            "completion_tokens_details": {"reasoning_tokens": 4},
+            "total_tokens": 17,
+        },
+    }
+
+    result = parse_chat_completion_response(response)
+
+    assert result.usage is not None
+    assert result.usage.reasoning_tokens == 4
