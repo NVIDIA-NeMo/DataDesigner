@@ -32,8 +32,6 @@ def format_reasoning_tokens(reasoning_tokens: int | None, source: TokenCountSour
         return "unknown"
     if source == TokenCountSource.ESTIMATED or source == TokenCountSource.ESTIMATED.value:
         return f"{reasoning_tokens} (estimated)"
-    if source == TokenCountSource.MIXED or source == TokenCountSource.MIXED.value:
-        return f"{reasoning_tokens} (mixed)"
     return str(reasoning_tokens)
 
 
@@ -142,8 +140,6 @@ class ModelRegistry:
             )
             if token_usage.get("reasoning_token_count_source") == TokenCountSource.ESTIMATED.value:
                 logger.info(f"{LOG_INDENT}reasoning token count estimated with tiktoken")
-            elif token_usage.get("reasoning_token_count_source") == TokenCountSource.MIXED.value:
-                logger.info(f"{LOG_INDENT}reasoning token count combines provider-reported and estimated counts")
 
             request_usage = stats["request_usage"]
             successful_requests = request_usage["successful_requests"]

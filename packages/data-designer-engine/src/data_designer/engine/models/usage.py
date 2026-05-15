@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 class TokenCountSource(str, Enum):
     PROVIDER = "provider"
     ESTIMATED = "estimated"
-    MIXED = "mixed"
 
 
 class TokenUsageStats(BaseModel):
@@ -73,9 +72,9 @@ def merge_token_count_sources(
 
     current_source = TokenCountSource(current)
     incoming_source = TokenCountSource(incoming)
-    if current_source == incoming_source:
-        return current_source.value
-    return TokenCountSource.MIXED.value
+    if current_source == TokenCountSource.ESTIMATED or incoming_source == TokenCountSource.ESTIMATED:
+        return TokenCountSource.ESTIMATED.value
+    return TokenCountSource.PROVIDER.value
 
 
 class RequestUsageStats(BaseModel):

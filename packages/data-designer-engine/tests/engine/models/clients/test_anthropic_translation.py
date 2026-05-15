@@ -239,7 +239,7 @@ def test_merge_system_parts_normalizes_supported_inputs(
 
 
 def test_parse_anthropic_response_maps_tool_use_and_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("data_designer.engine.models.clients.parsing.estimate_text_tokens", lambda text: 4)
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", lambda text: 4)
 
     response = parse_anthropic_response(
         {

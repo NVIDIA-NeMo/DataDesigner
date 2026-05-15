@@ -44,7 +44,7 @@ def test_token_usage_stats_reasoning_source_is_required() -> None:
         TokenUsageStats(reasoning_token_count_source=TokenCountSource.ESTIMATED)
 
 
-def test_token_usage_stats_merges_reasoning_sources() -> None:
+def test_token_usage_stats_uses_estimated_source_when_any_count_is_estimated() -> None:
     token_usage_stats = TokenUsageStats()
 
     token_usage_stats.extend(
@@ -69,7 +69,7 @@ def test_token_usage_stats_merges_reasoning_sources() -> None:
         reasoning_token_count_source=TokenCountSource.ESTIMATED,
     )
     assert token_usage_stats.reasoning_tokens == 15
-    assert token_usage_stats.reasoning_token_count_source == TokenCountSource.MIXED
+    assert token_usage_stats.reasoning_token_count_source == TokenCountSource.ESTIMATED
 
 
 def test_request_usage_stats() -> None:

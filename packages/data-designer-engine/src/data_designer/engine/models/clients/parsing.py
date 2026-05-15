@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from functools import lru_cache
 from typing import Any
 
 from data_designer.config.utils.image_helpers import (
@@ -25,6 +24,7 @@ from data_designer.engine.models.clients.types import (
     Usage,
 )
 from data_designer.engine.models.usage import TokenCountSource
+from data_designer.engine.utils.token_counting import count_text_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -327,26 +327,13 @@ def fill_reasoning_tokens_from_content(usage: Usage | None, reasoning_content: s
     if usage is None or usage.reasoning_tokens is not None or not reasoning_content:
         return usage
 
-    reasoning_tokens = estimate_text_tokens(reasoning_content)
-    if reasoning_tokens is not None:
-        usage.reasoning_tokens = reasoning_tokens
-        usage.reasoning_token_count_source = TokenCountSource.ESTIMATED
-    return usage
-
-
-def estimate_text_tokens(text: str) -> int | None:
     try:
-        return len(_get_tokenizer().encode(text, disallowed_special=()))
+        usage.reasoning_tokens = count_text_tokens(reasoning_content)
     except Exception:
         logger.debug("Failed to estimate reasoning token count", exc_info=True)
-        return None
-
-
-@lru_cache(maxsize=1)
-def _get_tokenizer() -> Any:
-    import tiktoken
-
-    return tiktoken.get_encoding("cl100k_base")
+        return usage
+    usage.reasoning_token_count_source = TokenCountSource.ESTIMATED
+    return usage
 
 
 def extract_embedding_vector(item: Any) -> list[float]:

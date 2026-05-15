@@ -313,7 +313,7 @@ def test_extract_usage_reasoning_tokens_are_not_added_to_output_or_total_tokens(
 def test_parse_chat_completion_estimates_reasoning_tokens_from_reasoning_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("data_designer.engine.models.clients.parsing.estimate_text_tokens", lambda text: 6)
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", lambda text: 6)
 
     response = {
         "choices": [{"message": {"role": "assistant", "content": "final answer", "reasoning": "hidden thinking"}}],
@@ -333,7 +333,7 @@ def test_parse_chat_completion_estimates_reasoning_tokens_from_reasoning_content
 def test_parse_chat_completion_prefers_provider_reasoning_token_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("data_designer.engine.models.clients.parsing.estimate_text_tokens", lambda text: 999)
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", lambda text: 999)
 
     response = {
         "choices": [{"message": {"role": "assistant", "content": "final answer", "reasoning": "hidden thinking"}}],
