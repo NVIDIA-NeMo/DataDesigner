@@ -27,13 +27,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def format_reasoning_tokens(reasoning_tokens: int, source: TokenCountSource | str | None) -> str:
+def format_reasoning_token_count(reasoning_token_count: int, source: TokenCountSource | str | None) -> str:
     if source == TokenCountSource.ESTIMATED or source == TokenCountSource.ESTIMATED.value:
-        return f"{reasoning_tokens} (estimated)"
-    return str(reasoning_tokens)
+        return f"{reasoning_token_count} (estimated)"
+    return str(reasoning_token_count)
 
 
-def get_token_delta(current: int | None, previous: int | None) -> int | None:
+def get_token_count_delta(current: int | None, previous: int | None) -> int | None:
     if current is None:
         return None
     return current - (previous or 0)
@@ -128,10 +128,12 @@ class ModelRegistry:
             total_tokens = token_usage["total_tokens"]
             tokens_per_second = stats["tokens_per_second"]
             token_parts = [f"input={input_tokens}", f"output={output_tokens}"]
-            if (reasoning_tokens := token_usage.get("reasoning_tokens")) is not None:
-                token_parts.append(
-                    f"reasoning={format_reasoning_tokens(reasoning_tokens, token_usage.get('reasoning_token_count_source'))}"
+            if (reasoning_token_count := token_usage.get("reasoning_tokens")) is not None:
+                formatted_reasoning_token_count = format_reasoning_token_count(
+                    reasoning_token_count,
+                    token_usage.get("reasoning_token_count_source"),
                 )
+                token_parts.append(f"reasoning={formatted_reasoning_token_count}")
             token_parts.extend([f"total={total_tokens}", f"tps={tokens_per_second}"])
             logger.info(f"{LOG_INDENT}tokens: {', '.join(token_parts)}")
             if token_usage.get("reasoning_token_count_source") == TokenCountSource.ESTIMATED.value:
@@ -178,7 +180,7 @@ class ModelRegistry:
             prev = snapshot.get(model_name)
             delta_input = current.token_usage.input_tokens - (prev.token_usage.input_tokens if prev else 0)
             delta_output = current.token_usage.output_tokens - (prev.token_usage.output_tokens if prev else 0)
-            delta_reasoning = get_token_delta(
+            delta_reasoning_token_count = get_token_count_delta(
                 current.token_usage.reasoning_tokens,
                 prev.token_usage.reasoning_tokens if prev else None,
             )
@@ -190,7 +192,7 @@ class ModelRegistry:
             if (
                 delta_input > 0
                 or delta_output > 0
-                or (delta_reasoning is not None and delta_reasoning > 0)
+                or (delta_reasoning_token_count is not None and delta_reasoning_token_count > 0)
                 or delta_successful > 0
                 or delta_failed > 0
             ):
@@ -198,9 +200,9 @@ class ModelRegistry:
                     token_usage=TokenUsageStats(
                         input_tokens=delta_input,
                         output_tokens=delta_output,
-                        reasoning_tokens=delta_reasoning,
+                        reasoning_tokens=delta_reasoning_token_count,
                         reasoning_token_count_source=current.token_usage.reasoning_token_count_source
-                        if delta_reasoning is not None
+                        if delta_reasoning_token_count is not None
                         else None,
                     ),
                     request_usage=RequestUsageStats(successful_requests=delta_successful, failed_requests=delta_failed),

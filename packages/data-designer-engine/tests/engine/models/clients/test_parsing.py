@@ -263,7 +263,7 @@ def test_extract_reasoning_content_works_with_object_style_message() -> None:
 
 
 @pytest.mark.parametrize(
-    ("raw_usage", "expected_reasoning_tokens"),
+    ("raw_usage", "expected_reasoning_token_count"),
     [
         pytest.param(
             {"prompt_tokens": 10, "completion_tokens": 7, "completion_tokens_details": {"reasoning_tokens": 4}},
@@ -287,17 +287,20 @@ def test_extract_reasoning_content_works_with_object_style_message() -> None:
         ),
     ],
 )
-def test_extract_usage_reasoning_tokens(raw_usage: dict[str, object], expected_reasoning_tokens: int | None) -> None:
+def test_extract_usage_reasoning_token_count(
+    raw_usage: dict[str, object],
+    expected_reasoning_token_count: int | None,
+) -> None:
     usage = extract_usage(raw_usage)
 
     assert usage is not None
-    assert usage.reasoning_tokens == expected_reasoning_tokens
+    assert usage.reasoning_tokens == expected_reasoning_token_count
     assert usage.reasoning_token_count_source == (
-        TokenCountSource.PROVIDER if expected_reasoning_tokens is not None else None
+        TokenCountSource.PROVIDER if expected_reasoning_token_count is not None else None
     )
 
 
-def test_extract_usage_reasoning_tokens_are_not_added_to_output_or_total_tokens() -> None:
+def test_extract_usage_reasoning_token_count_is_not_added_to_output_or_total_tokens() -> None:
     usage = extract_usage(
         {"prompt_tokens": 10, "completion_tokens": 7, "completion_tokens_details": {"reasoning_tokens": 4}}
     )
@@ -310,7 +313,7 @@ def test_extract_usage_reasoning_tokens_are_not_added_to_output_or_total_tokens(
     assert usage.total_tokens == 17
 
 
-def test_parse_chat_completion_estimates_reasoning_tokens_from_reasoning_content(
+def test_parse_chat_completion_estimates_reasoning_token_count_from_reasoning_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", lambda text: 6)
