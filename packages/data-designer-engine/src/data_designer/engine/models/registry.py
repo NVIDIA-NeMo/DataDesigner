@@ -160,14 +160,19 @@ class ModelRegistry:
             prev = snapshot.get(model_name)
             delta_input = current.token_usage.input_tokens - (prev.token_usage.input_tokens if prev else 0)
             delta_output = current.token_usage.output_tokens - (prev.token_usage.output_tokens if prev else 0)
+            delta_reasoning = current.token_usage.reasoning_tokens - (prev.token_usage.reasoning_tokens if prev else 0)
             delta_successful = current.request_usage.successful_requests - (
                 prev.request_usage.successful_requests if prev else 0
             )
             delta_failed = current.request_usage.failed_requests - (prev.request_usage.failed_requests if prev else 0)
 
-            if delta_input > 0 or delta_output > 0 or delta_successful > 0 or delta_failed > 0:
+            if delta_input > 0 or delta_output > 0 or delta_reasoning > 0 or delta_successful > 0 or delta_failed > 0:
                 deltas[model_name] = ModelUsageStats(
-                    token_usage=TokenUsageStats(input_tokens=delta_input, output_tokens=delta_output),
+                    token_usage=TokenUsageStats(
+                        input_tokens=delta_input,
+                        output_tokens=delta_output,
+                        reasoning_tokens=delta_reasoning,
+                    ),
                     request_usage=RequestUsageStats(successful_requests=delta_successful, failed_requests=delta_failed),
                 )
         return deltas

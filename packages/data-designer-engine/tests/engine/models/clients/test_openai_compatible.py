@@ -46,6 +46,7 @@ def _make_client(
 def _chat_response(
     content: str = "Hello!",
     reasoning: str | None = None,
+    reasoning_tokens: int | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": content}
@@ -55,7 +56,12 @@ def _chat_response(
         message["tool_calls"] = tool_calls
     return {
         "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "completion_tokens_details": {"reasoning_tokens": reasoning_tokens} if reasoning_tokens is not None else {},
+            "total_tokens": 15,
+        },
     }
 
 
@@ -74,7 +80,7 @@ def _image_response() -> dict[str, Any]:
 
 
 def test_completion_maps_canonical_fields() -> None:
-    response_json = _chat_response(content="Hello!", reasoning="step-by-step")
+    response_json = _chat_response(content="Hello!", reasoning="step-by-step", reasoning_tokens=3)
     client = _make_client(sync_client=make_mock_sync_client(response_json))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
@@ -85,6 +91,7 @@ def test_completion_maps_canonical_fields() -> None:
     assert result.usage is not None
     assert result.usage.input_tokens == 10
     assert result.usage.output_tokens == 5
+    assert result.usage.reasoning_tokens == 3
 
 
 def test_completion_with_tool_calls() -> None:

@@ -229,7 +229,7 @@ def test_get_usage_deltas(
         # Empty snapshot, then add usage
         pre_snapshot: dict[str, ModelUsageStats] = {}
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(input_tokens=50, output_tokens=100),
+            token_usage=TokenUsageStats(input_tokens=50, output_tokens=100, reasoning_tokens=20),
             request_usage=RequestUsageStats(successful_requests=5, failed_requests=1),
         )
 
@@ -238,19 +238,20 @@ def test_get_usage_deltas(
         assert set(deltas.keys()) == set(expected_keys)
         assert deltas["stub-model-text"].token_usage.input_tokens == 50
         assert deltas["stub-model-text"].token_usage.output_tokens == 100
+        assert deltas["stub-model-text"].token_usage.reasoning_tokens == 20
         assert deltas["stub-model-text"].request_usage.successful_requests == 5
         assert deltas["stub-model-text"].request_usage.failed_requests == 1
 
     elif test_case == "with_prior_usage":
         # Add initial usage, take snapshot, add more usage
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200),
+            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200, reasoning_tokens=40),
             request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
         )
         pre_snapshot = stub_model_registry.get_model_usage_snapshot()
 
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(input_tokens=50, output_tokens=75),
+            token_usage=TokenUsageStats(input_tokens=50, output_tokens=75, reasoning_tokens=15),
             request_usage=RequestUsageStats(successful_requests=3, failed_requests=1),
         )
 
@@ -259,6 +260,7 @@ def test_get_usage_deltas(
         assert set(deltas.keys()) == set(expected_keys)
         assert deltas["stub-model-text"].token_usage.input_tokens == 50
         assert deltas["stub-model-text"].token_usage.output_tokens == 75
+        assert deltas["stub-model-text"].token_usage.reasoning_tokens == 15
         assert deltas["stub-model-text"].request_usage.successful_requests == 3
         assert deltas["stub-model-text"].request_usage.failed_requests == 1
 

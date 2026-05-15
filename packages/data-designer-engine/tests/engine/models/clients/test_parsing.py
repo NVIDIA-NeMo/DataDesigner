@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_designer.engine.models.clients.parsing import extract_reasoning_content, extract_tool_calls
+from data_designer.engine.models.clients.parsing import extract_reasoning_content, extract_tool_calls, extract_usage
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     EmbeddingRequest,
@@ -251,3 +251,50 @@ def test_extract_reasoning_content_works_with_object_style_message() -> None:
         reasoning_content = "legacy object"
 
     assert extract_reasoning_content(Msg()) == "from object"
+
+
+# --- extract_usage ---
+
+
+@pytest.mark.parametrize(
+    ("raw_usage", "expected_reasoning_tokens"),
+    [
+        pytest.param(
+            {"prompt_tokens": 10, "completion_tokens": 7, "completion_tokens_details": {"reasoning_tokens": 4}},
+            4,
+            id="openai-chat-completions",
+        ),
+        pytest.param(
+            {"input_tokens": 10, "output_tokens": 7, "output_tokens_details": {"reasoning_tokens": "4"}},
+            4,
+            id="openai-responses",
+        ),
+        pytest.param(
+            {"input_tokens": 10, "output_tokens": 7, "reasoning_tokens": 4},
+            4,
+            id="top-level-provider-variant",
+        ),
+        pytest.param(
+            {"input_tokens": 10, "output_tokens": 7},
+            None,
+            id="not-reported",
+        ),
+    ],
+)
+def test_extract_usage_reasoning_tokens(raw_usage: dict[str, object], expected_reasoning_tokens: int | None) -> None:
+    usage = extract_usage(raw_usage)
+
+    assert usage is not None
+    assert usage.reasoning_tokens == expected_reasoning_tokens
+
+
+def test_extract_usage_reasoning_tokens_are_not_added_to_output_or_total_tokens() -> None:
+    usage = extract_usage(
+        {"prompt_tokens": 10, "completion_tokens": 7, "completion_tokens_details": {"reasoning_tokens": 4}}
+    )
+
+    assert usage is not None
+    assert usage.input_tokens == 10
+    assert usage.output_tokens == 7
+    assert usage.reasoning_tokens == 4
+    assert usage.total_tokens == 17

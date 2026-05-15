@@ -10,11 +10,13 @@ import pytest
 
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.clients.types import (
+    AssistantMessage,
     ChatCompletionResponse,
     EmbeddingResponse,
     ImageGenerationResponse,
     ImagePayload,
     ToolCall,
+    Usage,
 )
 from data_designer.engine.models.errors import ImageGenerationError, ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
@@ -199,6 +201,24 @@ def test_model_alias_property(stub_model_facade: ModelFacade, stub_model_configs
 def test_usage_stats_property(stub_model_facade: ModelFacade) -> None:
     assert stub_model_facade.usage_stats is not None
     assert hasattr(stub_model_facade.usage_stats, "model_dump")
+
+
+def test_completion_tracks_reasoning_tokens_without_changing_output_tokens(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.completion.return_value = ChatCompletionResponse(
+        message=AssistantMessage(content="ok"),
+        usage=Usage(input_tokens=10, output_tokens=8, reasoning_tokens=3),
+    )
+
+    stub_model_facade.completion([ChatMessage.as_user("hi")])
+
+    token_usage = stub_model_facade.usage_stats.token_usage
+    assert token_usage.input_tokens == 10
+    assert token_usage.output_tokens == 8
+    assert token_usage.reasoning_tokens == 3
+    assert token_usage.total_tokens == 18
 
 
 def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:

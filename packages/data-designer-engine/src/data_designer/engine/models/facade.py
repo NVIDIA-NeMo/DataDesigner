@@ -814,6 +814,7 @@ class ModelFacade:
             token_usage = TokenUsageStats(
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens or 0,
+                reasoning_tokens=usage.reasoning_tokens or 0,
             )
 
         self._usage_stats.extend(

@@ -253,6 +253,8 @@ def test_parse_anthropic_response_maps_tool_use_and_thinking() -> None:
     assert response.message.reasoning_content == "Let me reason."
     assert response.usage is not None
     assert response.usage.input_tokens == 10
+    assert response.usage.output_tokens == 5
+    assert response.usage.reasoning_tokens is None
     assert json.loads(response.message.tool_calls[0].arguments_json) == {"query": "weather"}
 
 

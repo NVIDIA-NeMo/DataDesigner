@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 class TokenUsageStats(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0
 
     @computed_field
     def total_tokens(self) -> int:
@@ -22,9 +23,10 @@ class TokenUsageStats(BaseModel):
     def has_usage(self) -> bool:
         return self.total_tokens > 0
 
-    def extend(self, *, input_tokens: int, output_tokens: int) -> None:
+    def extend(self, *, input_tokens: int, output_tokens: int, reasoning_tokens: int = 0) -> None:
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
+        self.reasoning_tokens += reasoning_tokens
 
 
 class RequestUsageStats(BaseModel):
@@ -102,7 +104,11 @@ class ModelUsageStats(BaseModel):
         image_usage: ImageUsageStats | None = None,
     ) -> None:
         if token_usage is not None:
-            self.token_usage.extend(input_tokens=token_usage.input_tokens, output_tokens=token_usage.output_tokens)
+            self.token_usage.extend(
+                input_tokens=token_usage.input_tokens,
+                output_tokens=token_usage.output_tokens,
+                reasoning_tokens=token_usage.reasoning_tokens,
+            )
         if request_usage is not None:
             self.request_usage.extend(
                 successful_requests=request_usage.successful_requests, failed_requests=request_usage.failed_requests

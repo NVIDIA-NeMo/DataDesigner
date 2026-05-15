@@ -14,12 +14,14 @@ def test_token_usage_stats() -> None:
     token_usage_stats = TokenUsageStats()
     assert token_usage_stats.input_tokens == 0
     assert token_usage_stats.output_tokens == 0
+    assert token_usage_stats.reasoning_tokens == 0
     assert token_usage_stats.total_tokens == 0
     assert token_usage_stats.has_usage is False
 
-    token_usage_stats.extend(input_tokens=10, output_tokens=20)
+    token_usage_stats.extend(input_tokens=10, output_tokens=20, reasoning_tokens=5)
     assert token_usage_stats.input_tokens == 10
     assert token_usage_stats.output_tokens == 20
+    assert token_usage_stats.reasoning_tokens == 5
     assert token_usage_stats.total_tokens == 30
     assert token_usage_stats.has_usage is True
 
@@ -157,25 +159,26 @@ def test_model_usage_stats() -> None:
 
     # tool_usage and image_usage are excluded when has_usage is False
     assert model_usage_stats.get_usage_stats(total_time_elapsed=10) == {
-        "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "token_usage": {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0},
         "request_usage": {"successful_requests": 0, "failed_requests": 0, "total_requests": 0},
         "tokens_per_second": 0,
         "requests_per_minute": 0,
     }
 
     model_usage_stats.extend(
-        token_usage=TokenUsageStats(input_tokens=10, output_tokens=20),
+        token_usage=TokenUsageStats(input_tokens=10, output_tokens=20, reasoning_tokens=7),
         request_usage=RequestUsageStats(successful_requests=2, failed_requests=1),
     )
     assert model_usage_stats.token_usage.input_tokens == 10
     assert model_usage_stats.token_usage.output_tokens == 20
+    assert model_usage_stats.token_usage.reasoning_tokens == 7
     assert model_usage_stats.request_usage.successful_requests == 2
     assert model_usage_stats.request_usage.failed_requests == 1
     assert model_usage_stats.has_usage is True
 
     # tool_usage and image_usage are excluded when has_usage is False
     assert model_usage_stats.get_usage_stats(total_time_elapsed=2) == {
-        "token_usage": {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
+        "token_usage": {"input_tokens": 10, "output_tokens": 20, "reasoning_tokens": 7, "total_tokens": 30},
         "request_usage": {"successful_requests": 2, "failed_requests": 1, "total_requests": 3},
         "tokens_per_second": 15,
         "requests_per_minute": 90,

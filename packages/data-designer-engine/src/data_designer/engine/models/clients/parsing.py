@@ -260,6 +260,7 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     input_tokens = get_value_from(raw_usage, "prompt_tokens")
     output_tokens = get_value_from(raw_usage, "completion_tokens")
     total_tokens = get_value_from(raw_usage, "total_tokens")
+    reasoning_tokens = extract_reasoning_tokens(raw_usage)
 
     if input_tokens is None:
         input_tokens = get_value_from(raw_usage, "input_tokens")
@@ -269,6 +270,7 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     input_tokens = coerce_to_int_or_none(input_tokens)
     output_tokens = coerce_to_int_or_none(output_tokens)
     total_tokens = coerce_to_int_or_none(total_tokens)
+    reasoning_tokens = coerce_to_int_or_none(reasoning_tokens)
 
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
         total_tokens = input_tokens + output_tokens
@@ -280,15 +282,39 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
 
     generated_images = coerce_to_int_or_none(generated_images)
 
-    if input_tokens is None and output_tokens is None and total_tokens is None and generated_images is None:
+    if (
+        input_tokens is None
+        and output_tokens is None
+        and total_tokens is None
+        and reasoning_tokens is None
+        and generated_images is None
+    ):
         return None
 
     return Usage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
+        reasoning_tokens=reasoning_tokens,
         generated_images=generated_images,
     )
+
+
+def extract_reasoning_tokens(raw_usage: Any) -> Any:
+    if raw_usage is None:
+        return None
+
+    top_level = get_value_from(raw_usage, "reasoning_tokens")
+    if top_level is not None:
+        return top_level
+
+    for details_key in ("completion_tokens_details", "output_tokens_details"):
+        details = get_value_from(raw_usage, details_key)
+        reasoning_tokens = get_value_from(details, "reasoning_tokens")
+        if reasoning_tokens is not None:
+            return reasoning_tokens
+
+    return None
 
 
 def extract_embedding_vector(item: Any) -> list[float]:
