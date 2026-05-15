@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
+from copy import copy
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
@@ -673,7 +674,9 @@ class SeedReaderRegistry:
         return self
 
     def get_reader(self, seed_dataset_source: SeedSource, secret_resolver: SecretResolver) -> SeedReader:
-        reader = self._get_reader_for_source(seed_dataset_source)
+        # attach() mutates top-level source/resolver state. Reader subclasses must
+        # not keep nested mutable state shared across attaches.
+        reader = copy(self._get_reader_for_source(seed_dataset_source))
         reader.attach(seed_dataset_source, secret_resolver)
         return reader
 

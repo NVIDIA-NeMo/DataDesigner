@@ -412,7 +412,9 @@ def test_get_reader_basic():
 
     reader = registry.get_reader(local_seed_config, PlaintextResolver())
 
-    assert reader == df_reader
+    assert isinstance(reader, DataFrameSeedReader)
+    assert reader is not df_reader
+    assert reader.source is local_seed_config
 
 
 def test_get_reader_missing():

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import warnings
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
@@ -62,6 +64,7 @@ from data_designer.engine.secret_resolver import (
     SecretResolver,
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
+from data_designer.interface.composite_workflow import CompositeWorkflow
 from data_designer.interface.errors import (
     DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
@@ -73,6 +76,7 @@ from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
+    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
 
 logger = logging.getLogger(__name__)
@@ -151,6 +155,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
+        self._throttle_manager: ThrottleManager = self._create_throttle_manager()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
         # Only consult the YAML's `default:` key when we are also falling back to
@@ -236,6 +241,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         num_records: int = DEFAULT_NUM_RECORDS,
         dataset_name: str = "dataset",
         resume: ResumeMode = ResumeMode.NEVER,
+        artifact_path: Path | str | None = None,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -267,6 +273,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
                 In all resume modes, in-flight partial results from the interrupted run are
                 discarded before generation continues.
+            artifact_path: Optional artifact root for this create call. Defaults
+                to the path configured on this DataDesigner instance.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -279,7 +287,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         logger.info("🎨 Creating Data Designer dataset")
         self._log_jinja_rendering_engine_mode()
 
-        resource_provider = self._create_resource_provider(dataset_name, config_builder, resume=resume)
+        artifact_path = Path(artifact_path) if artifact_path is not None else self._artifact_path
+        resource_provider = self._create_resource_provider(
+            dataset_name,
+            config_builder,
+            resume=resume,
+            artifact_path=artifact_path,
+        )
 
         # ``DeprecationWarning`` is re-raised before the generic wrapper so that
         # ``warnings.warn(..., DeprecationWarning)`` calls inside the engine — most
@@ -356,7 +370,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             )
 
         try:
-            profiler = self._create_dataset_profiler(config_builder, resource_provider)
+            profiler_column_configs = config_builder.get_column_configs() or builder.data_designer_config.columns
+            profiler = self._create_dataset_profiler(
+                config_builder,
+                resource_provider,
+                column_configs=profiler_column_configs,
+            )
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
@@ -376,6 +395,21 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             dataset_metadata=dataset_metadata,
             task_traces=task_traces,
         )
+
+    async def acreate(
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        num_records: int = DEFAULT_NUM_RECORDS,
+        dataset_name: str = "dataset",
+        resume: ResumeMode = ResumeMode.NEVER,
+        artifact_path: Path | str | None = None,
+    ) -> DatasetCreationResults:
+        """Async wrapper for creating a dataset without blocking the caller's event loop."""
+        kwargs = {"num_records": num_records, "dataset_name": dataset_name, "resume": resume}
+        if artifact_path is not None:
+            kwargs["artifact_path"] = artifact_path
+        return await asyncio.to_thread(self.create, config_builder, **kwargs)
 
     def preview(
         self, config_builder: DataDesignerConfigBuilder, *, num_records: int = DEFAULT_NUM_RECORDS
@@ -462,6 +496,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             dataset_metadata=dataset_metadata,
             task_traces=builder.task_traces or None,
         )
+
+    def compose_workflow(self, *, name: str) -> CompositeWorkflow:
+        return CompositeWorkflow(name=name, data_designer=self)
 
     def _log_jinja_rendering_engine_mode(self) -> None:
         engine = JinjaRenderingEngine(self._run_config.jinja_rendering_engine)
@@ -551,6 +588,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             due to error-rate thresholds. Errors are still tracked for reporting.
         """
         self._run_config = run_config
+        self._throttle_manager = self._create_throttle_manager()
 
     def get_models(self, model_aliases: list[str]) -> dict[str, ModelFacade]:
         """Get a dict of ModelFacade instances for custom column development.
@@ -598,29 +636,37 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def _create_dataset_profiler(
-        self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        resource_provider: ResourceProvider,
+        *,
+        column_configs: list[ColumnConfigT] | None = None,
     ) -> DataDesignerDatasetProfiler:
         return DataDesignerDatasetProfiler(
             config=DatasetProfilerConfig(
-                column_configs=config_builder.get_column_configs(),
+                column_configs=column_configs or config_builder.get_column_configs(),
                 column_profiler_configs=config_builder.get_profilers(),
             ),
             resource_provider=resource_provider,
         )
 
     def _create_resource_provider(
-        self, dataset_name: str, config_builder: DataDesignerConfigBuilder, *, resume: ResumeMode = ResumeMode.NEVER
+        self,
+        dataset_name: str,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        resume: ResumeMode = ResumeMode.NEVER,
+        artifact_path: Path | None = None,
     ) -> ResourceProvider:
-        ArtifactStorage.mkdir_if_needed(self._artifact_path)
+        artifact_path = artifact_path or self._artifact_path
+        ArtifactStorage.mkdir_if_needed(artifact_path)
 
         seed_dataset_source = None
         if (seed_config := config_builder.get_seed_config()) is not None:
             seed_dataset_source = seed_config.source
 
         return create_resource_provider(
-            artifact_storage=ArtifactStorage(
-                artifact_path=self._artifact_path, dataset_name=dataset_name, resume=resume
-            ),
+            artifact_storage=ArtifactStorage(artifact_path=artifact_path, dataset_name=dataset_name, resume=resume),
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,
             model_provider_registry=self._model_provider_registry,
@@ -631,7 +677,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
             client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
+            throttle_manager=self._throttle_manager,
         )
+
+    def _create_throttle_manager(self) -> ThrottleManager:
+        from data_designer.engine.models.clients.throttle_manager import ThrottleManager
+
+        return ThrottleManager(self._run_config.throttle)
 
     @staticmethod
     def _resolve_client_concurrency_mode(config_builder: DataDesignerConfigBuilder) -> ClientConcurrencyMode:
