@@ -206,32 +206,32 @@ navigation:
   - section: Dev Notes
     contents:
       - page: Overview
-        path: ./v0.6.0/pages/devnotes/index.mdx
+        path: ./latest/pages/devnotes/index.mdx
       - page: Have It Your Way
-        path: ./v0.6.0/pages/devnotes/posts/have-it-your-way.mdx
+        path: ./latest/pages/devnotes/posts/have-it-your-way.mdx
       - page: VLM Long Document Understanding
-        path: ./v0.6.0/pages/devnotes/posts/vlm-long-document-understanding.mdx
+        path: ./latest/pages/devnotes/posts/vlm-long-document-understanding.mdx
       - page: Push Datasets to Hugging Face Hub
-        path: ./v0.6.0/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
+        path: ./latest/pages/devnotes/posts/push-datasets-to-hugging-face-hub.mdx
       - page: Text-to-SQL for Nemotron Super
-        path: ./v0.6.0/pages/devnotes/posts/text-to-sql.mdx
+        path: ./latest/pages/devnotes/posts/text-to-sql.mdx
       - page: Async All the Way Down
-        path: ./v0.6.0/pages/devnotes/posts/async-all-the-way-down.mdx
+        path: ./latest/pages/devnotes/posts/async-all-the-way-down.mdx
       - page: Owning the Model Stack
-        path: ./v0.6.0/pages/devnotes/posts/owning-the-model-stack.mdx
+        path: ./latest/pages/devnotes/posts/owning-the-model-stack.mdx
       - section: Older Dev Notes
         collapsed: true
         skip-slug: true
         contents:
           - page: Data Designer Got Skills
-            path: ./v0.6.0/pages/devnotes/posts/data-designer-got-skills.mdx
+            path: ./latest/pages/devnotes/posts/data-designer-got-skills.mdx
           - page: Search Agent
-            path: ./v0.6.0/pages/devnotes/posts/search-agent.mdx
+            path: ./latest/pages/devnotes/posts/search-agent.mdx
           - page: Structured Outputs from Nemotron
-            path: ./v0.6.0/pages/devnotes/posts/structured-outputs-from-nemotron.mdx
+            path: ./latest/pages/devnotes/posts/structured-outputs-from-nemotron.mdx
           - page: Deep Research Trajectories
-            path: ./v0.6.0/pages/devnotes/posts/deep-research-trajectories.mdx
+            path: ./latest/pages/devnotes/posts/deep-research-trajectories.mdx
           - page: Design Principles
-            path: ./v0.6.0/pages/devnotes/posts/design-principles.mdx
+            path: ./latest/pages/devnotes/posts/design-principles.mdx
           - page: RQA Dataset
-            path: ./v0.6.0/pages/devnotes/posts/rqa.mdx
+            path: ./latest/pages/devnotes/posts/rqa.mdx
