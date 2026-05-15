@@ -21,7 +21,7 @@ from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
-from data_designer.interface.composite_workflow import SkippedStageResult
+from data_designer.interface.composite_workflow import SkippedStageResult, SkippedStageStatus
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerWorkflowError
 from data_designer.interface.results import DatasetCreationResults
@@ -275,6 +275,7 @@ def test_composite_workflow_empty_callback_can_skip_downstream_stages(
     results = workflow.run()
 
     assert isinstance(results["copy"], SkippedStageResult)
+    assert results["copy"].status == SkippedStageStatus.SKIPPED_EMPTY_UPSTREAM
     assert results["copy"].upstream_stage == "base"
     with pytest.raises(DataDesignerWorkflowError, match="Final stage 'copy' was skipped"):
         results.load_dataset()
@@ -358,6 +359,23 @@ def test_composite_workflow_rejects_unknown_processor_stage_output(
 
     with pytest.raises(DataDesignerWorkflowError, match="not configured"):
         workflow.add_stage("base", _category_builder(stub_model_configs), output="processor:missing")
+
+
+def test_composite_workflow_rejects_duplicate_output_processor_names(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _category_builder(stub_model_configs)
+    stage.add_processor(SchemaTransformProcessorConfig(name="compact", template={"category": "{{ category }}"}))
+    workflow = _data_designer(stub_artifact_path, stub_model_providers).compose_workflow(name="duplicate-processor")
+
+    with pytest.raises(DataDesignerWorkflowError, match="distinct"):
+        workflow.add_stage(
+            "base",
+            stage,
+            output_processors=[SchemaTransformProcessorConfig(name="compact", template={"text": "{{ category }}"})],
+        )
 
 
 def test_composite_workflow_rejects_duplicate_stage_names(
@@ -512,6 +530,52 @@ def test_composite_workflow_can_seed_from_processor_output_callback(
     ]
 
 
+def test_composite_workflow_missing_callback_output_raises_workflow_error(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+
+    def missing_output(stage_path: Path) -> Path:
+        return stage_path / "callback-outputs" / "missing"
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="missing-callback"
+    )
+    workflow.add_stage("base", stage, num_records=1, on_success=missing_output)
+
+    with pytest.raises(DataDesignerWorkflowError, match="No parquet files found"):
+        workflow.run()
+
+
+def test_composite_workflow_callback_replaces_selected_output_before_counting(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada", "secret": "hidden"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage.add_processor(DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"]))
+
+    def use_main_output(stage_path: Path) -> Path:
+        return stage_path / "parquet-files"
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="callback-replaces-output"
+    )
+    workflow.add_stage(
+        "base",
+        stage,
+        num_records=1,
+        output="processor:drop_secret",
+        on_success=use_main_output,
+    )
+
+    assert workflow.run().load_dataset().to_dict(orient="records") == [{"name": "Ada", "persona": "Ada"}]
+
+
 def test_composite_workflow_runs_seeded_processor_only_stage(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -540,7 +604,7 @@ def test_composite_workflow_runs_seeded_processor_only_stage(
     assert final.to_dict(orient="records") == [{"name": "Ada", "public_name": "Ada", "final": "Ada final"}]
 
 
-def test_composite_workflow_postprocessors_transform_stage_output(
+def test_composite_workflow_output_processors_transform_stage_output(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_model_configs: list[ModelConfig],
@@ -551,24 +615,24 @@ def test_composite_workflow_postprocessors_transform_stage_output(
     stage_2 = _expression_builder(stub_model_configs, "final", "{{ public_name }} final")
 
     workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
-        name="postprocessor-stage"
+        name="output_processor-stage"
     )
     workflow.add_stage(
         "base",
         stage_1,
         num_records=1,
-        postprocessors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
     )
     workflow.add_stage("final", stage_2)
 
     results = workflow.run()
     base = results["base"].load_dataset()
     final = results.load_dataset()
-    metadata = _load_workflow_metadata(tmp_path / "artifacts", "postprocessor-stage")
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "output_processor-stage")
 
     assert "secret" not in base.columns
     assert final.to_dict(orient="records") == [{"name": "Ada", "public_name": "Ada", "final": "Ada final"}]
-    assert metadata["stages"][0]["postprocessor_output_path"].endswith("stage-0-base/postprocessors")
+    assert metadata["stages"][0]["output_processor_output_path"].endswith("stage-0-base/output-processors")
 
 
 def test_composite_workflow_output_can_select_processor_artifact(
@@ -611,7 +675,7 @@ def test_composite_workflow_output_can_select_processor_artifact(
     assert metadata["stages"][0]["output_seed_path"].endswith("stage-0-compact/processors-files/compact")
 
 
-def test_composite_workflow_postprocessors_can_feed_from_processor_artifact(
+def test_composite_workflow_output_processors_can_feed_from_processor_artifact(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_model_configs: list[ModelConfig],
@@ -622,13 +686,13 @@ def test_composite_workflow_postprocessors_can_feed_from_processor_artifact(
     stage_2 = _expression_builder(stub_model_configs, "final", "{{ compact_name }} final")
 
     workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
-        name="postprocessor-output"
+        name="output_processor-output"
     )
     workflow.add_stage(
         "compact",
         stage_1,
         num_records=2,
-        postprocessors=[SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"})],
+        output_processors=[SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"})],
         output="processor:compact",
     )
     workflow.add_stage("final", stage_2)
@@ -652,7 +716,7 @@ def test_composite_workflow_postprocessors_can_feed_from_processor_artifact(
     ]
 
 
-def test_composite_workflow_output_can_select_main_processor_with_postprocessors(
+def test_composite_workflow_output_can_select_main_processor_with_output_processors(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_model_configs: list[ModelConfig],
@@ -668,14 +732,14 @@ def test_composite_workflow_output_can_select_main_processor_with_postprocessors
         "compact",
         stage,
         num_records=1,
-        postprocessors=[DropColumnsProcessorConfig(name="drop_scratch", column_names=["scratch"])],
+        output_processors=[DropColumnsProcessorConfig(name="drop_scratch", column_names=["scratch"])],
         output="processor:compact",
     )
 
     assert workflow.run().load_dataset().to_dict(orient="records") == [{"compact_name": "Ada"}]
 
 
-def test_composite_workflow_callback_receives_main_stage_artifact_with_postprocessors(
+def test_composite_workflow_callback_receives_main_stage_artifact_with_output_processors(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_model_configs: list[ModelConfig],
@@ -684,25 +748,25 @@ def test_composite_workflow_callback_receives_main_stage_artifact_with_postproce
     stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
     callback_paths = []
 
-    def keep_postprocessed(stage_path: Path) -> Path:
+    def keep_output_processed(stage_path: Path) -> Path:
         callback_paths.append(stage_path)
-        assert (stage_path / "postprocessors" / "parquet-files").is_dir()
-        return stage_path / "postprocessors" / "parquet-files"
+        assert (stage_path / "output-processors" / "parquet-files").is_dir()
+        return stage_path / "output-processors" / "parquet-files"
 
     workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
-        name="postprocessor-callback"
+        name="output_processor-callback"
     )
     workflow.add_stage(
         "base",
         stage,
         num_records=1,
-        postprocessors=[DropColumnsProcessorConfig(name="drop_scratch", column_names=["scratch"])],
-        on_success=keep_postprocessed,
+        output_processors=[DropColumnsProcessorConfig(name="drop_scratch", column_names=["scratch"])],
+        on_success=keep_output_processed,
     )
 
     result = workflow.run()
 
-    assert callback_paths == [tmp_path / "artifacts" / "postprocessor-callback" / "stage-0-base"]
+    assert callback_paths == [tmp_path / "artifacts" / "output_processor-callback" / "stage-0-base"]
     assert "scratch" not in result.load_dataset().columns
 
 

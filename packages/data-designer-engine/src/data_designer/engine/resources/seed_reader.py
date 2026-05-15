@@ -674,6 +674,8 @@ class SeedReaderRegistry:
         return self
 
     def get_reader(self, seed_dataset_source: SeedSource, secret_resolver: SecretResolver) -> SeedReader:
+        # attach() mutates top-level source/resolver state. Reader subclasses must
+        # not keep nested mutable state shared across attaches.
         reader = copy(self._get_reader_for_source(seed_dataset_source))
         reader.attach(seed_dataset_source, secret_resolver)
         return reader

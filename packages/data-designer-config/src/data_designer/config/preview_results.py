@@ -44,7 +44,10 @@ class PreviewResults(WithRecordSamplerMixin):
         self._config_builder = config_builder
 
     def to_config_builder(self, columns: list[str] | None = None) -> DataDesignerConfigBuilder:
-        """Create a new config builder seeded from this preview dataset."""
+        """Create a new config builder seeded from this preview dataset.
+
+        Copies the full preview dataset in memory; intended for interactive use.
+        """
         if self.dataset is None:
             raise ValueError("Preview dataset is not available.")
         df = self.dataset

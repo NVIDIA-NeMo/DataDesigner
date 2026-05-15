@@ -12,6 +12,7 @@ if TYPE_CHECKING:
         CompositeWorkflow,
         CompositeWorkflowResults,
         SkippedStageResult,
+        SkippedStageStatus,
     )
     from data_designer.interface.data_designer import DataDesigner  # noqa: F401
     from data_designer.interface.errors import (  # noqa: F401
@@ -33,6 +34,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DatasetCreationResults": ("data_designer.interface.results", "DatasetCreationResults"),
     "ResumeMode": ("data_designer.engine.storage.artifact_storage", "ResumeMode"),
     "SkippedStageResult": ("data_designer.interface.composite_workflow", "SkippedStageResult"),
+    "SkippedStageStatus": ("data_designer.interface.composite_workflow", "SkippedStageStatus"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())

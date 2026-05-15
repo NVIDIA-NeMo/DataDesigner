@@ -87,7 +87,11 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         return self.artifact_storage.load_dataset()
 
     def to_config_builder(self, columns: list[str] | None = None) -> DataDesignerConfigBuilder:
-        """Create a new config builder seeded from this result dataset."""
+        """Create a new config builder seeded from this result dataset.
+
+        Loads the full dataset into memory; intended for interactive use. For
+        production pipelines, prefer ``CompositeWorkflow``.
+        """
         df = self.load_dataset()
         if columns is not None:
             df = df.loc[:, columns]

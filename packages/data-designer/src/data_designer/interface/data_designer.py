@@ -64,6 +64,7 @@ from data_designer.engine.secret_resolver import (
     SecretResolver,
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
+from data_designer.interface.composite_workflow import CompositeWorkflow
 from data_designer.interface.errors import (
     DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
@@ -77,7 +78,6 @@ from data_designer.plugins.registry import PluginRegistry
 if TYPE_CHECKING:
     from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
-    from data_designer.interface.composite_workflow import CompositeWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -498,8 +498,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def compose_workflow(self, *, name: str) -> CompositeWorkflow:
-        from data_designer.interface.composite_workflow import CompositeWorkflow
-
         return CompositeWorkflow(name=name, data_designer=self)
 
     def _log_jinja_rendering_engine_mode(self) -> None:
