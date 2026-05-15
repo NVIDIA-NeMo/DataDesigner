@@ -113,10 +113,13 @@ class ModelRegistry:
             token_usage = stats["token_usage"]
             input_tokens = token_usage["input_tokens"]
             output_tokens = token_usage["output_tokens"]
+            reasoning_tokens = token_usage["reasoning_tokens"]
             total_tokens = token_usage["total_tokens"]
             tokens_per_second = stats["tokens_per_second"]
             logger.info(
-                f"{LOG_INDENT}tokens: input={input_tokens}, output={output_tokens}, total={total_tokens}, tps={tokens_per_second}"
+                f"{LOG_INDENT}tokens: "
+                f"input={input_tokens}, output={output_tokens}, reasoning={reasoning_tokens}, "
+                f"total={total_tokens}, tps={tokens_per_second}"
             )
 
             request_usage = stats["request_usage"]
