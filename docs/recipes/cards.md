@@ -172,6 +172,60 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/search_agent.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/search_agent.py){ .md-button download="search_agent.py" }
 
+-   :material-code-json:{ .lg .middle } **Nemotron Nano Structured Data**
+
+    Generate multi-format structured data (JSON, YAML, XML, Markdown) with controlled schema complexity, conversational grounding, and best-of-3 candidate generation.
+
+    ---
+
+    **Demonstrates:**
+
+    - Multi-format structured output generation
+    - Conditional topic sampling with SubcategorySamplerParams
+    - Multi-stage LLM pipeline (schema, prompt, conversation, output)
+    - Best-of-3 candidate generation
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](model_usability/structured_data.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/model_usability/structured_data.py){ .md-button download="structured_data.py" }
+
+-   :material-format-list-text:{ .lg .middle } **Nemotron Nano Prompt Sensitivity**
+
+    Generate diverse prompt preambles for RL training with regex-verified output format specifications, LLM paraphrasing, placement order variants, and four LLM judges.
+
+    ---
+
+    **Demonstrates:**
+
+    - Seed dataset with format templates and preambles
+    - LLM paraphrasing with diversity controls
+    - Regex-aligned format instruction generation
+    - 4 LLM judges (format compliance, regex alignment, order coherence, preamble quality)
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](model_usability/prompt_sensitivity.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/model_usability/prompt_sensitivity.py){ .md-button download="prompt_sensitivity.py" }
+
+-   :material-infinity:{ .lg .middle } **Nemotron Nano InfiniByte**
+
+    Generate more diverse and complex problems by cross-breeding two HuggingFace datasets, augmenting problems through obfuscation or complication with structured LLM evaluation.
+
+    ---
+
+    **Demonstrates:**
+
+    - Cross-source dataset seeding from HuggingFace
+    - LLMStructuredColumnConfig with Pydantic models
+    - Multi-stage structured generation (candidates, selection, evaluation)
+    - Expression columns for score extraction
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](code_generation/infinibyte.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/code_generation/infinibyte.py){ .md-button download="infinibyte.py" }
+
 -   :material-file-document-multiple:{ .lg .middle } **Markdown Section Seed Reader**
 
     Define a custom `FileSystemSeedReader` inline and turn Markdown files into one seed row per heading section.

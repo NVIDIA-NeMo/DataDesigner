@@ -46,6 +46,10 @@ nav:
           - Text to Python: recipes/code_generation/text_to_python.md
           - Text to SQL: recipes/code_generation/text_to_sql.md
           - "Nemotron Super Text to SQL": recipes/code_generation/enterprise_text_to_sql.md
+          - "Nemotron Nano InfiniByte": recipes/code_generation/infinibyte.md
+      - Model Usability:
+          - "Nemotron Nano Structured Data": recipes/model_usability/structured_data.md
+          - "Nemotron Nano Prompt Sensitivity": recipes/model_usability/prompt_sensitivity.md
       - Plugin Development:
           - Markdown Section Seed Reader Plugin: recipes/plugin_development/markdown_seed_reader.md
       - QA and Chat:
