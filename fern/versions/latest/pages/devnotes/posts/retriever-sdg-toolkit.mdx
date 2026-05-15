@@ -1,11 +1,14 @@
 ---
-date: 2026-05-14
-authors:
-  - sthan
-slug: retriever-sdg-toolkit-from-documents-to-training-data
+title: "Retriever SDG Toolkit"
+description: "A first-party Data Designer plugin package that turns documents into retriever training and BEIR evaluation data."
+slug: retriever-sdg-toolkit
 ---
 
-# **Retriever SDG Toolkit: Turn Your Documents Into Retriever Training Data**
+import { Authors } from "@/components/Authors";
+
+# Retriever SDG Toolkit: Turn Your Documents Into Retriever Training Data
+
+<Authors ids={["sthan"]} />
 
 If you are building a RAG system, you have probably hit this wall: the generator is good, the vector database is fast, the prompt is carefully tuned, and the answer is still wrong because the right passage never made it into context.
 
@@ -15,7 +18,7 @@ The hard part is not asking an LLM to write questions about a document. The hard
 
 The new [`data-designer-retrieval-sdg`](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-retrieval-sdg) toolkit fills that gap: start with a directory of documents, generate synthetic query-positive examples with NeMo Data Designer, filter them, and export them for retriever fine-tuning and BEIR-style evaluation.
 
-<!-- more -->
+{/* more */}
 
 This is not just a demo package. The same toolkit produced the [Retrieval-Synthetic-NVDocs-v1](https://huggingface.co/datasets/nvidia/Retrieval-Synthetic-NVDocs-v1) dataset from NVIDIA public documentation, and it powers the bootstrap SDG stage for both the NeMo [embedding fine-tune recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/embed) and [reranking fine-tune recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/e6e8a3281a11b8e1b7b47af098bbf54416c68d47/src/nemotron/recipes/rerank). It is now available as a standalone tool for generating high-quality, complex, multi-document, multi-hop retrieval data compatible with [AutoModel](https://github.com/NVIDIA-NeMo/Automodel).
 
@@ -23,11 +26,14 @@ This post walks through what the toolkit does, why the generated labels matter, 
 
 ---
 
-## **From Documents to Retriever Data**
+## From Documents to Retriever Data
 
 The toolkit packages a four-stage Data Designer pipeline:
 
-![Retriever SDG pipeline: source documents flow through document chunking, artifact and QA generation, deduplication and judging, and conversion into training and evaluation artifacts](assets/retrieval-sdg-toolkit/pipeline.svg){ style="max-width:100%; height:auto" }
+<img
+  src="/assets/retrieval-sdg-toolkit/pipeline.svg"
+  alt="Retriever SDG pipeline: source documents flow through document chunking, artifact and QA generation, deduplication and judging, and conversion into training and evaluation artifacts"
+/>
 
 The package contributes two plugins to Data Designer:
 
@@ -48,7 +54,7 @@ This is still Data Designer: users declare the corpus and generation settings; t
 
 ---
 
-## **Step 1: Chunk Documents So Labels Survive**
+## Step 1: Chunk Documents So Labels Survive
 
 For retriever training, chunking is not just preprocessing. The chunk IDs become labels. If a generated query uses chunks 3, 7, and 8, those IDs have to survive generation, filtering, splitting, and export.
 
@@ -87,7 +93,7 @@ That gives the model opportunities to generate cross-document questions while st
 
 ---
 
-## **Step 2: Generate Questions That Point Back to Evidence**
+## Step 2: Generate Questions That Point Back to Evidence
 
 The pipeline first extracts document artifacts - concepts, relationships, themes, entities, processes, insights, technical terms, and contextual factors. Then it asks the model to generate standalone questions grounded in the chunked context.
 
@@ -151,7 +157,7 @@ That combination is what makes the data useful for retriever training and not ju
 
 ---
 
-## **Step 3: Deduplicate and Judge Before Export**
+## Step 3: Deduplicate and Judge Before Export
 
 Synthetic generators are enthusiastic. Ask for seven questions per document across a large corpus and you will get repeats: the same policy phrased three ways, the same setup requirement asked with slightly different wording, the same "how does X relate to Y" pattern over and over.
 
@@ -192,7 +198,7 @@ Your first inspection pass should focus on the rejected and borderline examples.
 
 ---
 
-## **Step 4: Export What Training and Eval Actually Need**
+## Step 4: Export What Training and Eval Actually Need
 
 The final conversion step rebuilds a deduplicated corpus from the generated chunks, maps `segment_ids` to positive document IDs, filters by quality, and writes both training and evaluation formats.
 
@@ -220,7 +226,7 @@ This is one of the main reasons the toolkit exists. It is easy to generate quest
 
 ---
 
-## **How to Know the First Run Is Working**
+## How to Know the First Run Is Working
 
 Before scaling, look at a small sample and ask:
 
@@ -244,7 +250,7 @@ The goal of the first run is not volume. The goal is to learn how your corpus be
 
 ---
 
-## **Why This Belongs in a Plugin**
+## Why This Belongs in a Plugin
 
 A blog recipe can teach the workflow. A plugin makes the workflow reusable.
 
@@ -269,7 +275,7 @@ That is the bigger plugin story: Data Designer provides the orchestration framew
 
 ---
 
-## **Try It Yourself**
+## Try It Yourself
 
 Do not start by generating a million examples. Pick 20-100 representative documents, run a preview, inspect the labels, and only then scale up.
 

@@ -25,13 +25,15 @@ Two pre-render steps are needed before the dev server has all content. Both prod
 
 ### 1. Python API reference (gitignored - must regenerate)
 
-`make generate-fern-api-reference` uses `py2fern` to extract API docs from the local Python source (`packages/data-designer-config/src/data_designer/config`). The output lands in `fern/code-reference/data-designer/` (gitignored).
+`make generate-fern-api-reference` uses `py2fern` to extract API docs from local Python source. The output lands in `fern/code-reference/` (gitignored), preserving the existing Config API folder and adding Interface and curated Engine extension API folders.
 
 ```bash
 make generate-fern-api-reference
 ```
 
-The `libraries:` block in [`docs.yml`](docs.yml) still documents the equivalent Fern-native generator. Run `make generate-fern-api-reference-native` only when you want the Fern CLI output and have Fern auth.
+`py2fern` only descends into Python packages. Add `__init__.py` to any new subdirectory whose modules should appear in the API reference.
+
+The `libraries:` block in [`docs.yml`](docs.yml) still documents the Fern-native config generator. Run `make generate-fern-api-reference-native` only when you want the Fern CLI output and have Fern auth.
 
 Re-run when the upstream package source changes.
 
@@ -61,49 +63,51 @@ make serve-fern-docs-locally
 
 Fern publishing runs alongside MkDocs during migration:
 
-- `.github/workflows/build-fern-docs.yml` runs on release publication or manual dispatch. It builds executed notebooks, runs `make check-fern-docs`, and publishes Fern.
-- `.github/workflows/publish-fern-devnotes.yml` runs on `main` when Dev Notes or Fern Dev Notes assets change, plus manual dispatch. It reuses the last docs notebook artifact, runs `make check-fern-docs`, and publishes Fern.
+- `.github/workflows/build-fern-docs.yml` runs on release publication or manual dispatch. It snapshots release docs into the CI-managed `docs-website` branch, builds executed notebooks from the release source, runs `make check-fern-docs` from `docs-website`, and publishes Fern.
+- `.github/workflows/publish-fern-devnotes.yml` runs on `main` when Dev Notes or Fern Dev Notes assets change, plus manual dispatch. It patches only Dev Notes into the `docs-website` branch's current latest docs, reuses the last docs notebook artifact, runs `make check-fern-docs`, and publishes Fern.
 - `.github/workflows/docs-preview.yml` remains the PR preview workflow and posts both MkDocs and Fern preview links for same-repository PRs. It converts tutorial sources without execution outputs for preview builds. Fork PRs still run docs build/checks, but skip hosted previews because those require deployment secrets.
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 
-Release publishing also runs `fern/scripts/fern-release-version.py check` before building notebooks. A release fails early if the release tag is not represented in `docs.yml` and `versions/vX.Y.Z.yml`. Manual dispatch can validate a specific tag through the workflow's `release_tag` input; otherwise it uses the latest published release.
+Fern release snapshots live on `docs-website`, not on `main`. This mirrors the MkDocs `gh-pages` model without mixing Fern source state into the MkDocs output branch. The branch stores a source snapshot, not only `fern/`, because `make check-fern-docs` needs the Python packages and workspace metadata. Pushes to `docs-website` use `GITHUB_TOKEN`, so publishing happens inline in the same workflow instead of relying on a second workflow trigger.
+
+The `docs-website` branch is an orphan-style publish branch. Published commits include `fern/publish-metadata.json` with the source repository, ref, SHA, release tag when applicable, and published branch.
+
+The `docs-website` branch must already contain the historical Fern archive (`v0.6.0`, `v0.5.9`, `v0.5.8`, and `older`) before release publishing runs. The workflow fails if those redirect targets are missing.
+
+Manual dispatch with `release_tag` creates or refreshes that release snapshot. For the already-published `v0.6.0` release, run **Build Fern docs** with `release_tag=v0.6.0` and `source_ref=main` after this fix merges. Future release events default `source_ref` to the release tag.
 
 ## Versioning
 
-Current Fern versions:
+`main` contains only the latest Fern authoring docs. Published release snapshots live on `docs-website`.
 
 ```
 fern/versions/
-├── latest.yml          ← rolling nav file
-├── latest/pages/...    ← latest-only page overrides
-├── v0.5.9.yml          ← release nav file
-├── v0.5.9/pages/...    ← v0.5.9-only page overrides
-├── v0.5.8.yml          ← first migrated release nav file
-├── v0.5.8/pages/...    ← shared migrated MDX tree
-├── older.yml           ← older versions landing page
-└── older/pages/...     ← links to the MkDocs archive
+├── latest.yml          ← authoring nav
+└── latest/pages/...    ← authoring pages
 ```
 
-`docs.yml` registers `slug: latest`, `slug: v0.5.9`, `slug: v0.5.8`, and `slug: older-versions`. The `latest` and `v0.5.9` nav files intentionally reuse the migrated `v0.5.8/pages/` tree for most content so the first Fern-native versions do not duplicate every page. Add version-specific page copies only when content diverges.
+The CI-managed `docs-website` branch has the published archive:
 
-Fern version URLs are based on the active version entry, not the source file path. A `v0.5.9` page can point at `./v0.5.8/pages/...` and still render under `/nemo/datadesigner/v0.5.9/...`; users do not see the reused source path.
+```
+fern/versions/
+├── latest.yml
+├── latest/pages/...
+├── v0.6.0.yml
+├── v0.6.0/pages/...
+├── v0.5.9.yml
+├── v0.5.9/pages/...
+├── v0.5.8.yml
+├── v0.5.8/pages/...
+├── older.yml
+└── older/pages/...
+```
 
-Dev Notes are versioned: `latest.yml` can include posts from `main` that are not in old release navs yet. Frozen release navs (`v0.5.9.yml`, `v0.5.8.yml`) should include only posts available at that release point.
+Each frozen `vX.Y.Z.yml` nav on `docs-website` must point only at that version's own `vX.Y.Z/pages/...` files. The release sync materializes shared historical pages into each version folder before publishing.
 
-Released versions older than `v0.5.8` stay on the MkDocs archive at `https://nvidia-nemo.github.io/DataDesigner/<version>/`. The Fern version picker includes an "Older versions" page linking to those archives.
+Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow snapshots the release into `docs-website` and publishes from that branch.
 
-When cutting future Fern-native versions, use a hybrid model:
-
-1. Run `make prepare-fern-release VERSION=X.Y.Z`.
-2. Review the generated `docs.yml` and `versions/vX.Y.Z.yml` changes.
-3. Reuse older page paths for unchanged content.
-4. Copy changed/new pages into `versions/vX.Y.Z/pages/...`.
-5. Point only changed nav entries at the copied `vX.Y.Z` pages.
-6. Update `latest.yml` if the rolling docs should diverge after release prep.
-7. Run `make check-fern-docs`.
-
-Do not add a new version entry without deciding which pages are release-specific. A version YAML that points at shared pages can drift when those shared files change later.
+Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages from `main` into the current latest docs on `docs-website`, then republishes Fern.
 
 ## Folder layout
 
@@ -129,11 +133,8 @@ fern/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
 ├── code-reference/            ← gitignored; populated by `make generate-fern-api-reference`
 └── versions/
-    ├── latest.yml             ← rolling navigation tree
-    ├── v0.5.9.yml             ← release navigation tree
-    ├── v0.5.8.yml             ← navigation tree
-    ├── older.yml              ← older versions landing page
-    └── v0.5.8/pages/          ← shared MDX content
+    ├── latest.yml             ← authoring navigation tree
+    └── latest/pages/          ← authoring MDX content
 ```
 
 ## Common commands
@@ -145,8 +146,8 @@ Primary local commands:
 | `make check-fern-docs-locally` | Install docs dependencies, generate Fern artifacts, and run `fern check` |
 | `make serve-fern-docs-locally` | Generate local Fern artifacts and serve local docs |
 | `make generate-fern-notebooks-with-outputs` | Full notebook pipeline: execute (needs `NVIDIA_API_KEY`) → colabify → convert |
-| `make prepare-fern-release VERSION=X.Y.Z` | Add Fern version files before cutting a release |
-| `make check-fern-release-version VERSION=X.Y.Z` | Verify Fern release metadata exists before publishing |
+| `make prepare-fern-release VERSION=X.Y.Z` | Add or refresh Fern version files for release preview |
+| `make check-fern-release-version VERSION=X.Y.Z REQUIRE_LATEST=1` | Verify Fern release metadata exists before publishing |
 
 Support and CI targets:
 
