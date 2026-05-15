@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -247,6 +248,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         dataset_name: str = "dataset",
         resume: ResumeMode = ResumeMode.NEVER,
         artifact_path: Path | str | None = None,
+        on_batch_complete: Callable[[Path], None] | None = None,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -280,6 +282,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 discarded before generation continues.
             artifact_path: Optional artifact root for this create call. Defaults
                 to the path configured on this DataDesigner instance.
+            on_batch_complete: Optional callback called with the completed batch
+                artifact path after each batch is written.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -314,7 +318,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
         try:
-            builder.build(num_records=num_records, resume=resume)
+            builder.build(num_records=num_records, on_batch_complete=on_batch_complete, resume=resume)
         except DeprecationWarning:
             raise
         except Exception as e:
