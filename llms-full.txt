@@ -1,0 +1,378 @@
+# NeMo Data Designer
+
+NeMo Data Designer is an open-source framework for generating high-quality synthetic datasets for LLM training, evaluation, and agent workflows. This document describes the official Python SDK (`pip install data-designer`). For NeMo Microservices deployment and Docker Compose quickstarts, refer to the NVIDIA docs. You can declaratively specify columns, relationships, and quality constraints; execution order, batching, parallelization, and validation are handled for you. Over 150B tokens have been generated using Data Designer across Python 3.10–3.13.
+
+Version: 0.5.2 (see PyPI for latest release)
+
+Data Designer extends simple LLM prompting with statistical samplers, dependency-aware generation (DAG-based), validators, LLM-as-a-judge scoring, multi-provider LLM support, structured outputs, and tool use via MCP—all defined in a config separating what you want from how it is built.
+
+Repository: https://github.com/NVIDIA-NeMo/DataDesigner  
+Docs: https://nvidia-nemo.github.io/DataDesigner/latest/  
+PyPI: https://pypi.org/project/data-designer/  
+License: Apache 2.0  
+Python: 3.10, 3.11, 3.12, 3.13
+
+---
+
+## When to use Data Designer
+
+Use Data Designer when you need:
+
+- Synthetic datasets with controlled statistical distributions and realistic field correlations.
+- Multi-column datasets with dependencies (e.g., review text conditioned on product metadata or SQL queries on schema).
+- Code datasets (Python, SQL, etc.) with linting/format checks and LLM-as-a-judge scoring.
+- Synthetic eval sets for LLMs/agents, including chat transcripts, tool calls, and traces.
+- Reproducible, configurable generation workflows with seed datasets and postprocessing steps.
+- Demographically accurate synthetic personas for testing, simulation, or evaluation.
+
+Data Designer is *not*:
+
+- A general-purpose LLM framework (for that, see LangChain or LlamaIndex).
+- A data labeling or annotation tool (see Label Studio or Prodigy).
+- A data anonymization tool (see ARX, Presidio).
+- A purely tabular GAN/VAE (see SDV, CTGAN for that).
+
+---
+
+## Common use cases
+
+- Text-to-Python/code datasets with linted, validated solutions and per-sample quality scores.
+- Text-to-SQL across multiple dialects with validators and execution checks.
+- Product/support QA pairs, multi-turn conversations, and assistant eval sets.
+- Retrieval QA over PDFs or docs using MCP tools for parsing.
+- Synthetic tabular data with realistic inter-field correlations (people, customers, transactions) for testing/benchmarking.
+- Synthetic eval sets for agent tool use and traces.
+
+---
+
+## Quick start
+
+### Installation
+
+```bash
+pip install data-designer
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/NVIDIA-NeMo/DataDesigner.git
+cd DataDesigner
+make install
+```
+
+### Set your API key
+
+Data Designer supports multiple LLM providers. Set one or more:
+
+```bash
+export NVIDIA_API_KEY="your-key"      # NVIDIA Build (build.nvidia.com)
+export OPENAI_API_KEY="your-key"      # OpenAI
+export OPENROUTER_API_KEY="your-key"  # OpenRouter
+```
+
+### Generate your first dataset
+
+The following shows the Python SDK (`data_designer` package). For NeMo Microservices, see their docs for `nemo_microservices.data_designer` usage.
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+# Initialize
+data_designer = DataDesigner()
+config_builder = dd.DataDesignerConfigBuilder()
+
+# Add a sampled column
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="product_category",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=["Electronics", "Clothing", "Home & Kitchen", "Books"],
+        ),
+    )
+)
+
+# Add an LLM-generated column depending on the sampled column
+config_builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="review",
+        model_alias="nvidia-text",
+        prompt="Write a brief product review for a {{ product_category }} item you recently purchased.",
+    )
+)
+
+# Preview a sample
+preview = data_designer.preview(config_builder=config_builder)
+preview.display_sample_record()
+
+# Full dataset creation
+results = data_designer.create(config_builder=config_builder, num_records=1000)
+```
+
+### CLI usage
+
+```bash
+data-designer config providers  # Configure model providers
+data-designer config models     # Set up model configs
+data-designer config list       # View current settings
+data-designer preview           # Generate preview from config file
+data-designer create            # Full dataset creation
+data-designer validate          # Validate configuration
+data-designer download personas # Download Nemotron-Personas datasets
+```
+
+---
+
+## Common patterns
+
+The following examples demonstrate the canonical Data Designer idioms using the real Python SDK API. They show Pydantic schema validation, code validation + judge scoring, SQL and other validators, and demographically controlled person sampling.
+
+### 1. Sampler + LLM text column
+
+```python
+import data_designer.config as dd
+
+builder = dd.DataDesignerConfigBuilder()
+builder.add_column(
+    dd.SamplerColumnConfig(
+        name="product_category",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=["Electronics", "Books", "Clothing", "Home"]),
+    )
+)
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="review",
+        model_alias="nvidia-text",
+        prompt="Write a short product review for a {{ product_category }} item.",
+    )
+)
+```
+
+### 2. Structured output: LLMStructuredColumnConfig with Pydantic
+
+```python
+from pydantic import BaseModel, Field
+import data_designer.config as dd
+
+class ProductInfo(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    brand: str
+    price: float
+
+builder = dd.DataDesignerConfigBuilder()
+builder.add_column(
+    dd.LLMStructuredColumnConfig(
+        name="product_summary",
+        model_alias="nvidia-text",
+        prompt="Generate a JSON product summary with fields: name, brand, price.",
+        output_schema=ProductInfo,
+    )
+)
+```
+
+### 3. Code generation with validator and judge scoring
+
+```python
+import data_designer.config as dd
+
+builder = dd.DataDesignerConfigBuilder()
+builder.add_column(
+    dd.LLMCodeColumnConfig(
+        name="solution_code",
+        code_lang=dd.CodeLang.PYTHON,
+        model_alias="nvidia-code",
+        prompt="Write a Python function that computes the nth Fibonacci number.",
+    )
+)
+builder.add_column(
+    dd.ValidationColumnConfig(
+        name="code_lint_result",
+        validator_type=dd.ValidatorType.CODE,
+        source_column="solution_code",
+        params=dd.CodeValidatorParams(code_lang=dd.CodeLang.PYTHON),
+    )
+)
+builder.add_column(
+    dd.LLMJudgeColumnConfig(
+        name="code_quality",
+        model_alias="nvidia-text",
+        prompt="Rate the quality of this Python solution:\n\n{{ solution_code }}",
+        scores=[
+            dd.Score(name="correctness", description="How correct is the solution?", min_score=1, max_score=5),
+            dd.Score(name="style", description="How readable and idiomatic is the code?", min_score=1, max_score=5),
+            dd.Score(name="efficiency", description="How efficient is the algorithm?", min_score=1, max_score=5),
+        ],
+    )
+)
+```
+
+### 4. Text-to-SQL generation with SQL validation
+
+```python
+import data_designer.config as dd
+
+builder = dd.DataDesignerConfigBuilder()
+builder.add_column(
+    dd.LLMCodeColumnConfig(
+        name="query_sql",
+        code_lang=dd.CodeLang.SQL,
+        model_alias="nvidia-code",
+        prompt="Write a Postgres SQL query to select all orders from the last 7 days.",
+    )
+)
+builder.add_column(
+    dd.ValidationColumnConfig(
+        name="sql_check",
+        validator_type=dd.ValidatorType.CODE,
+        source_column="query_sql",
+        params=dd.CodeValidatorParams(code_lang=dd.CodeLang.SQL),
+    )
+)
+```
+
+### 5. Person sampling with demographic control (Nemotron-Personas)
+
+```python
+import data_designer.config as dd
+
+builder = dd.DataDesignerConfigBuilder()
+builder.add_column(
+    dd.SamplerColumnConfig(
+        name="person",
+        sampler_type=dd.SamplerType.PERSON,
+        params=dd.PersonSamplerParams(
+            locale="en_US",
+            info_types=[
+                dd.InfoType.FIRST_NAME,
+                dd.InfoType.LAST_NAME,
+                dd.InfoType.AGE,
+                dd.InfoType.OCCUPATION,
+                dd.InfoType.EMAIL,
+            ],
+        ),
+    )
+)
+# For quick Faker-based generation instead, use SamplerType.PERSON_FROM_FAKER
+# with PersonFromFakerSamplerParams. Nemotron-Personas (above) provides
+# demographically accurate distributions across 7 locales: en_US, en_IN,
+# en_SG, hi_Deva_IN, hi_Latn_IN, ja_JP, pt_BR.
+```
+
+---
+
+## Architecture
+
+Data Designer is a monorepo with three layers:
+
+Layer: Config  
+Package: data-designer-config  
+Purpose: User-facing configuration API (minimal dependencies)
+
+Layer: Engine  
+Package: data-designer-engine  
+Purpose: Execution engine (LLM integration, DAG management, validation, profiling)
+
+Layer: Interface  
+Package: data-designer  
+Purpose: Public API, CLI, entry point (depends on config + engine)
+
+### Key design patterns
+
+- Builder pattern: configure via DataDesignerConfigBuilder (add_column, add_constraint, with_seed_dataset, with_processors)
+- DAG-based execution: column dependencies inferred via Jinja2 template refs like `{{ product_category }}`
+- Registry/plugin: pluggable column generators, validators, profilers, processors, seed readers
+- Strategy pattern: separate handlers (sampler, LLM, expression, seed), dispatched by column type
+
+### Execution flow
+
+1. Define columns/constraints with DataDesignerConfigBuilder.
+2. Engine builds dependency DAG from column references.
+3. Columns generated in topological order with batching/parallelization.
+4. Validators run (can gate/score outputs).
+5. Results collected with metadata, profiling, traces, artifacts.
+
+---
+
+## Column types (high level)
+
+Data Designer supports 13+ column types; common ones include:
+
+- SamplerColumnConfig: statistical samplers (UUID, category, Gaussian, Bernoulli, Poisson, datetime, person/person [Faker], and more)
+- LLMTextColumnConfig: free-form text (Jinja2 prompts, system prompts, traces)
+- LLMCodeColumnConfig: code generation for Python, JS, Java, Go, Rust, SQL, etc.
+- LLMStructuredColumnConfig: JSON-structured output, validated against Pydantic/JSON schema
+- LLMJudgeColumnConfig: LLM-as-a-judge scoring (multi-dimensional rubric)
+- ImageColumnConfig: diffusion/autoregressive image gen from prompt/context
+- EmbeddingColumnConfig: vector embeddings from text columns
+- ExpressionColumnConfig: derived columns via Jinja2 expressions
+- ValidationColumnConfig: validators (code, SQL, HTTP, custom callables)
+- SeedDatasetColumnConfig: seed-based generation from CSV/Parquet/JSON, Hugging Face datasets, or DataFrames
+- CustomColumnConfig: user-defined via custom_column_generator decorator
+
+Full column concept docs:  
+https://nvidia-nemo.github.io/DataDesigner/latest/concepts/columns/
+
+---
+
+## Models and providers
+
+- ModelProvider: defines backend endpoint (NVIDIA Build, OpenAI, OpenRouter, or any LiteLLM-compatible server)
+- ModelConfig: model name/alias, inference params (temperature, top_p, max_tokens, etc.)
+- Distribution-based params let you sample temperature/other options to boost output diversity
+
+Default providers: NVIDIA Build (`NVIDIA_API_KEY`), OpenAI (`OPENAI_API_KEY`), OpenRouter (`OPENROUTER_API_KEY`). Any LiteLLM-compatible endpoint can be registered.
+
+Python & CLI examples above use the standalone package. For Microservices, see `nemo_microservices` docs.
+
+More model docs:  
+https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/
+
+---
+
+## Constraints, validation, and MCP
+
+- Constraints: scalar and column inequality (e.g., salary > 0, max_salary > min_salary)
+- Validators: code, SQL, remote, and local callables as DAG columns
+- MCP & tool use: config for tool-calling by LLM columns (e.g., file reads, API queries)
+
+Docs:  
+https://nvidia-nemo.github.io/DataDesigner/latest/concepts/tool_use_and_mcp/
+
+---
+
+## Traces, processors, and results
+
+- Traces: none, last message, or full conversation (each as columns)
+- Processors: post-gen transforms (e.g., drop intermediate columns, schema transforms)
+- Results: preview/full create APIs return generated records, metadata, profiles, traces, artifacts
+
+---
+
+## Plugins
+
+Plugin architecture for:
+
+- Column generators
+- Validators
+- Profilers
+- Processors
+- Seed readers
+
+Plugins discovered via Python entrypoints. See:  
+https://nvidia-nemo.github.io/DataDesigner/latest/plugins/overview/  
+https://nvidia-nemo.github.io/DataDesigner/latest/plugins/available/
+
+---
+
+## Telemetry
+
+Data Designer collects anonymous telemetry (model names, token counts only; no user/device IDs).
+
+To disable:
+
+```bash
+export NEMO_TELEMETRY_ENABLED=false
+```

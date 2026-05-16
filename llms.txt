@@ -1,0 +1,77 @@
+# NeMo Data Designer
+
+NeMo Data Designer is an open-source framework for generating high-quality synthetic datasets for LLM training, evaluation, and agent workflows. This description refers to the Python package installed with `pip install data-designer`; see the NVIDIA NeMo microservices docs for the hosted deployment API. It combines statistical sampling, DAG-based dependency handling, validation, structured outputs, and tool-augmented generation so you can declaratively specify and reproducibly generate the data you want at scale.
+
+Use Data Designer when you need multi-column synthetic data where fields depend on each other (e.g., product reviews conditioned on product metadata, text-to-SQL pairs, code solutions with tests and lint results, multi-turn chat transcripts, or QA pairs grounded in documents and tool outputs). It is designed for constructing datasets for evaluation, fine-tuning, RAG and retrieval QA, tool/agent training, and regression testing.
+
+Install with `pip install data-designer`. Requires an API key for NVIDIA Build, OpenAI, or OpenRouter.
+
+## What it does (for agents and tools)
+
+- Generates synthetic tabular, text, code, chat, and image data with tunable statistical distributions and realistic correlations between columns.
+- Uses a DAG-based engine to resolve column dependencies automatically from Jinja2-style references like `{{ product_category }}`.
+- Supports validation via Python (Ruff), SQL (SQLFluff), remote HTTP validators, and custom callables, plus LLM-as-a-judge scoring columns.
+- Captures traces of LLM calls (including message history) alongside outputs for debugging, inspection, and analysis.
+- Integrates with the Model Context Protocol (MCP) so LLM-generated columns can call external tools (e.g., file readers, HTTP APIs) during generation.
+
+## Core concepts
+
+- Column types: sampler, LLM text, LLM code, LLM structured (JSON/Pydantic), LLM judge, image, embedding, expression, validation, seed-based, and custom generators.
+- Seed datasets: bootstrap from CSV, Parquet, JSON, Hugging Face datasets, or pandas DataFrames.
+- Validators: configure code, SQL, remote HTTP, and local callable validators as columns in the same configuration graph.
+- Person sampling: generate demographically accurate synthetic personas (using Nemotron-Personas, 7+ locales) or Faker-based person data.
+- Traces: opt in to capturing partial or full LLM message history as sidecar columns.
+- Processors: apply post-generation transformations like dropping intermediate columns or renaming fields.
+
+## Models and providers
+
+- The package ships with default model providers for NVIDIA Build, OpenAI, and OpenRouter; any LiteLLM-compatible endpoint can also be configured as a custom provider.
+- Model configuration is separate from dataset configuration: you define `ModelProvider` objects (URLs, API keys) and `ModelConfig` objects (model IDs, inference params).
+- Inference parameters such as temperature, top_p, and max_tokens can be fixed or sampled from distributions to control diversity.
+
+## MCP and tool-augmented generation
+
+- MCP providers: configure local or remote MCP servers for tool discovery.
+- Tool configs: choose which MCP tools are visible to a given LLM column.
+- Safety and limits: restrict which tools can be called, how often, and with what arguments.
+
+## Common use cases people search for
+
+- Text-to-Python / text-to-code datasets with linted, validated solutions and per-sample quality scores.
+- Text-to-SQL datasets across multiple SQL dialects with validators and execution checks.
+- Product and support QA pairs, multi-turn chat conversations, and assistant evaluation sets.
+- Retrieval QA over PDFs and other documents using MCP tools for retrieval and parsing.
+- Synthetic tabular datasets with realistic correlations (e.g., people, customers, transactions) for testing and benchmarking.
+- Synthetic eval sets for agents that need tool calls and traces.
+
+## Tutorials
+
+- The Basics: install, configure, and generate your first dataset with samplers and LLM columns.
+- Structured outputs and Jinja expressions: JSON schema–validated generation and expression columns.
+- Seeding with a dataset: generate synthetic variations from existing data.
+- Images as context, image generation, and image-to-image editing: multimodal generation and editing workflows.
+
+Full tutorials: https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/
+
+## Recipes
+
+- Text-to-Python and text-to-SQL code generation with validation.
+- Product info QA and multi-turn chat dataset generation.
+- Basic MCP and PDF QA recipes for tool-augmented generation.
+
+Recipes: https://nvidia-nemo.github.io/DataDesigner/latest/recipes/
+
+## Code reference and plugins
+
+- Config builder, column configs, sampler parameters, models, validators, processors, MCP integration, and analysis utilities are all documented in the code reference.
+- Plugin system for column generators, validators, profilers, processors, and seed readers.
+
+Code reference: https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/  
+Plugins: https://nvidia-nemo.github.io/DataDesigner/latest/plugins/available/
+
+## Project links
+
+- Documentation: https://nvidia-nemo.github.io/DataDesigner/latest/
+- GitHub: https://github.com/NVIDIA-NeMo/DataDesigner
+- PyPI: https://pypi.org/project/data-designer/
+- Deployment options: https://nvidia-nemo.github.io/DataDesigner/latest/concepts/deployment-options/
