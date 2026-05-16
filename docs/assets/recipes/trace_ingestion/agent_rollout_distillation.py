@@ -7,17 +7,18 @@
 #     "pydantic",
 # ]
 # ///
-"""Agent Rollout Trace Distillation Recipe
+"""Agent Rollout Plan Generation Recipe
 
-Read agent rollout traces from disk and turn them into a practical
-supervised fine-tuning dataset for coding assistants.
+Read agent rollout traces from disk and generate agentic workflow plans —
+structured reasoning strategies that would lead a coding assistant to the
+same successful outcome observed in the trace.
 
 This recipe demonstrates:
     - ingesting built-in agent rollout formats with `AgentRolloutSeedSource`
     - distilling traces into compact task digests
-    - generating standalone instruction-response training examples
-    - scoring each candidate for SFT utility with an LLM judge
-    - flattening the result into convenient `sft_instruction` / `sft_response` columns
+    - generating agentic workflow plans (task understanding, approach, decision points, verification)
+    - scoring each plan for quality with an LLM judge
+    - flattening the result into `plan_instruction` / `plan_response` SFT columns
 
 Prerequisites:
     - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-super").
@@ -74,24 +75,55 @@ class AgentRolloutTraceDigest(BaseModel):
     )
 
 
-class AgentRolloutFinetuningRecord(BaseModel):
-    instruction: str = Field(
+class DecisionPoint(BaseModel):
+    question: str = Field(..., description="A concrete decision the agent must make during execution.")
+    recommendation: str = Field(..., description="The recommended choice, grounded in what the trace shows worked.")
+
+
+class VerificationStep(BaseModel):
+    check: str = Field(..., description="What to verify after execution.")
+    expected: str = Field(..., description="What a successful result looks like.")
+
+
+class AgentWorkflowPlan(BaseModel):
+    task_description: str = Field(
         ...,
-        description="A standalone user request suitable for supervised fine-tuning of a coding assistant.",
+        description="A standalone description of the task, understandable without seeing the original trace.",
     )
-    response: str = Field(
+    task_understanding: str = Field(
         ...,
-        description="A grounded assistant response that helps with the instruction without inventing unsupported details.",
+        description="1-3 sentence analysis of what the user needs and why, including key constraints or context.",
+    )
+    approach: list[str] = Field(
+        ...,
+        min_length=2,
+        max_length=8,
+        description=(
+            "Ordered steps the agent should take. Each step should name the action, the target "
+            "(file, tool, API), and what information it produces for subsequent steps."
+        ),
+    )
+    decision_points: list[DecisionPoint] = Field(
+        ...,
+        min_length=0,
+        max_length=4,
+        description="Key decisions the agent faces during execution. Omit if the task is straightforward.",
+    )
+    verification: list[VerificationStep] = Field(
+        ...,
+        min_length=1,
+        max_length=4,
+        description="How to confirm the task was completed successfully.",
     )
     skill_tags: list[str] = Field(
         ...,
         min_length=1,
         max_length=6,
-        description="Short tags describing the skills demonstrated in the example.",
+        description="Short tags describing the skills exercised in this workflow.",
     )
     difficulty: Literal["easy", "medium", "hard"] = Field(
         ...,
-        description="Approximate difficulty of the resulting training example.",
+        description="Approximate difficulty of the task.",
     )
 
 
@@ -140,115 +172,122 @@ Requirements:
 """
 
 
-SFT_RECORD_SYSTEM_PROMPT = """\
-You create high-quality supervised fine-tuning examples for coding assistants.
-Produce standalone instruction-response pairs that teach useful technical behavior.
-The trace digest is authoritative. Do not invent file paths, commands, config keys, package names, APIs, or code that are not clearly supported by it.
-If the digest suggests there was a strong implementation example but does not provide its exact contents, give grounded guidance and structure rather than fabricated snippets.
-Prefer plain-language implementation guidance over code blocks, config fragments, or shell commands.
+PLAN_SYSTEM_PROMPT = """\
+You generate agentic workflow plans from real coding-assistant trace digests.
+A workflow plan captures the reasoning strategy, tool-use patterns, decision points, and verification
+steps that would lead an agent to the successful outcome observed in the trace.
+The trace digest is authoritative — do not invent file paths, commands, APIs, or details not supported by it.
 """
 
 
-SFT_RECORD_PROMPT = """\
-Transform this trace digest into one strong supervised fine-tuning example for a coding assistant.
+PLAN_PROMPT = """\
+Generate an agentic workflow plan from this trace digest. The plan should describe the strategy
+an agent should follow to achieve the same outcome, written as if the agent is about to start the task.
 
 <trace_digest>
 {{ trace_digest }}
 </trace_digest>
 
 Requirements:
-- The instruction must be self-contained and realistic.
-- Do not mention the trace, session, seed row, or that this was distilled from prior work.
-- Preserve repo context only when it materially helps the task.
-- The response should answer the instruction as a strong assistant would, not narrate what happened in the trace.
-- Prefer actionable technical help over retrospective summaries.
-- Avoid placeholders like TODO, <path>, or "I would".
-- If the original trace was partial or blocked, write the best next-step assistant response to move the task forward.
-- Do not fabricate commands, file paths, config blocks, code, package names, or API names unless they are explicitly justified by the digest.
-- If the digest only supports high-level guidance, return a high-level answer with concrete checks, structure, and cautions rather than made-up implementation details.
-- Prefer short numbered or bulleted steps in plain language. Avoid code fences and command examples unless the digest explicitly contains those exact details.
-- If the digest mentions that a preview or validation run happened but does not provide the exact invocation, describe that step generically instead of inventing the command.
-- Keep the response concise and high-signal, ideally under 220 words.
+- `task_description` must be standalone — a reader should understand the task without seeing the trace.
+- `task_understanding` should analyze the user's need, key constraints, and relevant context.
+- `approach` steps should be concrete and ordered: name the action, the target (file, tool, API), and
+  what information the step produces. Avoid vague steps like "understand the codebase".
+- `decision_points` should capture real choices the agent faces. Omit this if the task is linear.
+- `verification` steps should describe observable checks, not aspirational goals.
+- Do not fabricate file paths, commands, config keys, or API details not justified by the digest.
+- If the digest describes a partial or failed trace, write the plan that would lead to success.
+- Do not mention the trace, session, or that this was derived from prior work.
 """
 
 
-SFT_JUDGE_SYSTEM_PROMPT = """\
-You are a strict curator for coding-assistant supervised fine-tuning data.
-Use the trace digest as the source of truth and score whether the candidate example is worth keeping.
-Invented implementation details are a serious defect. If the response fabricates commands, code, config keys, file names, APIs, or package details not supported by the digest, score it harshly.
+PLAN_JUDGE_SYSTEM_PROMPT = """\
+You evaluate agentic workflow plans for coding assistants.
+Use the trace digest as the source of truth. A good plan is one that an agent could follow to
+reach the outcome described in the digest, using concrete and faithful steps.
 """
 
 
-SFT_JUDGE_PROMPT = """\
-Evaluate this candidate supervised fine-tuning example for a coding assistant.
+PLAN_JUDGE_PROMPT = """\
+Evaluate this agentic workflow plan for a coding assistant.
 
 Trace digest:
 {{ trace_digest }}
 
-Candidate instruction:
-{{ sft_record.instruction }}
+Task description:
+{{ workflow_plan.task_description }}
 
-Candidate response:
-{{ sft_record.response }}
+Task understanding:
+{{ workflow_plan.task_understanding }}
+
+Approach:
+{{ workflow_plan.approach }}
+
+Decision points:
+{{ workflow_plan.decision_points }}
+
+Verification:
+{{ workflow_plan.verification }}
 
 Hard rules:
-- Penalize invented commands, code, config keys, file names, APIs, or package details that are not explicitly justified by the digest.
-- Prefer grounded advisory answers over fabricated implementation snippets.
+- Penalize invented file paths, commands, config keys, APIs, or implementation details not justified by the digest.
+- Penalize vague steps that don't name a concrete action or target.
+- Reward plans where following the steps would plausibly reach the digest's outcome.
 """
 
 
-SFT_JUDGE_SCORES = [
+PLAN_JUDGE_SCORES = [
     dd.Score(
-        name="groundedness",
-        description="Is the candidate example clearly grounded in the trace digest rather than generic filler?",
+        name="actionability",
+        description="Could an agent follow this plan step-by-step to make progress on the task?",
         options={
-            4: "Strongly grounded in the trace digest with concrete task fidelity.",
-            3: "Mostly grounded but slightly generic or overgeneralized.",
-            2: "Partially grounded but missing important trace-specific substance.",
-            1: "Weakly grounded and mostly generic.",
-            0: "Not grounded in the trace digest.",
+            4: "Every step names a concrete action and target; an agent could execute immediately.",
+            3: "Most steps are concrete with minor vagueness in one or two.",
+            2: "Several steps are too vague to act on without further clarification.",
+            1: "Mostly aspirational; an agent would need to re-plan before acting.",
+            0: "Not actionable.",
         },
     ),
     dd.Score(
-        name="standalone_task",
-        description="Would a new reader understand the instruction without seeing the underlying trace?",
+        name="completeness",
+        description="Does the plan cover the full path from task start to verified completion?",
         options={
-            4: "Fully standalone and immediately understandable.",
-            3: "Mostly standalone with minor missing context.",
-            2: "Understandable but noticeably dependent on hidden trace context.",
-            1: "Hard to understand without the trace.",
-            0: "Not standalone.",
-        },
-    ),
-    dd.Score(
-        name="response_quality",
-        description="How helpful, technically specific, and instruction-following is the assistant response?",
-        options={
-            4: "Highly useful, technically specific, and directly responsive.",
-            3: "Useful overall with minor omissions or verbosity.",
-            2: "Partially helpful but shallow, vague, or uneven.",
-            1: "Low-quality response with major gaps.",
-            0: "Unhelpful or incorrect response.",
+            4: "Covers investigation, implementation, and verification with no major gaps.",
+            3: "Covers the main path with minor omissions.",
+            2: "Missing a significant phase (e.g., no verification, no investigation).",
+            1: "Covers only a fragment of the task.",
+            0: "Incomplete or empty plan.",
         },
     ),
     dd.Score(
         name="faithfulness",
-        description="Does the candidate avoid inventing unsupported implementation details beyond what the trace digest justifies?",
+        description="Does the plan avoid inventing details not supported by the trace digest?",
         options={
-            4: "Faithful to the digest; no meaningful unsupported details are invented.",
+            4: "Faithful to the digest; no unsupported details.",
             3: "Mostly faithful with minor speculative details.",
             2: "Noticeable invented details or overconfident extrapolation.",
-            1: "Many unsupported implementation details are fabricated.",
+            1: "Many unsupported implementation details fabricated.",
             0: "Severely unfaithful to the digest.",
         },
     ),
     dd.Score(
-        name="training_utility",
-        description="Would this example be worth keeping in an SFT dataset for a coding assistant?",
+        name="reasoning_quality",
+        description="Does the plan show good task understanding, sensible ordering, and awareness of decision points?",
         options={
-            4: "Very strong SFT example worth keeping.",
-            3: "Reasonably useful SFT example.",
-            2: "Marginal example; probably not worth the tokens.",
+            4: "Strong reasoning: correct task analysis, logical ordering, decision points identified.",
+            3: "Reasonable reasoning with minor ordering or analysis issues.",
+            2: "Shallow reasoning; steps could be in any order or key decisions are missed.",
+            1: "Poor reasoning; the plan doesn't reflect understanding of the task.",
+            0: "No meaningful reasoning.",
+        },
+    ),
+    dd.Score(
+        name="training_utility",
+        description="Would this plan be valuable as an SFT example teaching an agent how to approach coding tasks?",
+        options={
+            4: "Excellent SFT example — teaches a reusable reasoning pattern.",
+            3: "Good SFT example with minor limitations.",
+            2: "Marginal; too task-specific or shallow to generalize.",
             1: "Poor SFT example.",
             0: "Should not be kept.",
         },
@@ -291,72 +330,81 @@ def build_config(
     )
     config_builder.add_column(
         dd.LLMStructuredColumnConfig(
-            name="sft_record",
+            name="workflow_plan",
             model_alias=model_alias,
-            output_format=AgentRolloutFinetuningRecord,
-            system_prompt=SFT_RECORD_SYSTEM_PROMPT,
-            prompt=SFT_RECORD_PROMPT,
+            output_format=AgentWorkflowPlan,
+            system_prompt=PLAN_SYSTEM_PROMPT,
+            prompt=PLAN_PROMPT,
         )
     )
     config_builder.add_column(
         dd.LLMJudgeColumnConfig(
-            name="sft_quality_judge_result",
+            name="plan_judge_result",
             model_alias=model_alias,
-            system_prompt=SFT_JUDGE_SYSTEM_PROMPT,
-            prompt=SFT_JUDGE_PROMPT,
-            scores=SFT_JUDGE_SCORES,
+            system_prompt=PLAN_JUDGE_SYSTEM_PROMPT,
+            prompt=PLAN_JUDGE_PROMPT,
+            scores=PLAN_JUDGE_SCORES,
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
-            name="sft_instruction",
-            expr="{{ sft_record.instruction }}",
+            name="plan_instruction",
+            expr="{{ workflow_plan.task_description }}",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
-            name="sft_response",
-            expr="{{ sft_record.response }}",
+            name="plan_response",
+            expr=(
+                "## Task Understanding\n{{ workflow_plan.task_understanding }}\n\n"
+                "## Approach\n{% for step in workflow_plan.approach %}{{ loop.index }}. {{ step }}\n{% endfor %}\n"
+                "{% if workflow_plan.decision_points %}"
+                "## Decision Points\n{% for dp in workflow_plan.decision_points %}"
+                "- **{{ dp.question }}** — {{ dp.recommendation }}\n{% endfor %}\n"
+                "{% endif %}"
+                "## Verification\n{% for v in workflow_plan.verification %}"
+                "- {{ v.check }}: {{ v.expected }}\n{% endfor %}"
+            ),
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
-            name="sft_skill_tags",
-            expr="{{ sft_record.skill_tags }}",
+            name="plan_skill_tags",
+            expr="{{ workflow_plan.skill_tags }}",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
-            name="groundedness_score",
-            expr="{{ sft_quality_judge_result.groundedness.score if sft_quality_judge_result.groundedness.score is not none else 0 }}",
+            name="actionability_score",
+            expr="{{ plan_judge_result.actionability.score if plan_judge_result.actionability.score is not none else 0 }}",
             dtype="int",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
-            name="standalone_task_score",
-            expr="{{ sft_quality_judge_result.standalone_task.score if sft_quality_judge_result.standalone_task.score is not none else 0 }}",
-            dtype="int",
-        )
-    )
-    config_builder.add_column(
-        dd.ExpressionColumnConfig(
-            name="response_quality_score",
-            expr="{{ sft_quality_judge_result.response_quality.score if sft_quality_judge_result.response_quality.score is not none else 0 }}",
+            name="completeness_score",
+            expr="{{ plan_judge_result.completeness.score if plan_judge_result.completeness.score is not none else 0 }}",
             dtype="int",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
             name="faithfulness_score",
-            expr="{{ sft_quality_judge_result.faithfulness.score if sft_quality_judge_result.faithfulness.score is not none else 0 }}",
+            expr="{{ plan_judge_result.faithfulness.score if plan_judge_result.faithfulness.score is not none else 0 }}",
+            dtype="int",
+        )
+    )
+    config_builder.add_column(
+        dd.ExpressionColumnConfig(
+            name="reasoning_quality_score",
+            expr="{{ plan_judge_result.reasoning_quality.score if plan_judge_result.reasoning_quality.score is not none else 0 }}",
             dtype="int",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
             name="training_utility_score",
-            expr="{{ sft_quality_judge_result.training_utility.score if sft_quality_judge_result.training_utility.score is not none else 0 }}",
+            expr="{{ plan_judge_result.training_utility.score if plan_judge_result.training_utility.score is not none else 0 }}",
             dtype="int",
         )
     )
@@ -368,14 +416,14 @@ def build_config(
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
-            name="recommended_for_sft",
+            name="recommended",
             expr=(
                 "{{ "
-                "groundedness_score >= 4 and "
-                "standalone_task_score >= 4 and "
-                "response_quality_score >= 4 and "
-                "faithfulness_score >= 4 and "
-                "training_utility_score >= 4 and "
+                "actionability_score >= 3 and "
+                "completeness_score >= 3 and "
+                "faithfulness_score >= 3 and "
+                "reasoning_quality_score >= 3 and "
+                "training_utility_score >= 3 and "
                 "trace_training_value == 'high' "
                 "}}"
             ),
@@ -391,7 +439,7 @@ def run_recipe(
     *,
     num_records: int,
     artifact_path: Path | str | None = None,
-    dataset_name: str = "agent_rollout_trace_workflows",
+    dataset_name: str = "agent_rollout_workflow_plans",
     preview: bool = False,
 ) -> DatasetCreationResults | PreviewResults:
     data_designer = DataDesigner(artifact_path=artifact_path)
@@ -422,7 +470,7 @@ def build_arg_parser() -> ArgumentParser:
     parser.add_argument("--model-alias", type=str, default="nvidia-super")
     parser.add_argument("--num-records", type=int, default=5)
     parser.add_argument("--artifact-path", type=str, default=None)
-    parser.add_argument("--dataset-name", type=str, default="agent_rollout_trace_workflows")
+    parser.add_argument("--dataset-name", type=str, default="agent_rollout_workflow_plans")
     parser.add_argument(
         "--preview",
         action="store_true",
