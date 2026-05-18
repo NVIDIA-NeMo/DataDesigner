@@ -35,6 +35,8 @@ navigation:
         path: ./v0.5.8/pages/concepts/validators.mdx
       - page: Processors
         path: ./v0.5.8/pages/concepts/processors.mdx
+      - page: Workflow Chaining
+        path: ./latest/pages/concepts/workflow-chaining.mdx
       - page: Person Sampling
         path: ./v0.5.8/pages/concepts/person_sampling.mdx
       - page: Traces
