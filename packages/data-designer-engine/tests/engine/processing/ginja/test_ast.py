@@ -4,12 +4,15 @@
 from unittest.mock import Mock
 
 import pytest
+from jinja2 import Environment
 from jinja2 import nodes as j_nodes
 
 from data_designer.engine.processing.ginja.ast import (
     ast_count_name_references,
     ast_descendant_count,
+    ast_extract_access_chains,
     ast_max_depth,
+    resolve_access_chain,
 )
 
 
@@ -122,3 +125,69 @@ def test_ast_count_name_references(stub_node, stub_name_node, test_case, name_no
     result = ast_count_name_references(stub_node, search_name)
 
     assert result == expected_count
+
+
+# Use a real Jinja Environment for chain-extraction tests; mocking the AST
+# directly would just re-implement the helper.
+@pytest.fixture
+def jinja_env():
+    return Environment()
+
+
+@pytest.mark.parametrize(
+    "template,expected_chains",
+    [
+        ("plain text, no vars", []),
+        ("{{ x }}", [("x", [])]),
+        ("{{ person.first_name }}", [("person", ["first_name"])]),
+        ("{{ person.address.street }}", [("person", ["address", "street"])]),
+        ("{{ y['key']['sub'] }}", [("y", ["key", "sub"])]),
+        ("{{ y[0] }}", [("y", [0])]),
+        (
+            "{{ a.b }} and {{ c.d.e }} and {{ z }}",
+            [("a", ["b"]), ("c", ["d", "e"]), ("z", [])],
+        ),
+        # `a.b` repeated -> two entries, caller dedupes if needed
+        ("{{ a.b }}{{ a.b }}", [("a", ["b"]), ("a", ["b"])]),
+        # Mixed attr + subscript
+        ("{{ data['rows'][0].name }}", [("data", ["rows", 0, "name"])]),
+        # Dynamic subscripts skip the chain; the inner name is still extracted
+        ("{{ a[b] }}", [("b", [])]),
+        ("{{ a[b].c }}", [("b", [])]),
+        # Loops + conditions still extract chains
+        ("{% if person.active %}{{ person.name }}{% endif %}", [("person", ["active"]), ("person", ["name"])]),
+    ],
+)
+def test_ast_extract_access_chains(jinja_env, template, expected_chains):
+    ast = jinja_env.parse(template)
+    assert ast_extract_access_chains(ast) == expected_chains
+
+
+@pytest.mark.parametrize(
+    "record,name,accessors,expected",
+    [
+        # Fully resolved cases
+        ({"x": 42}, "x", [], (True, 42, [])),
+        ({"x": None}, "x", [], (True, None, [])),
+        ({"x": ""}, "x", [], (True, "", [])),
+        ({"person": {"name": "John"}}, "person", ["name"], (True, "John", ["name"])),
+        (
+            {"person": {"address": {"street": "123 Main"}}},
+            "person",
+            ["address", "street"],
+            (True, "123 Main", ["address", "street"]),
+        ),
+        ({"items": ["a", "b", "c"]}, "items", [1], (True, "b", [1])),
+        # Failed resolution cases
+        ({}, "missing", [], (False, None, [])),
+        ({"x": {}}, "x", ["y"], (False, None, [])),
+        ({"x": {"y": {}}}, "x", ["y", "z"], (False, None, ["y"])),
+        # Type mismatches
+        ({"x": "scalar"}, "x", ["y"], (False, None, [])),
+        ({"x": [1, 2]}, "x", ["key"], (False, None, [])),
+        ({"x": [1, 2]}, "x", [5], (False, None, [])),
+        ({"x": {"y": 1}}, "x", [0], (False, None, [])),
+    ],
+)
+def test_resolve_access_chain(record, name, accessors, expected):
+    assert resolve_access_chain(record, name, accessors) == expected
