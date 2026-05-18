@@ -63,7 +63,7 @@ Brief summary of what was found and any recommendations for the user.
 - Only include results that are actually relevant to the search topic
 - If no relevant documentation is found, clearly state that
 - Keep excerpts concise but include enough context to be useful
-- Prioritize user guides and examples over API reference when both exist
+- Prioritize user guides and examples over generated reference material when both exist
 - If the docs/ folder doesn't exist or is empty, report that clearly
 
 ## Search Strategy
