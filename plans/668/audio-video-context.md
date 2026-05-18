@@ -27,12 +27,13 @@ This gives audio/video a clear model to follow, but the type names and helper fu
 
 ## Goals
 
-- Add first-class `AudioContext` and `VideoContext` config objects that can be used wherever `ImageContext` is accepted today.
+- Add first-class `AudioContext` and `VideoContext` config objects for text-generation multimodal context.
 - Preserve the current image API and behavior.
 - Keep user config declarative: the user names columns and media formats; the engine and provider adapters handle payload construction.
 - Support scalar, list, JSON-list, numpy-array, URL, and base64 values consistently across modalities where provider APIs permit them.
 - Surface unsupported provider/model combinations as canonical DataDesigner/provider errors instead of letting raw provider 400s leak through.
 - Keep the implementation inside the existing layer direction: interface -> engine -> config.
+- Implement the code in one follow-up PR, not a split config/engine/docs rollout.
 
 ## Non-goals
 
@@ -77,21 +78,26 @@ builder.add_column(
 )
 ```
 
-The field name `multi_modal_context` stays unchanged. Its type becomes a union of supported context models instead of `list[ImageContext]`.
+The field name `multi_modal_context` stays unchanged on text-generation columns. `LLMTextColumnConfig.multi_modal_context` becomes a union of supported context models instead of `list[ImageContext]`. `ImageColumnConfig.multi_modal_context` stays `list[ImageContext] | None` in v1 because image-generation providers currently consume image context only; accepting audio/video there would allow configs that can only fail at runtime.
 
 ## Design Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
 | Config surface | Add `AudioContext` and `VideoContext`; keep `ImageContext` unchanged | Users get the same declarative pattern with no image migration burden. |
-| Context union | Introduce `MultiModalContextT = Annotated[ImageContext \| AudioContext \| VideoContext, Field(discriminator="modality")]` | Pydantic can deserialize exported configs reliably while preserving concrete context behavior. |
+| Column scope | Broaden `LLMTextColumnConfig.multi_modal_context` only; keep `ImageColumnConfig.multi_modal_context: list[ImageContext] \| None` | Audio/video are input context for text-generation in v1. Image generation remains image-to-image only until a provider path actually supports audio/video-conditioned image output. |
+| Context union | Introduce `MultiModalContextT = Annotated[ImageContext \| AudioContext \| VideoContext, Field(discriminator="modality")]` for text-generation columns | Pydantic can deserialize exported configs reliably while preserving concrete context behavior. |
+| Legacy image configs | Add a pre-validation migration for legacy image context dicts that omit `modality`, injecting `modality="image"` before discriminated-union validation | Existing YAML/JSON configs that serialized only `column_name`, `data_type`, and `image_format` must continue to import. |
 | Modality enum | Extend `Modality` with `AUDIO` and `VIDEO` | Keeps context identity explicit and future-proofs provider capability checks. |
 | Data type enum | Keep `ModalityDataType.URL` and `BASE64` for v1 | Context config describes the value stored in the referenced column: either a URL or base64-encoded media. Provider file IDs and upload lifecycle are outside the config layer. |
+| `data_type=None` for audio/video | Valid. Auto-detect HTTP(S) URLs and base64 data URIs; treat non-URL/non-data-URI values as base64 only when the corresponding format is provided; reject local path-looking audio/video values explicitly | Mirrors the ergonomic image default while avoiding hidden local-path resolution for audio/video. |
 | Local files | Do not add local-path support for new audio/video contexts in v1 | The referenced column should contain either a URL or base64-encoded media. Existing `ImageContext` local-path behavior remains for backward compatibility, but audio/video should not introduce path-to-base64 conversion. |
 | Remote URLs | Pass URL values through to the endpoint when the adapter/provider supports URL sources; otherwise raise a canonical unsupported error | Avoid hidden downloads, hidden conversions, and surprising latency/cost in DataDesigner. |
-| Provider-neutrality | Context classes emit canonical DataDesigner media blocks; adapters convert to provider payloads | Prevents OpenAI-specific `image_url`/`input_audio` shapes from spreading further into config. The adapters already own provider translation for Anthropic images. |
+| Provider-neutrality | Context classes emit canonical DataDesigner media blocks from config-layer helpers; adapters convert to provider payloads | Prevents OpenAI-specific `image_url`/`input_audio` shapes from spreading further into config and avoids config -> engine imports. The adapters already own provider translation for Anthropic images. |
+| Capability gate | Add an adapter-level media capability check for modality, source type, and media type before transport | DataDesigner should raise `ProviderError.unsupported_capability(...)` / `ProviderErrorKind.UNSUPPORTED_CAPABILITY` before making a request when a provider/model cannot consume a block. |
 | Provider filenames | Do not expose `filename` on config context models | Filenames are provider/file-upload metadata, not declarative dataset intent. If a provider requires a filename, the adapter should derive it from the URL basename when available or synthesize one from the media type. |
 | Backward compatibility | Accept legacy `image_url` blocks in adapters during the transition | Existing traces/tests and custom plugins that build `image_url` blocks keep working. |
+| Schema export | Update/review emitted JSON schema for `LLMTextColumnConfig.multi_modal_context` after introducing the union | Docs/UI consumers depend on this schema shape; the implementation PR should make the schema change intentional and tested. |
 | Video v1 | Represent video as a canonical video media block with URL or base64 source data and only enable provider paths that explicitly support video input | Native video-understanding support differs by provider. DataDesigner should fail clearly when a configured provider cannot consume the block. |
 
 ## Architecture
@@ -111,23 +117,37 @@ The important boundary is adapter translation. Config objects describe media in 
 
 ## Canonical Block Shape
 
-Add a small internal content-block schema in config or engine model utilities. Keep it plain dictionaries for compatibility with the current message plumbing. Every media block has either `source.type == "url"` or `source.type == "base64"`. URL sources are shipped to the endpoint as URLs when the provider supports URL input; base64 sources are shipped as base64.
+Add a small internal content-block schema in config-layer helpers or by plain dict construction in the context classes. Do not place the schema in engine utilities, because config models must not import engine code. Keep the blocks as plain dictionaries for compatibility with the current message plumbing.
+
+Every media block has either `source.type == "url"` or `source.type == "base64"`. URL sources are shipped to the endpoint as URLs when the provider supports URL input; base64 sources are shipped as base64. The canonical schema uses `media_type` for base64 sources and does not carry provider-specific fields such as OpenAI's `input_audio.format`; adapters derive those fields during translation.
 
 ```python
 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "..."}}
 {"type": "image", "source": {"type": "url", "url": "https://example.com/image.png"}}
 
-{"type": "audio", "source": {"type": "base64", "media_type": "audio/mpeg", "data": "...", "format": "mp3"}}
-{"type": "audio", "source": {"type": "url", "url": "https://example.com/audio.mp3", "format": "mp3"}}
+{"type": "audio", "source": {"type": "base64", "media_type": "audio/mpeg", "data": "..."}}
+{"type": "audio", "source": {"type": "url", "url": "https://example.com/audio.mp3"}}
 
 {"type": "video", "source": {"type": "base64", "media_type": "video/mp4", "data": "..."}}
 {"type": "video", "source": {"type": "url", "url": "https://example.com/clip.mp4"}}
 ```
 
+MIME / format mapping starts conservatively:
+
+| Config enum | Canonical `media_type` | OpenAI `input_audio.format` |
+|---|---|---|
+| `AudioFormat.MP3` | `audio/mpeg` | `mp3` |
+| `AudioFormat.WAV` | `audio/wav` | `wav` |
+| `VideoFormat.MP4` | `video/mp4` | N/A |
+| `VideoFormat.MOV` | `video/quicktime` | N/A |
+| `VideoFormat.WEBM` | `video/webm` | N/A |
+
+Adapters may accept common inbound MIME aliases such as `audio/mp3` and `audio/x-wav`, but canonical output should normalize to the table above.
+
 OpenAI-compatible translation maps:
 
 - `image` base64/url -> existing `{"type": "image_url", "image_url": {"url": ...}}`
-- `audio` base64 with `mp3`/`wav` -> `{"type": "input_audio", "input_audio": {"data": ..., "format": ...}}`
+- `audio` base64 with supported `media_type` -> `{"type": "input_audio", "input_audio": {"data": ..., "format": ...}}`, deriving `format` from `media_type`
 - `video` base64/url -> provider-supported video content parts when supported; URL video sources stay URLs
 
 Anthropic translation maps:
@@ -136,6 +156,8 @@ Anthropic translation maps:
 - `audio`/`video` -> canonical unsupported-capability error in v1
 
 ## Implementation Steps
+
+The implementation should be one PR against the implementation issue. The sections below describe work areas inside that PR, not separate PRs.
 
 ### 1. Add media context config types
 
@@ -153,7 +175,9 @@ Work:
   - `VideoFormat`: `MP4`, `MOV`, `WEBM`
 - Add `AudioContext` and `VideoContext` classes.
 - Change concrete context `modality` fields to `Literal[...]` values so Pydantic discriminated unions work.
-- Add `MultiModalContextT` type alias and use it from column configs.
+- Add `MultiModalContextT` type alias and use it from text-generation column configs.
+- Add a pre-validator/migration path for `LLMTextColumnConfig.multi_modal_context` so legacy image context dictionaries that omit `modality` are treated as `modality="image"` before Pydantic discriminated-union validation.
+- Define and test `data_type=None` for audio/video: HTTP(S) strings are URL sources, base64 data URIs are base64 sources with inferred media type, plain base64 values require an explicit `audio_format`/`video_format`, and local path-looking media values raise validation errors.
 - Preserve `ImageContext` behavior and imports.
 
 ### 2. Extract shared media normalization helpers
@@ -166,11 +190,12 @@ Files:
 
 Work:
 
-- Move reusable value normalization out of `ImageContext`: scalar string, list, JSON-list string, array-like.
+- Extract or add reusable value normalization for scalar string, list, JSON-list string, and array-like values.
+- Preserve the existing `image_helpers.py` public surface; do not remove or rename helpers that external plugins may import.
 - Add base64 and URL helpers that work for audio and video without importing heavy libraries.
 - Keep image validation and image format detection in `image_helpers.py`.
 - Add MIME helpers for audio/video formats.
-- Keep URL detection extension-aware and non-string-safe, matching the current image helper pattern.
+- Treat any HTTP(S) string as an audio/video URL for `data_type=None` so extensionless signed/download URLs pass through instead of being mistaken for base64. Extension-aware helpers can still exist for local path rejection.
 - Do not add audio/video path-to-base64 helpers in this step.
 
 ### 3. Update column config typing and required columns
@@ -182,10 +207,11 @@ Files:
 
 Work:
 
-- Replace `list[ImageContext] | None` with `list[MultiModalContextT] | None` on `LLMTextColumnConfig` and `ImageColumnConfig`.
+- Replace `list[ImageContext] | None` with `list[MultiModalContextT] | None` on `LLMTextColumnConfig` only.
+- Keep `ImageColumnConfig.multi_modal_context: list[ImageContext] | None` and its image-to-image semantics unchanged.
 - Update field descriptions from "image contexts" to "multimodal contexts".
 - Keep `required_columns` logic generic by reading `ctx.column_name`.
-- Add tests for audio/video context columns being included in `required_columns`.
+- Add tests for audio/video context columns being included in `LLMTextColumnConfig.required_columns` and for `ImageColumnConfig` rejecting audio/video contexts.
 
 ### 4. Keep engine prompt plumbing generic
 
@@ -215,9 +241,10 @@ Files:
 Work:
 
 - Add content-block translation helpers before requests leave each adapter.
+- Add a capability gate before provider payload construction that checks modality, source type, and media type for the selected provider/model route. Unsupported combinations raise `ProviderError.unsupported_capability(...)` with `ProviderErrorKind.UNSUPPORTED_CAPABILITY` before transport.
 - OpenAI-compatible:
   - Translate canonical `image` blocks to `image_url`.
-  - Translate canonical base64 `audio` blocks to `input_audio`.
+  - Translate canonical base64 `audio` blocks to `input_audio`, deriving OpenAI's `format` from canonical `media_type`.
   - Translate supported `video` blocks to provider-specific media content parts only when the provider route supports them.
   - Derive any provider-required filename outside config from the URL basename when available, otherwise synthesize a stable default from the media type.
   - Preserve existing `image_url` and `input_audio` blocks for compatibility.
@@ -239,21 +266,29 @@ Work:
 - Add an example of audio-context text generation.
 - Add a mixed image/audio/video example behind an OpenAI-compatible model/provider note.
 - Document provider limitations explicitly, especially Anthropic image-only support in v1 and OpenAI audio format limits.
+- Keep these docs/examples in the same implementation PR when they are small; otherwise file a follow-up only for expanded user-facing tutorial work after the core PR lands.
 
 ## Test Plan
 
 - Config tests:
   - `AudioContext` and `VideoContext` support scalar, list, JSON list, numpy array, empty list, base64, and URL values.
-  - Required format validation mirrors `ImageContext`: explicit base64 requires an explicit format.
+  - `data_type=None` behavior is pinned: HTTP(S) URL and base64 data URI are auto-detected; local path-looking audio/video values are rejected; plain base64 values require an explicit format.
+  - Required format validation mirrors `ImageContext`: explicit plain base64 requires an explicit format.
+  - Legacy image context dicts without `modality` still import through `LLMTextColumnConfig.multi_modal_context`.
   - Export/import round trips preserve concrete context types through the discriminated union.
+  - JSON schema export for `LLMTextColumnConfig.multi_modal_context` is updated and reviewed.
 - Column tests:
-  - `required_columns` includes audio/video context columns for LLM and image columns.
+  - `required_columns` includes audio/video context columns for LLM columns.
+  - `ImageColumnConfig.multi_modal_context` remains image-only and rejects audio/video contexts.
   - Prompt validation treats audio/video context like image context.
 - Engine tests:
   - `_build_multi_modal_context()` forwards URL and base64 media blocks without attempting audio/video local-path resolution.
   - `prompt_to_messages()` preserves context ordering before text.
+  - List-valued media columns emit blocks in input order with no deduplication.
 - Adapter tests:
   - OpenAI-compatible payloads contain correct provider content blocks for image, audio, and supported video inputs.
+  - OpenAI-compatible derives audio provider `format` from canonical `media_type`.
+  - Provider/model capability checks reject unsupported modality/source/media-type combinations before transport.
   - Anthropic image translation remains unchanged.
   - Anthropic audio/video context raises a canonical unsupported error before transport.
 - Regression tests:
@@ -262,9 +297,9 @@ Work:
 
 ## Rollout Plan
 
-1. PR 1: Config/API foundation. Add `AudioContext`, `VideoContext`, shared helpers, exports, and config/column tests.
-2. PR 2: Engine/provider translation. Add adapter translation, unsupported-modality errors, and model/generator tests.
-3. PR 3: Docs/examples. Add user-facing examples and provider-limit notes.
+1. Land this plan-only PR for issue #668.
+2. Open one implementation PR for the implementation issue. That PR should include config/API additions, engine plumbing, provider translation/rejection, capability gating, tests, and any small docs/examples needed to explain the feature.
+3. Use follow-up issues only for expanded tutorials, Responses API migration, provider file-upload lifecycle, or local-media ingestion beyond v1.
 
 ## Risks and Open Questions
 
