@@ -287,7 +287,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 to remote storage, updating an external run monitor, or triggering downstream processing
                 before the full dataset has finished. The callback runs synchronously in the generation
                 path, so it is recommended to keep it lightweight or delegate slow work to a queue, e.g.
-                ``on_batch_complete=lambda path: queue_upload(path)``.
+                ``on_batch_complete=lambda path: queue_upload(path)``. Callback exceptions abort the run
+                and are wrapped as ``DataDesignerGenerationError``.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
