@@ -491,7 +491,8 @@ def test_init_with_string_path(stub_artifact_path, stub_model_providers):
     """Test DataDesigner accepts string paths."""
     designer = DataDesigner(artifact_path=str(stub_artifact_path), model_providers=stub_model_providers)
     assert designer is not None
-    assert isinstance(designer._artifact_path, Path)
+    assert isinstance(designer.artifact_path, Path)
+    assert designer.artifact_path == stub_artifact_path
 
 
 def test_init_with_path_object(stub_artifact_path, stub_model_providers):

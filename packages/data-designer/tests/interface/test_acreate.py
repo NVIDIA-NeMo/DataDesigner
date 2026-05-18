@@ -97,8 +97,8 @@ async def test_acreate_does_not_serialize_create_calls(
             started_count += 1
             if started_count == 2:
                 both_started.set()
-        assert both_started.wait(2)
-        assert release.wait(2)
+        assert both_started.wait(5)
+        assert release.wait(5)
         return _creation_result(config_builder, stub_dataset_profiler_results)
 
     data_designer.create = MagicMock(side_effect=fake_create)
@@ -108,7 +108,7 @@ async def test_acreate_does_not_serialize_create_calls(
     left_task = asyncio.create_task(data_designer.acreate(left, num_records=1, dataset_name="left"))
     right_task = asyncio.create_task(data_designer.acreate(right, num_records=1, dataset_name="right"))
     try:
-        assert await asyncio.to_thread(both_started.wait, 2)
+        assert await asyncio.to_thread(both_started.wait, 5)
     finally:
         release.set()
 

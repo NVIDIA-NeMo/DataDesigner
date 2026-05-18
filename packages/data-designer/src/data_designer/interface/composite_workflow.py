@@ -107,6 +107,7 @@ class CompositeWorkflowResults:
 
     @property
     def final_result(self) -> DatasetCreationResults:
+        """Return the final stage result, or raise if it was skipped."""
         return self._require_final_result()
 
     def _require_final_result(self) -> DatasetCreationResults:
@@ -118,33 +119,41 @@ class CompositeWorkflowResults:
         return result
 
     def load_dataset(self) -> pd.DataFrame:
+        """Load the selected output from the final workflow stage."""
         self._require_final_result()
         return self.load_stage_output(self.final_stage_name)
 
     def load_analysis(self) -> DatasetProfilerResults:
+        """Load analysis from the final stage result."""
         return self.final_result.load_analysis()
 
     def count_records(self) -> int:
+        """Count records in the selected output from the final workflow stage."""
         self._require_final_result()
         return self.count_stage_output_records(self.final_stage_name)
 
     def get_stage_output_path(self, stage_name: str) -> Path:
+        """Return the selected output path handed downstream for a stage."""
         result = self.stage_results[stage_name]
         if isinstance(result, SkippedStageResult):
             raise DataDesignerWorkflowError(f"Stage {stage_name!r} was skipped: {result.status.value}.")
         return self._stage_output_paths.get(stage_name, result.artifact_storage.final_dataset_path)
 
     def load_stage_output(self, stage_name: str) -> pd.DataFrame:
+        """Load the selected output handed downstream for a stage."""
         return _load_parquet_dataset(self.get_stage_output_path(stage_name))
 
     def count_stage_output_records(self, stage_name: str) -> int:
+        """Count records in the selected output handed downstream for a stage."""
         return _count_parquet_records(self.get_stage_output_path(stage_name))
 
     def export(self, path: Path | str, *, format: ExportFormat | None = None) -> Path:
+        """Export the selected output from the final workflow stage."""
         self._require_final_result()
         return _export_parquet_dataset(self.get_stage_output_path(self.final_stage_name), Path(path), format=format)
 
     def push_to_hub(self, *args: Any, **kwargs: Any) -> str:
+        """Push the final stage result to Hugging Face Hub when no output override is selected."""
         final_result = self.final_result
         if self.get_stage_output_path(self.final_stage_name) != final_result.artifact_storage.final_dataset_path:
             raise DataDesignerWorkflowError(
@@ -155,7 +164,10 @@ class CompositeWorkflowResults:
 
 
 class CompositeWorkflow:
+    """Experimental linear workflow for chaining Data Designer stages."""
+
     def __init__(self, *, name: str, data_designer: DataDesigner) -> None:
+        """Create a workflow bound to a parent Data Designer instance."""
         _validate_dir_name(name, "workflow name")
         self.name = name
         self._data_designer = data_designer
@@ -210,11 +222,16 @@ class CompositeWorkflow:
         return self
 
     def run(self) -> CompositeWorkflowResults:
-        """Run all stages from scratch, replacing deterministic stage directories."""
+        """Run all stages from scratch.
+
+        Each stage writes a deterministic artifact directory under the parent
+        Data Designer artifact path. Downstream stages are seeded from the
+        selected output of the previous stage.
+        """
         if not self._stages:
             raise DataDesignerWorkflowError(f"Workflow {self.name!r} has no stages.")
 
-        workflow_path = self._data_designer._artifact_path / self.name
+        workflow_path = self._data_designer.artifact_path / self.name
         workflow_path.mkdir(parents=True, exist_ok=True)
         metadata: dict[str, Any] = {
             "name": self.name,

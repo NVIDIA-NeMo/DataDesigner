@@ -215,6 +215,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         return self._get_interface_info(self._model_providers)
 
+    @property
+    def artifact_path(self) -> Path:
+        """Directory where Data Designer writes artifacts by default."""
+        return self._artifact_path
+
     def list_mcp_tool_names(self, mcp_provider_name: str, *, timeout_sec: float = 10.0) -> list[str]:
         """Connect to a configured MCP provider and return the names of its available tools.
 
@@ -498,6 +503,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def compose_workflow(self, *, name: str) -> CompositeWorkflow:
+        """Create an experimental composite workflow.
+
+        Workflow chaining is experimental and its API, metadata schema, and
+        artifact layout may change in future releases.
+
+        Args:
+            name: Workflow name used for the artifact directory.
+
+        Returns:
+            A composite workflow that can run named stages in sequence.
+        """
         return CompositeWorkflow(name=name, data_designer=self)
 
     def _log_jinja_rendering_engine_mode(self) -> None:

@@ -70,7 +70,7 @@ def _patch_create(data_designer: DataDesigner, stub_dataset_profiler_results) ->
         dataset_name: str,
         **kwargs,
     ) -> DatasetCreationResults:
-        artifact_path = Path(kwargs.pop("artifact_path", data_designer._artifact_path))
+        artifact_path = Path(kwargs.pop("artifact_path", data_designer.artifact_path))
         del kwargs
         df = lazy.pd.DataFrame({"category": ["alpha"] * num_records, "category_copy": ["alpha"] * num_records})
         return _result_from_df(
@@ -177,7 +177,7 @@ def test_composite_workflow_runs_linear_stages_with_disk_handoff(
     assert "category_copy" in final_df.columns
     assert (stub_artifact_path / "linear-chain" / "stage-0-base").is_dir()
     assert (stub_artifact_path / "linear-chain" / "stage-1-copy").is_dir()
-    assert data_designer._artifact_path == stub_artifact_path
+    assert data_designer.artifact_path == stub_artifact_path
 
     metadata = _load_workflow_metadata(stub_artifact_path, "linear-chain")
     assert [stage["status"] for stage in metadata["stages"]] == ["completed", "completed"]
@@ -880,7 +880,7 @@ def test_composite_workflow_export_defaults_to_final_stage(
         dataset_name: str,
         **kwargs,
     ) -> DatasetCreationResults:
-        artifact_path = Path(kwargs.pop("artifact_path", data_designer._artifact_path))
+        artifact_path = Path(kwargs.pop("artifact_path", data_designer.artifact_path))
         del num_records, kwargs
         value = "first" if dataset_name == "stage-0-first" else "final"
         return _result_from_df(
@@ -921,7 +921,7 @@ def test_composite_workflow_push_to_hub_defaults_to_final_stage(
         dataset_name: str,
         **kwargs,
     ) -> DatasetCreationResults:
-        artifact_path = Path(kwargs.pop("artifact_path", data_designer._artifact_path))
+        artifact_path = Path(kwargs.pop("artifact_path", data_designer.artifact_path))
         del num_records, kwargs
         return _result_from_df(
             artifact_path,
