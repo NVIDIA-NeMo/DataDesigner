@@ -515,6 +515,71 @@ def test_generate_with_mcp_tools(
     assert registry_calls == [("tools", "lookup", {"query": "foo"}, None)]
 
 
+def test_generate_preserves_multimodal_mcp_tool_results_between_turns(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+) -> None:
+    tool_call = ToolCall(id="call-1", name="render_chart", arguments_json="{}")
+    responses = [
+        _make_response(content=None, tool_calls=[tool_call]),
+        _make_response("final result"),
+    ]
+    multimodal_result = [
+        {"type": "text", "text": "Rendered chart:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+    ]
+    captured_calls: list[tuple[list[ChatMessage], dict[str, Any]]] = []
+
+    def process_with_multimodal_tool_result(completion_response: ChatCompletionResponse) -> list[ChatMessage]:
+        if not completion_response.message.tool_calls:
+            return [ChatMessage.as_assistant(content=completion_response.message.content or "")]
+        return [
+            ChatMessage.as_assistant(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {"name": "render_chart", "arguments": "{}"},
+                    }
+                ],
+            ),
+            ChatMessage.as_tool(content=multimodal_result, tool_call_id="call-1"),
+        ]
+
+    facade = StubMCPFacade(
+        tool_schemas=[
+            {
+                "type": "function",
+                "function": {"name": "render_chart", "description": "Render", "parameters": {"type": "object"}},
+            }
+        ],
+        process_fn=process_with_multimodal_tool_result,
+    )
+    registry = StubMCPRegistry(facade)
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        captured_calls.append((messages, kwargs))
+        return responses.pop(0)
+
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=registry,
+    )
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_alias="tools")
+
+    assert result == "final result"
+    assert len(captured_calls) == 2
+    tool_messages = [message for message in captured_calls[1][0] if message.role == "tool"]
+    assert len(tool_messages) == 1
+    assert tool_messages[0].content == multimodal_result
+
+
 def test_generate_with_tools_missing_registry(
     stub_model_configs: Any, stub_model_client: MagicMock, stub_model_provider_registry: Any
 ) -> None:

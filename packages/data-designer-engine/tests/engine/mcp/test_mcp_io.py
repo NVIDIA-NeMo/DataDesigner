@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any, Iterator
 
 import pytest
+from mcp.types import ImageContent, TextContent
 
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
 from data_designer.engine.mcp import io as mcp_io
@@ -101,67 +102,76 @@ def test_coerce_tool_definition_missing_name() -> None:
 
 
 # =============================================================================
-# Tool result serialization tests
+# Tool result content coercion tests
 # =============================================================================
 
 
-def test_serialize_content_none() -> None:
-    """Test serializing None content."""
+def test_coerce_content_none() -> None:
+    """Test coercing None content."""
 
     class FakeResult:
         content = None
 
-    assert mcp_io._serialize_tool_result_content(FakeResult()) == ""
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == ""
 
 
-def test_serialize_content_string() -> None:
-    """Test serializing string content."""
+def test_coerce_content_string() -> None:
+    """Test coercing string content."""
 
     class FakeResult:
         content = "Hello, world!"
 
-    assert mcp_io._serialize_tool_result_content(FakeResult()) == "Hello, world!"
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == "Hello, world!"
 
 
-def test_serialize_content_dict() -> None:
-    """Test serializing dict content."""
+def test_coerce_content_dict() -> None:
+    """Test coercing structured dict content."""
 
     class FakeResult:
         content = {"key": "value"}
 
-    assert mcp_io._serialize_tool_result_content(FakeResult()) == '{"key": "value"}'
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == '{"key": "value"}'
 
 
-def test_serialize_content_list_of_strings() -> None:
-    """Test serializing list of strings content."""
+def test_coerce_content_list_of_strings() -> None:
+    """Test coercing list of strings content."""
 
     class FakeResult:
         content = ["line1", "line2", "line3"]
 
-    assert mcp_io._serialize_tool_result_content(FakeResult()) == "line1\nline2\nline3"
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == "line1\nline2\nline3"
 
 
-def test_serialize_content_list_of_text_items() -> None:
-    """Test serializing list of text items."""
+def test_coerce_content_list_of_text_items() -> None:
+    """Test coercing list of text items."""
 
     class FakeResult:
         content = [{"type": "text", "text": "First"}, {"type": "text", "text": "Second"}]
 
-    assert mcp_io._serialize_tool_result_content(FakeResult()) == "First\nSecond"
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == "First\nSecond"
 
 
-def test_serialize_content_list_of_dicts() -> None:
-    """Test serializing list of non-text dicts."""
+def test_coerce_content_list_of_dicts() -> None:
+    """Test coercing list of non-text dicts."""
 
     class FakeResult:
         content = [{"type": "data", "value": 1}]
 
-    result = mcp_io._serialize_tool_result_content(FakeResult())
+    result = mcp_io._coerce_tool_result_content(FakeResult())
     assert '{"type": "data", "value": 1}' in result
 
 
-def test_serialize_content_list_with_objects() -> None:
-    """Test serializing list with objects that have text attribute."""
+def test_coerce_content_list_with_none_preserves_existing_string_fallback() -> None:
+    """Test coercing list fallback content preserves old str() behavior."""
+
+    class FakeResult:
+        content = [None]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == "None"
+
+
+def test_coerce_content_list_with_objects() -> None:
+    """Test coercing list with objects that have text attribute."""
 
     class TextItem:
         text = "Object text"
@@ -169,16 +179,159 @@ def test_serialize_content_list_with_objects() -> None:
     class FakeResult:
         content = [TextItem()]
 
-    assert mcp_io._serialize_tool_result_content(FakeResult()) == "Object text"
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == "Object text"
 
 
-def test_serialize_content_fallback_to_str() -> None:
-    """Test serializing content falls back to str()."""
+def test_coerce_content_bare_text_object() -> None:
+    """Test coercing a bare MCP-like text object."""
+
+    class TextItem:
+        type = "text"
+        text = "Object text"
+
+    assert mcp_io._coerce_tool_result_content(TextItem()) == "Object text"
+
+
+def test_coerce_content_fallback_to_str() -> None:
+    """Test coercing content falls back to str()."""
 
     class FakeResult:
         content = 12345
 
-    assert mcp_io._serialize_tool_result_content(FakeResult()) == "12345"
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == "12345"
+
+
+def test_coerce_content_image_dict_to_image_url_data_uri() -> None:
+    """MCP image content is preserved as an OpenAI-style image_url block."""
+
+    class FakeResult:
+        content = [{"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"}]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+    ]
+
+
+def test_coerce_content_b64_json_dict_to_image_url_data_uri() -> None:
+    """Explicit base64 image payloads are normalized to image_url data URIs."""
+
+    class FakeResult:
+        content = [{"b64_json": "iVBORw0KGgo="}]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+    ]
+
+
+def test_coerce_content_base64_payload_dict_with_media_type() -> None:
+    """Explicit media_type payloads do not need image format detection."""
+
+    class FakeResult:
+        content = [{"base64": "abc123", "media_type": "image/webp"}]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [
+        {"type": "image_url", "image_url": {"url": "data:image/webp;base64,abc123"}}
+    ]
+
+
+def test_coerce_content_image_data_uri_strips_existing_prefix() -> None:
+    """Data URI payloads are not double-prefixed."""
+
+    class FakeResult:
+        content = [{"type": "image", "data": "data:image/png;base64,iVBORw0KGgo="}]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+    ]
+
+
+def test_coerce_content_preserves_canonical_image_url_block() -> None:
+    """Canonical image_url blocks are already model-ready and should not be stringified."""
+    image_block = {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+
+    class FakeResult:
+        content = [{"type": "text", "text": "before"}, image_block]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [{"type": "text", "text": "before"}, image_block]
+
+
+def test_coerce_content_normalizes_image_url_raw_base64() -> None:
+    """Non-canonical image_url blocks with raw base64 are normalized to data URIs."""
+
+    class FakeResult:
+        content = [{"type": "image_url", "image_url": {"url": "iVBORw0KGgo="}}]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+    ]
+
+
+def test_coerce_content_bare_image_object() -> None:
+    """Test coercing a bare MCP-like image object."""
+
+    class ImageItem:
+        type = "image"
+        data = "iVBORw0KGgo="
+        mimeType = "image/png"
+
+    assert mcp_io._coerce_tool_result_content(ImageItem()) == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+    ]
+
+
+def test_coerce_content_mixed_text_image_preserves_order() -> None:
+    """Mixed MCP text/image content returns an ordered block list."""
+
+    class ImageItem:
+        type = "image"
+        data = "abc123"
+        mimeType = "image/jpeg"
+
+    class TextItem:
+        type = "text"
+        text = "after"
+
+    class FakeResult:
+        content = [
+            {"type": "text", "text": "before"},
+            ImageItem(),
+            TextItem(),
+            {"type": "image", "data": "def456", "mime_type": "image/webp"},
+        ]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [
+        {"type": "text", "text": "before"},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,abc123"}},
+        {"type": "text", "text": "after"},
+        {"type": "image_url", "image_url": {"url": "data:image/webp;base64,def456"}},
+    ]
+
+
+def test_coerce_content_real_mcp_text_and_image_objects() -> None:
+    """Real MCP content objects are preserved in model-visible order."""
+
+    class FakeResult:
+        content = [
+            TextContent(type="text", text="before"),
+            ImageContent(type="image", data="abc123", mimeType="image/png"),
+            TextContent(type="text", text="after"),
+        ]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [
+        {"type": "text", "text": "before"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+        {"type": "text", "text": "after"},
+    ]
+
+
+def test_coerce_content_image_without_mime_type_fails_clearly() -> None:
+    """Malformed image content fails before provider adaptation."""
+
+    class FakeResult:
+        content = [{"type": "image", "data": "abc123"}]
+
+    with pytest.raises(MCPToolError, match="missing a MIME type"):
+        mcp_io._coerce_tool_result_content(FakeResult())
 
 
 # =============================================================================
