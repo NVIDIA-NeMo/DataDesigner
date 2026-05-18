@@ -22,6 +22,11 @@ export const authors: Record<string, Author> = {
     description: "NeMo Data Designer Core Team",
     avatar: "https://avatars.githubusercontent.com/u/1728152?s=200&v=4",
   },
+  sthan: {
+    name: "Steve Han",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/150830061?v=4",
+  },
   dcorneil: {
     name: "Dane Corneil",
     description: "Researcher at NVIDIA",
