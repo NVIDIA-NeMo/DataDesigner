@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 
     from data_designer.config.run_config import RunConfig
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
-    from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
+    from data_designer.engine.dataset_builders.scheduling.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
@@ -88,11 +88,11 @@ if DATA_DESIGNER_ASYNC_ENGINE:
         MODEL_TASK_ADMISSION_HEADROOM_MULTIPLIER,
         AsyncTaskScheduler,
     )
+    from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
     from data_designer.engine.dataset_builders.utils.async_concurrency import (
         AsyncConcurrentExecutor,
         ensure_async_engine_loop,
     )
-    from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
     from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
 

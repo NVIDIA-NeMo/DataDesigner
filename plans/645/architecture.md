@@ -28,7 +28,7 @@ AsyncTaskScheduler
   -> CompletionTracker.ready_frontier()
   -> FairTaskQueue.enqueue(...)
   -> FairTaskQueue.select_next(scheduler-owned eligibility callback)
-  -> TaskAdmissionController.try_acquire(selection.item, queue_view)
+  -> TaskAdmissionController.try_acquire(selection.item, selection.queue_view)
   -> FairTaskQueue.commit(selection)
   -> execute admitted task/generator code
 
@@ -68,6 +68,8 @@ This is not a passive pipeline where `CompletionTracker`, `FairTaskQueue`, or `T
 
 The plan uses several contract categories. Keeping them separate prevents internal scheduling mechanics from becoming accidental plugin API.
 
+Durable engine vocabulary is maintainer-facing unless this plan explicitly marks it plugin-facing or operator-facing. See [Module ownership](module-ownership.md) for final module homes, import rules, and test/benchmark ownership.
+
 | Audience | Durable surface | Must not expose |
 | --- | --- | --- |
 | Plugin authors | `ColumnGenerator.get_scheduling_metadata()` and `SchedulingMetadata` | queue state, task leases, request domains, AIMD state, runtime pressure |
@@ -84,6 +86,24 @@ Package ownership follows Data Designer's structural layering:
 | `data-designer` | public interface wiring, CLI/operator presentation, and integration docs; it may consume engine/config contracts but must not make engine internals plugin API |
 
 When a contract is shared across packages, the lower package owns the data definition and the higher package owns presentation or orchestration. Engine code may import config contracts; config code must not import engine runtime protocols.
+
+Target repository ownership is part of the architecture, not an implementation detail. The epic does not include compatibility aliases, shim modules, transitional reexports, or duplicate old/new paths for scheduler or request-admission names.
+
+## Module Ownership
+
+The final target module layout is defined in [Module ownership](module-ownership.md). In summary:
+
+- generator-facing metadata lives in `data_designer.config.scheduling`
+- scheduler task models, readiness, queues, task admission, and task policies live under `data_designer.engine.dataset_builders.scheduling`
+- `AsyncTaskScheduler` remains in `data_designer.engine.dataset_builders.async_scheduler` as the runtime coordinator only
+- shared provider/model identity lives in `data_designer.engine.models.resources`
+- concrete request admission lives under `data_designer.engine.models.request_admission`
+- `ModelRequestExecutor` stays under `data_designer.engine.models.clients` because it wraps model clients at the acquire/call/release boundary
+- capacity diagnostics live in `data_designer.engine.capacity`
+- runtime admission events and correlation live in `data_designer.engine.observability`
+- product/provider usage telemetry remains separate in `data_designer.engine.models.telemetry`
+
+Implementation PRs should use these final homes directly and must not leave production compatibility names, compatibility modules, old-path reexports, or durable tests for replaced names.
 
 ## Two-Stage Admission
 

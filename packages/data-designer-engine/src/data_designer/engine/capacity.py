@@ -7,13 +7,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Generic, Literal, TypeVar
 
-from data_designer.engine.dataset_builders.utils.task_scheduling import SchedulerResourceKey, TaskGroupKey
-from data_designer.engine.models.clients.request_admission import (
-    ProviderModelKey,
-    ProviderModelStaticCap,
-    RequestAdmissionConfig,
-    RequestResourceKey,
-)
+from data_designer.engine.dataset_builders.scheduling.resources import SchedulerResourceKey, TaskGroupKey
+from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+from data_designer.engine.models.request_admission.resources import RequestResourceKey
+from data_designer.engine.models.resources import ProviderModelKey, ProviderModelStaticCap
 
 _T = TypeVar("_T")
 

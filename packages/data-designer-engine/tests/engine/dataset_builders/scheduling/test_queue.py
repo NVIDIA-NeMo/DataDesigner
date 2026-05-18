@@ -5,15 +5,15 @@ from __future__ import annotations
 
 from collections import Counter
 
-from data_designer.engine.dataset_builders.utils.fair_task_queue import FairTaskQueue, QueueView
-from data_designer.engine.dataset_builders.utils.task_model import Task
-from data_designer.engine.dataset_builders.utils.task_scheduling import (
+from data_designer.engine.dataset_builders.scheduling.queue import FairTaskQueue, QueueView
+from data_designer.engine.dataset_builders.scheduling.resources import (
     SchedulableTask,
     SchedulerResourceRequest,
     TaskGroupKey,
     TaskGroupSpec,
     stable_task_id,
 )
+from data_designer.engine.dataset_builders.scheduling.task_model import Task
 
 
 def _task(column: str, row_index: int) -> Task:

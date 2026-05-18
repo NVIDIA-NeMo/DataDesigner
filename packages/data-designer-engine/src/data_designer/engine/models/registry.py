@@ -15,9 +15,9 @@ from data_designer.logging import LOG_INDENT
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from data_designer.engine.models.clients.request_admission import AdaptiveRequestAdmissionController
     from data_designer.engine.models.clients.retry import RetryConfig
     from data_designer.engine.models.facade import ModelFacade
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
     ModelFacadeFactory = Callable[
         [ModelConfig, SecretResolver, ModelProviderRegistry, RetryConfig | None],

@@ -8,7 +8,7 @@ from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
-from data_designer.engine.dataset_builders.utils.task_scheduling import (
+from data_designer.engine.dataset_builders.scheduling.resources import (
     SchedulableTask,
     SchedulerResourceKey,
     TaskGroupKey,

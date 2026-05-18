@@ -27,13 +27,25 @@ from data_designer.engine.capacity import (
 from data_designer.engine.context import current_row_group
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
+from data_designer.engine.dataset_builders.scheduling.queue import (
+    FairTaskQueue,
+)
+from data_designer.engine.dataset_builders.scheduling.resolver import TaskSchedulingResolver
+from data_designer.engine.dataset_builders.scheduling.resources import (
+    SchedulableTask,
+    stable_task_id,
+)
+from data_designer.engine.dataset_builders.scheduling.task_admission import (
+    TaskAdmissionConfig,
+    TaskAdmissionController,
+    TaskAdmissionDenied,
+    TaskAdmissionLease,
+)
+from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
 from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
-)
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
-from data_designer.engine.dataset_builders.utils.fair_task_queue import (
-    FairTaskQueue,
 )
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
@@ -42,18 +54,6 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
     strip_skip_metadata_from_records,
 )
 from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
-from data_designer.engine.dataset_builders.utils.task_admission import (
-    TaskAdmissionConfig,
-    TaskAdmissionController,
-    TaskAdmissionDenied,
-    TaskAdmissionLease,
-)
-from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task, TaskTrace
-from data_designer.engine.dataset_builders.utils.task_scheduling import (
-    SchedulableTask,
-    TaskSchedulingResolver,
-    stable_task_id,
-)
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
 from data_designer.engine.observability import (
     RuntimeCorrelation,

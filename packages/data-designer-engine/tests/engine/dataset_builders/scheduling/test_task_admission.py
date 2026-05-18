@@ -3,22 +3,22 @@
 
 from __future__ import annotations
 
-from data_designer.engine.dataset_builders.utils.fair_task_queue import FairTaskQueue
-from data_designer.engine.dataset_builders.utils.task_admission import (
-    BoundedBorrowTaskAdmissionPolicyConfig,
-    TaskAdmissionConfig,
-    TaskAdmissionController,
-    TaskAdmissionDenied,
-    TaskAdmissionLease,
-)
-from data_designer.engine.dataset_builders.utils.task_model import Task
-from data_designer.engine.dataset_builders.utils.task_scheduling import (
+from data_designer.engine.dataset_builders.scheduling.queue import FairTaskQueue
+from data_designer.engine.dataset_builders.scheduling.resources import (
     SchedulableTask,
     SchedulerResourceRequest,
     TaskGroupKey,
     TaskGroupSpec,
     stable_task_id,
 )
+from data_designer.engine.dataset_builders.scheduling.task_admission import (
+    TaskAdmissionConfig,
+    TaskAdmissionController,
+    TaskAdmissionDenied,
+    TaskAdmissionLease,
+)
+from data_designer.engine.dataset_builders.scheduling.task_model import Task
+from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 
 
 def _item(column: str, row: int = 0, *, group: TaskGroupSpec | None = None) -> SchedulableTask:

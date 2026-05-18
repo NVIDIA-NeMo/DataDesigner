@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
-from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task
+from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task
 
 if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph

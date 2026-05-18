@@ -29,26 +29,25 @@ from data_designer.engine.capacity import (
     RequestAdmissionConfigSnapshot,
     RowGroupAdmission,
 )
-from data_designer.engine.dataset_builders.utils.fair_task_queue import FairTaskQueue
-from data_designer.engine.dataset_builders.utils.task_admission import TaskAdmissionConfig, TaskAdmissionController
-from data_designer.engine.dataset_builders.utils.task_model import Task
-from data_designer.engine.dataset_builders.utils.task_scheduling import (
+from data_designer.engine.dataset_builders.scheduling.queue import FairTaskQueue
+from data_designer.engine.dataset_builders.scheduling.resources import (
     SchedulableTask,
     SchedulerResourceRequest,
     TaskGroupKey,
     TaskGroupSpec,
 )
-from data_designer.engine.models.clients.request_admission import (
-    AdaptiveRequestAdmissionController,
-    ProviderModelKey,
-    ProviderModelStaticCap,
-    RequestAdmissionConfig,
+from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionController
+from data_designer.engine.dataset_builders.scheduling.task_model import Task
+from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
+from data_designer.engine.models.request_admission.outcomes import RequestReleaseOutcome
+from data_designer.engine.models.request_admission.resources import (
     RequestAdmissionItem,
     RequestDomain,
     RequestGroupSpec,
-    RequestReleaseOutcome,
     RequestResourceKey,
 )
+from data_designer.engine.models.resources import ProviderModelKey, ProviderModelStaticCap
 from data_designer.engine.observability import InMemoryAdmissionEventSink, SchedulerAdmissionEvent
 
 ARTIFACT_SCHEMA_VERSION = "async-scheduling-benchmark-v1"

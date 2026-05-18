@@ -33,11 +33,11 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
+from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
+from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionLease
+from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
-from data_designer.engine.dataset_builders.utils.task_admission import TaskAdmissionConfig, TaskAdmissionLease
-from data_designer.engine.dataset_builders.utils.task_model import Task
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
     ModelInternalServerError,

@@ -14,9 +14,9 @@ from data_designer.config.column_configs import (
     SamplerColumnConfig,
 )
 from data_designer.config.sampler_params import SamplerType
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
+from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker
+from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
-from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task
 
 MODEL_ALIAS = "stub"
 

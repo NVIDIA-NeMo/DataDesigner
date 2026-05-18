@@ -19,8 +19,8 @@ from data_designer.engine.models.clients.adapters.http_model_client import Clien
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
-from data_designer.engine.models.clients.request_admission import AdaptiveRequestAdmissionController
 from data_designer.engine.models.clients.retry import RetryConfig
+from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 from data_designer.engine.secret_resolver import SecretResolver
 
 

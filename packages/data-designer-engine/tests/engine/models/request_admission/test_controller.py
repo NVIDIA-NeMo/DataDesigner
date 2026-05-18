@@ -7,16 +7,18 @@ import asyncio
 
 import pytest
 
-from data_designer.engine.models.clients.request_admission import (
+from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+from data_designer.engine.models.request_admission.controller import (
     AdaptiveRequestAdmissionController,
-    RequestAdmissionConfig,
     RequestAdmissionDenied,
     RequestAdmissionError,
-    RequestAdmissionItem,
     RequestAdmissionLease,
+)
+from data_designer.engine.models.request_admission.outcomes import RequestReleaseOutcome
+from data_designer.engine.models.request_admission.resources import (
+    RequestAdmissionItem,
     RequestDomain,
     RequestGroupSpec,
-    RequestReleaseOutcome,
     RequestResourceKey,
 )
 

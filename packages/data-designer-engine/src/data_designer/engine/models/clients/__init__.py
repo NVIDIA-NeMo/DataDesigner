@@ -13,19 +13,6 @@ from data_designer.engine.models.clients.errors import (
 )
 from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
-from data_designer.engine.models.clients.request_admission import (
-    AdaptiveRequestAdmissionController,
-    RequestAdmissionConfig,
-    RequestAdmissionController,
-    RequestAdmissionError,
-    RequestAdmissionItem,
-    RequestAdmissionLease,
-    RequestDomain,
-    RequestFairQueue,
-    RequestReleaseOutcome,
-    RequestResourceKey,
-    RequestResourceResolver,
-)
 from data_designer.engine.models.clients.retry import RetryConfig
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
@@ -51,22 +38,11 @@ __all__ = [
     "ImageGenerationRequest",
     "ImageGenerationResponse",
     "ImagePayload",
-    "AdaptiveRequestAdmissionController",
     "ModelClient",
     "ModelRequestExecutor",
     "OpenAICompatibleClient",
     "ProviderError",
     "ProviderErrorKind",
-    "RequestAdmissionConfig",
-    "RequestAdmissionController",
-    "RequestAdmissionError",
-    "RequestAdmissionItem",
-    "RequestAdmissionLease",
-    "RequestDomain",
-    "RequestFairQueue",
-    "RequestReleaseOutcome",
-    "RequestResourceResolver",
-    "RequestResourceKey",
     "RetryConfig",
     "ToolCall",
     "Usage",

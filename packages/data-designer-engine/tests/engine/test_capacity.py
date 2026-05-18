@@ -12,13 +12,9 @@ from data_designer.engine.capacity import (
     RequestAdmissionConfigSnapshot,
     RowGroupAdmission,
 )
-from data_designer.engine.models.clients.request_admission import (
-    ProviderModelKey,
-    ProviderModelStaticCap,
-    RequestAdmissionConfig,
-    RequestDomain,
-    RequestResourceKey,
-)
+from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+from data_designer.engine.models.request_admission.resources import RequestDomain, RequestResourceKey
+from data_designer.engine.models.resources import ProviderModelKey, ProviderModelStaticCap
 
 
 def test_request_admission_config_snapshot_records_resources() -> None:

@@ -10,8 +10,8 @@ import pytest
 
 from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError
-from data_designer.engine.dataset_builders.utils.task_model import Task
-from data_designer.engine.dataset_builders.utils.task_scheduling import TaskSchedulingResolver
+from data_designer.engine.dataset_builders.scheduling.resolver import TaskSchedulingResolver
+from data_designer.engine.dataset_builders.scheduling.task_model import Task
 
 
 class _LocalGenerator:

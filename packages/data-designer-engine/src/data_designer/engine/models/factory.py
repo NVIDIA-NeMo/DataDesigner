@@ -48,10 +48,10 @@ def create_model_registry(
     """
     from data_designer.config.run_config import RunConfig
     from data_designer.engine.models.clients.factory import create_model_client
-    from data_designer.engine.models.clients.request_admission import AdaptiveRequestAdmissionController
     from data_designer.engine.models.clients.retry import RetryConfig
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.registry import ModelRegistry
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
     _ = run_config or RunConfig()
     request_admission = AdaptiveRequestAdmissionController()

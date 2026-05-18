@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_designer.engine.dataset_builders.utils.task_model import Task, TaskResult, TaskTrace
+from data_designer.engine.dataset_builders.scheduling.task_model import Task, TaskResult, TaskTrace
 
 
 def test_task_is_frozen() -> None:

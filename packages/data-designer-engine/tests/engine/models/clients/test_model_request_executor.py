@@ -9,7 +9,6 @@ import pytest
 
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
-from data_designer.engine.models.clients.request_admission import AdaptiveRequestAdmissionController, RequestDomain
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
     ChatCompletionRequest,
@@ -20,6 +19,8 @@ from data_designer.engine.models.clients.types import (
     ImageGenerationResponse,
     ImagePayload,
 )
+from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
+from data_designer.engine.models.request_admission.resources import RequestDomain
 from data_designer.engine.observability import InMemoryAdmissionEventSink
 
 

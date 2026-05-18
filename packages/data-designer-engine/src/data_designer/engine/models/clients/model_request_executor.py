@@ -9,17 +9,6 @@ from typing import TYPE_CHECKING, TypeVar
 
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
-from data_designer.engine.models.clients.request_admission import (
-    RequestAdmissionController,
-    RequestAdmissionError,
-    RequestAdmissionItem,
-    RequestAdmissionLease,
-    RequestDomain,
-    RequestEventContext,
-    RequestGroupSpec,
-    RequestReleaseOutcome,
-    RequestResourceResolver,
-)
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -27,6 +16,19 @@ from data_designer.engine.models.clients.types import (
     EmbeddingResponse,
     ImageGenerationRequest,
     ImageGenerationResponse,
+)
+from data_designer.engine.models.request_admission.controller import (
+    RequestAdmissionController,
+    RequestAdmissionError,
+    RequestAdmissionLease,
+)
+from data_designer.engine.models.request_admission.outcomes import RequestReleaseOutcome
+from data_designer.engine.models.request_admission.resolver import RequestResourceResolver
+from data_designer.engine.models.request_admission.resources import (
+    RequestAdmissionItem,
+    RequestDomain,
+    RequestEventContext,
+    RequestGroupSpec,
 )
 from data_designer.engine.observability import (
     RequestAdmissionEvent,
