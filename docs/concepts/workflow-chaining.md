@@ -1,7 +1,7 @@
 # Workflow Chaining
 
-!!! warning "Experimental"
-    Workflow chaining is experimental. The API, metadata schema, and artifact layout may change before this becomes a stable interface. Use it for early testing and feedback, not as a long-term compatibility boundary yet.
+!!! warning "Experimental Feature"
+    Workflow chaining is currently **experimental** and under active development. The documentation, examples, workflow API, metadata schema, and artifact layout are subject to significant changes in future releases. If you encounter any issues, have questions, or have ideas for improvement, please consider starting [a discussion on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/discussions).
 
 Workflow chaining lets you split a dataset build into named stages. Each stage runs a normal `DataDesigner.create()` call, writes its own artifact directory, and hands a selected parquet output to the next stage as a `LocalFileSeedSource`.
 
