@@ -1,6 +1,8 @@
 # Contracts
 
-This file records the durable names and semantics used by the async scheduling architecture. The exact implementation can evolve, but these names are the normative spec vocabulary for the epic. Topic files may explain behavior, but should not redefine fields or return shapes in ways that conflict with this file.
+This file records the durable names and semantics used by the async scheduling architecture. Implementation details inside the owning target modules can evolve, but these names are the normative spec vocabulary for the epic. Topic files may explain behavior, but should not redefine fields or return shapes in ways that conflict with this file.
+
+Durable names in this file are not public API by default. Publicness and final module homes are defined in [Module ownership](module-ownership.md).
 
 ## Package Ownership
 
@@ -11,6 +13,8 @@ This file records the durable names and semantics used by the async scheduling a
 | User interface and operator presentation | `data-designer` | consumes config and engine contracts for the public `DataDesigner` interface, CLI, and integrations. |
 
 Config-layer contracts must not import engine runtime protocols. Engine contracts may consume config-layer DTOs.
+
+The final repository layout is specified in [Module ownership](module-ownership.md). Runtime contracts must live in their owning target modules; do not preserve old module paths through aliases, shim files, or broad package reexports.
 
 ## Config Surface Status
 
@@ -81,9 +85,9 @@ If `fallback` is present, the resolver may continue and must emit diagnostics. I
 amounts: Mapping[SchedulerResourceKey, int]
 ```
 
-`SchedulerResourceKey` identifies a scheduler-owned task-stage resource such as `submission`, `llm_wait`, `local`, or a future internal resource-vector key. It is not a provider request-domain key.
+`SchedulerResourceKey` identifies a scheduler-owned task-stage resource such as `submission`, `local`, or a future internal resource-vector key. It is not a provider request-domain key.
 
-The first implementation can model submission and LLM-wait style resources. Future resource-vector work may add provider/model, local, GPU, or other scheduler resources, but those remain scheduler-internal unless a later design explicitly changes the public contract.
+The first implementation models scheduler task-stage pressure with explicit scheduler resources. Concrete provider/model/domain request pressure belongs to `RequestResourceKey` and request admission. Future resource-vector work may add local, GPU, or other scheduler resources, but those remain scheduler-internal unless a later design explicitly changes the public contract.
 
 `SchedulableTask` contains:
 

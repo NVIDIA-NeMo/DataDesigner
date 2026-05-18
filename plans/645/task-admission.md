@@ -95,7 +95,7 @@ The first task-admission implementation is lease-only and behavior-preserving. I
 V1 includes:
 
 - submission capacity for scheduler-spawned work
-- task-stage LLM-wait style resource if a distinct scheduler-stage resource remains
+- explicit scheduler-resource leases for any task-stage backpressure that remains after request admission is separated
 - current per-group admitted/running cap behavior
 - typed `TaskAdmissionDecision` denial reasons for telemetry, tests, and benchmarks
 - unique task lease identities so duplicate, stale, or wrong-controller releases are rejected or diagnosed
@@ -178,7 +178,7 @@ Policy constraints:
 
 ## Resource-Vector Direction
 
-Future policy work may use `SchedulerResourceKey` and `SchedulerResourceRequest` for multi-resource admission. Candidate resources include submission, LLM-wait, provider/model task-stage hints, local resources, and GPU slots if reliable metadata exists.
+Future policy work may use `SchedulerResourceKey` and `SchedulerResourceRequest` for multi-resource admission. Candidate resources include submission, local resources, GPU slots if reliable metadata exists, or scheduler-owned task-stage resources derived from `SchedulingMetadata`. Provider/model/domain request resources remain owned by request admission.
 
 Resource-vector policy must:
 

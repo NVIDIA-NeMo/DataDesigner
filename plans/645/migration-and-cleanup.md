@@ -1,21 +1,25 @@
 # Migration And Cleanup
 
-The epic is not complete until replaced names and compatibility paths are removed from production code, current docs, and this source-of-truth plan.
+The epic is not complete until replaced names, old module paths, and compatibility paths are removed from production code, current docs, and this source-of-truth plan. The target architecture is defined by [Module ownership](module-ownership.md); implementation PRs should move directly to those final homes.
 
 ## Scheduling Metadata Cleanup
 
-Remove or collapse the legacy `SchedulingHintResolver` path after `SchedulingMetadata` and `TaskSchedulingResolver` are stable.
+The durable scheduling metadata path is:
 
-Accepted end states:
+```text
+ColumnGenerator.get_scheduling_metadata()
+-> SchedulingMetadata
+-> TaskSchedulingResolver
+```
 
-- delete `SchedulingHintResolver`, or
-- refactor/rename it into a metadata-oriented adapter where all model/provider inference lives behind `ColumnGenerator.get_scheduling_metadata()` and typed `SchedulingMetadataError` fallback behavior.
+Remove the legacy resolver types and any independent scheduler-side model/provider introspection path. All model/provider inference must live behind `ColumnGenerator.get_scheduling_metadata()`, `SchedulingMetadata`, and typed `SchedulingMetadataError` fallback behavior.
 
-Unacceptable end state:
+Unacceptable end states:
 
-- a parallel fallback that independently introspects generators, configs, model registries, aliases, or admitted policy data under the old resolver contract.
+- a parallel fallback that independently introspects generators, configs, model registries, aliases, or admitted policy data under the old resolver contract
+- a compatibility adapter, alias, or reexport that preserves the old resolver vocabulary as a durable production path
 
-Final search gate should have no production/current-doc matches for:
+Final legacy-name search gate should have no production/current-doc matches for these historical strings:
 
 ```text
 SchedulingHintResolver
@@ -23,7 +27,7 @@ SchedulingHint
 _model_aliases_for_generator
 ```
 
-Independent scheduler-side `is_llm_bound` fallback is also migration-only and should be folded behind metadata/resource requests by epic completion.
+Independent scheduler-side model-bound fallback logic is also migration-only and should be folded behind metadata/resource requests by epic completion.
 
 ## Request Admission Cleanup
 
@@ -35,7 +39,7 @@ The durable request-admission names are:
 - `RequestAdmissionConfig`
 - `RequestDomain`
 
-Final search gate should have no production/current-doc matches for:
+Final legacy-name search gate should have no production/current-doc matches for these historical strings:
 
 ```text
 ThrottleManager
@@ -61,11 +65,31 @@ max_llm_wait_tasks
 
 If a scheduler-level resource remains for LLM-bound work, it must be represented through `SchedulerResourceRequest`, `TaskAdmissionConfig`, and `AsyncCapacityPlan`, with names that describe scheduler task-stage pressure rather than request concurrency.
 
+## Module Ownership Cleanup
+
+The target scheduler package is:
+
+```text
+data_designer.engine.dataset_builders.scheduling
+```
+
+The durable architecture does not keep scheduler-owned task models, readiness tracking, queues, task admission, or task policies in `dataset_builders.utils`.
+
+The target request-admission package is:
+
+```text
+data_designer.engine.models.request_admission
+```
+
+The durable architecture does not keep request-admission controllers, queues, waiters, AIMD state, pressure snapshots, or request leases in `models.clients.request_admission`.
+
+`ModelRequestExecutor` remains under `models.clients` because it wraps concrete model clients. Request admission itself must not be reexported from `models.clients.__init__`.
+
 ## Compatibility Shim Rule
 
 Do not leave production compatibility aliases, subclasses, adapters, reexports, docs paths, or durable tests for replaced names at epic completion.
 
-Temporary names may exist inside a PR only if the same PR removes them before merge.
+Do not introduce shim modules or deprecation adapters under replaced names. Historical names may appear only in explicit cleanup/search-gate sections like this one or in clearly marked historical changelog/dev-note text.
 
 ## Gate Semantics
 
@@ -75,7 +99,7 @@ By #653 close, legacy scheduling-hint production paths are gone and tests have m
 
 By #657 close, request-admission code has no production `Throttle*` aliases, exports, modules, or durable tests.
 
-By #645 close, public/current docs and `plans/645` use only the durable architecture vocabulary except for this cleanup file's explicit legacy-name search lists. Historical changelog or dev-note text can remain only when explicitly marked historical.
+By #645 close, production code lives in the target modules from [Module ownership](module-ownership.md), package `__init__.py` files do not reexport internal queues/controllers/leases, and public/current docs plus `plans/645` use only the durable architecture vocabulary except for this cleanup file's explicit legacy-name search lists. Historical changelog or dev-note text can remain only when explicitly marked historical.
 
 ## Documentation Cleanup
 
@@ -96,7 +120,7 @@ User/operator docs should expose public run config fields, `AsyncCapacityPlan`, 
 
 Current architecture docs, diagrams, generated assets, and plan files must be checked as part of final cleanup. Existing historical dev notes may retain old names only when the text clearly says the name is historical and no longer current API.
 
-Current user/operator architecture docs must also remove or mark as historical semaphore/throttling descriptions that imply the pre-epic architecture. This includes old model-client throttling names and semaphore-based scheduling explanations.
+Current user/operator architecture docs must also remove or mark as historical capacity-control descriptions that imply the pre-epic architecture. This includes old model-client request-capacity names and scheduler-slot handoff explanations.
 
 ## Validation Commands
 
@@ -108,6 +132,9 @@ rg "ThrottleManager|ThrottleDomain|ThrottleConfig|RunConfig\\.throttle|throttle_
 rg "_submission_semaphore|_llm_wait_semaphore|get_semaphore_permits|TrackingSemaphore" packages docs fern architecture plans/645
 rg "throttl(e|ed|ing)|semaphore" docs fern architecture plans/645
 rg "needs_llm_wait|held_llm_wait|max_llm_wait_tasks" packages docs fern architecture plans/645
+rg "dataset_builders\\.utils\\.(task_model|completion_tracker|task_scheduling|fair_task_queue|task_admission)" packages docs fern architecture plans/645
+rg "models\\.clients\\.request_admission|from data_designer\\.engine\\.models\\.clients import .*Request" packages docs fern architecture plans/645
+rg "SchedulingMetadata|TaskSchedulingResolver|FairTaskQueue|TaskAdmissionController|TaskAdmissionLease|ModelRequestExecutor|RequestAdmissionController|AdaptiveRequestAdmissionController|AsyncCapacityPlan|SchedulerResourceRequest|RequestResourceKey" docs fern architecture plans/645
 ```
 
-Any remaining hit must be intentionally historical, not a current implementation or docs path. Allowed plan hits are limited to explicit cleanup/search-gate sections that name the legacy strings so reviewers know what to remove. The task-stage semaphore-specific search distinguishes obsolete submission/LLM-wait scheduling semaphores from unrelated internal synchronization primitives that may remain after review.
+Any remaining hit must be intentionally historical, not a current implementation or docs path. Allowed plan hits are limited to explicit cleanup/search-gate sections that name the legacy strings so reviewers know what to remove. The task-stage wait-specific search distinguishes obsolete scheduler-slot handoff primitives from unrelated internal synchronization primitives that may remain after review.

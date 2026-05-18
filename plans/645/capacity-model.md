@@ -85,9 +85,9 @@ Preview, resume, and checkpoint behavior use the existing dataset-builder partit
 
 ## Transitional Values
 
-Any current hidden LLM-wait task-stage capacity concept is transitional. At epic completion those names must either be gone or replaced by explicit scheduler-resource terminology in `TaskAdmissionConfig` and `AsyncCapacityPlan`.
+Any hidden task-stage capacity concept left from the pre-epic design is transitional. At epic completion those names must be gone or represented by explicit scheduler-resource terminology in `TaskAdmissionConfig` and `AsyncCapacityPlan`.
 
-If a distinct task-stage LLM backpressure resource remains, it must be derived from actually used resolved scheduling metadata, not every registered model alias. It must be described as scheduler task-stage pressure, not provider request concurrency.
+If a distinct task-stage backpressure resource remains for model-producing work, it must be derived from actually used resolved `SchedulingMetadata`, not every registered model alias. It must be described as scheduler task-stage pressure, not provider request concurrency.
 
 ## Alias And Provider Semantics
 

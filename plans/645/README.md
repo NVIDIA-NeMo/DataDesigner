@@ -10,6 +10,7 @@ This directory is the maintainer source of truth while the epic is active. Issue
 
 - [Architecture](architecture.md): target system shape, ownership boundaries, invariants, and non-goals.
 - [Contracts](contracts.md): durable DTO, protocol, event, and config names.
+- [Module ownership](module-ownership.md): final repository/module homes, import rules, audience boundaries, tests, and benchmark ownership.
 - [Capacity model](capacity-model.md): layered capacity vocabulary and ownership.
 - [Task admission](task-admission.md): scheduler-owned ready selection, task leases, policy hooks, bounded borrowing, and resource-vector direction.
 - [Request admission](request-admission.md): model-call admission, AIMD controller shape, dynamic request semantics, and replacement of pre-epic request-control names.
@@ -22,7 +23,7 @@ This directory is the maintainer source of truth while the epic is active. Issue
 
 Recommended reading paths:
 
-- Implementers: [Architecture](architecture.md), [Contracts](contracts.md), then the topic file for the issue being implemented.
+- Implementers: [Architecture](architecture.md), [Contracts](contracts.md), [Module ownership](module-ownership.md), then the topic file for the issue being implemented.
 - Plugin documentation authors: [Contracts](contracts.md#metadata-contracts), [Architecture](architecture.md#audience-and-api-boundaries), and [Migration and cleanup](migration-and-cleanup.md#documentation-cleanup).
 - Operators and performance reviewers: [Capacity model](capacity-model.md), [Observability](observability.md), and [Benchmark plan](benchmark-plan.md).
 - Issue owners: [Issue map](issue-map.md), then the linked source sections for the issue.
@@ -76,7 +77,7 @@ AsyncTaskScheduler
   -> CompletionTracker.ready_frontier()
   -> FairTaskQueue.enqueue(...)
   -> FairTaskQueue.select_next(scheduler-owned eligibility callback)
-  -> TaskAdmissionController.try_acquire(...)
+  -> TaskAdmissionController.try_acquire(selection.item, selection.queue_view)
   -> FairTaskQueue.commit(...)
   -> execute admitted task/generator code
 
