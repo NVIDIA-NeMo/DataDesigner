@@ -11,6 +11,7 @@ import pytest
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
+    ChatCompletionRequest,
     ChatCompletionResponse,
     EmbeddingResponse,
     ImageGenerationResponse,
@@ -120,6 +121,31 @@ def test_generate_with_system_prompt(
     stub_model_facade.generate(prompt="does not matter", system_prompt=system_prompt, parser=lambda x: x)
     assert mock_completion.call_count == 1
     assert captured_messages[0] == expected_messages
+
+
+@patch.object(ModelFacade, "completion", autospec=True)
+def test_generate_drops_n_before_completion(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    mock_completion.return_value = _make_response("Hello!")
+
+    stub_model_facade.generate(prompt="does not matter", parser=lambda x: x, n=4)
+
+    assert "n" not in mock_completion.call_args.kwargs
+
+
+@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_drops_n_before_acompletion(
+    mock_acompletion: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    mock_acompletion.return_value = _make_response("Hello!")
+
+    await stub_model_facade.agenerate(prompt="does not matter", parser=lambda x: x, n=4)
+
+    assert "n" not in mock_acompletion.call_args.kwargs
 
 
 @patch.object(ModelFacade, "completion", autospec=True)
@@ -419,6 +445,21 @@ def test_completion_with_kwargs(
 
     assert result == expected_response
     assert stub_model_client.completion.call_count == 1
+
+
+def test_completion_forwards_n_to_request(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    expected_response = _make_response("Test response")
+    stub_model_client.completion.return_value = expected_response
+
+    stub_model_facade.completion(stub_completion_messages, n=4)
+
+    request = stub_model_client.completion.call_args.args[0]
+    assert isinstance(request, ChatCompletionRequest)
+    assert request.n == 4
 
 
 def test_generate_text_embeddings_success(

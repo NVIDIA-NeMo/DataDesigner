@@ -19,6 +19,7 @@ from data_designer.config.utils.image_helpers import (
 )
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
+    ChatCompletionChoice,
     ChatCompletionResponse,
     ImagePayload,
     ToolCall,
@@ -36,35 +37,75 @@ logger = logging.getLogger(__name__)
 
 
 def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
-    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
-    message = get_value_from(first_choice, "message")
-    tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
-    images = extract_images_from_chat_message(message)
-    assistant_message = AssistantMessage(
-        content=coerce_message_content(get_value_from(message, "content")),
-        reasoning_content=extract_reasoning_content(message),
-        tool_calls=tool_calls,
-        images=images,
+    choices = [
+        parse_chat_completion_choice(choice) for choice in normalize_choice_list(get_value_from(response, "choices"))
+    ]
+    assistant_message = choices[0].message if choices else AssistantMessage()
+    generated_images = sum(len(choice.message.images) for choice in choices)
+    usage = extract_usage(
+        get_value_from(response, "usage"),
+        generated_images=generated_images if generated_images else None,
     )
-    usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
     usage = fill_reasoning_token_count_from_content(usage, assistant_message.reasoning_content)
-    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
+    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response, choices=choices)
 
 
 async def aparse_chat_completion_response(response: Any) -> ChatCompletionResponse:
-    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
-    message = get_value_from(first_choice, "message")
-    tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
-    images = await aextract_images_from_chat_message(message)
-    assistant_message = AssistantMessage(
+    choices = [
+        await aparse_chat_completion_choice(choice)
+        for choice in normalize_choice_list(get_value_from(response, "choices"))
+    ]
+    assistant_message = choices[0].message if choices else AssistantMessage()
+    generated_images = sum(len(choice.message.images) for choice in choices)
+    usage = extract_usage(
+        get_value_from(response, "usage"),
+        generated_images=generated_images if generated_images else None,
+    )
+    usage = fill_reasoning_token_count_from_content(usage, assistant_message.reasoning_content)
+    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response, choices=choices)
+
+
+def normalize_choice_list(raw_choices: Any) -> list[Any]:
+    if raw_choices is None:
+        return []
+    if isinstance(raw_choices, list):
+        return raw_choices
+    return [raw_choices]
+
+
+def parse_chat_completion_choice(choice: Any) -> ChatCompletionChoice:
+    message = get_value_from(choice, "message")
+    return ChatCompletionChoice(
+        message=parse_assistant_message(message, images=extract_images_from_chat_message(message)),
+        index=parse_choice_index(get_value_from(choice, "index")),
+        finish_reason=parse_choice_finish_reason(get_value_from(choice, "finish_reason")),
+    )
+
+
+async def aparse_chat_completion_choice(choice: Any) -> ChatCompletionChoice:
+    message = get_value_from(choice, "message")
+    return ChatCompletionChoice(
+        message=parse_assistant_message(message, images=await aextract_images_from_chat_message(message)),
+        index=parse_choice_index(get_value_from(choice, "index")),
+        finish_reason=parse_choice_finish_reason(get_value_from(choice, "finish_reason")),
+    )
+
+
+def parse_assistant_message(message: Any, *, images: list[ImagePayload]) -> AssistantMessage:
+    return AssistantMessage(
         content=coerce_message_content(get_value_from(message, "content")),
         reasoning_content=extract_reasoning_content(message),
-        tool_calls=tool_calls,
+        tool_calls=extract_tool_calls(get_value_from(message, "tool_calls")),
         images=images,
     )
-    usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
-    usage = fill_reasoning_token_count_from_content(usage, assistant_message.reasoning_content)
-    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
+
+
+def parse_choice_index(index: Any) -> int | None:
+    return index if isinstance(index, int) else None
+
+
+def parse_choice_finish_reason(finish_reason: Any) -> str | None:
+    return finish_reason if isinstance(finish_reason, str) else None
 
 
 # ---------------------------------------------------------------------------
