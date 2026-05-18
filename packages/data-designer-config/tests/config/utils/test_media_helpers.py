@@ -11,7 +11,10 @@ from data_designer.config.utils.media_helpers import (
     VideoFormat,
     audio_format_from_mime_type,
     audio_mime_type,
+    is_audio_path,
     is_audio_url,
+    is_media_url,
+    is_video_path,
     is_video_url,
     normalize_media_context_values,
     parse_base64_data_uri,
@@ -34,6 +37,7 @@ def test_parse_base64_data_uri() -> None:
 
 
 def test_audio_url_detection() -> None:
+    assert is_media_url("https://example.com/download?id=123") is True
     assert is_audio_url("https://example.com/audio.mp3") is True
     assert is_audio_url("https://example.com/audio.wav?download=1") is True
     assert is_audio_url("https://example.com/image.png") is False
@@ -41,14 +45,27 @@ def test_audio_url_detection() -> None:
 
 
 def test_video_url_detection() -> None:
+    assert is_media_url("https://example.com/download?id=123") is True
     assert is_video_url("https://example.com/video.mp4") is True
     assert is_video_url("https://example.com/video.webm?download=1") is True
     assert is_video_url("https://example.com/audio.mp3") is False
     assert is_video_url(123) is False  # type: ignore[arg-type]
 
 
+def test_local_media_path_detection() -> None:
+    assert is_audio_path("screen_recording.mp3") is True
+    assert is_audio_path("nested/screen_recording.wav") is True
+    assert is_audio_path("https://example.com/audio.mp3") is False
+    assert is_video_path("screen_recording.mp4") is True
+    assert is_video_path("nested/screen_recording.webm") is True
+    assert is_video_path("https://example.com/video.mp4") is False
+
+
 def test_media_format_mime_helpers() -> None:
     assert audio_mime_type(AudioFormat.MP3) == "audio/mpeg"
     assert audio_format_from_mime_type("audio/mpeg") == AudioFormat.MP3
+    assert audio_format_from_mime_type("audio/mp3") == AudioFormat.MP3
+    assert audio_format_from_mime_type("audio/x-wav") == AudioFormat.WAV
     assert video_mime_type(VideoFormat.MP4) == "video/mp4"
     assert video_format_from_mime_type("video/mp4") == VideoFormat.MP4
+    assert video_format_from_mime_type("VIDEO/MP4") == VideoFormat.MP4

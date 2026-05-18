@@ -304,6 +304,10 @@ def test_audio_context_auto_detect_url_and_data_uri() -> None:
         {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio.mp3"}}
     ]
 
+    assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "https://example.com/download?id=123"}) == [
+        {"type": "audio", "source": {"type": "url", "url": "https://example.com/download?id=123"}}
+    ]
+
     assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "data:audio/mpeg;base64,audio1base64"}) == [
         {
             "type": "audio",
@@ -327,6 +331,11 @@ def test_audio_context_validate_audio_format() -> None:
     with pytest.raises(ValueError, match="does not match data URI media type"):
         AudioContext(column_name="audio_base64", audio_format=AudioFormat.WAV).get_contexts(
             {"audio_base64": "data:audio/mpeg;base64,audio1base64"}
+        )
+
+    with pytest.raises(ValueError, match="Local audio paths are not supported"):
+        AudioContext(column_name="audio_base64", audio_format=AudioFormat.MP3).get_contexts(
+            {"audio_base64": "screen_recording.mp3"}
         )
 
 
@@ -375,6 +384,10 @@ def test_video_context_auto_detect_url_and_data_uri() -> None:
         {"type": "video", "source": {"type": "url", "url": "https://example.com/video.mp4"}}
     ]
 
+    assert VideoContext(column_name="video_col").get_contexts({"video_col": "https://example.com/download?id=123"}) == [
+        {"type": "video", "source": {"type": "url", "url": "https://example.com/download?id=123"}}
+    ]
+
     assert VideoContext(column_name="video_col").get_contexts({"video_col": "data:video/mp4;base64,video1base64"}) == [
         {"type": "video", "source": {"type": "base64", "media_type": "video/mp4", "data": "video1base64"}}
     ]
@@ -390,6 +403,11 @@ def test_video_context_validate_video_format() -> None:
     with pytest.raises(ValueError, match="does not match data URI media type"):
         VideoContext(column_name="video_base64", video_format=VideoFormat.WEBM).get_contexts(
             {"video_base64": "data:video/mp4;base64,video1base64"}
+        )
+
+    with pytest.raises(ValueError, match="Local video paths are not supported"):
+        VideoContext(column_name="video_base64", video_format=VideoFormat.MP4).get_contexts(
+            {"video_base64": "screen_recording.mp4"}
         )
 
 

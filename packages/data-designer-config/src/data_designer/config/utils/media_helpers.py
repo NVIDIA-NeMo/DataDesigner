@@ -27,8 +27,8 @@ class VideoFormat(StrEnum):
     WEBM = "webm"
 
 
-SUPPORTED_AUDIO_EXTENSIONS = [f".{fmt.value.lower()}" for fmt in AudioFormat]
-SUPPORTED_VIDEO_EXTENSIONS = [f".{fmt.value.lower()}" for fmt in VideoFormat]
+SUPPORTED_AUDIO_EXTENSIONS = tuple(f".{fmt.value.lower()}" for fmt in AudioFormat)
+SUPPORTED_VIDEO_EXTENSIONS = tuple(f".{fmt.value.lower()}" for fmt in VideoFormat)
 
 _DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
 
@@ -42,10 +42,17 @@ _VIDEO_FORMAT_TO_MIME_TYPE: dict[VideoFormat, str] = {
     VideoFormat.WEBM: "video/webm",
 }
 _AUDIO_MIME_TYPE_TO_FORMAT: dict[str, AudioFormat] = {
-    mime_type: audio_format for audio_format, mime_type in _AUDIO_FORMAT_TO_MIME_TYPE.items()
+    "audio/mpeg": AudioFormat.MP3,
+    "audio/mp3": AudioFormat.MP3,
+    "audio/wav": AudioFormat.WAV,
+    "audio/wave": AudioFormat.WAV,
+    "audio/x-wav": AudioFormat.WAV,
+    "audio/vnd.wave": AudioFormat.WAV,
 }
 _VIDEO_MIME_TYPE_TO_FORMAT: dict[str, VideoFormat] = {
-    mime_type: video_format for video_format, mime_type in _VIDEO_FORMAT_TO_MIME_TYPE.items()
+    "video/mp4": VideoFormat.MP4,
+    "video/quicktime": VideoFormat.MOV,
+    "video/webm": VideoFormat.WEBM,
 }
 
 
@@ -79,14 +86,29 @@ def parse_base64_data_uri(value: str) -> tuple[str, str] | None:
     return match.group("media_type"), match.group("data")
 
 
+def is_media_url(value: str) -> bool:
+    """Return whether a value is an HTTP(S) media URL."""
+    return isinstance(value, str) and value.startswith(("http://", "https://"))
+
+
 def is_audio_url(value: str) -> bool:
     """Return whether a value looks like an audio URL."""
-    return _is_media_url(value, SUPPORTED_AUDIO_EXTENSIONS)
+    return is_media_url(value) and _has_media_extension(value, SUPPORTED_AUDIO_EXTENSIONS)
 
 
 def is_video_url(value: str) -> bool:
     """Return whether a value looks like a video URL."""
-    return _is_media_url(value, SUPPORTED_VIDEO_EXTENSIONS)
+    return is_media_url(value) and _has_media_extension(value, SUPPORTED_VIDEO_EXTENSIONS)
+
+
+def is_audio_path(value: str) -> bool:
+    """Return whether a value looks like a local audio path."""
+    return _has_path_extension(value, SUPPORTED_AUDIO_EXTENSIONS)
+
+
+def is_video_path(value: str) -> bool:
+    """Return whether a value looks like a local video path."""
+    return _has_path_extension(value, SUPPORTED_VIDEO_EXTENSIONS)
 
 
 def audio_mime_type(audio_format: AudioFormat) -> str:
@@ -109,7 +131,13 @@ def video_format_from_mime_type(media_type: str) -> VideoFormat | None:
     return _VIDEO_MIME_TYPE_TO_FORMAT.get(media_type.lower())
 
 
-def _is_media_url(value: str, supported_extensions: list[str]) -> bool:
+def _has_media_extension(value: str, supported_extensions: tuple[str, ...]) -> bool:
     if not isinstance(value, str):
         return False
-    return value.startswith(("http://", "https://")) and any(ext in value.lower() for ext in supported_extensions)
+    return any(ext in value.lower() for ext in supported_extensions)
+
+
+def _has_path_extension(value: str, supported_extensions: tuple[str, ...]) -> bool:
+    if not isinstance(value, str):
+        return False
+    return not is_media_url(value) and value.lower().endswith(supported_extensions)

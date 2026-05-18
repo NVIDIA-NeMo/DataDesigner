@@ -36,8 +36,9 @@ from data_designer.config.utils.media_helpers import (
     VideoFormat,
     audio_format_from_mime_type,
     audio_mime_type,
-    is_audio_url,
-    is_video_url,
+    is_audio_path,
+    is_media_url,
+    is_video_path,
     normalize_media_context_values,
     parse_base64_data_uri,
     video_format_from_mime_type,
@@ -203,7 +204,7 @@ class AudioContext(ModalityContext):
         return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
 
     def _build_context(self, context_value: Any) -> dict[str, Any]:
-        if self.data_type == ModalityDataType.URL or (self.data_type is None and is_audio_url(context_value)):
+        if self.data_type == ModalityDataType.URL or (self.data_type is None and is_media_url(context_value)):
             source: dict[str, Any] = {"type": "url", "url": context_value}
             if self.audio_format is not None:
                 source["format"] = self.audio_format.value
@@ -234,6 +235,9 @@ class AudioContext(ModalityContext):
                 )
             return media_type, data, audio_format
 
+        if is_audio_path(context_value):
+            raise ValueError("Local audio paths are not supported; provide an audio URL or base64 audio data")
+
         if self.audio_format is None:
             raise ValueError("audio_format is required for base64 audio context values")
         return audio_mime_type(self.audio_format), context_value, self.audio_format
@@ -261,7 +265,7 @@ class VideoContext(ModalityContext):
         return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
 
     def _build_context(self, context_value: Any) -> dict[str, Any]:
-        if self.data_type == ModalityDataType.URL or (self.data_type is None and is_video_url(context_value)):
+        if self.data_type == ModalityDataType.URL or (self.data_type is None and is_media_url(context_value)):
             return {"type": "video", "source": {"type": "url", "url": context_value}}
 
         media_type, data = self._resolve_base64_parts(context_value)
@@ -279,6 +283,9 @@ class VideoContext(ModalityContext):
                     f"video_format {self.video_format.value!r} does not match data URI media type {media_type!r}"
                 )
             return media_type, data
+
+        if is_video_path(context_value):
+            raise ValueError("Local video paths are not supported; provide a video URL or base64 video data")
 
         if self.video_format is None:
             raise ValueError("video_format is required for base64 video context values")

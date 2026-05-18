@@ -356,7 +356,7 @@ def test_completion_translates_audio_url_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
-    audio_block = {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio.mp3"}}
+    audio_block = {"type": "audio", "source": {"type": "url", "url": "https://example.com/download?id=123"}}
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
@@ -365,14 +365,14 @@ def test_completion_translates_audio_url_blocks() -> None:
 
     payload = sync_mock.post.call_args.kwargs["json"]
     content = payload["messages"][0]["content"]
-    assert content[0] == {"type": "audio_url", "audio_url": {"url": "https://example.com/audio.mp3"}}
+    assert content[0] == {"type": "audio_url", "audio_url": {"url": "https://example.com/download?id=123"}}
 
 
 def test_completion_translates_video_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
-    video_block = {"type": "video", "source": {"type": "url", "url": "https://example.com/video.mp4"}}
+    video_block = {"type": "video", "source": {"type": "url", "url": "https://example.com/download?id=123"}}
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
@@ -381,7 +381,7 @@ def test_completion_translates_video_blocks() -> None:
 
     payload = sync_mock.post.call_args.kwargs["json"]
     content = payload["messages"][0]["content"]
-    assert content[0] == {"type": "video_url", "video_url": {"url": "https://example.com/video.mp4"}}
+    assert content[0] == {"type": "video_url", "video_url": {"url": "https://example.com/download?id=123"}}
 
 
 def test_completion_translates_base64_video_blocks() -> None:

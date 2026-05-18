@@ -363,6 +363,20 @@ def test_translate_content_blocks_rejects_unsupported_media(modality: str) -> No
         translate_content_blocks([{"type": modality, "source": {"type": "url", "url": "https://example.com/media"}}])
 
 
+@pytest.mark.parametrize(
+    ("block_type", "modality"),
+    [
+        ("audio_url", "audio"),
+        ("input_audio", "audio"),
+        ("video_url", "video"),
+        ("input_video", "video"),
+    ],
+)
+def test_translate_content_blocks_rejects_provider_specific_media(block_type: str, modality: str) -> None:
+    with pytest.raises(UnsupportedAnthropicMediaBlockError, match=f"{modality} context"):
+        translate_content_blocks([{"type": block_type}])
+
+
 def test_translate_content_blocks_rejects_malformed_image_url_block() -> None:
     with pytest.raises(TypeError, match="image_url block must contain a dict"):
         translate_content_blocks(

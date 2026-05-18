@@ -18,6 +18,14 @@ from data_designer.engine.models.clients.types import (
 
 _DEFAULT_MAX_TOKENS = 4096
 _DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
+_UNSUPPORTED_MEDIA_BLOCK_MODALITIES: dict[str, str] = {
+    "audio": "audio",
+    "audio_url": "audio",
+    "input_audio": "audio",
+    "video": "video",
+    "video_url": "video",
+    "input_video": "video",
+}
 
 
 class UnsupportedAnthropicMediaBlockError(ValueError):
@@ -207,8 +215,8 @@ def translate_content_blocks(content: Any) -> list[dict[str, Any]]:
         if isinstance(block, dict) and block.get("type") == "image":
             translated.append(translate_canonical_image_block(block))
             continue
-        if isinstance(block, dict) and block.get("type") in {"audio", "video"}:
-            raise UnsupportedAnthropicMediaBlockError(block["type"])
+        if isinstance(block, dict) and block.get("type") in _UNSUPPORTED_MEDIA_BLOCK_MODALITIES:
+            raise UnsupportedAnthropicMediaBlockError(_UNSUPPORTED_MEDIA_BLOCK_MODALITIES[block["type"]])
         # Anthropic rejects empty text blocks — drop them.
         if isinstance(block, dict) and block.get("type") == "text" and not block.get("text"):
             continue
