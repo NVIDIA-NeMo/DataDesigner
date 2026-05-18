@@ -394,12 +394,14 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
             raise UserTemplateError("Non-permitted operations in Jinja template.")
         except OverflowError:
             raise UserTemplateError("Template too large.")
-        except UndefinedError:
+        except UndefinedError as exception:
             # Raised when a chain like ``{{ a.b.c }}`` hits a missing
             # intermediate. Convert into the actionable EmptyTemplateRenderError
             # so the user sees the culprit field rather than a raw
             # "'dict object' has no attribute 'b'" string.
-            raise EmptyTemplateRenderError(_build_empty_render_message(user_template, record, self.parse))
+            raise EmptyTemplateRenderError(
+                _build_empty_render_message(user_template, record, self.parse)
+            ) from exception
         except Exception as exception:
             maybe_handle_missing_filter_exception(exception, available_jinja_filters=list(self.filters.keys()))
             raise exception
@@ -503,6 +505,9 @@ def sanitize_user_exceptions(func):
         except (UserTemplateUnsupportedFiltersError, EmptyTemplateRenderError) as exception:
             ## Informative messaging is already handled in these
             ## specific cases.
+            ## NOTE: ordering matters -- both of these are subclasses of
+            ## UserTemplateError, so they must be caught before the generic
+            ## ``UserTemplateError`` clause below.
             raise exception
         except (UserTemplateError, TemplateSyntaxError):
             ## All other details are wrapped in a generic error message
@@ -636,6 +641,7 @@ class WithJinja2UserTemplateRendering:
 _CULPRIT_MISSING = "missing from record"
 _CULPRIT_NONE = "resolved to None"
 _CULPRIT_EMPTY_STRING = "resolved to empty string"
+_CULPRIT_EMPTY_COLLECTION = "resolved to empty collection"
 
 
 def _format_access_chain(name: str, accessors: list[str | int]) -> str:
@@ -664,6 +670,13 @@ def _classify_chain(record: dict, name: str, accessors: list[str | int]) -> tupl
         return (_CULPRIT_NONE, prefix)
     if isinstance(value, str) and value == "":
         return (_CULPRIT_EMPTY_STRING, prefix)
+    # Empty collections (lists/dicts/tuples/sets) render to "[]"/"{}"/etc.
+    # via Jinja2 by default, but they're a common source of empty output when
+    # used as a loop iterable, e.g. ``{% for x in items %}...{% endfor %}``
+    # with ``items=[]``. Surface them as culprits so the user sees which
+    # field to gate on.
+    if isinstance(value, (list, dict, tuple, set, frozenset)) and len(value) == 0:
+        return (_CULPRIT_EMPTY_COLLECTION, prefix)
     return None
 
 
@@ -704,7 +717,15 @@ def _build_empty_render_message(user_template: str, record: dict, parser: Callab
     culprits: list[tuple[str, list[str | int], str, list[str | int]]] = []
     try:
         ast = parser(user_template)
-        culprits = _collect_culprit_chains(ast_extract_access_chains(ast), record)
+        chains = ast_extract_access_chains(ast)
+        # Filter out chains rooted in Jinja-scoped names (e.g. ``person`` in
+        # ``{% for person in people %}{{ person.name }}{% endfor %}``). The
+        # canonical way to identify true external references is
+        # ``meta.find_undeclared_variables``, which already understands loop
+        # targets and other scoping constructs.
+        undeclared = meta.find_undeclared_variables(ast)
+        chains = [(name, accessors) for name, accessors in chains if name in undeclared]
+        culprits = _collect_culprit_chains(chains, record)
     except Exception:
         # If anything in the culprit-finding path fails, fall back to a
         # message without the per-row diagnostic. We never want this helper
@@ -733,7 +754,17 @@ def _build_empty_render_message(user_template: str, record: dict, parser: Callab
     # further would attempt another lookup on Undefined and re-raise.
     # For chains that fully resolved (None/empty leaf), prefix == accessors,
     # so the slice collapses to the full chain.
-    gate_accessors = sample_accessors[: len(sample_prefix) + 1]
+    #
+    # Special case: when the root variable itself is absent from the record,
+    # ``resolve_access_chain`` returns ``prefix=[]``. Slicing one past that
+    # would yield ``person.address`` for a missing ``person`` root, but
+    # Jinja's ``Undefined.__getattr__`` raises ``UndefinedError`` -- the very
+    # error we're trying to help the user fix. Fall back to gating on the
+    # root name alone, which Jinja's ``Undefined`` happily treats as falsy.
+    if sample_name not in record:
+        gate_accessors: list[str | int] = []
+    else:
+        gate_accessors = sample_accessors[: len(sample_prefix) + 1]
     gate_chain = _format_access_chain(sample_name, gate_accessors)
 
     return (

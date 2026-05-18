@@ -380,3 +380,95 @@ def test_safe_render_with_skip_template_validation_still_attaches_diagnostic():
         renderer.render_template({"person": {"bar": 1}})
 
     assert "person.foo" in str(exc_info.value)
+
+
+def test_undefined_root_variable_produces_safe_remediation_template():
+    # Regression for the Greptile P1 review on PR #633: when the root variable
+    # is entirely absent from the record, the gate expression used to be one
+    # accessor too deep (e.g. ``person.address`` for a missing ``person``),
+    # which itself raised ``UndefinedError`` in Jinja. The fix falls back to
+    # gating on just the root name.
+    renderer = _make_secure_renderer("Hi {{ person.address.street }}", dataset_variables=["person"])
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({})
+
+    msg = str(exc_info.value)
+    assert "person.address.street" in msg
+    assert "missing from record" in msg
+    # Gate on the root name only, not a nested attribute -- the latter would
+    # be unsafe to evaluate when ``person`` is Undefined.
+    assert "{{ person.address.street if person else 'N/A' }}" in msg
+    assert 'skip=SkipConfig(when="{{ not person }}")' in msg
+    # Make sure the suggested gate does NOT include the broken attribute.
+    assert "if person.address" not in msg
+    assert "not person.address" not in msg
+
+
+def test_undefined_root_variable_remediation_template_is_renderable():
+    # The remediation suggestion must itself be safe to render against the
+    # same broken record. Previously the suggested template re-raised
+    # UndefinedError, defeating the purpose of the diagnostic.
+    renderer = _make_secure_renderer("Hi {{ person.address.street }}", dataset_variables=["person"])
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({})
+
+    msg = str(exc_info.value)
+    # Pull the suggested template out of the message and render it ourselves.
+    suggestion = "{{ person.address.street if person else 'N/A' }}"
+    assert suggestion in msg
+
+    rerender = _make_secure_renderer(suggestion, dataset_variables=["person"])
+    assert rerender.render_template({}) == "N/A"
+
+
+def test_loop_variable_is_not_reported_as_missing_culprit():
+    # Regression for the andreatgretel review on PR #633: the AST walker
+    # previously reported loop-local names (e.g. ``person`` in
+    # ``{% for person in people %}...{% endfor %}``) as missing from the
+    # record. The chain extractor should now defer to
+    # ``meta.find_undeclared_variables`` for scoping.
+    renderer = _make_secure_renderer(
+        "{% for person in people %}{{ person.name }}{% endfor %}",
+        dataset_variables=["people"],
+    )
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"people": []})
+
+    msg = str(exc_info.value)
+    # ``person`` is a loop-local variable; only ``people`` is a real culprit.
+    assert "people" in msg
+    assert "- person " not in msg
+    assert "person.name" not in msg
+
+
+def test_empty_collection_iterable_reported_as_culprit():
+    # Regression for the andreatgretel follow-up on PR #633: ``items=[]``
+    # used to fall through to the no-culprit fallback message because the
+    # classifier only checked for None / empty-string leaves. Empty
+    # collections are now surfaced explicitly.
+    renderer = _make_secure_renderer(
+        "{% for item in items %}{{ item }}{% endfor %}",
+        dataset_variables=["items"],
+    )
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"items": []})
+
+    msg = str(exc_info.value)
+    assert "items (resolved to empty collection)" in msg
+
+
+def test_empty_dict_iterable_reported_as_culprit():
+    renderer = _make_secure_renderer(
+        "{% for k in data %}{{ k }}{% endfor %}",
+        dataset_variables=["data"],
+    )
+
+    with pytest.raises(EmptyTemplateRenderError) as exc_info:
+        renderer.render_template({"data": {}})
+
+    msg = str(exc_info.value)
+    assert "data (resolved to empty collection)" in msg
