@@ -347,6 +347,7 @@ class ModelFacade:
 
         while True:
             completion_kwargs = dict(kwargs)
+            completion_kwargs.pop("n", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
 
@@ -452,6 +453,7 @@ class ModelFacade:
 
         while True:
             completion_kwargs = dict(kwargs)
+            completion_kwargs.pop("n", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
 

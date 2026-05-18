@@ -124,7 +124,7 @@ def test_generate_with_system_prompt(
 
 
 @patch.object(ModelFacade, "completion", autospec=True)
-def test_generate_forwards_n_to_completion(
+def test_generate_drops_n_before_completion(
     mock_completion: Any,
     stub_model_facade: ModelFacade,
 ) -> None:
@@ -132,7 +132,20 @@ def test_generate_forwards_n_to_completion(
 
     stub_model_facade.generate(prompt="does not matter", parser=lambda x: x, n=4)
 
-    assert mock_completion.call_args.kwargs["n"] == 4
+    assert "n" not in mock_completion.call_args.kwargs
+
+
+@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_drops_n_before_acompletion(
+    mock_acompletion: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    mock_acompletion.return_value = _make_response("Hello!")
+
+    await stub_model_facade.agenerate(prompt="does not matter", parser=lambda x: x, n=4)
+
+    assert "n" not in mock_acompletion.call_args.kwargs
 
 
 @patch.object(ModelFacade, "completion", autospec=True)
