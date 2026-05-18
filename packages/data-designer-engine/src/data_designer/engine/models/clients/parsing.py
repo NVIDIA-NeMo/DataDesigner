@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import replace
 from typing import Any
 
 from data_designer.config.utils.image_helpers import (
@@ -323,16 +324,21 @@ def extract_reasoning_token_count(raw_usage: Any) -> int | None:
 
 
 def fill_reasoning_token_count_from_content(usage: Usage | None, reasoning_content: str | None) -> Usage | None:
-    if usage is None or usage.reasoning_tokens is not None or not reasoning_content:
+    if usage is None:
+        return None
+    if usage.reasoning_tokens is not None or not reasoning_content:
         return usage
 
     try:
-        usage.reasoning_tokens = count_text_tokens(reasoning_content)
+        reasoning_token_count = count_text_tokens(reasoning_content)
     except Exception:
         logger.debug("Failed to estimate reasoning token count", exc_info=True)
         return usage
-    usage.reasoning_token_count_source = TokenCountSource.ESTIMATED
-    return usage
+    return replace(
+        usage,
+        reasoning_tokens=reasoning_token_count,
+        reasoning_token_count_source=TokenCountSource.ESTIMATED,
+    )
 
 
 def extract_embedding_vector(item: Any) -> list[float]:

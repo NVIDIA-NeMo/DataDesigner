@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
-import tiktoken
+import data_designer.lazy_heavy_imports as lazy
+
+if TYPE_CHECKING:
+    import tiktoken
 
 
 def count_text_tokens(text: str) -> int:
@@ -14,4 +18,4 @@ def count_text_tokens(text: str) -> int:
 
 @lru_cache(maxsize=1)
 def get_cl100k_base_tokenizer() -> tiktoken.Encoding:
-    return tiktoken.get_encoding("cl100k_base")
+    return lazy.tiktoken.get_encoding("cl100k_base")

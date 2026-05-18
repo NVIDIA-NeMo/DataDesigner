@@ -239,7 +239,11 @@ def test_merge_system_parts_normalizes_supported_inputs(
 
 
 def test_parse_anthropic_response_maps_tool_use_and_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", lambda text: 4)
+    def count_reasoning_text(text: str) -> int:
+        assert text == "Let me reason."
+        return 4
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", count_reasoning_text)
 
     response = parse_anthropic_response(
         {

@@ -9,6 +9,7 @@ from data_designer.engine.models.clients.parsing import (
     extract_reasoning_content,
     extract_tool_calls,
     extract_usage,
+    fill_reasoning_token_count_from_content,
     parse_chat_completion_response,
 )
 from data_designer.engine.models.clients.types import (
@@ -16,6 +17,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingRequest,
     ImageGenerationRequest,
     TransportKwargs,
+    Usage,
 )
 from data_designer.engine.models.usage import TokenCountSource
 
@@ -316,7 +318,11 @@ def test_extract_usage_reasoning_token_count_is_not_added_to_output_or_total_tok
 def test_parse_chat_completion_estimates_reasoning_token_count_from_reasoning_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", lambda text: 6)
+    def count_reasoning_text(text: str) -> int:
+        assert text == "hidden thinking"
+        return 6
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", count_reasoning_text)
 
     response = {
         "choices": [{"message": {"role": "assistant", "content": "final answer", "reasoning": "hidden thinking"}}],
@@ -336,7 +342,10 @@ def test_parse_chat_completion_estimates_reasoning_token_count_from_reasoning_co
 def test_parse_chat_completion_prefers_provider_reasoning_token_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", lambda text: 999)
+    def fail_count_text_tokens(text: str) -> int:
+        raise AssertionError(f"Unexpected reasoning token estimate for {text!r}")
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", fail_count_text_tokens)
 
     response = {
         "choices": [{"message": {"role": "assistant", "content": "final answer", "reasoning": "hidden thinking"}}],
@@ -353,3 +362,35 @@ def test_parse_chat_completion_prefers_provider_reasoning_token_count(
     assert result.usage is not None
     assert result.usage.reasoning_tokens == 4
     assert result.usage.reasoning_token_count_source == TokenCountSource.PROVIDER
+
+
+def test_fill_reasoning_token_count_from_content_skips_when_usage_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_count_text_tokens(text: str) -> int:
+        raise AssertionError(f"Unexpected reasoning token estimate for {text!r}")
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", fail_count_text_tokens)
+
+    assert fill_reasoning_token_count_from_content(None, "hidden thinking") is None
+
+
+def test_fill_reasoning_token_count_from_content_preserves_provider_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_count_text_tokens(text: str) -> int:
+        raise AssertionError(f"Unexpected reasoning token estimate for {text!r}")
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", fail_count_text_tokens)
+    usage = Usage(
+        input_tokens=10,
+        output_tokens=7,
+        reasoning_tokens=0,
+        reasoning_token_count_source=TokenCountSource.PROVIDER,
+    )
+
+    result = fill_reasoning_token_count_from_content(usage, "hidden thinking")
+
+    assert result is usage
+    assert result.reasoning_tokens == 0
+    assert result.reasoning_token_count_source == TokenCountSource.PROVIDER

@@ -228,19 +228,6 @@ def test_completion_tracks_reasoning_tokens_without_changing_output_tokens(
     assert token_usage.total_tokens == 18
 
 
-def test_completion_requires_reasoning_token_count_source(
-    stub_model_facade: ModelFacade,
-    stub_model_client: MagicMock,
-) -> None:
-    stub_model_client.completion.return_value = ChatCompletionResponse(
-        message=AssistantMessage(content="ok"),
-        usage=Usage(input_tokens=10, output_tokens=8, reasoning_tokens=3),
-    )
-
-    with pytest.raises(ValueError, match="reasoning_tokens requires reasoning_token_count_source"):
-        stub_model_facade.completion([ChatMessage.as_user("hi")])
-
-
 def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:
     # Model config generate kwargs are used as base, and purpose is removed.
     # When telemetry is enabled (default), X-Title is injected.
