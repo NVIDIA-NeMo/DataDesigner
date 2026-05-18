@@ -87,7 +87,7 @@ The field name `multi_modal_context` stays unchanged on text-generation columns.
 | Config surface | Add `AudioContext` and `VideoContext`; keep `ImageContext` unchanged | Users get the same declarative pattern with no image migration burden. |
 | Column scope | Broaden `LLMTextColumnConfig.multi_modal_context` only; keep `ImageColumnConfig.multi_modal_context: list[ImageContext] \| None` | Audio/video are input context for text-generation in v1. Image generation remains image-to-image only until a provider path actually supports audio/video-conditioned image output. |
 | Context union | Introduce `MultiModalContextT = Annotated[ImageContext \| AudioContext \| VideoContext, Field(discriminator="modality")]` for text-generation columns | Pydantic can deserialize exported configs reliably while preserving concrete context behavior. |
-| Legacy image configs | Add a pre-validation migration for legacy image context dicts that omit `modality`, injecting `modality="image"` before discriminated-union validation | Existing YAML/JSON configs that serialized only `column_name`, `data_type`, and `image_format` must continue to import. |
+| Legacy image configs | Add a pre-validation migration for legacy image context dicts that omit `modality`, injecting `modality="image"` before discriminated-union validation | Existing YAML/JSON configs that serialized only image fields such as `column_name`, `data_type`, and `image_format` must continue to import. The migration is only for legacy image-shaped dicts; new audio/video dict configs must declare their modality explicitly. |
 | Modality enum | Extend `Modality` with `AUDIO` and `VIDEO` | Keeps context identity explicit and future-proofs provider capability checks. |
 | Data type enum | Keep `ModalityDataType.URL` and `BASE64` for v1 | Context config describes the value stored in the referenced column: either a URL or base64-encoded media. Provider file IDs and upload lifecycle are outside the config layer. |
 | `data_type=None` for audio/video | Valid. Auto-detect HTTP(S) URLs and base64 data URIs; treat non-URL/non-data-URI values as base64 only when the corresponding format is provided; reject local path-looking audio/video values explicitly | Mirrors the ergonomic image default while avoiding hidden local-path resolution for audio/video. |
@@ -176,7 +176,7 @@ Work:
 - Add `AudioContext` and `VideoContext` classes.
 - Change concrete context `modality` fields to `Literal[...]` values so Pydantic discriminated unions work.
 - Add `MultiModalContextT` type alias and use it from text-generation column configs.
-- Add a pre-validator/migration path for `LLMTextColumnConfig.multi_modal_context` so legacy image context dictionaries that omit `modality` are treated as `modality="image"` before Pydantic discriminated-union validation.
+- Add a pre-validator/migration path for `LLMTextColumnConfig.multi_modal_context`. Before Pydantic discriminated-union validation, inspect list entries; when an entry is a dict without `modality` and has the legacy `ImageContext` shape, inject `modality="image"`. Do not infer audio/video modality from field names or file extensions; new audio/video dict configs must provide `modality` explicitly.
 - Define and test `data_type=None` for audio/video: HTTP(S) strings are URL sources, base64 data URIs are base64 sources with inferred media type, plain base64 values require an explicit `audio_format`/`video_format`, and local path-looking media values raise validation errors.
 - Preserve `ImageContext` behavior and imports.
 
@@ -274,7 +274,8 @@ Work:
   - `AudioContext` and `VideoContext` support scalar, list, JSON list, numpy array, empty list, base64, and URL values.
   - `data_type=None` behavior is pinned: HTTP(S) URL and base64 data URI are auto-detected; local path-looking audio/video values are rejected; plain base64 values require an explicit format.
   - Required format validation mirrors `ImageContext`: explicit plain base64 requires an explicit format.
-  - Legacy image context dicts without `modality` still import through `LLMTextColumnConfig.multi_modal_context`.
+  - Legacy image context dicts without `modality` still import through `LLMTextColumnConfig.multi_modal_context` and deserialize as `ImageContext`.
+  - Audio/video context dicts without `modality` fail validation instead of being inferred.
   - Export/import round trips preserve concrete context types through the discriminated union.
   - JSON schema export for `LLMTextColumnConfig.multi_modal_context` is updated and reviewed.
 - Column tests:
