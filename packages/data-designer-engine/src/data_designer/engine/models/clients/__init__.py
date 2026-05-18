@@ -17,6 +17,7 @@ from data_designer.engine.models.clients.throttle_manager import ThrottleDomain,
 from data_designer.engine.models.clients.throttled import ThrottledModelClient
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
+    ChatCompletionChoice,
     ChatCompletionRequest,
     ChatCompletionResponse,
     EmbeddingRequest,
@@ -31,6 +32,7 @@ from data_designer.engine.models.clients.types import (
 
 __all__ = [
     "AssistantMessage",
+    "ChatCompletionChoice",
     "ChatCompletionRequest",
     "ChatCompletionResponse",
     "EmbeddingRequest",

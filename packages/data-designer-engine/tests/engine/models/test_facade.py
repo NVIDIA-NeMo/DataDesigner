@@ -11,6 +11,7 @@ import pytest
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
+    ChatCompletionRequest,
     ChatCompletionResponse,
     EmbeddingResponse,
     ImageGenerationResponse,
@@ -120,6 +121,18 @@ def test_generate_with_system_prompt(
     stub_model_facade.generate(prompt="does not matter", system_prompt=system_prompt, parser=lambda x: x)
     assert mock_completion.call_count == 1
     assert captured_messages[0] == expected_messages
+
+
+@patch.object(ModelFacade, "completion", autospec=True)
+def test_generate_forwards_n_to_completion(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    mock_completion.return_value = _make_response("Hello!")
+
+    stub_model_facade.generate(prompt="does not matter", parser=lambda x: x, n=4)
+
+    assert mock_completion.call_args.kwargs["n"] == 4
 
 
 @patch.object(ModelFacade, "completion", autospec=True)
@@ -419,6 +432,21 @@ def test_completion_with_kwargs(
 
     assert result == expected_response
     assert stub_model_client.completion.call_count == 1
+
+
+def test_completion_forwards_n_to_request(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    expected_response = _make_response("Test response")
+    stub_model_client.completion.return_value = expected_response
+
+    stub_model_facade.completion(stub_completion_messages, n=4)
+
+    request = stub_model_client.completion.call_args.args[0]
+    assert isinstance(request, ChatCompletionRequest)
+    assert request.n == 4
 
 
 def test_generate_text_embeddings_success(

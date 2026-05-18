@@ -61,6 +61,7 @@ class ChatCompletionRequest:
     model: str
     messages: list[dict[str, Any]]
     tools: list[dict[str, Any]] | None = None
+    n: int | None = None
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int | None = None
@@ -75,10 +76,26 @@ class ChatCompletionRequest:
 
 
 @dataclass
+class ChatCompletionChoice:
+    message: AssistantMessage
+    index: int | None = None
+    finish_reason: str | None = None
+
+
+@dataclass
 class ChatCompletionResponse:
     message: AssistantMessage
     usage: Usage | None = None
     raw: Any | None = None
+    choices: list[ChatCompletionChoice] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.choices:
+            self.choices = [ChatCompletionChoice(message=self.message)]
+
+    @property
+    def messages(self) -> list[AssistantMessage]:
+        return [choice.message for choice in self.choices]
 
 
 @dataclass

@@ -85,6 +85,7 @@ _COMPLETION_REQUEST_FIELDS = frozenset(
     {
         "temperature",
         "top_p",
+        "n",
         "max_tokens",
         "stop",
         "seed",
