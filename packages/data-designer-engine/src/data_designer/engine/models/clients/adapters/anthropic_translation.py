@@ -20,6 +20,14 @@ _DEFAULT_MAX_TOKENS = 4096
 _DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
 
 
+class UnsupportedAnthropicMediaBlockError(ValueError):
+    """Raised when a canonical media block cannot be translated to Anthropic."""
+
+    def __init__(self, modality: str) -> None:
+        self.modality = modality
+        super().__init__(f"Anthropic adapter does not support {modality} context blocks.")
+
+
 def merge_system_parts(parts: list[str | list[dict[str, Any]]]) -> str | list[dict[str, Any]]:
     """Merge system parts into a single string or Anthropic block list.
 
@@ -196,6 +204,11 @@ def translate_content_blocks(content: Any) -> list[dict[str, Any]]:
         if isinstance(block, dict) and block.get("type") == "image_url":
             translated.append(translate_image_url_block(block))
             continue
+        if isinstance(block, dict) and block.get("type") == "image":
+            translated.append(translate_canonical_image_block(block))
+            continue
+        if isinstance(block, dict) and block.get("type") in {"audio", "video"}:
+            raise UnsupportedAnthropicMediaBlockError(block["type"])
         # Anthropic rejects empty text blocks — drop them.
         if isinstance(block, dict) and block.get("type") == "text" and not block.get("text"):
             continue
@@ -341,3 +354,21 @@ def translate_image_url_block(block: dict[str, Any]) -> dict[str, Any]:
         "type": "image",
         "source": {"type": "url", "url": url},
     }
+
+
+def translate_canonical_image_block(block: dict[str, Any]) -> dict[str, Any]:
+    source = block.get("source")
+    if not isinstance(source, dict):
+        raise ValueError(f"Canonical image block must include a source object, got: {block!r}")
+
+    source_type = source.get("type")
+    if source_type == "url":
+        return {"type": "image", "source": {"type": "url", "url": source.get("url", "")}}
+    if source_type == "base64":
+        media_type = source.get("media_type")
+        data = source.get("data")
+        if not isinstance(media_type, str) or not isinstance(data, str):
+            raise ValueError(f"Canonical image base64 source must include media_type and data, got: {source!r}")
+        return {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
+
+    raise ValueError(f"Unsupported canonical image source type {source_type!r}")

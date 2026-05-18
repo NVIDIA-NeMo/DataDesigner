@@ -28,7 +28,7 @@ from data_designer.config.column_types import (
     is_plugin_column_type,
 )
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.models import ImageContext
+from data_designer.config.models import AudioContext, ImageContext, ModalityDataType, VideoContext
 from data_designer.config.sampler_params import (
     CategorySamplerParams,
     GaussianSamplerParams,
@@ -130,9 +130,13 @@ def test_llm_text_column_config_required_columns_includes_multi_modal_context():
         name="test_llm_text",
         prompt="Classify this image: {{ description }}",
         model_alias=stub_model_alias,
-        multi_modal_context=[ImageContext(column_name="image_base64")],
+        multi_modal_context=[
+            ImageContext(column_name="image_base64"),
+            AudioContext(column_name="audio_url", data_type=ModalityDataType.URL),
+            VideoContext(column_name="video_url", data_type=ModalityDataType.URL),
+        ],
     )
-    assert set(config.required_columns) == {"description", "image_base64"}
+    assert set(config.required_columns) == {"description", "image_base64", "audio_url", "video_url"}
 
 
 def test_llm_text_column_config_required_columns_deduplicates_multi_modal_and_prompt():
@@ -150,9 +154,32 @@ def test_image_column_config_required_columns_includes_multi_modal_context():
         name="test_image",
         prompt="Generate based on {{ style }}",
         model_alias=stub_model_alias,
-        multi_modal_context=[ImageContext(column_name="reference_image")],
+        multi_modal_context=[
+            ImageContext(column_name="reference_image"),
+            AudioContext(column_name="reference_audio", data_type=ModalityDataType.URL),
+        ],
     )
-    assert set(config.required_columns) == {"style", "reference_image"}
+    assert set(config.required_columns) == {"style", "reference_image", "reference_audio"}
+
+
+def test_multi_modal_context_round_trips_discriminated_union() -> None:
+    config = LLMTextColumnConfig(
+        name="test_llm_text",
+        prompt="Describe the context",
+        model_alias=stub_model_alias,
+        multi_modal_context=[
+            ImageContext(column_name="image_url", data_type=ModalityDataType.URL),
+            AudioContext(column_name="audio_url", data_type=ModalityDataType.URL),
+            VideoContext(column_name="video_url", data_type=ModalityDataType.URL),
+        ],
+    )
+
+    round_tripped = LLMTextColumnConfig(**config.model_dump())
+
+    assert round_tripped.multi_modal_context is not None
+    assert isinstance(round_tripped.multi_modal_context[0], ImageContext)
+    assert isinstance(round_tripped.multi_modal_context[1], AudioContext)
+    assert isinstance(round_tripped.multi_modal_context[2], VideoContext)
 
 
 def test_llm_text_column_config_with_trace_serialization() -> None:

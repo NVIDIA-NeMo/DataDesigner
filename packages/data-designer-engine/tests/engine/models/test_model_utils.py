@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 
 
@@ -33,3 +35,18 @@ def test_chat_message_as_tool_accepts_multimodal_content() -> None:
 
     assert message.content == content
     assert message.to_dict()["content"] == content
+
+
+def test_prompt_to_messages_preserves_mixed_media_context_order() -> None:
+    context = [
+        {"type": "image", "source": {"type": "url", "url": "https://example.com/image.png"}},
+        {
+            "type": "audio",
+            "source": {"type": "base64", "media_type": "audio/mpeg", "data": "abc123", "format": "mp3"},
+        },
+        {"type": "video", "source": {"type": "url", "url": "https://example.com/video.mp4"}},
+    ]
+
+    assert prompt_to_messages(user_prompt="describe", multi_modal_context=context) == [
+        ChatMessage.as_user([*context, {"type": "text", "text": "describe"}])
+    ]

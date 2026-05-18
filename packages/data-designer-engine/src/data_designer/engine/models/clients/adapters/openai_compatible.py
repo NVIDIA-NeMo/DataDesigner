@@ -61,13 +61,23 @@ class OpenAICompatibleClient(HttpModelClient):
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         transport = TransportKwargs.from_request(request)
-        payload = {"model": request.model, "messages": request.messages, **transport.body}
+        messages = translate_openai_compatible_messages(
+            request.messages,
+            provider_name=self.provider_name,
+            model_name=request.model,
+        )
+        payload = {"model": request.model, "messages": messages, **transport.body}
         response_json = self._post_sync(self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout)
         return parse_chat_completion_response(response_json)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         transport = TransportKwargs.from_request(request)
-        payload = {"model": request.model, "messages": request.messages, **transport.body}
+        messages = translate_openai_compatible_messages(
+            request.messages,
+            provider_name=self.provider_name,
+            model_name=request.model,
+        )
+        payload = {"model": request.model, "messages": messages, **transport.body}
         response_json = await self._apost(
             self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout
         )
@@ -101,7 +111,12 @@ class OpenAICompatibleClient(HttpModelClient):
         transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         if request.messages is not None:
             route = self._ROUTE_CHAT
-            payload = {"model": request.model, "messages": request.messages, **transport.body}
+            messages = translate_openai_compatible_messages(
+                request.messages,
+                provider_name=self.provider_name,
+                model_name=request.model,
+            )
+            payload = {"model": request.model, "messages": messages, **transport.body}
         else:
             route = self._ROUTE_IMAGE
             payload = {"model": request.model, "prompt": request.prompt, **transport.body}
@@ -112,7 +127,12 @@ class OpenAICompatibleClient(HttpModelClient):
         transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         if request.messages is not None:
             route = self._ROUTE_CHAT
-            payload = {"model": request.model, "messages": request.messages, **transport.body}
+            messages = translate_openai_compatible_messages(
+                request.messages,
+                provider_name=self.provider_name,
+                model_name=request.model,
+            )
+            payload = {"model": request.model, "messages": messages, **transport.body}
         else:
             route = self._ROUTE_IMAGE
             payload = {"model": request.model, "prompt": request.prompt, **transport.body}
@@ -131,6 +151,115 @@ class OpenAICompatibleClient(HttpModelClient):
 # ---------------------------------------------------------------------------
 # Response parsing helpers
 # ---------------------------------------------------------------------------
+
+
+def translate_openai_compatible_messages(
+    messages: list[dict[str, Any]],
+    *,
+    provider_name: str,
+    model_name: str,
+) -> list[dict[str, Any]]:
+    """Translate canonical media blocks to OpenAI-compatible content blocks."""
+    translated_messages: list[dict[str, Any]] = []
+    for message in messages:
+        translated = dict(message)
+        if "content" in translated:
+            translated["content"] = translate_openai_compatible_content_blocks(
+                translated["content"],
+                provider_name=provider_name,
+                model_name=model_name,
+            )
+        translated_messages.append(translated)
+    return translated_messages
+
+
+def translate_openai_compatible_content_blocks(
+    content: Any,
+    *,
+    provider_name: str,
+    model_name: str,
+) -> Any:
+    if not isinstance(content, list):
+        return content
+
+    return [
+        translate_openai_compatible_content_block(
+            block,
+            provider_name=provider_name,
+            model_name=model_name,
+        )
+        for block in content
+    ]
+
+
+def translate_openai_compatible_content_block(
+    block: Any,
+    *,
+    provider_name: str,
+    model_name: str,
+) -> Any:
+    if not isinstance(block, dict):
+        return block
+
+    block_type = block.get("type")
+    if block_type in {"image_url", "input_audio", "text"}:
+        return block
+    if block_type == "image":
+        return _translate_canonical_image_block(block)
+    if block_type == "audio":
+        return _translate_canonical_audio_block(block)
+    if block_type == "video":
+        return _translate_canonical_video_block(block)
+    return block
+
+
+def _translate_canonical_image_block(block: dict[str, Any]) -> dict[str, Any]:
+    source = _get_media_source(block, modality="image")
+    source_type = source.get("type")
+    if source_type == "url":
+        return {"type": "image_url", "image_url": {"url": source.get("url", "")}}
+    if source_type == "base64":
+        media_type = source.get("media_type")
+        data = source.get("data")
+        if not isinstance(media_type, str) or not isinstance(data, str):
+            raise ValueError(f"Canonical image base64 source must include media_type and data, got: {source!r}")
+        return {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{data}"}}
+    raise ValueError(f"Unsupported canonical image source type {source_type!r}")
+
+
+def _translate_canonical_audio_block(block: dict[str, Any]) -> dict[str, Any]:
+    source = _get_media_source(block, modality="audio")
+    source_type = source.get("type")
+    if source_type == "url":
+        return {"type": "audio_url", "audio_url": {"url": source.get("url", "")}}
+    if source_type == "base64":
+        data = source.get("data")
+        audio_format = source.get("format")
+        if not isinstance(data, str) or not isinstance(audio_format, str):
+            raise ValueError(f"Canonical audio base64 source must include data and format, got: {source!r}")
+        return {"type": "input_audio", "input_audio": {"data": data, "format": audio_format}}
+    raise ValueError(f"Unsupported canonical audio source type {source_type!r}")
+
+
+def _translate_canonical_video_block(block: dict[str, Any]) -> dict[str, Any]:
+    source = _get_media_source(block, modality="video")
+    source_type = source.get("type")
+    if source_type == "url":
+        return {"type": "video_url", "video_url": {"url": source.get("url", "")}}
+    if source_type == "base64":
+        media_type = source.get("media_type")
+        data = source.get("data")
+        if not isinstance(media_type, str) or not isinstance(data, str):
+            raise ValueError(f"Canonical video base64 source must include media_type and data, got: {source!r}")
+        return {"type": "video_url", "video_url": {"url": f"data:{media_type};base64,{data}"}}
+    raise ValueError(f"Unsupported canonical video source type {source_type!r}")
+
+
+def _get_media_source(block: dict[str, Any], *, modality: str) -> dict[str, Any]:
+    source = block.get("source")
+    if not isinstance(source, dict):
+        raise ValueError(f"Canonical {modality} block must include a source object, got: {block!r}")
+    return source
 
 
 def _parse_embedding_json(response_json: dict[str, Any]) -> EmbeddingResponse:

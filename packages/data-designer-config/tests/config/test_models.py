@@ -15,6 +15,8 @@ from pydantic import ValidationError
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import (
+    AudioContext,
+    AudioFormat,
     ChatCompletionInferenceParams,
     EmbeddingInferenceParams,
     GenerationType,
@@ -27,6 +29,8 @@ from data_designer.config.models import (
     ModelConfig,
     UniformDistribution,
     UniformDistributionParams,
+    VideoContext,
+    VideoFormat,
     load_model_configs,
 )
 
@@ -241,6 +245,151 @@ def test_image_context_auto_detect_file_path_not_exists(tmp_path: Path) -> None:
         context.get_contexts(
             {"image_col": "images/col/nonexistent.png"},
             base_path=str(tmp_path),
+        )
+
+
+def test_audio_context_get_contexts_single_string() -> None:
+    audio_context = AudioContext(
+        column_name="audio_base64", data_type=ModalityDataType.BASE64, audio_format=AudioFormat.MP3
+    )
+    assert audio_context.get_contexts({"audio_base64": "audio1base64"}) == [
+        {
+            "type": "audio",
+            "source": {
+                "type": "base64",
+                "media_type": "audio/mpeg",
+                "data": "audio1base64",
+                "format": "mp3",
+            },
+        }
+    ]
+
+    audio_context = AudioContext(column_name="audio_url", data_type=ModalityDataType.URL)
+    assert audio_context.get_contexts({"audio_url": "https://example.com/audio.mp3"}) == [
+        {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio.mp3"}}
+    ]
+
+
+def test_audio_context_get_contexts_list_json_and_numpy() -> None:
+    audio_context = AudioContext(
+        column_name="audio_base64", data_type=ModalityDataType.BASE64, audio_format=AudioFormat.WAV
+    )
+    assert audio_context.get_contexts({"audio_base64": ["audio1", "audio2"]}) == [
+        {
+            "type": "audio",
+            "source": {"type": "base64", "media_type": "audio/wav", "data": "audio1", "format": "wav"},
+        },
+        {
+            "type": "audio",
+            "source": {"type": "base64", "media_type": "audio/wav", "data": "audio2", "format": "wav"},
+        },
+    ]
+
+    json_str = json.dumps(["https://example.com/audio1.mp3", "https://example.com/audio2.mp3"])
+    url_context = AudioContext(column_name="audio_url", data_type=ModalityDataType.URL)
+    assert url_context.get_contexts({"audio_url": json_str}) == [
+        {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio1.mp3"}},
+        {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio2.mp3"}},
+    ]
+
+    numpy_array = lazy.np.array(["https://example.com/audio1.mp3", "https://example.com/audio2.mp3"])
+    assert url_context.get_contexts({"audio_url": numpy_array}) == [
+        {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio1.mp3"}},
+        {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio2.mp3"}},
+    ]
+
+
+def test_audio_context_auto_detect_url_and_data_uri() -> None:
+    assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "https://example.com/audio.mp3"}) == [
+        {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio.mp3"}}
+    ]
+
+    assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "data:audio/mpeg;base64,audio1base64"}) == [
+        {
+            "type": "audio",
+            "source": {
+                "type": "base64",
+                "media_type": "audio/mpeg",
+                "data": "audio1base64",
+                "format": "mp3",
+            },
+        }
+    ]
+
+
+def test_audio_context_validate_audio_format() -> None:
+    with pytest.raises(ValueError, match="audio_format is required when data_type is base64"):
+        AudioContext(column_name="audio_base64", data_type=ModalityDataType.BASE64)
+
+    with pytest.raises(ValueError, match="audio_format is required for base64 audio context values"):
+        AudioContext(column_name="audio_base64").get_contexts({"audio_base64": "audio1base64"})
+
+    with pytest.raises(ValueError, match="does not match data URI media type"):
+        AudioContext(column_name="audio_base64", audio_format=AudioFormat.WAV).get_contexts(
+            {"audio_base64": "data:audio/mpeg;base64,audio1base64"}
+        )
+
+
+def test_video_context_get_contexts_single_string() -> None:
+    video_context = VideoContext(
+        column_name="video_base64", data_type=ModalityDataType.BASE64, video_format=VideoFormat.MP4
+    )
+    assert video_context.get_contexts({"video_base64": "video1base64"}) == [
+        {
+            "type": "video",
+            "source": {"type": "base64", "media_type": "video/mp4", "data": "video1base64"},
+        }
+    ]
+
+    video_context = VideoContext(column_name="video_url", data_type=ModalityDataType.URL)
+    assert video_context.get_contexts({"video_url": "https://example.com/video.mp4"}) == [
+        {"type": "video", "source": {"type": "url", "url": "https://example.com/video.mp4"}}
+    ]
+
+
+def test_video_context_get_contexts_list_json_and_numpy() -> None:
+    video_context = VideoContext(
+        column_name="video_base64", data_type=ModalityDataType.BASE64, video_format=VideoFormat.WEBM
+    )
+    assert video_context.get_contexts({"video_base64": ["video1", "video2"]}) == [
+        {"type": "video", "source": {"type": "base64", "media_type": "video/webm", "data": "video1"}},
+        {"type": "video", "source": {"type": "base64", "media_type": "video/webm", "data": "video2"}},
+    ]
+
+    json_str = json.dumps(["https://example.com/video1.mp4", "https://example.com/video2.mp4"])
+    url_context = VideoContext(column_name="video_url", data_type=ModalityDataType.URL)
+    assert url_context.get_contexts({"video_url": json_str}) == [
+        {"type": "video", "source": {"type": "url", "url": "https://example.com/video1.mp4"}},
+        {"type": "video", "source": {"type": "url", "url": "https://example.com/video2.mp4"}},
+    ]
+
+    numpy_array = lazy.np.array(["https://example.com/video1.mp4", "https://example.com/video2.mp4"])
+    assert url_context.get_contexts({"video_url": numpy_array}) == [
+        {"type": "video", "source": {"type": "url", "url": "https://example.com/video1.mp4"}},
+        {"type": "video", "source": {"type": "url", "url": "https://example.com/video2.mp4"}},
+    ]
+
+
+def test_video_context_auto_detect_url_and_data_uri() -> None:
+    assert VideoContext(column_name="video_col").get_contexts({"video_col": "https://example.com/video.mp4"}) == [
+        {"type": "video", "source": {"type": "url", "url": "https://example.com/video.mp4"}}
+    ]
+
+    assert VideoContext(column_name="video_col").get_contexts({"video_col": "data:video/mp4;base64,video1base64"}) == [
+        {"type": "video", "source": {"type": "base64", "media_type": "video/mp4", "data": "video1base64"}}
+    ]
+
+
+def test_video_context_validate_video_format() -> None:
+    with pytest.raises(ValueError, match="video_format is required when data_type is base64"):
+        VideoContext(column_name="video_base64", data_type=ModalityDataType.BASE64)
+
+    with pytest.raises(ValueError, match="video_format is required for base64 video context values"):
+        VideoContext(column_name="video_base64").get_contexts({"video_base64": "video1base64"})
+
+    with pytest.raises(ValueError, match="does not match data URI media type"):
+        VideoContext(column_name="video_base64", video_format=VideoFormat.WEBM).get_contexts(
+            {"video_base64": "data:video/mp4;base64,video1base64"}
         )
 
 

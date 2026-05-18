@@ -9,6 +9,7 @@ import pytest
 
 from data_designer.engine.mcp.registry import MCPToolDefinition
 from data_designer.engine.models.clients.adapters.anthropic_translation import (
+    UnsupportedAnthropicMediaBlockError,
     build_anthropic_payload,
     extract_system_content,
     merge_system_parts,
@@ -340,6 +341,26 @@ def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -
         {"type": "text", "text": "Caption"},
         {"type": "custom_block", "value": "kept"},
     ]
+
+
+def test_translate_content_blocks_converts_canonical_images() -> None:
+    blocks = translate_content_blocks(
+        [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}},
+            {"type": "text", "text": "Caption"},
+        ]
+    )
+
+    assert blocks == [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}},
+        {"type": "text", "text": "Caption"},
+    ]
+
+
+@pytest.mark.parametrize("modality", ["audio", "video"])
+def test_translate_content_blocks_rejects_unsupported_media(modality: str) -> None:
+    with pytest.raises(UnsupportedAnthropicMediaBlockError, match=f"{modality} context"):
+        translate_content_blocks([{"type": modality, "source": {"type": "url", "url": "https://example.com/media"}}])
 
 
 def test_translate_content_blocks_rejects_malformed_image_url_block() -> None:

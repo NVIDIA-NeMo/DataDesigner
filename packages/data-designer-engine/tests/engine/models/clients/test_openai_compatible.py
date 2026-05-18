@@ -317,6 +317,89 @@ def test_completion_forwards_multimodal_tool_result_content_unchanged() -> None:
     assert payload["messages"][0]["content"] == content
 
 
+def test_completion_translates_canonical_image_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    image_block = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}}
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [image_block, {"type": "text", "text": "What is this?"}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}}
+
+
+def test_completion_translates_base64_audio_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = {
+        "type": "audio",
+        "source": {"type": "base64", "media_type": "audio/mpeg", "data": "abc123", "format": "mp3"},
+    }
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "input_audio", "input_audio": {"data": "abc123", "format": "mp3"}}
+
+
+def test_completion_translates_audio_url_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = {"type": "audio", "source": {"type": "url", "url": "https://example.com/audio.mp3"}}
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "audio_url", "audio_url": {"url": "https://example.com/audio.mp3"}}
+
+
+def test_completion_translates_video_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    video_block = {"type": "video", "source": {"type": "url", "url": "https://example.com/video.mp4"}}
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "video_url", "video_url": {"url": "https://example.com/video.mp4"}}
+
+
+def test_completion_translates_base64_video_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    video_block = {"type": "video", "source": {"type": "base64", "media_type": "video/mp4", "data": "abc123"}}
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,abc123"}}
+
+
 # --- Auth headers ---
 
 

@@ -31,6 +31,18 @@ from data_designer.config.utils.image_helpers import (
     load_image_path_to_base64,
 )
 from data_designer.config.utils.io_helpers import smart_load_yaml
+from data_designer.config.utils.media_helpers import (
+    AudioFormat,
+    VideoFormat,
+    audio_format_from_mime_type,
+    audio_mime_type,
+    is_audio_url,
+    is_video_url,
+    normalize_media_context_values,
+    parse_base64_data_uri,
+    video_format_from_mime_type,
+    video_mime_type,
+)
 from data_designer.config.utils.warning_helpers import warn_at_caller
 
 logger = logging.getLogger(__name__)
@@ -40,6 +52,8 @@ class Modality(str, Enum):
     """Supported modality types for multimodal model data."""
 
     IMAGE = "image"
+    AUDIO = "audio"
+    VIDEO = "video"
 
 
 class ModalityDataType(str, Enum):
@@ -77,7 +91,7 @@ class ImageContext(ModalityContext):
         image_format: Image format (required when data_type is explicitly "base64").
     """
 
-    modality: Modality = Modality.IMAGE
+    modality: Literal[Modality.IMAGE] = Modality.IMAGE
     image_format: ImageFormat | None = None
 
     def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
@@ -171,6 +185,116 @@ class ImageContext(ModalityContext):
         if self.data_type == ModalityDataType.BASE64 and self.image_format is None:
             raise ValueError(f"image_format is required when data_type is {self.data_type.value}")
         return self
+
+
+class AudioContext(ModalityContext):
+    """Configuration for providing audio context to multimodal models.
+
+    Audio context values are URL or base64 media values. Unlike ``ImageContext``,
+    this class does not resolve local file paths to base64.
+    """
+
+    modality: Literal[Modality.AUDIO] = Modality.AUDIO
+    audio_format: AudioFormat | None = None
+
+    def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
+        """Get the contexts for the audio modality."""
+        del base_path
+        return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
+
+    def _build_context(self, context_value: Any) -> dict[str, Any]:
+        if self.data_type == ModalityDataType.URL or (self.data_type is None and is_audio_url(context_value)):
+            source: dict[str, Any] = {"type": "url", "url": context_value}
+            if self.audio_format is not None:
+                source["format"] = self.audio_format.value
+            return {"type": "audio", "source": source}
+
+        media_type, data, audio_format = self._resolve_base64_parts(context_value)
+        return {
+            "type": "audio",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": data,
+                "format": audio_format.value,
+            },
+        }
+
+    def _resolve_base64_parts(self, context_value: Any) -> tuple[str, Any, AudioFormat]:
+        parsed = parse_base64_data_uri(context_value)
+        if parsed is not None:
+            media_type, data = parsed
+            detected_format = audio_format_from_mime_type(media_type)
+            if detected_format is None:
+                raise ValueError(f"Unsupported audio media type {media_type!r}")
+            audio_format = self.audio_format or detected_format
+            if audio_format != detected_format:
+                raise ValueError(
+                    f"audio_format {audio_format.value!r} does not match data URI media type {media_type!r}"
+                )
+            return media_type, data, audio_format
+
+        if self.audio_format is None:
+            raise ValueError("audio_format is required for base64 audio context values")
+        return audio_mime_type(self.audio_format), context_value, self.audio_format
+
+    @model_validator(mode="after")
+    def _validate_audio_format(self) -> Self:
+        if self.data_type == ModalityDataType.BASE64 and self.audio_format is None:
+            raise ValueError(f"audio_format is required when data_type is {self.data_type.value}")
+        return self
+
+
+class VideoContext(ModalityContext):
+    """Configuration for providing video context to multimodal models.
+
+    Video context values are URL or base64 media values. Local file path
+    resolution is intentionally out of scope for this context type.
+    """
+
+    modality: Literal[Modality.VIDEO] = Modality.VIDEO
+    video_format: VideoFormat | None = None
+
+    def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
+        """Get the contexts for the video modality."""
+        del base_path
+        return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
+
+    def _build_context(self, context_value: Any) -> dict[str, Any]:
+        if self.data_type == ModalityDataType.URL or (self.data_type is None and is_video_url(context_value)):
+            return {"type": "video", "source": {"type": "url", "url": context_value}}
+
+        media_type, data = self._resolve_base64_parts(context_value)
+        return {"type": "video", "source": {"type": "base64", "media_type": media_type, "data": data}}
+
+    def _resolve_base64_parts(self, context_value: Any) -> tuple[str, Any]:
+        parsed = parse_base64_data_uri(context_value)
+        if parsed is not None:
+            media_type, data = parsed
+            detected_format = video_format_from_mime_type(media_type)
+            if detected_format is None:
+                raise ValueError(f"Unsupported video media type {media_type!r}")
+            if self.video_format is not None and self.video_format != detected_format:
+                raise ValueError(
+                    f"video_format {self.video_format.value!r} does not match data URI media type {media_type!r}"
+                )
+            return media_type, data
+
+        if self.video_format is None:
+            raise ValueError("video_format is required for base64 video context values")
+        return video_mime_type(self.video_format), context_value
+
+    @model_validator(mode="after")
+    def _validate_video_format(self) -> Self:
+        if self.data_type == ModalityDataType.BASE64 and self.video_format is None:
+            raise ValueError(f"video_format is required when data_type is {self.data_type.value}")
+        return self
+
+
+MultiModalContextT: TypeAlias = Annotated[
+    ImageContext | AudioContext | VideoContext,
+    Field(discriminator="modality"),
+]
 
 
 DistributionParamsT = TypeVar("DistributionParamsT", bound=ConfigBase)

@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         ToolConfig,
     )
     from data_designer.config.models import (  # noqa: F401
+        AudioContext,
         ChatCompletionInferenceParams,
         EmbeddingInferenceParams,
         GenerationType,
@@ -50,8 +51,10 @@ if TYPE_CHECKING:
         ModalityDataType,
         ModelConfig,
         ModelProvider,
+        MultiModalContextT,
         UniformDistribution,
         UniformDistributionParams,
+        VideoContext,
     )
     from data_designer.config.processors import (  # noqa: F401
         DropColumnsProcessorConfig,
@@ -106,6 +109,7 @@ if TYPE_CHECKING:
     from data_designer.config.utils.code_lang import CodeLang  # noqa: F401
     from data_designer.config.utils.image_helpers import ImageFormat  # noqa: F401
     from data_designer.config.utils.info import InfoType  # noqa: F401
+    from data_designer.config.utils.media_helpers import AudioFormat, VideoFormat  # noqa: F401
     from data_designer.config.utils.trace_type import TraceType  # noqa: F401
     from data_designer.config.validator_params import (  # noqa: F401
         CodeValidatorParams,
@@ -161,6 +165,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "MCPProvider": (_MOD_MCP, "MCPProvider"),
     "ToolConfig": (_MOD_MCP, "ToolConfig"),
     # models
+    "AudioContext": (_MOD_MODELS, "AudioContext"),
+    "AudioFormat": (f"{_MOD_UTILS}.media_helpers", "AudioFormat"),
     "ChatCompletionInferenceParams": (_MOD_MODELS, "ChatCompletionInferenceParams"),
     "EmbeddingInferenceParams": (_MOD_MODELS, "EmbeddingInferenceParams"),
     "GenerationType": (_MOD_MODELS, "GenerationType"),
@@ -174,8 +180,11 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ModalityDataType": (_MOD_MODELS, "ModalityDataType"),
     "ModelConfig": (_MOD_MODELS, "ModelConfig"),
     "ModelProvider": (_MOD_MODELS, "ModelProvider"),
+    "MultiModalContextT": (_MOD_MODELS, "MultiModalContextT"),
     "UniformDistribution": (_MOD_MODELS, "UniformDistribution"),
     "UniformDistributionParams": (_MOD_MODELS, "UniformDistributionParams"),
+    "VideoContext": (_MOD_MODELS, "VideoContext"),
+    "VideoFormat": (f"{_MOD_UTILS}.media_helpers", "VideoFormat"),
     # processors
     "DropColumnsProcessorConfig": (_MOD_PROCESSORS, "DropColumnsProcessorConfig"),
     "ProcessorType": (_MOD_PROCESSORS, "ProcessorType"),

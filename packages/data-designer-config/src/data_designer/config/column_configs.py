@@ -11,7 +11,7 @@ from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.models import ImageContext
+from data_designer.config.models import MultiModalContextT
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFIX, TRACE_COLUMN_POSTFIX
@@ -139,8 +139,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
             Do not put any output parsing instructions in the system prompt. Instead,
             use the appropriate column type for the output you want to generate - e.g.,
             `LLMStructuredColumnConfig` for structured output, `LLMCodeColumnConfig` for code.
-        multi_modal_context: Optional list of image contexts for multi-modal generation.
-            Enables vision-capable models to generate text based on image inputs.
+        multi_modal_context: Optional list of multimodal contexts for generation.
+            Enables capable models to generate text based on image, audio, or video inputs.
         tool_alias: Optional alias of the tool configuration to use for MCP tool calls.
             Must match a tool alias defined when initializing the DataDesignerConfigBuilder.
             When provided, the model may call permitted tools during generation.
@@ -166,8 +166,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
     system_prompt: str | None = Field(
         default=None, description="Optional system prompt to set model behavior and constraints"
     )
-    multi_modal_context: list[ImageContext] | None = Field(
-        default=None, description="Optional list of ImageContext for vision model inputs"
+    multi_modal_context: list[MultiModalContextT] | None = Field(
+        default=None, description="Optional list of multimodal context inputs"
     )
     tool_alias: str | None = Field(
         default=None, description="Optional alias of the tool configuration to use for MCP tool calls"
@@ -250,7 +250,7 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
         prompt (required): Prompt template for code generation (supports Jinja2).
         model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
-        multi_modal_context: Optional image contexts for multi-modal generation.
+        multi_modal_context: Optional multimodal contexts for generation.
         tool_alias: Optional tool configuration alias for MCP tool calls.
         with_trace: Specifies what trace information to capture in a `{column_name}__trace`
             column. Options are `TraceType.NONE` (default), `TraceType.LAST_MESSAGE`, or
@@ -288,7 +288,7 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
         prompt (required): Prompt template for structured generation (supports Jinja2).
         model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
-        multi_modal_context: Optional image contexts for multi-modal generation.
+        multi_modal_context: Optional multimodal contexts for generation.
         tool_alias: Optional tool configuration alias for MCP tool calls.
         with_trace: Specifies what trace information to capture in a `{column_name}__trace`
             column. Options are `TraceType.NONE` (default), `TraceType.LAST_MESSAGE`, or
@@ -358,7 +358,7 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
         prompt (required): Prompt template for the judge evaluation (supports Jinja2).
         model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
-        multi_modal_context: Optional image contexts for multi-modal generation.
+        multi_modal_context: Optional multimodal contexts for generation.
         tool_alias: Optional tool configuration alias for MCP tool calls.
         with_trace: Specifies what trace information to capture in a `{column_name}__trace`
             column. Options are `TraceType.NONE` (default), `TraceType.LAST_MESSAGE`, or
@@ -596,8 +596,8 @@ class ImageColumnConfig(SingleColumnConfig):
             reference other columns (e.g., "Generate an image of a {{ character_name }}").
             Must be a valid Jinja2 template.
         model_alias (required): The model to use for image generation.
-        multi_modal_context: Optional list of image contexts for multi-modal generation.
-            Enables autoregressive multi-modal models to generate images based on image inputs.
+        multi_modal_context: Optional list of multimodal contexts for generation.
+            Enables autoregressive multi-modal models to generate images based on media inputs.
             Only works with autoregressive models that support image-to-image generation.
 
     Inherited Attributes:
@@ -609,8 +609,8 @@ class ImageColumnConfig(SingleColumnConfig):
         description="Jinja2 template for the image generation prompt; can reference other columns via {{ column_name }}"
     )
     model_alias: str = Field(description="Alias of the model to use for image generation")
-    multi_modal_context: list[ImageContext] | None = Field(
-        default=None, description="Optional list of ImageContext for multi-modal image-to-image generation"
+    multi_modal_context: list[MultiModalContextT] | None = Field(
+        default=None, description="Optional list of multimodal context inputs for image generation"
     )
     column_type: Literal["image"] = "image"
 
