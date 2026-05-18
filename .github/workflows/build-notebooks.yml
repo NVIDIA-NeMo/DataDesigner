@@ -5,6 +5,9 @@ on:
       use_cache:
         type: boolean
         default: true
+      checkout_ref:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       use_cache:
@@ -28,6 +31,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
