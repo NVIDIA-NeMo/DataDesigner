@@ -33,8 +33,8 @@ class OpenAICompatibleClient(HttpModelClient):
     """Native HTTP adapter for OpenAI-compatible provider APIs.
 
     Uses ``httpx`` with ``httpx_retries.RetryTransport`` for resilient HTTP
-    calls.  Concurrency / throttle policy is an orchestration concern and
-    is not managed here — see ``ThrottleManager`` and ``AsyncTaskScheduler``.
+    calls. Concurrency and request-admission policy are orchestration concerns
+    and are not managed here.
     """
 
     _ROUTE_CHAT = "/chat/completions"

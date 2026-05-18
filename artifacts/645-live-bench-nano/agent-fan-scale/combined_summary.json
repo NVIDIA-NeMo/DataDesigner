@@ -1,0 +1,279 @@
+{
+  "all_caps_enforced": true,
+  "env": {
+    "DATA_DESIGNER_ASYNC_ENGINE": "1",
+    "DATA_DESIGNER_ASYNC_TRACE": "1"
+  },
+  "fallback_model": null,
+  "fallback_used": false,
+  "max_parallel_requests": 8,
+  "model_attempted": "openai/openai/gpt-5-nano",
+  "provider": "nvidia-internal",
+  "scenario_count": 3,
+  "skip_health_check": true,
+  "summaries": [
+    {
+      "artifacts": {
+        "dataset_preview": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer32/dataset_preview.json",
+        "flow_buckets": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer32/flow_buckets.json",
+        "request_events": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer32/request_events.jsonl",
+        "summary": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer32/summary.json",
+        "task_traces_csv": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer32/task_traces.csv",
+        "task_traces_json": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer32/task_traces.json",
+        "timeline": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer32/timeline.jsonl"
+      },
+      "buffer_size": 32,
+      "env": {
+        "DATA_DESIGNER_ASYNC_ENGINE": "1",
+        "DATA_DESIGNER_ASYNC_TRACE": "1"
+      },
+      "error": null,
+      "expected_model_generations": 1024,
+      "fanin_delay_stats": null,
+      "max_parallel_requests": 8,
+      "model": "openai/openai/gpt-5-nano",
+      "model_usage": {
+        "openai/openai/gpt-5-nano": {
+          "input_tokens": 30720,
+          "output_tokens": 8192,
+          "successful_requests": 1024,
+          "total_tokens": 38912
+        }
+      },
+      "name": "fanout_buffer32",
+      "num_records": 256,
+      "provider": "nvidia-internal",
+      "records": 256,
+      "request_stats": {
+        "cap": 8,
+        "cap_violations": [],
+        "failure_completions": 0,
+        "final_pressure": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 174086.687923416,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 8,
+          "effective_max": 8,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5-nano",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 7189,
+          "waiters": 0
+        },
+        "max_in_flight": 8,
+        "max_waiters": 56,
+        "model_request_completions": 1024,
+        "model_request_starts": 1024,
+        "starts_by_column": {
+          "branch_0": 256,
+          "branch_1": 256,
+          "branch_2": 256,
+          "branch_3": 256
+        },
+        "success_completions": 1024,
+        "wait_summary": {
+          "count": 1024,
+          "max_s": 9.798331875004806,
+          "p50_s": 6.790842978982255,
+          "p95_s": 8.969159151802888
+        }
+      },
+      "skip_health_check": true,
+      "started_wall": "2026-05-14T15:46:58-0400",
+      "status": "success",
+      "task_trace_count": 1032,
+      "temperature_omitted": true,
+      "topology": "fanout",
+      "wall_time_s": 132.23862399999052
+    },
+    {
+      "artifacts": {
+        "dataset_preview": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer256/dataset_preview.json",
+        "flow_buckets": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer256/flow_buckets.json",
+        "request_events": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer256/request_events.jsonl",
+        "summary": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer256/summary.json",
+        "task_traces_csv": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer256/task_traces.csv",
+        "task_traces_json": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer256/task_traces.json",
+        "timeline": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanout_buffer256/timeline.jsonl"
+      },
+      "buffer_size": 256,
+      "env": {
+        "DATA_DESIGNER_ASYNC_ENGINE": "1",
+        "DATA_DESIGNER_ASYNC_TRACE": "1"
+      },
+      "error": null,
+      "expected_model_generations": 1024,
+      "fanin_delay_stats": null,
+      "max_parallel_requests": 8,
+      "model": "openai/openai/gpt-5-nano",
+      "model_usage": {
+        "openai/openai/gpt-5-nano": {
+          "input_tokens": 30720,
+          "output_tokens": 8192,
+          "successful_requests": 1024,
+          "total_tokens": 38912
+        }
+      },
+      "name": "fanout_buffer256",
+      "num_records": 256,
+      "provider": "nvidia-internal",
+      "records": 256,
+      "request_stats": {
+        "cap": 8,
+        "cap_violations": [],
+        "failure_completions": 0,
+        "final_pressure": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 174222.467629416,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 8,
+          "effective_max": 8,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5-nano",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 7189,
+          "waiters": 0
+        },
+        "max_in_flight": 8,
+        "max_waiters": 57,
+        "model_request_completions": 1024,
+        "model_request_starts": 1024,
+        "starts_by_column": {
+          "branch_0": 256,
+          "branch_1": 256,
+          "branch_2": 256,
+          "branch_3": 256
+        },
+        "success_completions": 1024,
+        "wait_summary": {
+          "count": 1024,
+          "max_s": 9.826479708019178,
+          "p50_s": 6.583455063009751,
+          "p95_s": 8.091820146406826
+        }
+      },
+      "skip_health_check": true,
+      "started_wall": "2026-05-14T15:49:20-0400",
+      "status": "success",
+      "task_trace_count": 1025,
+      "temperature_omitted": true,
+      "topology": "fanout",
+      "wall_time_s": 125.94064362501376
+    },
+    {
+      "artifacts": {
+        "dataset_preview": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanin_buffer256/dataset_preview.json",
+        "flow_buckets": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanin_buffer256/flow_buckets.json",
+        "request_events": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanin_buffer256/request_events.jsonl",
+        "summary": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanin_buffer256/summary.json",
+        "task_traces_csv": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanin_buffer256/task_traces.csv",
+        "task_traces_json": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanin_buffer256/task_traces.json",
+        "timeline": "/Users/etramel/src/DataDesigner/artifacts/645-live-bench-nano/agent-fan-scale/fanin_buffer256/timeline.jsonl"
+      },
+      "buffer_size": 256,
+      "env": {
+        "DATA_DESIGNER_ASYNC_ENGINE": "1",
+        "DATA_DESIGNER_ASYNC_TRACE": "1"
+      },
+      "error": null,
+      "expected_model_generations": 1024,
+      "fanin_delay_stats": {
+        "downstream_dispatch_delay_after_row_upstream_complete_s": {
+          "max": 3.2125449589802884,
+          "p50": 0.23460531298769638,
+          "p95": 1.281055572500918
+        },
+        "downstream_first_start_after_first_row_ready_s": 0.006151334004243836,
+        "downstream_start_delay_after_row_upstream_complete_s": {
+          "max": 3.212546791997738,
+          "p50": 0.23460716698900796,
+          "p95": 1.281056812236784
+        },
+        "rows_with_delay": 256
+      },
+      "max_parallel_requests": 8,
+      "model": "openai/openai/gpt-5-nano",
+      "model_usage": {
+        "openai/openai/gpt-5-nano": {
+          "input_tokens": 29184,
+          "output_tokens": 8192,
+          "successful_requests": 1024,
+          "total_tokens": 37376
+        }
+      },
+      "name": "fanin_buffer256",
+      "num_records": 256,
+      "provider": "nvidia-internal",
+      "records": 256,
+      "request_stats": {
+        "cap": 8,
+        "cap_violations": [],
+        "failure_completions": 0,
+        "final_pressure": {
+          "active_lease_count": 0,
+          "blocked_until_monotonic": null,
+          "captured_at": 174371.645033458,
+          "consecutive_rate_limits": 0,
+          "cooldown_remaining_seconds": 0.0,
+          "current_limit": 8,
+          "effective_max": 8,
+          "in_flight_count": 0,
+          "last_outcome": "success",
+          "leak_diagnostics": {},
+          "rate_limit_ceiling": 0,
+          "resource": {
+            "domain": "chat",
+            "model_id": "openai/openai/gpt-5-nano",
+            "provider_name": "nvidia-internal"
+          },
+          "sequence": 7189,
+          "waiters": 0
+        },
+        "max_in_flight": 8,
+        "max_waiters": 57,
+        "model_request_completions": 1024,
+        "model_request_starts": 1024,
+        "starts_by_column": {
+          "synthesis": 256,
+          "up_0": 256,
+          "up_1": 256,
+          "up_2": 256
+        },
+        "success_completions": 1024,
+        "wait_summary": {
+          "count": 1024,
+          "max_s": 9.619726165983593,
+          "p50_s": 7.178008854491054,
+          "p95_s": 8.853222151745285
+        }
+      },
+      "skip_health_check": true,
+      "started_wall": "2026-05-14T15:51:33-0400",
+      "status": "success",
+      "task_trace_count": 1025,
+      "temperature_omitted": true,
+      "topology": "fanin",
+      "wall_time_s": 141.6412126670184
+    }
+  ],
+  "temperature_omitted": true,
+  "total_failures": 0,
+  "total_model_request_completions": 3072,
+  "total_model_request_starts": 3072
+}

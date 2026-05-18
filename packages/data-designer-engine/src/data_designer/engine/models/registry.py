@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from data_designer.engine.models.clients.retry import RetryConfig
-    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
     ModelFacadeFactory = Callable[
         [ModelConfig, SecretResolver, ModelProviderRegistry, RetryConfig | None],
@@ -35,13 +35,13 @@ class ModelRegistry:
         model_provider_registry: ModelProviderRegistry,
         model_configs: list[ModelConfig] | None = None,
         model_facade_factory: ModelFacadeFactory | None = None,
-        throttle_manager: ThrottleManager | None = None,
+        request_admission: AdaptiveRequestAdmissionController | None = None,
         retry_config: RetryConfig | None = None,
     ) -> None:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_facade_factory = model_facade_factory
-        self._throttle_manager = throttle_manager
+        self._request_admission = request_admission
         self._retry_config = retry_config
         self._model_configs: dict[str, ModelConfig] = {}
         self._models: dict[str, ModelFacade] = {}
@@ -56,8 +56,8 @@ class ModelRegistry:
         return self._models
 
     @property
-    def throttle_manager(self) -> ThrottleManager | None:
-        return self._throttle_manager
+    def request_admission(self) -> AdaptiveRequestAdmissionController | None:
+        return self._request_admission
 
     @property
     def retry_config(self) -> RetryConfig | None:
@@ -178,10 +178,9 @@ class ModelRegistry:
         This is a coarse upper bound: it sums over *all* registered aliases,
         including those not referenced by the current generator set, and does
         not deduplicate aliases sharing a ``(provider_name, model_id)`` key.
-        The result is used to size the scheduler's LLM-wait semaphore, which
-        is a memory-safety cap — oversizing wastes a few coroutine slots but
-        does not affect correctness because the ``ThrottleManager`` enforces
-        the real per-key limit.
+        The result is used to size scheduler task-stage model admission, which
+        is a memory-safety cap. Concrete provider/model request capacity is
+        enforced by request admission at model-call time.
         """
         return sum(mc.inference_parameters.max_parallel_requests for mc in self._model_configs.values())
 
@@ -314,8 +313,8 @@ class ModelRegistry:
             self._model_provider_registry,
             self._retry_config,
         )
-        if self._throttle_manager is not None:
-            self._throttle_manager.register(
+        if self._request_admission is not None:
+            self._request_admission.register(
                 provider_name=facade.model_provider_name,
                 model_id=model_config.model,
                 alias=model_config.alias,

@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Async Scheduling Epic QA and Benchmark Report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #5c667a;
+      --line: #d9dee8;
+      --blue: #2453d4;
+      --green: #13795b;
+      --amber: #9a6700;
+      --red: #b42318;
+      --purple: #6f42c1;
+      --code: #eef2f7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    header {
+      background: #111827;
+      color: #fff;
+      padding: 44px 40px 34px;
+    }
+
+    header h1 {
+      margin: 0 0 10px;
+      font-size: clamp(30px, 4vw, 48px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    header p {
+      max-width: 1020px;
+      margin: 0;
+      color: #d8deea;
+      font-size: 17px;
+    }
+
+    main {
+      width: min(1240px, calc(100vw - 40px));
+      margin: 28px auto 56px;
+    }
+
+    section {
+      margin: 22px 0;
+      padding: 24px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+
+    h2, h3 {
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 24px;
+    }
+
+    h3 {
+      margin: 22px 0 10px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    ul {
+      margin: 10px 0 0;
+      padding-left: 20px;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 999px;
+      color: #f5f7fb;
+      background: rgba(255,255,255,0.08);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .cards {
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      margin-top: 16px;
+    }
+
+    .card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcff;
+    }
+
+    .metric {
+      display: block;
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.15;
+      color: var(--ink);
+    }
+
+    .label {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .ok {
+      background: #e8f5ef;
+      color: var(--green);
+    }
+
+    .watch {
+      background: #fff4d6;
+      color: var(--amber);
+    }
+
+    .risk {
+      background: #fee4e2;
+      color: var(--red);
+    }
+
+    .info {
+      background: #eef2ff;
+      color: var(--blue);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 860px;
+      border-collapse: collapse;
+      background: #fff;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f1f4f9;
+      color: #344054;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .num {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(120px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .flow .node {
+      min-height: 88px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcff;
+      position: relative;
+    }
+
+    .flow .node strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+
+    .flow .node span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .callout {
+      padding: 14px 16px;
+      border-left: 4px solid var(--blue);
+      background: #f4f7ff;
+      border-radius: 6px;
+      margin: 14px 0;
+    }
+
+    .callout.warn {
+      border-left-color: var(--amber);
+      background: #fff9e8;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .artifact-list {
+      columns: 2 360px;
+      padding-left: 18px;
+    }
+
+    footer {
+      width: min(1240px, calc(100vw - 40px));
+      margin: 0 auto 48px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 960px) {
+      header {
+        padding: 32px 20px 26px;
+      }
+
+      main {
+        width: min(100vw - 24px, 1240px);
+      }
+
+      section {
+        padding: 18px;
+      }
+
+      .flow,
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Async Scheduling Epic QA and Benchmark Report</h1>
+    <p>
+      Status report for issue 645 on branch <code>scheduling-yolo</code>: implementation shape,
+      verification gates, and live benchmark evidence gathered from the GPT-5.5 and GPT-5 Nano
+      traffic runs.
+    </p>
+    <div class="meta">
+      <span class="pill">Generated: 2026-05-14</span>
+      <span class="pill">Workspace: /Users/etramel/src/DataDesigner</span>
+      <span class="pill">Primary spec: plans/645/README.md</span>
+      <span class="pill">Live artifacts: artifacts/645-live-bench*</span>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>Executive Summary</h2>
+      <p>
+        The epic implementation is now shaped around explicit two-stage admission control:
+        scheduler-level task admission decides when ready dataset work may run, and request-level
+        admission controls each concrete provider/model call. Observability has enough layer
+        separation to explain whether a run is limited by readiness, task scheduling, request
+        queueing, provider latency, AIMD ramp, or downstream fan-in dependencies.
+      </p>
+      <div class="grid cards">
+        <div class="card">
+          <span class="metric">17,408</span>
+          <span class="label">completed model requests in final 1024+ live scenarios, excluding small smoke runs</span>
+        </div>
+        <div class="card">
+          <span class="metric">0</span>
+          <span class="label">rate-limit events or provider failures in final Nano scale lanes</span>
+        </div>
+        <div class="card">
+          <span class="metric">Held</span>
+          <span class="label">all observed <code>max_parallel_requests</code> caps in completed scale scenarios</span>
+        </div>
+        <div class="card">
+          <span class="metric">&lt; 0.071s</span>
+          <span class="label">p95 downstream idle in the dedicated GPT-5.5 -> Nano mixed pipeline runs</span>
+        </div>
+      </div>
+      <div class="callout">
+        <strong>Current read:</strong> the scheduler is interleaving downstream work at row granularity
+        rather than running all upstream work first. Buffer size is still a real operations knob:
+        larger buffers can deepen upstream queues and amplify waiters, especially with slow GPT-5.5
+        upstream work.
+      </div>
+    </section>
+
+    <section>
+      <h2>Epic Implementation Shape</h2>
+      <p>
+        The implementation follows the plan in <a href="../plans/645/README.md">plans/645</a>.
+        The core move is from implicit scheduler behavior and transport-local throttling toward
+        typed resource metadata, fair ready-work selection, task leases, request leases, and
+        correlated event streams.
+      </p>
+
+      <div class="flow" aria-label="Async scheduling runtime flow">
+        <div class="node">
+          <strong>Column Generator</strong>
+          <span>Declares static <code>SchedulingMetadata</code>; plugins do not see runtime queues.</span>
+        </div>
+        <div class="node">
+          <strong>Task Resolver</strong>
+          <span>Maps metadata to <code>TaskGroupSpec</code> and scheduler resource requests.</span>
+        </div>
+        <div class="node">
+          <strong>Completion Tracker</strong>
+          <span>Owns dependency readiness and ready frontier state.</span>
+        </div>
+        <div class="node">
+          <strong>Fair Task Queue</strong>
+          <span>Orders ready work with non-mutating selection and explicit commit.</span>
+        </div>
+        <div class="node">
+          <strong>Task Admission</strong>
+          <span>Grants scheduler task leases before workers spawn.</span>
+        </div>
+        <div class="node">
+          <strong>Model Executor</strong>
+          <span>Wraps concrete model calls; every attempt enters request admission.</span>
+        </div>
+        <div class="node">
+          <strong>Request Admission</strong>
+          <span>AIMD/provider-model-domain request leases, pressure snapshots, and event stream.</span>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <h3>Primary Code Areas</h3>
+          <ul>
+            <li><code>data_designer.config.scheduling</code>: generator-facing scheduling metadata and validation.</li>
+            <li><code>TaskSchedulingResolver</code>: bridge from static metadata into scheduler groups/resources.</li>
+            <li><code>FairTaskQueue</code>: non-mutating select plus explicit commit, with queue views for policy.</li>
+            <li><code>TaskAdmissionController</code>: scheduler task leases and resource accounting.</li>
+            <li><code>ModelRequestExecutor</code>: durable per-attempt model-call boundary.</li>
+            <li><code>AdaptiveRequestAdmissionController</code>: provider/model/domain AIMD and request leases.</li>
+            <li><code>observability.py</code> and <code>capacity.py</code>: scheduler/request event DTOs, snapshots, and plan evidence.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Cleanup Direction</h3>
+          <ul>
+            <li>Legacy scheduler hint naming is removed in favor of scheduling metadata and task scheduling.</li>
+            <li>Transport-local throttle wrappers are replaced by request admission and model request execution.</li>
+            <li>Docs and diagrams were updated across architecture docs, devnotes, and Fern assets.</li>
+            <li>Run config keeps request admission internal for V1; benchmark evidence informs future public knobs.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Verification and QA Gates</h2>
+      <p>
+        The implementation has been checked with unit, package, static, and live-provider QA passes.
+        The live benchmark agents also exercised alternative workflows, config shapes, and endpoint/model
+        combinations.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Gate</th>
+              <th>Status</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Ruff lint</td>
+              <td><span class="status ok">Passed</span></td>
+              <td><code>.venv/bin/ruff check packages scripts tests_e2e</code></td>
+            </tr>
+            <tr>
+              <td>Format check</td>
+              <td><span class="status ok">Passed</span></td>
+              <td><code>.venv/bin/ruff format --check packages scripts tests_e2e</code></td>
+            </tr>
+            <tr>
+              <td>Whitespace diff check</td>
+              <td><span class="status ok">Passed</span></td>
+              <td><code>git diff --check</code></td>
+            </tr>
+            <tr>
+              <td>Config package tests</td>
+              <td><span class="status ok">570 passed</span></td>
+              <td>Includes scheduling metadata validation and config regression coverage.</td>
+            </tr>
+            <tr>
+              <td>Engine package tests</td>
+              <td><span class="status ok">1,995 passed</span></td>
+              <td>Includes scheduler, fair queue, task admission, request admission, executor, and capacity tests.</td>
+            </tr>
+            <tr>
+              <td>Interface package tests</td>
+              <td><span class="status ok">899 passed</span></td>
+              <td>One skipped test in the interface suite.</td>
+            </tr>
+            <tr>
+              <td>Benchmark schema checks</td>
+              <td><span class="status ok">Passed</span></td>
+              <td>Deterministic benchmark artifact and derived metric checks passed.</td>
+            </tr>
+            <tr>
+              <td>Legacy naming gates</td>
+              <td><span class="status ok">Passed</span></td>
+              <td>Stale throttle/semaphore/scheduling-hint term checks were clean except expected removals and migration references.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn">
+        <strong>Provider compatibility findings:</strong> GPT-5.5 rejected <code>temperature=0</code>, so live traffic
+        omits temperature. GPT-5.5 also showed output-limit brittleness at <code>max_tokens=24</code>; short
+        GPT-5.5 prompts should use a safer ceiling such as 64+ tokens.
+      </div>
+    </section>
+
+    <section>
+      <h2>Live Benchmark Matrix</h2>
+      <h3>GPT-5 Nano 1024+ Scale Runs</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Lane</th>
+              <th>Scenario</th>
+              <th>Shape</th>
+              <th>Buffer</th>
+              <th>Requests</th>
+              <th>Wall</th>
+              <th>Cap</th>
+              <th>Signal</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Cap scale</td>
+              <td><code>cap8_rows512_cols2_buffer32</code></td>
+              <td>512 x 2 Nano columns</td>
+              <td class="num">32</td>
+              <td class="num">1024/1024</td>
+              <td class="num">160.30s</td>
+              <td>8/8</td>
+              <td>Start CV 0.252; max waiters 30.</td>
+            </tr>
+            <tr>
+              <td>Cap scale</td>
+              <td><code>cap8_rows512_cols2_buffer512</code></td>
+              <td>512 x 2 Nano columns</td>
+              <td class="num">512</td>
+              <td class="num">1024/1024</td>
+              <td class="num">167.08s</td>
+              <td>8/8</td>
+              <td>Start CV 0.246; max waiters 31.</td>
+            </tr>
+            <tr>
+              <td>Cap sweep</td>
+              <td><code>final1024_cap8_buffer32</code></td>
+              <td>512 x 2 Nano columns</td>
+              <td class="num">32</td>
+              <td class="num">1024/1024</td>
+              <td class="num">155.37s</td>
+              <td>8/8</td>
+              <td>Steady traffic; cap enforced.</td>
+            </tr>
+            <tr>
+              <td>Cap sweep</td>
+              <td><code>final1024_cap8_buffer128</code></td>
+              <td>512 x 2 Nano columns</td>
+              <td class="num">128</td>
+              <td class="num">1024/1024</td>
+              <td class="num">153.96s</td>
+              <td>8/8</td>
+              <td>Steady traffic; cap enforced.</td>
+            </tr>
+            <tr>
+              <td>Cap sweep</td>
+              <td><code>final1024_cap8_buffer512</code></td>
+              <td>512 x 2 Nano columns</td>
+              <td class="num">512</td>
+              <td class="num">1024/1024</td>
+              <td class="num">150.27s</td>
+              <td>8/8</td>
+              <td>Lowest start CV in that lane.</td>
+            </tr>
+            <tr>
+              <td>AIMD scale</td>
+              <td><code>final-512x2-buffer32</code></td>
+              <td>512 x 2 Nano columns</td>
+              <td class="num">32</td>
+              <td class="num">1024/1024</td>
+              <td class="num">104.823s</td>
+              <td>16/16</td>
+              <td>Limit ramped 1 -> 16 in 50.332s; p95 wait 19.371s.</td>
+            </tr>
+            <tr>
+              <td>AIMD scale</td>
+              <td><code>final-512x2-buffer512</code></td>
+              <td>512 x 2 Nano columns</td>
+              <td class="num">512</td>
+              <td class="num">1024/1024</td>
+              <td class="num">114.522s</td>
+              <td>16/16</td>
+              <td>Limit ramped 1 -> 16 in 57.062s; p95 wait 22.949s.</td>
+            </tr>
+            <tr>
+              <td>Fan scale</td>
+              <td><code>fanout_buffer32</code></td>
+              <td>256 x 4 Nano branches</td>
+              <td class="num">32</td>
+              <td class="num">1024/1024</td>
+              <td class="num">132.24s</td>
+              <td>8/8</td>
+              <td>Balanced branch traffic; p95 wait 8.97s.</td>
+            </tr>
+            <tr>
+              <td>Fan scale</td>
+              <td><code>fanout_buffer256</code></td>
+              <td>256 x 4 Nano branches</td>
+              <td class="num">256</td>
+              <td class="num">1024/1024</td>
+              <td class="num">125.94s</td>
+              <td>8/8</td>
+              <td>Balanced branch traffic; p95 wait 8.09s.</td>
+            </tr>
+            <tr>
+              <td>Fan scale</td>
+              <td><code>fanin_buffer256</code></td>
+              <td>256 rows, 3 upstream + 1 synthesis</td>
+              <td class="num">256</td>
+              <td class="num">1024/1024</td>
+              <td class="num">141.64s</td>
+              <td>8/8</td>
+              <td>Row-level fan-in; downstream delay p95 1.281s.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Mixed GPT-5.5 Upstream -> GPT-5 Nano Downstream</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Lane</th>
+              <th>Scenario</th>
+              <th>Shape</th>
+              <th>Buffer</th>
+              <th>Requests</th>
+              <th>Wall</th>
+              <th>Idle p95/max</th>
+              <th>Interpretation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Dedicated mixed pipeline</td>
+              <td><code>mixed_rows512_buf32_heavy4_nano8</code></td>
+              <td>512 GPT-5.5 + 512 Nano</td>
+              <td class="num">32</td>
+              <td class="num">1024/1024</td>
+              <td class="num">368.46s</td>
+              <td class="num">0.00484s / 0.05287s</td>
+              <td>Steady interleaving; GPT-5.5 waiters 92; Nano did not starve.</td>
+            </tr>
+            <tr>
+              <td>Dedicated mixed pipeline</td>
+              <td><code>mixed_rows512_buf256_heavy4_nano8</code></td>
+              <td>512 GPT-5.5 + 512 Nano</td>
+              <td class="num">256</td>
+              <td class="num">1024/1024</td>
+              <td class="num">366.44s</td>
+              <td class="num">0.07076s / 0.13278s</td>
+              <td>Steady interleaving; GPT-5.5 waiters 252 with larger buffer.</td>
+            </tr>
+            <tr>
+              <td>Alternate bottleneck lane</td>
+              <td><code>mixed_rows512_buf32_1024gens</code></td>
+              <td>512 GPT-5.5 + 512 Nano</td>
+              <td class="num">32</td>
+              <td class="num">1024/1024</td>
+              <td class="num">259.315s</td>
+              <td class="num">0.002748s / 0.028367s</td>
+              <td>Wave-like per-second starts, but very low downstream idle.</td>
+            </tr>
+            <tr>
+              <td>Alternate bottleneck lane</td>
+              <td><code>mixed_rows512_buf256_1024gens</code></td>
+              <td>512 GPT-5.5 + 512 Nano</td>
+              <td class="num">256</td>
+              <td class="num">1024/1024</td>
+              <td class="num">264.457s</td>
+              <td class="num">0.111947s / 0.356167s</td>
+              <td>Wave-like traffic; larger buffer amplified GPT-5.5 wait p95 to 129.107s.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Initial GPT-5.5 Live QA</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Scenario</th>
+              <th>Cap</th>
+              <th>Requests</th>
+              <th>Wall</th>
+              <th>Max in-flight</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>serialish_cap1_2rows_2cols</code></td>
+              <td class="num">1</td>
+              <td class="num">4</td>
+              <td class="num">9.210s</td>
+              <td class="num">1</td>
+              <td><span class="status ok">Cap held</span></td>
+            </tr>
+            <tr>
+              <td><code>stress_cap2_3rows_2cols</code></td>
+              <td class="num">2</td>
+              <td class="num">6</td>
+              <td class="num">4.566s</td>
+              <td class="num">2</td>
+              <td><span class="status ok">Cap held</span></td>
+            </tr>
+            <tr>
+              <td><code>fanout_cap3_2rows_3cols</code></td>
+              <td class="num">3</td>
+              <td class="num">6</td>
+              <td class="num">3.523s</td>
+              <td class="num">3</td>
+              <td><span class="status ok">Cap held</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>What The Benchmarks Say</h2>
+      <div class="two-col">
+        <div>
+          <h3>Confirmed</h3>
+          <ul>
+            <li><span class="status ok">Caps</span> Request in-flight counts did not exceed configured caps in completed scale lanes.</li>
+            <li><span class="status ok">AIMD</span> Nano AIMD ramps were monotonic to cap with no decreases or rate limits.</li>
+            <li><span class="status ok">Fan-in</span> Downstream work starts per row, not after a global upstream wave.</li>
+            <li><span class="status ok">Mixed model flow</span> Slow GPT-5.5 upstream and fast Nano downstream overlap for most of the run.</li>
+            <li><span class="status ok">Lease cleanup</span> Successful runs ended with no active request leases or waiters in reported pressure snapshots.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Watch Items</h3>
+          <ul>
+            <li><span class="status watch">Buffers</span> Larger buffers can increase upstream waiters and wait p95 even when wall time is similar.</li>
+            <li><span class="status watch">Telemetry wiring</span> The benchmark agents injected sinks in-process; product/operator wiring should make this easier without monkeypatching.</li>
+            <li><span class="status watch">Provider params</span> Model-specific parameter compatibility needs explicit docs: GPT-5.5 rejects <code>temperature=0</code>.</li>
+            <li><span class="status watch">Output limits</span> GPT-5.5 short prompts can fail at <code>max_tokens=24</code>; use safer defaults in examples.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Artifact Index</h2>
+      <p>
+        The report is intentionally a summary. Use these artifacts for timelines, request events,
+        scheduler events, task traces, flow buckets, and per-scenario JSON summaries.
+      </p>
+      <ul class="artifact-list">
+        <li><a href="../artifacts/645-live-bench-nano/agent-cap-scale/README.md">Nano cap scale README</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-cap-scale/combined_summary.json">Nano cap scale combined JSON</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-cap-sweep/README_final1024.md">Nano cap sweep final 1024 README</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-cap-sweep/combined_summary_final1024.json">Nano cap sweep final JSON</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-aimd-scale/README.md">Nano AIMD scale README</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-aimd-scale/combined_summary.json">Nano AIMD scale combined JSON</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-fan-scale/README.md">Nano fan scale README</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-fan-scale/combined_summary.json">Nano fan scale combined JSON</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-mixed-pipeline/README.md">Dedicated mixed pipeline README</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-mixed-pipeline/combined_summary.json">Dedicated mixed pipeline JSON</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-bottleneck/README_mixed.md">Alternate mixed bottleneck README</a></li>
+        <li><a href="../artifacts/645-live-bench-nano/agent-bottleneck/combined_mixed_summary.json">Alternate mixed bottleneck JSON</a></li>
+        <li><a href="../artifacts/645-live-bench/agent-maxparallel/maxparallel_live_benchmark.md">Initial GPT-5.5 max-parallel README</a></li>
+        <li><a href="../artifacts/645-live-bench/agent-fan/README.md">Initial GPT-5.5 fan README</a></li>
+        <li><a href="../plans/645/benchmark-plan.md">Benchmark plan</a></li>
+        <li><a href="../plans/645/observability.md">Observability plan</a></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Recommended Follow-Ups</h2>
+      <ul>
+        <li>Promote the benchmark sink injection pattern into an operator-facing debug/benchmark hook so future runs do not need monkeypatches.</li>
+        <li>Add a concise buffer-size guidance note: smaller buffers reduce upstream wait amplification; larger buffers can improve throughput in pure Nano fan-out but may deepen slow-model queues.</li>
+        <li>Add a mixed-model benchmark to the reusable harness: <code>slow upstream -> fast downstream</code> with idle-time and overlap metrics as first-class outputs.</li>
+        <li>Capture the provider compatibility notes in model docs or example configs: omit temperature for GPT-5.5 and avoid very low GPT-5.5 token ceilings.</li>
+        <li>Keep the 1024+ Nano scenarios as regression recipes for cap enforcement, AIMD ramp, fan-in readiness, and buffer-induced waves.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    Report generated from local benchmark artifacts and the issue 645 plan. It does not include prompts,
+    completions, row values, secrets, or raw provider payloads.
+  </footer>
+</body>
+</html>

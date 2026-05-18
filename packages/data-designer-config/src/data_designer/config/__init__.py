@@ -58,7 +58,7 @@ if TYPE_CHECKING:
         ProcessorType,
         SchemaTransformProcessorConfig,
     )
-    from data_designer.config.run_config import JinjaRenderingEngine, RunConfig, ThrottleConfig  # noqa: F401
+    from data_designer.config.run_config import JinjaRenderingEngine, RunConfig  # noqa: F401
     from data_designer.config.sampler_constraints import (  # noqa: F401
         ColumnInequalityConstraint,
         ConstraintType,
@@ -82,6 +82,7 @@ if TYPE_CHECKING:
         UniformSamplerParams,
         UUIDSamplerParams,
     )
+    from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError  # noqa: F401
     from data_designer.config.seed import (  # noqa: F401
         IndexRange,
         PartitionBlock,
@@ -177,7 +178,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     # run_config
     "JinjaRenderingEngine": (f"{_MOD_BASE}.run_config", "JinjaRenderingEngine"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
-    "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
+    # scheduling metadata
+    "SchedulingMetadata": (f"{_MOD_BASE}.scheduling", "SchedulingMetadata"),
+    "SchedulingMetadataError": (f"{_MOD_BASE}.scheduling", "SchedulingMetadataError"),
     # sampler_constraints
     "ColumnInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ColumnInequalityConstraint"),
     "ConstraintType": (_MOD_SAMPLER_CONSTRAINTS, "ConstraintType"),

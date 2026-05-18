@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import time
+import uuid
 from collections import defaultdict, deque
 from collections.abc import Coroutine
 from dataclasses import dataclass
@@ -14,29 +16,51 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import GenerationStrategy
+from data_designer.engine.capacity import (
+    AsyncCapacityConfigured,
+    AsyncCapacityObservedMaxima,
+    AsyncCapacityPlan,
+    AsyncCapacityRuntimeSnapshot,
+    CapacityValue,
+    RowGroupAdmission,
+)
 from data_designer.engine.context import current_row_group
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
+from data_designer.engine.dataset_builders.scheduling.queue import (
+    FairTaskQueue,
+)
+from data_designer.engine.dataset_builders.scheduling.resolver import TaskSchedulingResolver
+from data_designer.engine.dataset_builders.scheduling.resources import (
+    SchedulableTask,
+    stable_task_id,
+)
+from data_designer.engine.dataset_builders.scheduling.task_admission import (
+    TaskAdmissionConfig,
+    TaskAdmissionController,
+    TaskAdmissionDenied,
+    TaskAdmissionLease,
+)
+from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
 from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
 )
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
-from data_designer.engine.dataset_builders.utils.fair_task_queue import (
-    FairTaskQueue,
-    TaskGroupKey,
-    TaskGroupSpec,
-)
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
-from data_designer.engine.dataset_builders.utils.scheduling_hints import SchedulingHint, SchedulingHintResolver
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
     strip_skip_metadata_from_records,
 )
 from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
-from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task, TaskTrace
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
+from data_designer.engine.observability import (
+    RuntimeCorrelation,
+    SchedulerAdmissionEvent,
+    SchedulerAdmissionEventSink,
+    runtime_correlation_provider,
+)
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGenerator
@@ -46,10 +70,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_TASK_POOL_SIZE: int = 256
-# Global LLM wait-pool headroom sizes the memory-safety semaphore above provider capacity.
-GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER: int = 2
-# Per-group admission backlog caps how many ready LLM tasks one fair-queue group can hold.
-LLM_GROUP_ADMISSION_BACKLOG_MULTIPLIER: int = 2
+MODEL_TASK_ADMISSION_HEADROOM_MULTIPLIER: int = 2
+MODEL_GROUP_ADMISSION_BACKLOG_MULTIPLIER: int = 2
 
 # Degraded-provider WARN: emit at most one warning per interval when the
 # rolling fraction of retryable errors exceeds the threshold. Distinct from
@@ -58,21 +80,6 @@ LLM_GROUP_ADMISSION_BACKLOG_MULTIPLIER: int = 2
 DEGRADED_WARN_RATE: float = 0.5
 DEGRADED_WARN_WINDOW: int = 20
 DEGRADED_WARN_INTERVAL_S: float = 60.0
-
-
-class TrackingSemaphore(asyncio.Semaphore):
-    """``asyncio.Semaphore`` subclass that exposes available permits publicly."""
-
-    @property
-    def available_permits(self) -> int:
-        return self._value  # type: ignore[attr-defined]
-
-    def try_acquire(self) -> bool:
-        """Non-blocking acquire. Returns ``True`` if a permit was taken."""
-        if self._value > 0:  # type: ignore[attr-defined]
-            self._value -= 1  # type: ignore[attr-defined]
-            return True
-        return False
 
 
 @dataclass
@@ -90,8 +97,7 @@ class _DispatchOutcome:
     """Result of one fair-dispatch pass over the persistent ready queue."""
 
     dispatched: bool = False
-    submission_full: bool = False
-    group_blocked: bool = False
+    admission_blocked: bool = False
 
 
 class AsyncTaskScheduler:
@@ -111,7 +117,8 @@ class AsyncTaskScheduler:
         *,
         max_concurrent_row_groups: int = 3,
         max_submitted_tasks: int = DEFAULT_TASK_POOL_SIZE,
-        max_llm_wait_tasks: int = DEFAULT_TASK_POOL_SIZE,
+        max_model_task_admission: int = DEFAULT_TASK_POOL_SIZE,
+        task_admission_config: TaskAdmissionConfig | None = None,
         salvage_max_rounds: int = 2,
         on_finalize_row_group: Callable[[int], None] | None = None,
         on_seeds_complete: Callable[[int, int], FrontierDelta | None] | None = None,
@@ -127,6 +134,8 @@ class AsyncTaskScheduler:
         buffer_size: int = 0,
         progress_interval: float | None = None,
         progress_bar: bool = False,
+        scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
+        run_id: str | None = None,
     ) -> None:
         self._generators = generators
         self._graph = graph
@@ -135,22 +144,29 @@ class AsyncTaskScheduler:
         self._buffer_manager = buffer_manager
 
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
-        self._submission_semaphore = TrackingSemaphore(max_submitted_tasks)
-        self._llm_wait_semaphore = TrackingSemaphore(max_llm_wait_tasks)
-        self._max_llm_wait_tasks = max_llm_wait_tasks
 
-        self._llm_bound_lookup = build_llm_bound_lookup(generators)
-        self._scheduling_hints = SchedulingHintResolver(generators)
+        self._task_scheduling = TaskSchedulingResolver(
+            generators,
+            model_group_limit_multiplier=MODEL_GROUP_ADMISSION_BACKLOG_MULTIPLIER,
+            model_group_limit_cap=max_model_task_admission,
+        )
+        admission_config = task_admission_config or TaskAdmissionConfig(
+            submission_capacity=max_submitted_tasks,
+            resource_limits={"llm_wait": max_model_task_admission, "local": max_submitted_tasks},
+        )
+        self._task_admission = TaskAdmissionController(admission_config)
+        self._task_admission_config = admission_config
         self._fair_queue = FairTaskQueue()
         self._pending_pre_batch_ready: defaultdict[int, list[Task]] = defaultdict(list)
         self._pending_pre_batch_ready_tasks: set[Task] = set()
-        # Task group specs are derived from per-generator scheduling hints and flow identity.
-        self._task_group_spec_cache: dict[int, TaskGroupSpec] = {}
 
         self._dispatched: set[Task] = set()
         self._in_flight: set[Task] = set()
         self._worker_tasks: set[asyncio.Task] = set()
         self._wake_event = asyncio.Event()
+        self._run_id = run_id or f"run-{uuid.uuid4().hex}"
+        self._scheduler_event_sink = scheduler_event_sink
+        self._scheduler_event_sequence = 0
         self._salvage_max_rounds = salvage_max_rounds
         self._on_finalize_row_group = on_finalize_row_group
         self._on_seeds_complete = on_seeds_complete
@@ -202,7 +218,7 @@ class AsyncTaskScheduler:
         self._all_rgs_admitted = False
 
         # Degraded-provider WARN: separate window tracking retryable-vs-not for
-        # every outcome (success or failure), throttled to one log per interval.
+        # every outcome (success or failure), rate-limited to one log per interval.
         self._degraded_warn_rate = degraded_warn_rate
         self._degraded_warn_window = degraded_warn_window
         self._degraded_warn_interval_s = degraded_warn_interval_s
@@ -227,6 +243,14 @@ class AsyncTaskScheduler:
 
         # Pre-compute row-group sizes for O(1) lookup
         self._rg_size_map: dict[int, int] = dict(row_groups)
+        self._max_concurrent_row_groups = max_concurrent_row_groups
+        self._max_submitted_tasks = max_submitted_tasks
+        self._max_model_task_admission = max_model_task_admission
+        self._num_records = num_records
+        self._buffer_size = buffer_size
+        self._observed_max_row_groups_in_flight = 0
+        self._observed_max_task_leases_by_resource: dict[str, int] = {}
+        self._observed_max_queued_by_group: dict[str, int] = {}
 
         # Pre-compute seed columns (graph is static)
         self._seed_cols: tuple[str, ...] = tuple(c for c in graph.columns if not graph.get_upstream_columns(c))
@@ -300,6 +324,64 @@ class AsyncTaskScheduler:
         task.add_done_callback(self._worker_tasks.discard)
         return task
 
+    def _emit_scheduler_event(
+        self,
+        event_kind: str,
+        *,
+        task: Task | None = None,
+        lease: TaskAdmissionLease | None = None,
+        task_execution_id: str | None = None,
+        scheduler_resource_key: str | None = None,
+        reason_or_result: str | None = None,
+        diagnostics: dict[str, object] | None = None,
+    ) -> None:
+        if self._scheduler_event_sink is None:
+            return
+        self._scheduler_event_sequence += 1
+        correlation = None
+        if task is not None:
+            group = lease.item.group if lease is not None else self._schedulable_task(task).group
+            identity_hash = hashlib.sha1("\0".join(group.key.identity).encode()).hexdigest()[:16]
+            correlation = RuntimeCorrelation(
+                run_id=self._run_id,
+                row_group=task.row_group,
+                task_column=task.column,
+                task_type=task.task_type,
+                scheduling_group_kind=group.key.kind,
+                scheduling_group_identity_hash=identity_hash,
+                task_execution_id=task_execution_id,
+            )
+        try:
+            self._scheduler_event_sink.emit_scheduler_event(
+                SchedulerAdmissionEvent.capture(
+                    event_kind,  # type: ignore[arg-type]
+                    sequence=self._scheduler_event_sequence,
+                    correlation=correlation,
+                    task_id=stable_task_id(task) if task is not None else None,
+                    task_execution_id=task_execution_id,
+                    task_lease_id=lease.lease_id if lease is not None else None,
+                    scheduler_resource_key=scheduler_resource_key,
+                    reason_or_result=reason_or_result,
+                    snapshot=self.task_admission_snapshot(),
+                    diagnostics=diagnostics or {},
+                )
+            )
+        except Exception:
+            return
+
+    def _record_observed_task_state(self) -> None:
+        self._observed_max_row_groups_in_flight = max(self._observed_max_row_groups_in_flight, len(self._rg_states))
+        view = self._task_admission.view()
+        for resource, count in view.leased_resources.items():
+            self._observed_max_task_leases_by_resource[resource] = max(
+                self._observed_max_task_leases_by_resource.get(resource, 0),
+                count,
+            )
+        queue_view = self._fair_queue.view()
+        for group, count in queue_view.queued_by_group.items():
+            label = f"{group.kind}:{'/'.join(group.identity)}"
+            self._observed_max_queued_by_group[label] = max(self._observed_max_queued_by_group.get(label, 0), count)
+
     async def _cancel_workers(self) -> None:
         """Cancel all tracked worker tasks and wait for them to finish."""
         for t in self._worker_tasks:
@@ -321,16 +403,23 @@ class AsyncTaskScheduler:
             return
         if not self._tracker.is_frontier_task(task):
             return
+        self._emit_scheduler_event("dependency_ready", task=task)
         state = self._rg_states[task.row_group]
-        if self._on_seeds_complete is not None and not state.pre_batch_done:
+        if self._on_seeds_complete is not None and not state.pre_batch_done and task.column not in self._seed_cols:
             if task not in self._pending_pre_batch_ready_tasks:
                 self._pending_pre_batch_ready[task.row_group].append(task)
                 self._pending_pre_batch_ready_tasks.add(task)
             return
-        self._fair_queue.enqueue(task, self._task_group_spec(task))
+        schedulable = self._schedulable_task(task)
+        accepted = self._fair_queue.enqueue((schedulable,))
+        if accepted:
+            self._tracker.mark_enqueued(accepted)
+            self._emit_scheduler_event("ready_enqueued", task=task)
+            self._record_observed_task_state()
+            self._wake_event.set()
 
     def _discard_ready_task(self, task: Task) -> None:
-        self._fair_queue.discard(task)
+        self._fair_queue.discard(stable_task_id(task))
         self._pending_pre_batch_ready_tasks.discard(task)
 
     def _flush_pre_batch_ready(self, row_group: int) -> None:
@@ -345,69 +434,90 @@ class AsyncTaskScheduler:
         pending = self._pending_pre_batch_ready.pop(row_group, [])
         for task in pending:
             self._pending_pre_batch_ready_tasks.discard(task)
-        self._fair_queue.discard_where(lambda task: task.row_group == row_group)
+        self._fair_queue.discard_where(lambda item: item.payload.row_group == row_group)
 
     def _dispatch_queued_tasks(self) -> _DispatchOutcome:
         dispatched = False
 
         while self._fair_queue.has_queued_tasks:
-            if not self._submission_semaphore.try_acquire():
-                return _DispatchOutcome(dispatched=dispatched, submission_full=True)
-
-            selection = self._fair_queue.admit_next()
+            selection = self._fair_queue.select_next(lambda item, view: self._task_admission.is_eligible(item, view))
             if selection is None:
-                self._submission_semaphore.release()
-                return _DispatchOutcome(dispatched=dispatched, group_blocked=True)
+                summary = self._task_admission.explain_blocked(self._fair_queue.view())
+                if "group_cap" in summary.dominant_denial_reasons:
+                    event_kind = "group_capped"
+                elif summary.dominant_denial_reasons:
+                    event_kind = "admission_blocked"
+                else:
+                    event_kind = "queue_empty"
+                self._emit_scheduler_event(
+                    event_kind,
+                    diagnostics={
+                        "queued_count": summary.queued_count,
+                        "reasons": dict(summary.dominant_denial_reasons),
+                    },
+                )
+                return _DispatchOutcome(dispatched=dispatched, admission_blocked=True)
 
-            self._dispatch_selected_task(selection.task)
+            self._emit_scheduler_event("selected", task=selection.item.payload)
+            decision = self._task_admission.try_acquire(selection.item, selection.queue_view)
+            if isinstance(decision, TaskAdmissionDenied):
+                self._emit_scheduler_event(
+                    "admission_denied",
+                    task=selection.item.payload,
+                    reason_or_result=decision.reason,
+                    diagnostics=dict(decision.diagnostics),
+                )
+                return _DispatchOutcome(dispatched=dispatched, admission_blocked=True)
+            self._emit_scheduler_event("task_lease_acquired", task=selection.item.payload, lease=decision)
+
+            committed = self._fair_queue.commit(selection)
+            if committed is None:
+                result = self._task_admission.release(decision)
+                self._emit_scheduler_event(
+                    "stale_selection",
+                    task=selection.item.payload,
+                    lease=decision,
+                    reason_or_result=result.reason,
+                )
+                return _DispatchOutcome(dispatched=dispatched, admission_blocked=True)
+
+            self._dispatch_selected_task(committed, decision)
             dispatched = True
+            self._record_observed_task_state()
 
+        if dispatched:
+            self._emit_scheduler_event("queue_drained")
         return _DispatchOutcome(dispatched=dispatched)
 
-    def _dispatch_selected_task(self, task: Task) -> None:
+    def _dispatch_selected_task(self, item: SchedulableTask, lease: TaskAdmissionLease) -> None:
+        task = item.payload
+        task_execution_id = f"task-exec-{uuid.uuid4().hex}"
         self._dispatched.add(task)
         self._in_flight.add(task)
         if (s := self._rg_states.get(task.row_group)) is not None:
             s.in_flight_count += 1
-        self._spawn_worker(self._execute_task(task))
+        try:
+            self._spawn_worker(self._execute_task(task, lease, task_execution_id))
+            self._emit_scheduler_event("worker_spawned", task=task, lease=lease, task_execution_id=task_execution_id)
+        except Exception:
+            result = self._task_admission.release(lease)
+            self._emit_scheduler_event(
+                "worker_spawn_failed",
+                task=task,
+                lease=lease,
+                task_execution_id=task_execution_id,
+                reason_or_result=result.reason,
+            )
+            self._in_flight.discard(task)
+            raise
 
-    def _task_group_spec(self, task: Task) -> TaskGroupSpec:
-        generator = self._generators[task.column]
-        generator_id = id(generator)
-        cached = self._task_group_spec_cache.get(generator_id)
-        if cached is not None:
-            return cached
-
-        spec = self._task_group_spec_from_hint(
-            self._scheduling_hints.hint_for(generator),
-            self._task_flow_identity(task),
-        )
-        self._task_group_spec_cache[generator_id] = spec
-        return spec
-
-    def _task_group_spec_from_hint(self, hint: SchedulingHint, flow_identity: tuple[str, ...]) -> TaskGroupSpec:
-        if hint.group_kind == "local":
-            return TaskGroupSpec(key=TaskGroupKey(kind="local", identity=flow_identity))
-
-        if hint.group_kind == "custom_model":
-            identity = (*flow_identity, *hint.identity_suffix)
-        else:
-            identity = (*hint.identity_prefix, *flow_identity, *hint.identity_suffix)
-
-        weight = max(1, hint.weight)
-        return TaskGroupSpec(
-            key=TaskGroupKey(kind=hint.group_kind, identity=identity),
-            weight=float(weight),
-            admitted_limit=self._llm_group_admitted_limit(weight),
-        )
+    def _schedulable_task(self, task: Task) -> SchedulableTask:
+        return self._task_scheduling.schedulable_task(task, self._task_flow_identity(task))
 
     def _task_flow_identity(self, task: Task) -> tuple[str, ...]:
         generator = self._generators[task.column]
         output_columns = self._gen_instance_to_columns.get(id(generator), [task.column])
         return tuple(output_columns)
-
-    def _llm_group_admitted_limit(self, weight: int) -> int:
-        return max(1, min(self._max_llm_wait_tasks, LLM_GROUP_ADMISSION_BACKLOG_MULTIPLIER * weight))
 
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
@@ -508,15 +618,16 @@ class AsyncTaskScheduler:
             if all_done:
                 break
 
+            pending_pre_batch = has_pre_batch and any(
+                state.seeds_dispatched and not state.pre_batch_done for state in self._rg_states.values()
+            )
             if not self._fair_queue.has_queued_tasks and not self._in_flight:
-                if self._all_rgs_admitted:
+                if self._all_rgs_admitted and not pending_pre_batch:
                     break
+                if pending_pre_batch:
+                    continue
 
-            if (
-                not self._fair_queue.has_queued_tasks
-                or dispatch_outcome.submission_full
-                or dispatch_outcome.group_blocked
-            ):
+            if not self._fair_queue.has_queued_tasks or dispatch_outcome.admission_blocked:
                 await self._wake_event.wait()
 
     async def _salvage_rounds(
@@ -549,34 +660,10 @@ class AsyncTaskScheduler:
                             self._dispatched.discard(
                                 Task(column=sibling, row_group=task.row_group, row_index=None, task_type="batch")
                             )
-                    # Acquire stateful lock (mirrors _dispatch_seeds) so
-                    # _execute_seed_task can safely release it in finally.
-                    if gid in self._stateful_locks:
-                        await self._stateful_locks[gid].acquire()
-                    await self._submission_semaphore.acquire()
-                    self._dispatched.add(task)
-                    # Re-register batch alias to mirror _dispatch_seeds and prevent
-                    # duplicate dispatch if the frontier contains a stale batch task.
-                    self._dispatched.add(
-                        Task(column=task.column, row_group=task.row_group, row_index=None, task_type="batch")
-                    )
-                    # Re-mark sibling columns as dispatched to mirror _dispatch_seeds
-                    # and prevent _drain_frontier from re-dispatching them.
-                    for sibling in self._gen_instance_to_columns.get(gid, []):
-                        if sibling != task.column:
-                            self._dispatched.add(
-                                Task(column=sibling, row_group=task.row_group, row_index=None, task_type="from_scratch")
-                            )
-                            self._dispatched.add(
-                                Task(column=sibling, row_group=task.row_group, row_index=None, task_type="batch")
-                            )
-                    self._in_flight.add(task)
-                    if (s := self._rg_states.get(task.row_group)) is not None:
-                        s.in_flight_count += 1
-                    self._spawn_worker(self._execute_seed_task(task, gid))
+                    self._apply_frontier_delta(self._tracker.add_ready_tasks((task,)))
                 else:
                     self._dispatched.discard(task)
-                    self._enqueue_ready_task(task)
+                    self._apply_frontier_delta(self._tracker.add_ready_tasks((task,)))
             # Drain: dispatch frontier tasks and any newly-ready downstream tasks
             # until nothing remains in-flight or in the frontier.
             await self._drain_frontier(seed_cols, has_pre_batch)
@@ -803,7 +890,7 @@ class AsyncTaskScheduler:
             self._early_shutdown = True
 
     def _record_retryable_outcome(self, *, retryable: bool) -> None:
-        """Track retryable-error rate and emit a throttled WARN under provider degradation.
+        """Track retryable-error rate and emit a rate-limited WARN under provider degradation.
 
         Distinct from ``_check_error_rate``: every LLM-bound task outcome (success
         or failure) feeds this window so the rate reflects the provider's overall
@@ -832,7 +919,7 @@ class AsyncTaskScheduler:
         )
 
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
-        """Dispatch from_scratch tasks for a row group."""
+        """Make from-scratch/root tasks ready for a row group."""
         self._rg_states[rg_id].seeds_dispatched = True
         seed_cols = self._seed_cols
         if not seed_cols:
@@ -841,6 +928,7 @@ class AsyncTaskScheduler:
         width = len(str(num_rgs))
         logger.info(f"🚀 ({rg_id + 1:0{width}d}/{num_rgs}) Dispatching with {rg_size} records")
         seen_instances: set[int] = set()
+        root_columns: list[str] = []
 
         for col in seed_cols:
             gen = self._generators[col]
@@ -848,64 +936,38 @@ class AsyncTaskScheduler:
             if gid in seen_instances:
                 continue
             seen_instances.add(gid)
+            root_columns.append(col)
 
-            task = Task(column=col, row_group=rg_id, row_index=None, task_type="from_scratch")
-            # Also mark the "batch" variant as dispatched to prevent duplicate
-            # scheduling for this column.
-            batch_alias = Task(column=col, row_group=rg_id, row_index=None, task_type="batch")
-            if task in self._dispatched or batch_alias in self._dispatched:
-                continue
+        self._apply_frontier_delta(self._tracker.add_root_tasks(rg_id, rg_size, columns=tuple(root_columns)))
 
-            # Seeds bypass fair-queue admission while row groups are being admitted;
-            # direct dispatch preserves stateful lock ordering across row groups.
-            # Acquire stateful lock *before* submission semaphore to preserve
-            # row-group ordering. Held until generation completes (_execute_seed_task).
-            if gid in self._stateful_locks:
-                await self._stateful_locks[gid].acquire()
-
-            await self._submission_semaphore.acquire()
-            self._dispatched.add(task)
-            self._dispatched.add(batch_alias)
-            # Also mark all sibling output columns as dispatched (multi-column dedup)
-            for sibling_col in self._gen_instance_to_columns.get(gid, []):
-                if sibling_col != col:
-                    self._dispatched.add(
-                        Task(column=sibling_col, row_group=rg_id, row_index=None, task_type="from_scratch")
-                    )
-                    self._dispatched.add(Task(column=sibling_col, row_group=rg_id, row_index=None, task_type="batch"))
-            self._in_flight.add(task)
-            if (s := self._rg_states.get(task.row_group)) is not None:
-                s.in_flight_count += 1
-            self._spawn_worker(self._execute_seed_task(task, gid))
-
-    async def _execute_seed_task(self, task: Task, generator_id: int) -> None:
-        """Execute a from_scratch task and release stateful lock if held."""
-        try:
-            await self._execute_task_inner(task)
-        finally:
-            if generator_id in self._stateful_locks:
-                self._stateful_locks[generator_id].release()
-
-    async def _execute_task(self, task: Task) -> None:
+    async def _execute_task(self, task: Task, lease: TaskAdmissionLease, task_execution_id: str) -> None:
         """Execute a single task (cell or batch)."""
-        await self._execute_task_inner(task)
+        await self._execute_task_inner(task, lease, task_execution_id)
 
-    async def _execute_task_inner(self, task: Task) -> None:
-        """Core task execution logic.
-
-        For LLM-bound tasks, uses a one-way semaphore handoff: acquires the
-        LLM-wait slot while still holding the submission slot, then releases
-        the submission slot (never reacquired).  This prevents cross-key
-        starvation while bounding live coroutines.
-        """
+    async def _execute_task_inner(self, task: Task, lease: TaskAdmissionLease, task_execution_id: str) -> None:
+        """Core task execution logic."""
         num_rgs = len(self._row_groups)
         token = current_row_group.set((task.row_group, num_rgs))
+        group = lease.item.group
+        identity_hash = hashlib.sha1("\0".join(group.key.identity).encode()).hexdigest()[:16]
+        correlation_token = runtime_correlation_provider.set(
+            RuntimeCorrelation(
+                run_id=self._run_id,
+                row_group=task.row_group,
+                task_column=task.column,
+                task_type=task.task_type,
+                scheduling_group_kind=group.key.kind,
+                scheduling_group_identity_hash=identity_hash,
+                task_execution_id=task_execution_id,
+            )
+        )
         try:
-            await self._execute_task_inner_impl(task)
+            await self._execute_task_inner_impl(task, lease, task_execution_id)
         finally:
+            runtime_correlation_provider.reset(correlation_token)
             current_row_group.reset(token)
 
-    async def _execute_task_inner_impl(self, task: Task) -> None:
+    async def _execute_task_inner_impl(self, task: Task, lease: TaskAdmissionLease, task_execution_id: str) -> None:
         trace: TaskTrace | None = None
         if self._trace:
             trace = TaskTrace.from_task(task)
@@ -914,12 +976,12 @@ class AsyncTaskScheduler:
         generator = self._generators[task.column]
         output_cols = self._gen_instance_to_columns.get(id(generator), [task.column])
         retryable = False
+        cancelled = False
         # When True, skip removing from _dispatched so the task isn't re-dispatched
         # from the frontier (it was never completed, so it stays in the frontier).
         skipped = False
-        is_llm = self._llm_bound_lookup.get(task.column, False)
-        holds_submission = True
-        holds_llm_wait = False
+        uses_model_stage_resource = "llm_wait" in lease.resources
+        stateful_lock_acquired = False
 
         try:
             # Skip tasks whose row group was already checkpointed (can happen
@@ -929,11 +991,9 @@ class AsyncTaskScheduler:
                 skipped = True
                 return
 
-            if is_llm:
-                await self._llm_wait_semaphore.acquire()
-                holds_llm_wait = True
-                self._submission_semaphore.release()
-                holds_submission = False
+            if task.task_type == "from_scratch" and id(generator) in self._stateful_locks:
+                await self._stateful_locks[id(generator)].acquire()
+                stateful_lock_acquired = True
 
             if self._trace and trace:
                 trace.slot_acquired_at = time.perf_counter()
@@ -962,7 +1022,7 @@ class AsyncTaskScheduler:
             # window from LLM-bound tasks so a healthy non-model task mix
             # (samplers, expressions, non-LLM customs) doesn't dilute the
             # rate and silence the WARN under genuine provider stress.
-            if is_llm:
+            if uses_model_stage_resource:
                 self._record_retryable_outcome(retryable=False)
             if self._reporter:
                 if cell_skipped:
@@ -972,6 +1032,13 @@ class AsyncTaskScheduler:
             if self._trace and trace:
                 trace.status = "ok"
 
+        except asyncio.CancelledError:
+            cancelled = True
+            if self._trace and trace:
+                trace.status = "cancelled"
+            self._emit_scheduler_event("cancelled", task=task, lease=lease, task_execution_id=task_execution_id)
+            raise
+
         except Exception as exc:
             retryable = self._is_retryable(exc)
             # Only non-retryable errors (auth, schema, code bugs) count toward
@@ -980,7 +1047,7 @@ class AsyncTaskScheduler:
             # and would otherwise trip the gate even when salvage could recover.
             if not retryable:
                 self._check_error_rate(success=False)
-            if is_llm:
+            if uses_model_stage_resource:
                 self._record_retryable_outcome(retryable=retryable)
             if not retryable and self._reporter:
                 self._reporter.record_failure(task.column)
@@ -990,6 +1057,9 @@ class AsyncTaskScheduler:
 
             if retryable:
                 self._deferred.append(task)
+                self._emit_scheduler_event(
+                    "retry_deferred", task=task, lease=lease, task_execution_id=task_execution_id
+                )
             else:
                 # Capture the first non-retryable error for the interface to surface
                 # as the root cause when the run produces 0 records (e.g. deterministic
@@ -1006,22 +1076,51 @@ class AsyncTaskScheduler:
                 logger.warning(
                     f"Non-retryable failure on {task.column}[rg={task.row_group}, row={task.row_index}]: {exc}"
                 )
+                self._emit_scheduler_event(
+                    "non_retryable_dropped",
+                    task=task,
+                    lease=lease,
+                    task_execution_id=task_execution_id,
+                    diagnostics={"error_type": type(exc).__name__},
+                )
 
         finally:
             if self._trace and trace:
                 trace.completed_at = time.perf_counter()
                 self.traces.append(trace)
 
-            self._fair_queue.release(task)
+            self._tracker.mark_complete(task)
+            if not cancelled:
+                self._emit_scheduler_event(
+                    "task_completed",
+                    task=task,
+                    lease=lease,
+                    task_execution_id=task_execution_id,
+                )
             self._in_flight.discard(task)
             if (s := self._rg_states.get(task.row_group)) is not None:
                 s.in_flight_count = max(0, s.in_flight_count - 1)
             if not retryable and not skipped:
                 self._dispatched.discard(task)
-            if holds_llm_wait:
-                self._llm_wait_semaphore.release()
-            if holds_submission:
-                self._submission_semaphore.release()
+            if stateful_lock_acquired:
+                self._stateful_locks[id(generator)].release()
+            release_result = self._task_admission.release(lease)
+            self._emit_scheduler_event(
+                "task_lease_released",
+                task=task,
+                lease=lease,
+                task_execution_id=task_execution_id,
+                reason_or_result=release_result.reason,
+            )
+            if not release_result.released:
+                self._emit_scheduler_event(
+                    "release_diagnostic",
+                    task=task,
+                    lease=lease,
+                    task_execution_id=task_execution_id,
+                    reason_or_result=release_result.reason,
+                )
+            self._record_observed_task_state()
             self._wake_event.set()
 
     async def _run_from_scratch(self, task: Task, generator: ColumnGenerator) -> Any:
@@ -1176,18 +1275,64 @@ class AsyncTaskScheduler:
         except KeyError:
             raise ValueError(f"Unknown row group: {row_group}") from None
 
-    def get_semaphore_permits(self) -> tuple[int, int]:
-        """Return ``(submission_available, llm_wait_available)`` for diagnostics."""
-        return (
-            self._submission_semaphore.available_permits,
-            self._llm_wait_semaphore.available_permits,
+    def task_admission_snapshot(self) -> object:
+        """Return the current scheduler task-admission snapshot for diagnostics."""
+        return self._task_admission.view()
+
+    def capacity_plan(self) -> AsyncCapacityPlan:
+        """Return the scheduler-side async capacity explanation for this run."""
+        task_view = self._task_admission.view()
+        return AsyncCapacityPlan(
+            configured=AsyncCapacityConfigured(
+                buffer_size=CapacityValue(value=self._buffer_size, source="run_config"),
+                row_group_admission=RowGroupAdmission(
+                    row_group_concurrency=CapacityValue(
+                        value=self._max_concurrent_row_groups,
+                        source="dataset_builder",
+                    ),
+                    observed_in_flight=len(self._rg_states),
+                ),
+                submission_capacity=CapacityValue(value=self._max_submitted_tasks, source="dataset_builder"),
+                task_resource_limits=CapacityValue(
+                    value=dict(self._task_admission_config.resource_limits),
+                    source="engine_internal_config",
+                ),
+                request_resources=CapacityValue(
+                    value=(),
+                    source="runtime_snapshot",
+                    missing_reason="request admission resources are reported by the model registry request controller",
+                ),
+                provider_model_static_caps=CapacityValue(
+                    value={},
+                    source="runtime_snapshot",
+                    missing_reason="request admission caps are reported by the model registry request controller",
+                ),
+                request_domain_initial_limits=CapacityValue(
+                    value={},
+                    source="runtime_snapshot",
+                    missing_reason="request admission limits are reported by the model registry request controller",
+                ),
+                request_admission_config=CapacityValue(
+                    value=None,
+                    source="runtime_snapshot",
+                    missing_reason="request admission config is owned by the model registry request controller",
+                ),
+                transport_pool_limits=CapacityValue(
+                    value={},
+                    source="adapter_config",
+                    missing_reason="transport pool utilization is adapter-specific",
+                ),
+            ),
+            runtime_snapshot=AsyncCapacityRuntimeSnapshot(),
+            observed_maxima=AsyncCapacityObservedMaxima(
+                row_groups_in_flight=self._observed_max_row_groups_in_flight,
+                queued_tasks_by_group=dict(self._observed_max_queued_by_group),
+                task_leases_by_resource=dict(self._observed_max_task_leases_by_resource or task_view.leased_resources),
+                transport_pool_utilization=None,
+            ),
         )
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
         """Classify whether an exception is retryable."""
         return isinstance(exc, RETRYABLE_MODEL_ERRORS)
-
-
-def build_llm_bound_lookup(generators: dict[str, ColumnGenerator]) -> dict[str, bool]:
-    return {col: gen.is_llm_bound for col, gen in generators.items()}

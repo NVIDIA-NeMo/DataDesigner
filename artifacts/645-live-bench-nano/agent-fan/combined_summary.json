@@ -1,0 +1,161 @@
+{
+  "endpoint": "https://inference-api.nvidia.com/v1",
+  "env": {
+    "DATA_DESIGNER_ASYNC_ENGINE": "1",
+    "DATA_DESIGNER_ASYNC_TRACE": "1"
+  },
+  "model": "openai/openai/gpt-5-nano",
+  "provider": "nvidia-internal",
+  "summaries": [
+    {
+      "cap_enforced": true,
+      "error": null,
+      "failure_count": 0,
+      "final_pressure": {
+        "active_lease_count": 0,
+        "blocked_until_monotonic": null,
+        "captured_at": 173673.30631075,
+        "consecutive_rate_limits": 0,
+        "cooldown_remaining_seconds": 0.0,
+        "current_limit": 6,
+        "effective_max": 6,
+        "in_flight_count": 0,
+        "last_outcome": "success",
+        "leak_diagnostics": {},
+        "rate_limit_ceiling": 0,
+        "resource": {
+          "domain": "chat",
+          "model_id": "openai/openai/gpt-5-nano",
+          "provider_name": "nvidia-internal"
+        },
+        "sequence": 913,
+        "waiters": 0
+      },
+      "max_observed_request_in_flight": 6,
+      "max_parallel_requests": 6,
+      "max_tokens": 64,
+      "max_waiters": 43,
+      "model": "openai/openai/gpt-5-nano",
+      "model_usage": null,
+      "provider": "nvidia-internal",
+      "queue_drained": 7,
+      "queue_formed": 7,
+      "rate_limit_count": 0,
+      "request_event_counts": {
+        "model_request_completed": 128,
+        "model_request_started": 128,
+        "request_effective_cap_changed": 1,
+        "request_lease_acquired": 128,
+        "request_lease_released": 128,
+        "request_queue_drained": 7,
+        "request_queue_formed": 7,
+        "request_resource_registered": 1,
+        "request_wait_completed": 128,
+        "request_wait_started": 128
+      },
+      "request_events_total": 784,
+      "rows_requested": 32,
+      "scenario": "fanout_rows32_cols4_cap6",
+      "scheduler_event_counts": {
+        "dependency_ready": 129,
+        "group_capped": 79,
+        "queue_drained": 2,
+        "ready_enqueued": 129,
+        "selected": 129,
+        "task_completed": 129,
+        "task_lease_acquired": 129,
+        "task_lease_released": 129,
+        "worker_spawned": 129
+      },
+      "scheduler_events_total": 984,
+      "skip_health_check": true,
+      "success": true,
+      "success_count": 128,
+      "task_trace_count": 129,
+      "temperature_omitted": true,
+      "wall_time_s": 33.83901049999986
+    },
+    {
+      "cap_enforced": true,
+      "error": null,
+      "failure_count": 0,
+      "fanin_timing": {
+        "downstream_ready_after_first_three_upstream_s": 0.15985870899748988,
+        "first_downstream_done_s": 14.99186962499516,
+        "first_downstream_ready_s": 1.7582419590034988,
+        "first_downstream_start_s": 1.7586683339904994,
+        "first_three_upstream_completion_max_s": 1.598383250006009,
+        "trace_columns": {
+          "bench_id": 1,
+          "downstream_synthesis": 24,
+          "upstream_1": 24,
+          "upstream_2": 24,
+          "upstream_3": 24
+        }
+      },
+      "final_pressure": {
+        "active_lease_count": 0,
+        "blocked_until_monotonic": null,
+        "captured_at": 173716.935575458,
+        "consecutive_rate_limits": 0,
+        "cooldown_remaining_seconds": 0.0,
+        "current_limit": 4,
+        "effective_max": 4,
+        "in_flight_count": 0,
+        "last_outcome": "success",
+        "leak_diagnostics": {},
+        "rate_limit_ceiling": 0,
+        "resource": {
+          "domain": "chat",
+          "model_id": "openai/openai/gpt-5-nano",
+          "provider_name": "nvidia-internal"
+        },
+        "sequence": 685,
+        "waiters": 0
+      },
+      "max_observed_request_in_flight": 4,
+      "max_parallel_requests": 4,
+      "max_tokens": 64,
+      "max_waiters": 29,
+      "model": "openai/openai/gpt-5-nano",
+      "model_usage": null,
+      "provider": "nvidia-internal",
+      "queue_drained": 5,
+      "queue_formed": 5,
+      "rate_limit_count": 0,
+      "request_event_counts": {
+        "model_request_completed": 96,
+        "model_request_started": 96,
+        "request_effective_cap_changed": 1,
+        "request_lease_acquired": 96,
+        "request_lease_released": 96,
+        "request_queue_drained": 5,
+        "request_queue_formed": 5,
+        "request_resource_registered": 1,
+        "request_wait_completed": 96,
+        "request_wait_started": 96
+      },
+      "request_events_total": 588,
+      "rows_requested": 24,
+      "scenario": "fanin_rows24_up3_down1_cap4",
+      "scheduler_event_counts": {
+        "dependency_ready": 97,
+        "group_capped": 54,
+        "queue_drained": 11,
+        "ready_enqueued": 97,
+        "selected": 97,
+        "task_completed": 97,
+        "task_lease_acquired": 97,
+        "task_lease_released": 97,
+        "worker_spawned": 97
+      },
+      "scheduler_events_total": 744,
+      "skip_health_check": true,
+      "success": true,
+      "success_count": 96,
+      "task_trace_count": 97,
+      "temperature_omitted": true,
+      "wall_time_s": 43.433844124985626
+    }
+  ]
+}
