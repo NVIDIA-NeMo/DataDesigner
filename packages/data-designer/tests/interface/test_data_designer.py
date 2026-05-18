@@ -780,6 +780,48 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
     assert data_designer.run_config.shutdown_error_rate == 1.0
 
 
+def test_create_forwards_on_batch_complete_callback(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    def on_batch_complete(path: Path) -> None:
+        del path
+
+    with (
+        patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method,
+        patch.object(data_designer, "_create_dataset_builder") as mock_builder_method,
+        patch.object(data_designer, "_create_dataset_profiler") as mock_profiler_method,
+    ):
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.get_dataset_metadata.return_value = {}
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        mock_builder = MagicMock()
+        mock_builder.build.return_value = None
+        mock_builder.task_traces = []
+        mock_builder.artifact_storage.load_dataset_with_dropped_columns.return_value = lazy.pd.DataFrame({"col": [1]})
+        mock_builder_method.return_value = mock_builder
+
+        mock_profiler = MagicMock()
+        mock_profiler.profile_dataset.return_value = None
+        mock_profiler_method.return_value = mock_profiler
+
+        data_designer.create(stub_sampler_only_config_builder, num_records=1, on_batch_complete=on_batch_complete)
+
+    _, build_kwargs = mock_builder.build.call_args
+    assert build_kwargs["num_records"] == 1
+    assert build_kwargs["on_batch_complete"] is on_batch_complete
+
+
 def test_run_config_rejects_invalid_buffer_size() -> None:
     with pytest.raises(ValidationError, match="buffer_size"):
         RunConfig(buffer_size=0)
