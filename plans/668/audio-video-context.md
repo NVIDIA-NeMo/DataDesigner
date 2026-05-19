@@ -28,7 +28,7 @@ This gives audio/video a clear model to follow, but the type names and helper fu
 ## Goals
 
 - Add first-class `AudioContext` and `VideoContext` config objects for text-generation multimodal context.
-- Preserve the current image API and behavior.
+- Preserve the current image public API and user-visible behavior.
 - Keep user config declarative: the user names columns and media formats; the engine and provider adapters handle payload construction.
 - Support scalar, list, JSON-list, numpy-array, URL, and base64 values consistently across modalities where provider APIs permit them.
 - Surface unsupported provider/model combinations as canonical DataDesigner/provider errors instead of letting raw provider 400s leak through.
@@ -84,7 +84,7 @@ The field name `multi_modal_context` stays unchanged on text-generation columns.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Config surface | Add `AudioContext` and `VideoContext`; keep `ImageContext` unchanged | Users get the same declarative pattern with no image migration burden. |
+| Config surface | Add `AudioContext` and `VideoContext`; keep the `ImageContext` public API unchanged while migrating its emitted blocks to the canonical `image` shape | Users get the same declarative pattern with no config migration burden, and adapters receive one canonical media-block shape from config-owned context classes. |
 | Column scope | Broaden `LLMTextColumnConfig.multi_modal_context` only; keep `ImageColumnConfig.multi_modal_context: list[ImageContext] \| None` | Audio/video are input context for text-generation in v1. Image generation remains image-to-image only until a provider path actually supports audio/video-conditioned image output. |
 | Context union | Introduce `MultiModalContextT = Annotated[ImageContext \| AudioContext \| VideoContext, Field(discriminator="modality")]` for text-generation columns | Pydantic can deserialize exported configs reliably while preserving concrete context behavior. |
 | Legacy image configs | Add a pre-validation migration for legacy image context dicts that omit `modality`, injecting `modality="image"` before discriminated-union validation | Existing YAML/JSON configs that serialized only image fields such as `column_name`, `data_type`, and `image_format` must continue to import. The migration is only for legacy image-shaped dicts; new audio/video dict configs must declare their modality explicitly. |
@@ -96,7 +96,7 @@ The field name `multi_modal_context` stays unchanged on text-generation columns.
 | Provider-neutrality | Context classes emit canonical DataDesigner media blocks from config-layer helpers; adapters convert to provider payloads | Prevents OpenAI-specific `image_url`/`input_audio` shapes from spreading further into config and avoids config -> engine imports. The adapters already own provider translation for Anthropic images. |
 | Capability gate | Add an adapter-level media capability check for modality, source type, and media type before transport | DataDesigner should raise `ProviderError.unsupported_capability(...)` / `ProviderErrorKind.UNSUPPORTED_CAPABILITY` before making a request when a provider/model cannot consume a block. |
 | Provider filenames | Do not expose `filename` on config context models | Filenames are provider/file-upload metadata, not declarative dataset intent. If a provider requires a filename, the adapter should derive it from the URL basename when available or synthesize one from the media type. |
-| Backward compatibility | Accept legacy `image_url` blocks in adapters during the transition | Existing traces/tests and custom plugins that build `image_url` blocks keep working. |
+| Backward compatibility | Accept legacy `image_url` blocks in adapters during the transition, but make `ImageContext.get_contexts()` emit canonical `image` blocks after the implementation | Existing custom plugins or tests that build provider-shaped `image_url` blocks keep working, while the first-party config path exercises the same canonical adapter translation as audio/video. |
 | Schema export | Update/review emitted JSON schema for `LLMTextColumnConfig.multi_modal_context` after introducing the union | Docs/UI consumers depend on this schema shape; the implementation PR should make the schema change intentional and tested. |
 | Video v1 | Represent video as a canonical video media block with URL or base64 source data and only enable provider paths that explicitly support video input | Native video-understanding support differs by provider. DataDesigner should fail clearly when a configured provider cannot consume the block. |
 
@@ -120,6 +120,8 @@ The important boundary is adapter translation. Config objects describe media in 
 Add a small internal content-block schema in config-layer helpers or by plain dict construction in the context classes. Do not place the schema in engine utilities, because config models must not import engine code. Keep the blocks as plain dictionaries for compatibility with the current message plumbing.
 
 Every media block has either `source.type == "url"` or `source.type == "base64"`. URL sources are shipped to the endpoint as URLs when the provider supports URL input; base64 sources are shipped as base64. The canonical schema uses `media_type` for base64 sources and does not carry provider-specific fields such as OpenAI's `input_audio.format`; adapters derive those fields during translation.
+
+The implementation should migrate `ImageContext.get_contexts()` from today's ChatML-style `image_url` dictionaries to this canonical `image` block shape. Preserving image behavior means preserving the user-facing constructor/imports, value normalization, required-column behavior, local image path handling, and final provider payloads; it does not mean preserving the raw intermediate `image_url` dictionary returned by `get_contexts()`. Tests that directly assert intermediate image context blocks should be updated to expect canonical `image` blocks before adapter translation.
 
 ```python
 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "..."}}
@@ -147,6 +149,7 @@ Adapters may accept common inbound MIME aliases such as `audio/mp3` and `audio/x
 OpenAI-compatible translation maps:
 
 - `image` base64/url -> existing `{"type": "image_url", "image_url": {"url": ...}}`
+- legacy `image_url` blocks -> pass through unchanged during the transition
 - `audio` base64 with supported `media_type` -> `{"type": "input_audio", "input_audio": {"data": ..., "format": ...}}`, deriving `format` from `media_type`
 - `video` base64/url -> provider-supported video content parts when supported; URL video sources stay URLs
 
@@ -178,7 +181,7 @@ Work:
 - Add `MultiModalContextT` type alias and use it from text-generation column configs.
 - Add a pre-validator/migration path for `LLMTextColumnConfig.multi_modal_context`. Before Pydantic discriminated-union validation, inspect list entries; when an entry is a dict without `modality` and has the legacy `ImageContext` shape, inject `modality="image"`. Do not infer audio/video modality from field names or file extensions; new audio/video dict configs must provide `modality` explicitly.
 - Define and test `data_type=None` for audio/video: HTTP(S) strings are URL sources, base64 data URIs are base64 sources with inferred media type, plain base64 values require an explicit `audio_format`/`video_format`, and local path-looking media values raise validation errors.
-- Preserve `ImageContext` behavior and imports.
+- Preserve `ImageContext` public behavior and imports, while updating `ImageContext.get_contexts()` to emit canonical `image` blocks instead of provider-shaped `image_url` blocks.
 
 ### 2. Extract shared media normalization helpers
 
@@ -293,7 +296,8 @@ Work:
   - Anthropic image translation remains unchanged.
   - Anthropic audio/video context raises a canonical unsupported error before transport.
 - Regression tests:
-  - Existing image-context tests remain green.
+  - Existing image-context user-facing tests remain green.
+  - Tests that inspect raw `ImageContext.get_contexts()` or pre-adapter message blocks are updated to expect canonical `image` blocks.
   - Existing image-generation path still uses diffusion vs chat routing correctly.
 
 ## Rollout Plan
