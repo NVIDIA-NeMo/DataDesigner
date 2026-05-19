@@ -27,6 +27,11 @@ export const authors: Record<string, Author> = {
     description: "Researcher at NVIDIA",
     avatar: "https://avatars.githubusercontent.com/u/150830061?v=4",
   },
+  oliverholworthy: {
+    name: "Oliver Holworthy",
+    description: "Machine Learning Engineer at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/1216955?v=4",
+  },
   dcorneil: {
     name: "Dane Corneil",
     description: "Researcher at NVIDIA",

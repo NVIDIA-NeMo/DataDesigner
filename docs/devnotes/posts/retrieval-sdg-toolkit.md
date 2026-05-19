@@ -1,11 +1,20 @@
 ---
-date: 2026-05-14
+date: 2026-05-19
 authors:
   - sthan
+  - oliverholworthy
+  - nmulepati
+  - jgreco
 slug: retriever-sdg-toolkit-from-documents-to-training-data
 ---
 
-# **Retriever SDG Toolkit: Turn Your Documents Into Retriever Training Data**
+# **Retriever SDG Plugin: Turn Your Documents Into Retriever Training Data**
+
+The [`data-designer-retrieval-sdg`](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-retrieval-sdg) plugin turns source documents into grounded retriever training and BEIR evaluation data: bundle and chunk a corpus, generate multi-hop QA pairs, deduplicate and judge them, then export AutoModel-compatible artifacts.
+
+<!-- more -->
+
+## **Why Retriever Data Is the Bottleneck**
 
 If you are building a RAG system, you have probably hit this wall: the generator is good, the vector database is fast, the prompt is carefully tuned, and the answer is still wrong because the right passage never made it into context.
 
@@ -13,35 +22,33 @@ That is a retrieval problem. More specifically, it is often a data problem. Gene
 
 The hard part is not asking an LLM to write questions about a document. The hard part is keeping every generated question tied to the exact chunk, document, or multi-hop evidence set that a retriever should recover. Many RAG tutorials stop at chunk, embed, retrieve, and prompt. Fine-tuning recipes often begin once labeled query-passage pairs already exist. The gap in between is where developers lose the most time.
 
-The new [`data-designer-retrieval-sdg`](https://github.com/NVIDIA-NeMo/DataDesignerPlugins/tree/main/plugins/data-designer-retrieval-sdg) toolkit fills that gap: start with a directory of documents, generate synthetic query-positive examples with NeMo Data Designer, filter them, and export them for retriever fine-tuning and BEIR-style evaluation.
+The plugin fills that gap. It packages a retrieval SDG toolkit that starts with a directory of documents, generates synthetic query-positive examples with NeMo Data Designer, filters them, and exports them for retriever fine-tuning and BEIR-style evaluation.
 
-<!-- more -->
+This is not just a demo package. The same plugin produced the [Retrieval-Synthetic-NVDocs-v1](https://huggingface.co/datasets/nvidia/Retrieval-Synthetic-NVDocs-v1) dataset from NVIDIA public documentation, and it powers the bootstrap SDG stage for both the NeMo [embedding fine-tune recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/embed) and [reranking fine-tune recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/e6e8a3281a11b8e1b7b47af098bbf54416c68d47/src/nemotron/recipes/rerank). It is now available as a standalone Data Designer plugin for generating high-quality, complex, multi-document, multi-hop retrieval data compatible with [AutoModel](https://github.com/NVIDIA-NeMo/Automodel).
 
-This is not just a demo package. The same toolkit produced the [Retrieval-Synthetic-NVDocs-v1](https://huggingface.co/datasets/nvidia/Retrieval-Synthetic-NVDocs-v1) dataset from NVIDIA public documentation, and it powers the bootstrap SDG stage for both the NeMo [embedding fine-tune recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/embed) and [reranking fine-tune recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/e6e8a3281a11b8e1b7b47af098bbf54416c68d47/src/nemotron/recipes/rerank). It is now available as a standalone tool for generating high-quality, complex, multi-document, multi-hop retrieval data compatible with [AutoModel](https://github.com/NVIDIA-NeMo/Automodel).
-
-This post walks through what the toolkit does, why the generated labels matter, and how to make your first small run useful before you scale it up.
+This post walks through what the plugin does, why the generated labels matter, and how to make your first small run useful before you scale it up.
 
 ---
 
 ## **From Documents to Retriever Data**
 
-The toolkit packages a four-stage Data Designer pipeline:
+The plugin packages a four-stage Data Designer pipeline:
 
-![Retriever SDG pipeline: source documents flow through document chunking, artifact and QA generation, deduplication and judging, and conversion into training and evaluation artifacts](assets/retrieval-sdg-toolkit/pipeline.svg){ style="max-width:100%; height:auto" }
+![Retriever SDG pipeline: source documents flow through document bundling and chunking, artifact extraction and QA generation, deduplication and judging, and conversion into training and evaluation artifacts](assets/retrieval-sdg-toolkit/pipeline.svg){ style="max-width:100%; height:auto" }
 
-The package contributes two plugins to Data Designer:
+The package contributes two Data Designer extensions:
 
 | Plugin | Type | Why it matters |
 | --- | --- | --- |
 | `document-chunker` | seed reader | Turns text files into sentence chunks with stable segment IDs, so each query can point back to the passages that answer it. |
 | `embedding-dedup` | column generator | Removes near-duplicate generated questions before judging and export, so the training data has more variety. |
 
-It also ships a normal Python API and a CLI:
+For local runs, the current package exposes a Python API and a CLI:
 
 | Surface | Use it when |
 | --- | --- |
 | `build_qa_generation_pipeline(...)` | You want to customize the Data Designer config in Python. |
-| `data-designer-retrieval-sdg generate` | You want the packaged end-to-end generation flow with batching. |
+| `data-designer-retrieval-sdg generate` | You want the packaged end-to-end generation flow. |
 | `data-designer-retrieval-sdg convert` | You want trainer-ready and BEIR-ready files from generated JSON. |
 
 This is still Data Designer: users declare the corpus and generation settings; the engine handles dependency ordering, model calls, async scheduling, previews, and dataset output.
@@ -155,6 +162,10 @@ That combination is what makes the data useful for retriever training and not ju
 
 Synthetic generators are enthusiastic. Ask for seven questions per document across a large corpus and you will get repeats: the same policy phrased three ways, the same setup requirement asked with slightly different wording, the same "how does X relate to Y" pattern over and over.
 
+This stage has two gates: first remove near-repeated questions, then judge whether the remaining examples are grounded enough to train or evaluate a retriever.
+
+### **Deduplicate Near-Repeated Questions**
+
 The `embedding-dedup` column removes near duplicates inside each generated list:
 
 ```python
@@ -172,13 +183,15 @@ config_builder.add_column(
 )
 ```
 
-The implementation embeds the question text, computes cosine similarity, and greedily drops items above the threshold. It also implements native `agenerate()`, so it participates directly in Data Designer's async scheduler and uses `model.agenerate_text_embeddings(...)` instead of becoming a separate side job.
+The implementation embeds the question text, computes cosine similarity, and greedily drops items above the threshold. It also implements native `agenerate()`, so it participates directly in [Data Designer's async scheduler](async-all-the-way-down.md) and uses `model.agenerate_text_embeddings(...)` instead of becoming a separate side job.
 
-This is a small detail that has a large downstream effect: fewer duplicate queries means cleaner training batches and more informative held-out evals.
+This is a small detail that has a large downstream effect: fewer duplicate queries means cleaner training data and more informative held-out evals.
+
+### **Judge Grounded Quality**
 
 Retriever data quality is easy to overestimate. A generated question might sound fluent but be unsupported. An answer might be correct but require a chunk that was not marked positive. A multi-hop question might only need one hop in practice.
 
-The toolkit adds an LLM judge column after deduplication. Each retained QA pair is scored for:
+The plugin adds an LLM judge column after deduplication. Each retained QA pair is scored for:
 
 - Relevance
 - Factual accuracy
@@ -216,7 +229,7 @@ eval_beir/
     test.tsv
 ```
 
-This is one of the main reasons the toolkit exists. It is easy to generate questions. It is harder to keep training examples, corpus records, and qrels aligned enough that the numbers mean something.
+This is one of the main reasons the plugin exists. It is easy to generate questions. It is harder to keep training examples, corpus records, and qrels aligned enough that the numbers mean something.
 
 ---
 
@@ -244,15 +257,15 @@ The goal of the first run is not volume. The goal is to learn how your corpus be
 
 ---
 
-## **Why This Belongs in a Plugin**
+## **How Plugins Unlock Custom Retrieval Pipelines**
 
-A blog recipe can teach the workflow. A plugin makes the workflow reusable.
+Retrieval SDG needs document-specific seed reading, question deduplication, quality judging, and conversion logic. Packaging those pieces as a plugin gives teams a repeatable path from their own corpus to retriever data while preserving declarative Data Designer configs.
 
-The retrieval SDG package includes:
+The retrieval SDG plugin includes:
 
 - A seed reader with a stable config schema and tests.
 - A reusable embedding-dedup column that can be used outside this pipeline.
-- A CLI with batching and restart-friendly output files.
+- A CLI for generating and converting retrieval data.
 - Conversion logic for retriever training and BEIR evaluation.
 - Compatibility metadata and installation through the default NVIDIA Data Designer plugin catalog.
 
@@ -265,7 +278,7 @@ from data_designer_retrieval_sdg import build_qa_generation_pipeline
 
 No registry mutation. No engine internals. No custom chunking pre-process that has to stay manually aligned with qrels.
 
-That is the bigger plugin story: Data Designer provides the orchestration framework, and plugins package domain-specific pieces without bloating the core library.
+That is the bigger plugin story: Data Designer provides the orchestration framework, and plugins package domain-specific pieces for custom use cases without bloating the core library.
 
 ---
 
@@ -276,7 +289,7 @@ Do not start by generating a million examples. Pick 20-100 representative docume
 Install the plugin:
 
 ```bash
-data-designer plugin install data-designer-retrieval-sdg
+data-designer plugin install retrieval-sdg
 ```
 
 Run a preview:
@@ -287,19 +300,17 @@ data-designer-retrieval-sdg generate \
   --output-dir ./generated_output \
   --num-files 50 \
   --num-pairs 7 \
-  --batch-size 50 \
   --preview
 ```
 
-If the preview looks reasonable, run the batch:
+If the preview looks reasonable, run the full job:
 
 ```bash
 data-designer-retrieval-sdg generate \
   --input-dir ./my_documents \
   --output-dir ./generated_output \
   --num-files 50 \
-  --num-pairs 7 \
-  --batch-size 50
+  --num-pairs 7
 ```
 
 Convert the generated data:
@@ -336,4 +347,4 @@ Start here:
 - [NeMo reranking fine-tune recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/e6e8a3281a11b8e1b7b47af098bbf54416c68d47/src/nemotron/recipes/rerank)
 - [AutoModel](https://github.com/NVIDIA-NeMo/Automodel)
 
-If your RAG system is failing because the retriever does not understand your domain, this is the action step: create the data that lets you measure and improve it. Bring a folder of documents, run the toolkit, inspect the labels, and use the output to train and evaluate the retriever you actually need.
+If your RAG system is failing because the retriever does not understand your domain, this is the action step: create the data that lets you measure and improve it. Bring a folder of documents, run the plugin, inspect the labels, and use the output to train and evaluate the retriever you actually need.

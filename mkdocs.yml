@@ -103,7 +103,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
-      - Retriever SDG Toolkit: devnotes/posts/retrieval-sdg-toolkit.md
+      - Retriever SDG Plugin: devnotes/posts/retrieval-sdg-toolkit.md
       - Have It Your Way: devnotes/posts/have-it-your-way.md
       - VLM Long Document Understanding: devnotes/posts/vlm-long-document-understanding.md
       - Push Datasets to Hugging Face Hub: devnotes/posts/push-datasets-to-hugging-face-hub.md
