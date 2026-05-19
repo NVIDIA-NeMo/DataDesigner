@@ -35,6 +35,13 @@ class _EndpointBucket:
     caps: list[int] = field(default_factory=list)
 
 
+def _scheduling_generation_kind(generation_type: object) -> str:
+    value = getattr(generation_type, "value", generation_type)
+    if value == "chat-completion":
+        return "chat"
+    return str(value)
+
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -192,7 +199,11 @@ class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
                     diagnostics={"alias": alias, "generator_type": type(self).__name__},
                 ) from exc
 
-            endpoint = (provider_name, str(model_config.model), str(model_config.generation_type))
+            endpoint = (
+                provider_name,
+                str(model_config.model),
+                _scheduling_generation_kind(model_config.generation_type),
+            )
             max_parallel = getattr(model_config.inference_parameters, "max_parallel_requests", 1)
             cap = max_parallel if isinstance(max_parallel, int) and max_parallel > 0 else 1
             bucket = endpoints.setdefault(endpoint, _EndpointBucket())

@@ -9,9 +9,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from data_designer.config.column_configs import ExpressionColumnConfig
+from data_designer.config.models import GenerationType
 from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
 from data_designer.engine.dataset_builders.scheduling.resolver import TaskSchedulingResolver
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
+from data_designer.engine.models.request_admission.resources import RequestDomain, RequestResourceKey
 
 
 class _LocalGenerator:
@@ -65,6 +68,7 @@ def test_task_scheduling_resolver_maps_model_metadata_to_model_resource() -> Non
     assert schedulable.group.weight == 3.0
     assert schedulable.group.admitted_limit == 6
     assert schedulable.resource_request.amounts == {"submission": 1, "llm_wait": 1}
+    assert schedulable.request_resource_key == RequestResourceKey("nvidia", "nemotron", RequestDomain.CHAT)
 
 
 def test_task_scheduling_resolver_records_safe_fallback_diagnostics() -> None:
@@ -82,8 +86,6 @@ def test_task_scheduling_resolver_raises_fatal_metadata_error() -> None:
 
 
 def test_model_registry_generator_metadata_deduplicates_same_endpoint_aliases() -> None:
-    from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
-
     class _RegistryGenerator(ColumnGeneratorWithModelRegistry[ExpressionColumnConfig]):
         @staticmethod
         def get_generation_strategy() -> object:
@@ -98,12 +100,12 @@ def test_model_registry_generator_metadata_deduplicates_same_endpoint_aliases() 
     configs = {
         "primary": SimpleNamespace(
             model="endpoint",
-            generation_type="chat",
+            generation_type=GenerationType.CHAT_COMPLETION,
             inference_parameters=SimpleNamespace(max_parallel_requests=4),
         ),
         "secondary": SimpleNamespace(
             model="endpoint",
-            generation_type="chat",
+            generation_type=GenerationType.CHAT_COMPLETION,
             inference_parameters=SimpleNamespace(max_parallel_requests=2),
         ),
     }
@@ -119,3 +121,7 @@ def test_model_registry_generator_metadata_deduplicates_same_endpoint_aliases() 
     assert metadata.identity == ("model", "nvidia", "endpoint", "chat")
     assert metadata.weight == 2
     assert metadata.diagnostics["merge_rule"] == "min_same_endpoint"
+
+    resolver = TaskSchedulingResolver({"answer": generator})  # type: ignore[arg-type]
+    schedulable = resolver.schedulable_task(_task(), ("answer",))
+    assert schedulable.request_resource_key == RequestResourceKey("nvidia", "endpoint", RequestDomain.CHAT)
