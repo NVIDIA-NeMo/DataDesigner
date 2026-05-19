@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
@@ -53,8 +55,10 @@ class RunConfig(ConfigBase):
             fewer Data Designer-specific restrictions. ``secure`` uses Data Designer's
             hardened sandbox with additional AST, filter, and output guards.
             Default is ``secure``.
+
+    Notes:
         Request admission is engine-internal in V1 and is not exposed as a
-            public run-config knob.
+        public run-config knob.
     """
 
     disable_early_shutdown: bool = False
@@ -74,6 +78,16 @@ class RunConfig(ConfigBase):
             "`native` uses Jinja2's built-in sandbox; `secure` uses Data Designer's hardened sandbox."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_throttle_config(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "throttle" in data:
+            raise ValueError(
+                "RunConfig.throttle was removed. Request admission is now managed internally by the async "
+                "scheduling engine; remove the throttle field from your run config."
+            )
+        return data
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:

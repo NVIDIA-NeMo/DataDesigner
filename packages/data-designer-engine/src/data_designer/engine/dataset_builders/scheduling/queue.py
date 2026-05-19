@@ -24,6 +24,7 @@ class QueueView:
     queued_by_group: Mapping[TaskGroupKey, int]
     queued_resource_demand_by_group: Mapping[TaskGroupKey, Mapping[SchedulerResourceKey, int]]
     first_candidate_resources_by_group: Mapping[TaskGroupKey, Mapping[SchedulerResourceKey, int]]
+    first_candidate_tasks_by_group: Mapping[TaskGroupKey, SchedulableTask]
     first_candidate_group_specs_by_group: Mapping[TaskGroupKey, TaskGroupSpec]
     queued_peer_demand_by_resource: Mapping[SchedulerResourceKey, int]
 
@@ -90,7 +91,6 @@ class FairTaskQueue:
     def select_next(self, is_eligible: Callable[[SchedulableTask, QueueView], bool]) -> QueueSelection | None:
         """Return the next eligible task without mutating queue state."""
         view = self.view()
-        blocked: list[tuple[float, int, TaskGroupKey]] = []
         heap_copy = list(self._heap)
         heapq.heapify(heap_copy)
         active_seen: set[TaskGroupKey] = set()
@@ -105,7 +105,6 @@ class FairTaskQueue:
             if item is None:
                 continue
             if not is_eligible(item, view):
-                blocked.append((finish, sequence, key))
                 continue
             return QueueSelection(item=item, queue_view=view, sequence_version=self._sequence_version)
         return None
@@ -144,6 +143,7 @@ class FairTaskQueue:
         queued_by_group: Counter[TaskGroupKey] = Counter()
         demand_by_group: dict[TaskGroupKey, dict[SchedulerResourceKey, int]] = defaultdict(lambda: defaultdict(int))
         first_by_group: dict[TaskGroupKey, Mapping[SchedulerResourceKey, int]] = {}
+        first_tasks_by_group: dict[TaskGroupKey, SchedulableTask] = {}
         first_group_specs: dict[TaskGroupKey, TaskGroupSpec] = {}
         demand_by_resource: Counter[SchedulerResourceKey] = Counter()
 
@@ -158,6 +158,7 @@ class FairTaskQueue:
             first = self._first_valid_item(key)
             if first is not None:
                 first_by_group[key] = dict(first.resource_request.amounts)
+                first_tasks_by_group[key] = first
                 first_group_specs[key] = first.group
 
         return QueueView(
@@ -165,6 +166,7 @@ class FairTaskQueue:
             queued_by_group=dict(queued_by_group),
             queued_resource_demand_by_group={key: dict(value) for key, value in demand_by_group.items()},
             first_candidate_resources_by_group=first_by_group,
+            first_candidate_tasks_by_group=first_tasks_by_group,
             first_candidate_group_specs_by_group=first_group_specs,
             queued_peer_demand_by_resource=dict(demand_by_resource),
         )

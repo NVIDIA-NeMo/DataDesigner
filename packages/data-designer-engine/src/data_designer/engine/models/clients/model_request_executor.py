@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import TYPE_CHECKING, TypeVar
 
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
 _T = TypeVar("_T")
+
+logger = logging.getLogger(__name__)
 
 
 class ModelRequestExecutor(ModelClient):
@@ -239,8 +242,10 @@ class ModelRequestExecutor(ModelClient):
                     request_lease_id=lease.lease_id,
                     request_resource_key=item.resource,
                     request_group_key=item.group.key,
+                    pressure_snapshot=self._request_admission.pressure.snapshot(item.resource),
                     diagnostics=diagnostics or {},
                 )
             )
         except Exception:
+            logger.warning("Model request event sink raised; dropping event.", exc_info=True)
             return

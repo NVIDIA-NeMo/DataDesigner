@@ -8,6 +8,7 @@ import concurrent.futures
 import functools
 import logging
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Coroutine, TypeVar, overload
 
 from data_designer.config.column_configs import GenerationStrategy
@@ -26,6 +27,13 @@ _T = TypeVar("_T")
 # now. Wiring a per-call timeout through to ``_run_coroutine_sync`` is
 # tracked as a structural follow-up.
 SYNC_BRIDGE_TIMEOUT = 300
+
+
+@dataclass
+class _EndpointBucket:
+    aliases: list[str] = field(default_factory=list)
+    caps: list[int] = field(default_factory=list)
+
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -172,7 +180,7 @@ class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
                 diagnostics={"generator_type": type(self).__name__},
             )
 
-        endpoints: dict[tuple[str, str, str], dict[str, object]] = {}
+        endpoints: dict[tuple[str, str, str], _EndpointBucket] = {}
         for alias in aliases:
             try:
                 model_config = self.get_model_config(model_alias=alias)
@@ -187,13 +195,9 @@ class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
             endpoint = (provider_name, str(model_config.model), str(model_config.generation_type))
             max_parallel = getattr(model_config.inference_parameters, "max_parallel_requests", 1)
             cap = max_parallel if isinstance(max_parallel, int) and max_parallel > 0 else 1
-            bucket = endpoints.setdefault(endpoint, {"aliases": [], "caps": []})
-            cast_aliases = bucket["aliases"]
-            cast_caps = bucket["caps"]
-            if isinstance(cast_aliases, list):
-                cast_aliases.append(alias)
-            if isinstance(cast_caps, list):
-                cast_caps.append(cap)
+            bucket = endpoints.setdefault(endpoint, _EndpointBucket())
+            bucket.aliases.append(alias)
+            bucket.caps.append(cap)
 
         if len(endpoints) != 1:
             raise SchedulingMetadataError(
@@ -203,18 +207,16 @@ class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
             )
 
         endpoint, bucket = next(iter(endpoints.items()))
-        caps = bucket["caps"] if isinstance(bucket["caps"], list) else [1]
-        aliases_for_diagnostics = bucket["aliases"] if isinstance(bucket["aliases"], list) else aliases
         provider_name, model_id, generation_kind = endpoint
-        effective_cap = max(1, min(int(cap) for cap in caps))
+        effective_cap = max(1, min(bucket.caps))
         return SchedulingMetadata.model(
             provider_name,
             model_id,
             generation_kind,
             weight=effective_cap,
             diagnostics={
-                "aliases": tuple(str(alias) for alias in aliases_for_diagnostics),
-                "raw_caps": tuple(int(cap) for cap in caps),
+                "aliases": tuple(bucket.aliases),
+                "raw_caps": tuple(bucket.caps),
                 "merge_rule": "min_same_endpoint",
             },
         )

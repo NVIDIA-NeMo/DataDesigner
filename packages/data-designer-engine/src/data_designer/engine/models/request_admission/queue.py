@@ -23,6 +23,7 @@ class RequestWaiter:
     enqueued_at: float
     deadline_monotonic: float | None = None
     assigned_lease: RequestAdmissionLease | None = None
+    wakeup: Callable[[], None] | None = None
 
 
 @dataclass(frozen=True)

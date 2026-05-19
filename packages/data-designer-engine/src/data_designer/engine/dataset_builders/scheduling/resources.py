@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
+from data_designer.engine.models.request_admission.resources import RequestResourceKey
 
 SchedulerResourceKey = Literal["submission", "llm_wait", "local"]
 
@@ -52,6 +53,7 @@ class SchedulableTask:
     payload: Task
     group: TaskGroupSpec
     resource_request: SchedulerResourceRequest
+    request_resource_key: RequestResourceKey | None = None
 
 
 def stable_task_id(task: Task) -> str:

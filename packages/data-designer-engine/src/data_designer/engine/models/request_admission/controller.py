@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import threading
 import time
@@ -33,6 +34,8 @@ from data_designer.engine.observability import (
     RequestAdmissionEventSink,
     runtime_correlation_provider,
 )
+
+logger = logging.getLogger(__name__)
 
 RequestDenyReason = Literal[
     "no_capacity",
@@ -165,6 +168,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                         diagnostics={"provider_model": key, "previous": before, "current": cap.effective_max},
                     )
                 )
+            self._admit_waiters_locked(events)
             self._condition.notify_all()
         self._emit_events(events)
 
@@ -194,6 +198,13 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         return decision
 
     def acquire_sync(self, item: RequestAdmissionItem) -> RequestAdmissionLease:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("acquire_sync would block the running event loop; use acquire_async instead.")
+
         timeout = (
             item.queue_wait_timeout_seconds
             if item.queue_wait_timeout_seconds is not None
@@ -227,6 +238,8 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
             self._emit_events(events)
 
     async def acquire_async(self, item: RequestAdmissionItem) -> RequestAdmissionLease:
+        loop = asyncio.get_running_loop()
+        wakeup = asyncio.Event()
         timeout = (
             item.queue_wait_timeout_seconds
             if item.queue_wait_timeout_seconds is not None
@@ -234,7 +247,13 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         )
         now = time.monotonic()
         deadline = now + timeout if timeout is not None else None
-        waiter = RequestWaiter(waiter_id=uuid.uuid4().hex, item=item, enqueued_at=now, deadline_monotonic=deadline)
+        waiter = RequestWaiter(
+            waiter_id=uuid.uuid4().hex,
+            item=item,
+            enqueued_at=now,
+            deadline_monotonic=deadline,
+            wakeup=lambda: loop.call_soon_threadsafe(wakeup.set),
+        )
         events: list[RequestAdmissionEvent] = []
         try:
             while True:
@@ -255,7 +274,11 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                         events.append(self._request_event_locked("request_wait_timeout", item=item, decision=denied))
                         raise RequestAdmissionError(denied)
                     wait = self._wait_seconds_locked(item, now, deadline)
-                await asyncio.sleep(wait)
+                try:
+                    await asyncio.wait_for(wakeup.wait(), timeout=wait)
+                except asyncio.TimeoutError:
+                    pass
+                wakeup.clear()
         except asyncio.CancelledError:
             lease_to_release: RequestAdmissionLease | None = None
             with self._lock:
@@ -398,10 +421,16 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
             state.waiters = max(0, state.waiters - 1)
             lease = self._acquire_locked(waiter.item, now)
             waiter.assigned_lease = lease
+            self._wake_waiter_locked(waiter)
             events.append(self._request_event_locked("request_wait_completed", item=waiter.item, lease=lease))
             events.append(self._request_event_locked("request_lease_acquired", item=waiter.item, lease=lease))
             if not self._queue.has_waiters:
                 events.append(self._request_event_locked("request_queue_drained", item=waiter.item))
+
+    def _wake_waiter_locked(self, waiter: RequestWaiter) -> None:
+        if waiter.wakeup is None:
+            return
+        waiter.wakeup()
 
     def _wait_seconds_locked(
         self,
@@ -637,4 +666,5 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
             try:
                 self._event_sink.emit_request_event(event)
             except Exception:
+                logger.warning("Request admission event sink raised; dropping event.", exc_info=True)
                 continue

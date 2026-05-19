@@ -86,12 +86,17 @@ class StrictFairTaskAdmissionPolicy:
         leased_count = admission_view.running_counts_by_group.get(item.group.key, 0)
         if leased_count < item.group.admitted_limit:
             return TaskAdmissionPolicyDecision(allowed=True)
-        if not _has_queued_peer_group(item.group.key, queue_view):
+        pressure_resources = _queued_peer_pressure_resources(item, queue_view, admission_view)
+        if not pressure_resources:
             return TaskAdmissionPolicyDecision(allowed=True)
         return TaskAdmissionPolicyDecision(
             allowed=False,
             reason="group_cap",
-            diagnostics={"admitted_limit": item.group.admitted_limit, "leased_count": leased_count},
+            diagnostics={
+                "admitted_limit": item.group.admitted_limit,
+                "leased_count": leased_count,
+                "pressure_resources": pressure_resources,
+            },
         )
 
     def on_acquire(
@@ -125,8 +130,9 @@ class BoundedBorrowTaskAdmissionPolicy(StrictFairTaskAdmissionPolicy):
         if leased_count < limit:
             return TaskAdmissionPolicyDecision(allowed=True)
 
-        if _has_queued_peer_group(item.group.key, queue_view):
-            for resource in item.resource_request.amounts:
+        pressure_resources = _queued_peer_pressure_resources(item, queue_view, admission_view)
+        if pressure_resources:
+            for resource in pressure_resources:
                 debt_key = (item.group.key, resource)
                 debt = admission_view.policy_debt_by_group_resource.get(debt_key, 0)
                 if debt > 0:
@@ -138,7 +144,11 @@ class BoundedBorrowTaskAdmissionPolicy(StrictFairTaskAdmissionPolicy):
             return TaskAdmissionPolicyDecision(
                 allowed=False,
                 reason="group_cap",
-                diagnostics={"admitted_limit": limit, "leased_count": leased_count},
+                diagnostics={
+                    "admitted_limit": limit,
+                    "leased_count": leased_count,
+                    "pressure_resources": pressure_resources,
+                },
             )
 
         borrow_resources: list[tuple[SchedulerResourceKey, int]] = []
@@ -176,10 +186,41 @@ class BoundedBorrowTaskAdmissionPolicy(StrictFairTaskAdmissionPolicy):
     def on_release(self, lease: TaskAdmissionLease) -> PolicyStateDelta:
         if not self._config.repay_on_withheld_peer_pressure:
             return PolicyStateDelta()
+        # Borrow debt is group-level: any completed lease in the group repays it, clamped to zero by the controller.
         return PolicyStateDelta(
             debt_changes={(lease.item.group.key, resource): -amount for resource, amount in lease.resources.items()}
         )
 
 
-def _has_queued_peer_group(group_key: TaskGroupKey, queue_view: QueueView) -> bool:
-    return any(key != group_key and count > 0 for key, count in queue_view.queued_by_group.items())
+def _queued_peer_pressure_resources(
+    item: SchedulableTask,
+    queue_view: QueueView,
+    admission_view: TaskAdmissionView,
+) -> tuple[SchedulerResourceKey, ...]:
+    candidate_resources = _fair_pressure_resources(item.resource_request.amounts)
+    pressure_resources: list[SchedulerResourceKey] = []
+    for group_key, peer_resources in queue_view.first_candidate_resources_by_group.items():
+        if group_key == item.group.key:
+            continue
+        if not _is_hard_resource_eligible(peer_resources, admission_view):
+            continue
+        for resource in candidate_resources:
+            if peer_resources.get(resource, 0) > 0 and resource not in pressure_resources:
+                pressure_resources.append(resource)
+    return tuple(pressure_resources)
+
+
+def _fair_pressure_resources(
+    resources: Mapping[SchedulerResourceKey, int],
+) -> tuple[SchedulerResourceKey, ...]:
+    typed_resources = tuple(resource for resource in resources if resource != "submission")
+    if typed_resources:
+        return typed_resources
+    return tuple(resources)
+
+
+def _is_hard_resource_eligible(
+    resources: Mapping[SchedulerResourceKey, int],
+    admission_view: TaskAdmissionView,
+) -> bool:
+    return all(admission_view.resources_available.get(resource, 0) >= amount for resource, amount in resources.items())

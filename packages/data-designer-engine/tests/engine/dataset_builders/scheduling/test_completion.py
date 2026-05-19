@@ -15,6 +15,7 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker
+from data_designer.engine.dataset_builders.scheduling.resources import stable_task_id
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 
@@ -192,6 +193,15 @@ def test_get_ready_tasks_seed_frontier(ready_ctx: ReadyTasksFixture) -> None:
     assert ready[0].task_type == "from_scratch"
 
 
+def test_mark_enqueued_uses_scheduler_stable_task_id(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.seed_frontier()
+    task = ready_ctx.tracker.ready_frontier()[0]
+
+    ready_ctx.tracker.mark_enqueued({stable_task_id(task)})
+
+    assert ready_ctx.tracker.ready_frontier() == ()
+
+
 def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> None:
     delta = ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
 
@@ -203,6 +213,53 @@ def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> No
     assert {t.row_index for t in question_tasks} == {0, 1, 2}
     assert set(delta.added) == set(question_tasks)
     assert delta.removed == ()
+
+
+def test_fan_out_cell_completion_readies_all_children_for_same_row() -> None:
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="heavy", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="child_a", prompt="{{ heavy }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="child_b", prompt="{{ heavy }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="child_c", prompt="{{ heavy }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {config.name: GenerationStrategy.CELL_BY_CELL for config in configs[1:]}
+    strategies["topic"] = GenerationStrategy.FULL_COLUMN
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 2)])
+    tracker.mark_row_range_complete("topic", 0, 2)
+
+    delta = tracker.mark_cell_complete("heavy", 0, 0)
+
+    assert {task.column for task in delta.added} == {"child_a", "child_b", "child_c"}
+    assert {task.row_index for task in delta.added} == {0}
+    ready = tracker.get_ready_tasks(set())
+    assert not any(task.column.startswith("child_") and task.row_index == 1 for task in ready)
+
+
+def test_fan_in_cell_downstream_waits_for_all_same_row_upstreams() -> None:
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="up_a", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="up_b", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="up_c", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="judge", prompt="{{ up_a }} {{ up_b }} {{ up_c }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {config.name: GenerationStrategy.CELL_BY_CELL for config in configs[1:]}
+    strategies["topic"] = GenerationStrategy.FULL_COLUMN
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 2)])
+    tracker.mark_row_range_complete("topic", 0, 2)
+
+    first_delta = tracker.mark_cell_complete("up_a", 0, 0)
+    second_delta = tracker.mark_cell_complete("up_b", 0, 0)
+    final_delta = tracker.mark_cell_complete("up_c", 0, 0)
+
+    assert not any(task.column == "judge" for task in first_delta.added)
+    assert not any(task.column == "judge" for task in second_delta.added)
+    assert final_delta.added == (Task(column="judge", row_group=0, row_index=0, task_type="cell"),)
+    ready = tracker.get_ready_tasks(set())
+    assert not any(task.column == "judge" and task.row_index == 1 for task in ready)
 
 
 def test_get_ready_tasks_skips_dispatched(ready_ctx: ReadyTasksFixture) -> None:

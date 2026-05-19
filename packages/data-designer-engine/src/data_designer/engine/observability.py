@@ -42,12 +42,20 @@ class RuntimeCorrelationProvider:
 runtime_correlation_provider = RuntimeCorrelationProvider()
 
 SchedulerAdmissionEventKind = Literal[
+    "scheduler_job_started",
+    "scheduler_job_completed",
+    "scheduler_health_snapshot",
     "dependency_ready",
     "ready_enqueued",
+    "row_group_admitted",
+    "row_group_admission_blocked",
+    "row_group_admission_target_changed",
+    "row_group_checkpointed",
     "selected",
     "queue_empty",
     "admission_blocked",
     "group_capped",
+    "request_pressure_advisory_skipped",
     "task_lease_acquired",
     "admission_denied",
     "worker_spawned",

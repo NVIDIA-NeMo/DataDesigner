@@ -39,6 +39,11 @@ class CapacityValue(Generic[_T]):
 class RowGroupAdmission:
     row_group_concurrency: CapacityValue[int]
     observed_in_flight: int | None = None
+    mode: Literal["fixed", "adaptive"] = "fixed"
+    target_in_flight: int | None = None
+    observed_max_target: int | None = None
+    max_admitted_rows: int | None = None
+    blocked_reasons: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
+from data_designer.engine.dataset_builders.scheduling.resources import stable_task_id
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task
 
 if TYPE_CHECKING:
@@ -154,7 +155,7 @@ class CompletionTracker:
     def mark_enqueued(self, task_ids: set[str] | list[str] | tuple[str, ...]) -> None:
         """Acknowledge tasks accepted by the ready queue."""
         wanted = set(task_ids)
-        self._frontier = {task for task in self._frontier if _stable_task_id(task) not in wanted}
+        self._frontier = {task for task in self._frontier if stable_task_id(task) not in wanted}
 
     def mark_complete(self, task: Task) -> None:
         """Compatibility hook for scheduler terminal accounting."""
@@ -245,7 +246,7 @@ class CompletionTracker:
         rg_batch_complete = self._batch_complete.get(row_group, set())
         rg_size = self._row_group_sizes[row_group]
 
-        for down in self._graph.get_downstream_columns(column):
+        for down in sorted(self._graph.get_downstream_columns(column)):
             batch_ups, cell_ups = self._graph.split_upstream_by_strategy(down)
 
             if any(up not in rg_batch_complete for up in batch_ups):
@@ -342,10 +343,3 @@ class CompletionTracker:
             known = sorted(self._row_group_sizes)
             raise ValueError(f"Unknown row_group {row_group}. Known row_groups: {known}")
         return expected
-
-
-def _stable_task_id(task: Task) -> str:
-    raw = f"{task.column}\0{task.row_group}\0{task.row_index}\0{task.task_type}"
-    import hashlib
-
-    return f"task-{hashlib.sha1(raw.encode()).hexdigest()[:16]}"

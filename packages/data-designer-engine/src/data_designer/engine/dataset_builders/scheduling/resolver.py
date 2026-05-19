@@ -16,6 +16,7 @@ from data_designer.engine.dataset_builders.scheduling.resources import (
     stable_task_id,
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
+from data_designer.engine.models.request_admission.resources import RequestDomain, RequestResourceKey
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGenerator
@@ -27,6 +28,7 @@ class ResolvedTaskScheduling:
 
     group: TaskGroupSpec
     resource_request: SchedulerResourceRequest
+    request_resource_key: RequestResourceKey | None = None
 
 
 class TaskSchedulingResolver:
@@ -63,6 +65,7 @@ class TaskSchedulingResolver:
             payload=task,
             group=resolved.group,
             resource_request=resolved.resource_request,
+            request_resource_key=resolved.request_resource_key,
         )
 
     def _resolve_metadata(self, generator: ColumnGenerator) -> SchedulingMetadata:
@@ -96,6 +99,7 @@ class TaskSchedulingResolver:
 
         identity = (*metadata.identity, *flow_identity)
         admitted_limit = max(1, min(self._model_group_limit_cap, self._model_group_limit_multiplier * weight))
+        request_resource_key = _request_resource_key(metadata)
         return ResolvedTaskScheduling(
             group=TaskGroupSpec(
                 key=TaskGroupKey(kind=metadata.kind, identity=identity),
@@ -103,4 +107,16 @@ class TaskSchedulingResolver:
                 admitted_limit=admitted_limit,
             ),
             resource_request=SchedulerResourceRequest({"submission": 1, "llm_wait": 1}),
+            request_resource_key=request_resource_key,
         )
+
+
+def _request_resource_key(metadata: SchedulingMetadata) -> RequestResourceKey | None:
+    if metadata.kind != "model":
+        return None
+    _kind, provider_name, model_id, generation_kind = metadata.identity
+    try:
+        domain = RequestDomain(generation_kind)
+    except ValueError:
+        return None
+    return RequestResourceKey(provider_name=provider_name, model_id=model_id, domain=domain)

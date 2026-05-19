@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
@@ -36,6 +37,11 @@ def _controller(cap: int = 2, config: RequestAdmissionConfig | None = None) -> A
     controller = AdaptiveRequestAdmissionController(config)
     controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=cap)
     return controller
+
+
+class _BrokenRequestSink:
+    def emit_request_event(self, _event: object) -> None:
+        raise RuntimeError("sink boom")
 
 
 def test_request_admission_acquires_and_releases_lease() -> None:
@@ -148,6 +154,23 @@ def test_request_admission_zero_sync_timeout_is_immediate() -> None:
     controller.release(lease, RequestReleaseOutcome(kind="success"))
 
 
+def test_request_admission_logs_sink_failures(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="data_designer.engine.models.request_admission.controller")
+    controller = AdaptiveRequestAdmissionController(event_sink=_BrokenRequestSink())
+
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+
+    assert "Request admission event sink raised; dropping event." in caplog.text
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_acquire_sync_rejects_running_event_loop() -> None:
+    controller = _controller(cap=1)
+
+    with pytest.raises(RuntimeError, match="would block the running event loop"):
+        controller.acquire_sync(_item())
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_try_acquire_does_not_bypass_queued_waiter_for_same_provider_model() -> None:
     controller = _controller(cap=1)
@@ -186,6 +209,50 @@ async def test_request_admission_zero_async_timeout_is_immediate() -> None:
     assert snapshot is not None
     assert snapshot.waiters == 0
     controller.release(lease, RequestReleaseOutcome(kind="success"))
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_acquire_async_wakes_when_release_assigns_lease(monkeypatch: pytest.MonkeyPatch) -> None:
+    controller = _controller(cap=1)
+    monkeypatch.setattr(controller, "_wait_seconds_locked", lambda _item, _now, _deadline: 10.0)
+    lease = controller.try_acquire(_item(RequestDomain.CHAT))
+    assert isinstance(lease, RequestAdmissionLease)
+    queued = _item(RequestDomain.EMBEDDING, timeout=30.0)
+
+    queued_task = asyncio.create_task(controller.acquire_async(queued))
+    for _ in range(20):
+        snapshot = controller.pressure.snapshot(queued.resource)
+        if snapshot is not None and snapshot.waiters == 1:
+            break
+        await asyncio.sleep(0)
+    else:
+        raise AssertionError("async waiter did not enqueue")
+
+    controller.release(lease, RequestReleaseOutcome(kind="success"))
+    queued_lease = await asyncio.wait_for(queued_task, timeout=0.5)
+
+    controller.release(queued_lease, RequestReleaseOutcome(kind="success"))
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_register_wakes_unregistered_async_waiter(monkeypatch: pytest.MonkeyPatch) -> None:
+    controller = AdaptiveRequestAdmissionController()
+    monkeypatch.setattr(controller, "_wait_seconds_locked", lambda _item, _now, _deadline: 10.0)
+    queued = _item(RequestDomain.CHAT, timeout=30.0)
+
+    queued_task = asyncio.create_task(controller.acquire_async(queued))
+    for _ in range(20):
+        snapshot = controller.pressure.snapshot(queued.resource)
+        if snapshot is not None and snapshot.waiters == 1:
+            break
+        await asyncio.sleep(0)
+    else:
+        raise AssertionError("async waiter did not enqueue")
+
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    queued_lease = await asyncio.wait_for(queued_task, timeout=0.5)
+
+    controller.release(queued_lease, RequestReleaseOutcome(kind="success"))
 
 
 @pytest.mark.asyncio(loop_scope="session")

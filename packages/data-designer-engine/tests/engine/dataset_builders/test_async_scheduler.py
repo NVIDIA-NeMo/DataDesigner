@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
@@ -44,6 +46,9 @@ from data_designer.engine.models.errors import (
     ModelRateLimitError,
     ModelTimeoutError,
 )
+from data_designer.engine.models.request_admission.pressure import RequestPressureSnapshot
+from data_designer.engine.models.request_admission.resources import RequestDomain, RequestResourceKey
+from data_designer.engine.models.resources import ProviderModelKey
 from data_designer.engine.observability import InMemoryAdmissionEventSink
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
@@ -175,6 +180,17 @@ class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
         return data
 
 
+class MockBuggyGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Generator that simulates an internal scheduler/generator bug."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, _data: dict) -> dict:
+        raise KeyError("missing internal key")
+
+
 class MockRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
     """Generator that fails with rate-limit errors before succeeding.
 
@@ -282,6 +298,11 @@ class MockRetryableErrorGenerator(ColumnGenerator[ExpressionColumnConfig]):
         return data
 
 
+class _BrokenSchedulerSink:
+    def emit_scheduler_event(self, _event: object) -> None:
+        raise RuntimeError("sink boom")
+
+
 # -- Helper to build graph + scheduler ----------------------------------------
 
 
@@ -292,6 +313,7 @@ def _build_simple_pipeline(
     generators: dict[str, ColumnGenerator] | None = None,
     configs: list[SamplerColumnConfig | LLMTextColumnConfig | ExpressionColumnConfig] | None = None,
     strategies: dict[str, GenerationStrategy] | None = None,
+    scheduler_event_sink: Any | None = None,
 ) -> tuple[AsyncTaskScheduler, CompletionTracker]:
     """Build a simple seed → cell pipeline for testing."""
     if configs is None:
@@ -330,6 +352,7 @@ def _build_simple_pipeline(
         tracker=tracker,
         row_groups=row_groups,
         trace=trace,
+        scheduler_event_sink=scheduler_event_sink,
     )
     return scheduler, tracker
 
@@ -520,6 +543,56 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
     # Row group is "complete" because all non-dropped rows have all columns
     # (there are no non-dropped rows)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_internal_bug_failure_aborts_instead_of_dropping_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="buggy_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "buggy_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "buggy_col": MockBuggyGenerator(config=_expr_config("buggy_col"), resource_provider=provider),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 1)])
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 1)],
+    )
+
+    with caplog.at_level(logging.ERROR, logger="data_designer.engine.dataset_builders.async_scheduler"):
+        with pytest.raises(DatasetGenerationError, match="Unexpected internal task failure") as exc_info:
+            await scheduler.run()
+
+    assert isinstance(exc_info.value.__cause__, KeyError)
+    assert not tracker.is_dropped(0, 0)
+    error_records = [
+        record for record in caplog.records if "Unexpected fatal Non-retryable failure" in record.getMessage()
+    ]
+    assert error_records
+    assert error_records[0].exc_info is not None
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_logs_sink_failures(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="data_designer.engine.dataset_builders.async_scheduler")
+    scheduler, tracker = _build_simple_pipeline(num_records=1, scheduler_event_sink=_BrokenSchedulerSink())
+
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, 1, ["seed", "cell_out"])
+    assert "Scheduler admission event sink raised; dropping event." in caplog.text
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1733,6 +1806,97 @@ async def test_scheduler_pre_batch_drop_removes_pending_ready_task() -> None:
     assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
 
 
+def test_apply_frontier_delta_enqueues_ready_tasks_in_one_queue_operation(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _mock_provider()
+    configs = [
+        LLMTextColumnConfig(name="root", prompt="root", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "root": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "root": MockCellGenerator(config=_expr_config("root"), resource_provider=provider),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 5)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=5, pre_batch_done=True)
+
+    enqueue_sizes: list[int] = []
+    original_enqueue = scheduler._fair_queue.enqueue
+
+    def spy_enqueue(items: Any) -> tuple[str, ...]:
+        materialized = tuple(items)
+        enqueue_sizes.append(len(materialized))
+        return original_enqueue(materialized)
+
+    monkeypatch.setattr(scheduler._fair_queue, "enqueue", spy_enqueue)
+
+    scheduler._apply_frontier_delta(tracker.add_root_tasks(0, 5))
+
+    assert enqueue_sizes == [5]
+    assert tracker.ready_frontier() == ()
+    assert scheduler._fair_queue.view().queued_total == 5
+
+
+def test_pre_batch_flush_batches_pending_ready_and_skips_dropped_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    sink = InMemoryAdmissionEventSink()
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        on_seeds_complete=lambda row_group, row_group_size: None,
+        scheduler_event_sink=sink,
+    )
+    state = SimpleNamespace(size=3, pre_batch_done=False)
+    scheduler._rg_states[0] = state
+
+    enqueue_sizes: list[int] = []
+    original_enqueue = scheduler._fair_queue.enqueue
+
+    def spy_enqueue(items: Any) -> tuple[str, ...]:
+        materialized = tuple(items)
+        enqueue_sizes.append(len(materialized))
+        return original_enqueue(materialized)
+
+    monkeypatch.setattr(scheduler._fair_queue, "enqueue", spy_enqueue)
+
+    scheduler._apply_frontier_delta(tracker.mark_row_range_complete("seed", 0, 3))
+    scheduler._apply_frontier_delta(tracker.drop_row(0, 1))
+    state.pre_batch_done = True
+    scheduler._flush_pre_batch_ready(0)
+
+    assert enqueue_sizes == [2]
+    assert scheduler._fair_queue.view().queued_total == 2
+    assert {item.payload.row_index for item in scheduler._fair_queue._queued.values()} == {0, 2}
+    assert tracker.is_dropped(0, 1)
+    assert sum(event.event_kind == "ready_enqueued" for event in sink.scheduler_events) == 2
+    assert sum(event.event_kind == "dependency_ready" for event in sink.scheduler_events) == 5
+
+
 def test_custom_generator_with_model_aliases_reports_custom_model_metadata() -> None:
     """CustomColumnGenerator with model_aliases reports custom-model metadata."""
 
@@ -2008,6 +2172,10 @@ async def test_scheduler_cancellation_releases_task_admission_leases() -> None:
     assert snapshot.resources_available["submission"] == max_submitted
     assert snapshot.resources_available["llm_wait"] == max_llm_wait
     assert "cancelled" in [event.event_kind for event in sink.scheduler_events]
+    assert all(event.snapshot is not None for event in sink.scheduler_events)
+    task_events = [event for event in sink.scheduler_events if event.task_id is not None]
+    assert all("resource_request" in event.diagnostics for event in task_events)
+    assert any("llm_wait" in event.diagnostics["resource_request"] for event in task_events)
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -2124,6 +2292,72 @@ class SlowLLMBoundCellGenerator(SlowCellGenerator):
 
     def get_scheduling_metadata(self) -> SchedulingMetadata:
         return SchedulingMetadata.custom_model("test", self.config.name, "v1")
+
+
+class SlowModelBoundCellGenerator(SlowCellGenerator):
+    """Slow cell generator with concrete request-pressure identity."""
+
+    def __init__(
+        self,
+        *args: Any,
+        provider_name: str = "provider",
+        model_id: str = "model",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._provider_name = provider_name
+        self._model_id = model_id
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        return SchedulingMetadata.model(
+            self._provider_name,
+            self._model_id,
+            "chat",
+            weight=1,
+        )
+
+
+class _StaticRequestPressureProvider:
+    def __init__(self, snapshots: dict[RequestResourceKey, RequestPressureSnapshot]) -> None:
+        self._snapshots = snapshots
+
+    def snapshot(self, resource: RequestResourceKey) -> RequestPressureSnapshot | None:
+        return self._snapshots.get(resource)
+
+    def snapshots(self) -> dict[RequestResourceKey, RequestPressureSnapshot]:
+        return dict(self._snapshots)
+
+    def global_snapshot(self, provider: str, model: str) -> None:
+        return None
+
+    def global_snapshots(self) -> dict[ProviderModelKey, object]:
+        return {}
+
+
+def _pressure_snapshot(
+    resource: RequestResourceKey,
+    *,
+    current_limit: int = 1,
+    in_flight: int = 0,
+    waiters: int = 0,
+    cooldown: float = 0.0,
+) -> RequestPressureSnapshot:
+    return RequestPressureSnapshot(
+        captured_at=time.monotonic(),
+        sequence=1,
+        resource=resource,
+        effective_max=max(1, current_limit),
+        current_limit=current_limit,
+        in_flight_count=in_flight,
+        active_lease_count=in_flight,
+        waiters=waiters,
+        blocked_until_monotonic=time.monotonic() + cooldown if cooldown > 0.0 else None,
+        cooldown_remaining_seconds=cooldown,
+        rate_limit_ceiling=max(1, current_limit),
+        consecutive_rate_limits=0,
+        last_outcome=None,
+        leak_diagnostics={},
+    )
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -2366,6 +2600,334 @@ async def test_scheduler_downstream_interleaves_with_upstream() -> None:
         f"First judge dispatched at {first_judge_dispatched:.4f}, "
         f"last gen dispatched at {last_gen_dispatched:.4f}."
     )
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_capacity_plan_observes_buffer_backpressure() -> None:
+    provider = _mock_provider()
+    gen_names = ["gen_a", "gen_b", "gen_c"]
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        *[LLMTextColumnConfig(name=g, prompt="{{ topic }}", model_alias=MODEL_ALIAS) for g in gen_names],
+    ]
+    strategies: dict[str, GenerationStrategy] = {"topic": GenerationStrategy.FULL_COLUMN}
+    strategies.update({column: GenerationStrategy.CELL_BY_CELL for column in gen_names})
+    generators: dict[str, ColumnGenerator] = {
+        "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+        **{
+            name: SlowCellGenerator(config=_expr_config(name), resource_provider=provider, delay=0.02)
+            for name in gen_names
+        },
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3), (1, 3), (2, 3), (3, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        max_submitted_tasks=2,
+        trace=True,
+        num_records=12,
+        buffer_size=3,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    plan = scheduler.capacity_plan()
+    for row_group_index, row_count in row_groups:
+        assert tracker.is_row_group_complete(row_group_index, row_count, ["topic", *gen_names])
+    assert plan.configured.row_group_admission.observed_in_flight == 0
+    assert plan.observed_maxima.row_groups_in_flight == 2
+    assert plan.observed_maxima.queued_tasks_by_group
+    assert max(plan.observed_maxima.task_leases_by_resource.values()) <= 2
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_emits_job_health_and_row_group_telemetry() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 2)]
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    sink = InMemoryAdmissionEventSink()
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "model_col": SlowLLMBoundCellGenerator(
+                config=_expr_config("model_col"),
+                resource_provider=provider,
+                delay=0.0,
+            ),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=1,
+        max_submitted_tasks=2,
+        max_model_task_admission=1,
+        scheduler_event_sink=sink,
+        num_records=2,
+        buffer_size=2,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    kinds = [event.event_kind for event in sink.scheduler_events]
+    assert "scheduler_job_started" in kinds
+    assert "scheduler_health_snapshot" in kinds
+    assert "row_group_checkpointed" in kinds
+    assert "scheduler_job_completed" in kinds
+
+    started = next(event for event in sink.scheduler_events if event.event_kind == "scheduler_job_started")
+    assert started.diagnostics["num_records"] == 2
+    assert started.diagnostics["buffer_size"] == 2
+    assert started.diagnostics["row_group_count"] == 1
+    assert started.diagnostics["graph_depth"] == 2
+    column_scheduling = started.diagnostics["column_scheduling"]
+    assert isinstance(column_scheduling, tuple)
+    model_column = next(item for item in column_scheduling if item["column"] == "model_col")
+    assert model_column["group_kind"] == "custom_model"
+    assert model_column["resource_request"] == {"submission": 1, "llm_wait": 1}
+
+    health = next(event for event in sink.scheduler_events if event.event_kind == "scheduler_health_snapshot")
+    assert "queued_total" in health.diagnostics
+    assert "leased_resources" in health.diagnostics
+    assert "request_pressure" in health.diagnostics
+
+    checkpointed = next(event for event in sink.scheduler_events if event.event_kind == "row_group_checkpointed")
+    assert checkpointed.diagnostics["row_group"] == 0
+    assert checkpointed.diagnostics["row_group_size"] == 2
+    assert checkpointed.diagnostics["surviving_rows"] == 2
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_adaptive_row_group_admission_expands_target_for_horizon_idle() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1), (1, 1), (2, 1), (3, 1)]
+    generators: dict[str, ColumnGenerator] = {
+        "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+        "model_col": SlowLLMBoundCellGenerator(
+            config=_expr_config("model_col"),
+            resource_provider=provider,
+            delay=0.04,
+        ),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    sink = InMemoryAdmissionEventSink()
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=4,
+        max_submitted_tasks=4,
+        max_model_task_admission=4,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+        scheduler_event_sink=sink,
+        trace=True,
+        num_records=4,
+        buffer_size=1,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    plan = scheduler.capacity_plan()
+    assert tracker.is_row_group_complete(0, 1, ["topic", "model_col"])
+    assert plan.configured.row_group_admission.mode == "adaptive"
+    assert plan.configured.row_group_admission.observed_max_target is not None
+    assert plan.configured.row_group_admission.observed_max_target > 1
+    assert plan.observed_maxima.row_groups_in_flight > 1
+    assert any(event.event_kind == "row_group_admission_target_changed" for event in sink.scheduler_events)
+
+
+def test_scheduler_adaptive_row_group_row_guard_blocks_extra_large_groups() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 5_000), (1, 5_000)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "model_col": SlowLLMBoundCellGenerator(
+                config=_expr_config("model_col"),
+                resource_provider=provider,
+                delay=0.0,
+            ),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=4,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=4,
+        num_records=10_000,
+        buffer_size=1,
+    )
+
+    scheduler._rg_states[0] = SimpleNamespace(size=5_000)
+
+    assert scheduler._adaptive_max_admitted_rows == 8_192
+    assert not scheduler._row_group_row_guard_allows(5_000)
+    assert scheduler._row_group_row_guard_allows(1_000)
+    scheduler._rg_states.clear()
+    assert scheduler._row_group_row_guard_allows(9_000)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_raises_when_ready_frontier_blocked_without_in_flight() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "model_col": SlowLLMBoundCellGenerator(
+                config=_expr_config("model_col"),
+                resource_provider=provider,
+                delay=0.0,
+            ),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        task_admission_config=TaskAdmissionConfig(
+            submission_capacity=1,
+            resource_limits={"submission": 1, "local": 1},
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="Ready frontier is admission-blocked"):
+        await asyncio.wait_for(scheduler.run(), timeout=2.0)
+
+
+def test_scheduler_request_pressure_advisory_prefers_pressure_open_peer() -> None:
+    provider = _mock_provider()
+    configs = [
+        LLMTextColumnConfig(name="pressured", prompt="A", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="open", prompt="B", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "pressured": GenerationStrategy.CELL_BY_CELL,
+        "open": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "pressured": SlowModelBoundCellGenerator(
+            config=_expr_config("pressured"),
+            resource_provider=provider,
+            provider_name="provider-a",
+            model_id="model-a",
+        ),
+        "open": SlowModelBoundCellGenerator(
+            config=_expr_config("open"),
+            resource_provider=provider,
+            provider_name="provider-b",
+            model_id="model-b",
+        ),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 1)])
+    pressured_key = RequestResourceKey("provider-a", "model-a", RequestDomain.CHAT)
+    open_key = RequestResourceKey("provider-b", "model-b", RequestDomain.CHAT)
+    pressure = _StaticRequestPressureProvider(
+        {
+            pressured_key: _pressure_snapshot(pressured_key, current_limit=1, in_flight=1, waiters=1),
+            open_key: _pressure_snapshot(open_key, current_limit=1, in_flight=0, waiters=0),
+        }
+    )
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 1)],
+        request_pressure_provider=pressure,
+        request_pressure_advisory=True,
+        scheduler_event_sink=(sink := InMemoryAdmissionEventSink()),
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1, pre_batch_done=True)
+    pressured = scheduler._schedulable_task(Task(column="pressured", row_group=0, row_index=0, task_type="cell"))
+    open_task = scheduler._schedulable_task(Task(column="open", row_group=0, row_index=0, task_type="cell"))
+    scheduler._fair_queue.enqueue((pressured, open_task))
+
+    selection = scheduler._fair_queue.select_next(scheduler._is_dispatch_eligible)
+
+    assert selection is not None
+    assert selection.item.payload.column == "open"
+    skip = next(event for event in sink.scheduler_events if event.event_kind == "request_pressure_advisory_skipped")
+    assert skip.diagnostics["request_resource"] == "provider-a/model-a/chat"
+    assert skip.diagnostics["pressure_reason"] == "waiters"
+    assert skip.diagnostics["open_peer_column"] == "open"
+    assert skip.diagnostics["open_peer_request_resource"] == "provider-b/model-b/chat"
+
+
+def test_scheduler_request_pressure_advisory_preserves_liveness_when_all_candidates_pressured() -> None:
+    provider = _mock_provider()
+    configs = [LLMTextColumnConfig(name="pressured", prompt="A", model_alias=MODEL_ALIAS)]
+    strategies = {"pressured": GenerationStrategy.CELL_BY_CELL}
+    generators: dict[str, ColumnGenerator] = {
+        "pressured": SlowModelBoundCellGenerator(
+            config=_expr_config("pressured"),
+            resource_provider=provider,
+            provider_name="provider-a",
+            model_id="model-a",
+        ),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 1)])
+    pressured_key = RequestResourceKey("provider-a", "model-a", RequestDomain.CHAT)
+    pressure = _StaticRequestPressureProvider(
+        {pressured_key: _pressure_snapshot(pressured_key, current_limit=1, in_flight=1, waiters=1)}
+    )
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 1)],
+        request_pressure_provider=pressure,
+        request_pressure_advisory=True,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1, pre_batch_done=True)
+    pressured = scheduler._schedulable_task(Task(column="pressured", row_group=0, row_index=0, task_type="cell"))
+    scheduler._fair_queue.enqueue((pressured,))
+
+    selection = scheduler._fair_queue.select_next(scheduler._is_dispatch_eligible)
+
+    assert selection is not None
+    assert selection.item.payload.column == "pressured"
 
 
 # -- Skip / conditional generation tests (async engine) -----------------------
