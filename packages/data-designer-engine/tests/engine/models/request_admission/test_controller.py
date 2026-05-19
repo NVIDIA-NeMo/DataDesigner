@@ -6,8 +6,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import time
-from dataclasses import replace
 
 import pytest
 
@@ -95,7 +93,14 @@ def test_request_admission_stale_release_requires_exact_lease() -> None:
     item = _item()
     lease = controller.try_acquire(item)
     assert isinstance(lease, RequestAdmissionLease)
-    stale = replace(lease, current_adaptive_limit=lease.current_adaptive_limit + 1)
+    stale = RequestAdmissionLease(
+        lease_id=lease.lease_id,
+        item=lease.item,
+        acquired_at=lease.acquired_at,
+        current_adaptive_limit=lease.current_adaptive_limit + 1,
+        effective_max=lease.effective_max,
+        controller_generation=lease.controller_generation,
+    )
 
     stale_result = controller.release(stale, RequestReleaseOutcome(kind="provider_failure"))
     snapshot = controller.pressure.snapshot(item.resource)
