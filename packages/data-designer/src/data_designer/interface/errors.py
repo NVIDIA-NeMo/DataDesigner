@@ -14,6 +14,10 @@ class DataDesignerGenerationError(DataDesignerError):
     """Raised for errors related to a Data Designer dataset generation."""
 
 
+class DataDesignerWorkflowError(DataDesignerError):
+    """Raised for errors related to composite workflow orchestration."""
+
+
 class DataDesignerEarlyShutdownError(DataDesignerGenerationError):
     """Raised when a run terminated via early shutdown and produced no records.
 

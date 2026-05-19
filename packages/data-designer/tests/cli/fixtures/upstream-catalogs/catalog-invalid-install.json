@@ -1,0 +1,36 @@
+{
+  "schema_version": 2,
+  "packages": [
+    {
+      "name": "data-designer-invalid-install",
+      "description": "Invalid install fixture",
+      "install": {
+        "requirement": "other-package==0.1.0"
+      },
+      "compatibility": {
+        "python": {
+          "specifier": ">=3.10"
+        },
+        "data_designer": {
+          "requirement": "data-designer>=0.5.7",
+          "specifier": ">=0.5.7",
+          "marker": null
+        }
+      },
+      "docs": {
+        "url": "https://docs.example.test/plugins/data-designer-invalid-install/"
+      },
+      "plugins": [
+        {
+          "name": "invalid-install",
+          "plugin_type": "column-generator",
+          "entry_point": {
+            "group": "data_designer.plugins",
+            "name": "invalid-install",
+            "value": "data_designer_invalid_install.plugin:plugin"
+          }
+        }
+      ]
+    }
+  ]
+}

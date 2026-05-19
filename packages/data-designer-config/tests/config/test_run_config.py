@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
-from data_designer.config.run_config import JinjaRenderingEngine, RunConfig
+import pytest
+
+from data_designer.config.run_config import JinjaRenderingEngine, RunConfig, ThrottleConfig
 
 
 def test_run_config_defaults_to_secure_jinja_renderer() -> None:
@@ -13,3 +15,13 @@ def test_run_config_defaults_to_secure_jinja_renderer() -> None:
 def test_run_config_accepts_native_renderer() -> None:
     run_config = RunConfig(jinja_rendering_engine=JinjaRenderingEngine.NATIVE)
     assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.NATIVE
+
+
+def test_throttle_config_accepts_rampup_seconds() -> None:
+    config = ThrottleConfig(rampup_seconds=30.0)
+    assert config.rampup_seconds == 30.0
+
+
+def test_throttle_config_rejects_negative_rampup_seconds() -> None:
+    with pytest.raises(ValueError, match="rampup_seconds"):
+        ThrottleConfig(rampup_seconds=-1.0)

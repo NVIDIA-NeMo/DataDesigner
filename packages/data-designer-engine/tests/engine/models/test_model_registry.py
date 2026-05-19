@@ -10,7 +10,7 @@ from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenCountSource, TokenUsageStats
 from data_designer.logging import LOG_INDENT
 
 
@@ -229,7 +229,12 @@ def test_get_usage_deltas(
         # Empty snapshot, then add usage
         pre_snapshot: dict[str, ModelUsageStats] = {}
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(input_tokens=50, output_tokens=100),
+            token_usage=TokenUsageStats(
+                input_tokens=50,
+                output_tokens=100,
+                reasoning_tokens=20,
+                reasoning_token_count_source=TokenCountSource.PROVIDER,
+            ),
             request_usage=RequestUsageStats(successful_requests=5, failed_requests=1),
         )
 
@@ -238,19 +243,31 @@ def test_get_usage_deltas(
         assert set(deltas.keys()) == set(expected_keys)
         assert deltas["stub-model-text"].token_usage.input_tokens == 50
         assert deltas["stub-model-text"].token_usage.output_tokens == 100
+        assert deltas["stub-model-text"].token_usage.reasoning_tokens == 20
+        assert deltas["stub-model-text"].token_usage.reasoning_token_count_source == TokenCountSource.PROVIDER
         assert deltas["stub-model-text"].request_usage.successful_requests == 5
         assert deltas["stub-model-text"].request_usage.failed_requests == 1
 
     elif test_case == "with_prior_usage":
         # Add initial usage, take snapshot, add more usage
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200),
+            token_usage=TokenUsageStats(
+                input_tokens=100,
+                output_tokens=200,
+                reasoning_tokens=40,
+                reasoning_token_count_source=TokenCountSource.PROVIDER,
+            ),
             request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
         )
         pre_snapshot = stub_model_registry.get_model_usage_snapshot()
 
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(input_tokens=50, output_tokens=75),
+            token_usage=TokenUsageStats(
+                input_tokens=50,
+                output_tokens=75,
+                reasoning_tokens=15,
+                reasoning_token_count_source=TokenCountSource.PROVIDER,
+            ),
             request_usage=RequestUsageStats(successful_requests=3, failed_requests=1),
         )
 
@@ -259,6 +276,8 @@ def test_get_usage_deltas(
         assert set(deltas.keys()) == set(expected_keys)
         assert deltas["stub-model-text"].token_usage.input_tokens == 50
         assert deltas["stub-model-text"].token_usage.output_tokens == 75
+        assert deltas["stub-model-text"].token_usage.reasoning_tokens == 15
+        assert deltas["stub-model-text"].token_usage.reasoning_token_count_source == TokenCountSource.PROVIDER
         assert deltas["stub-model-text"].request_usage.successful_requests == 3
         assert deltas["stub-model-text"].request_usage.failed_requests == 1
 
@@ -455,7 +474,12 @@ def test_log_model_usage_single_model(stub_model_registry: ModelRegistry) -> Non
     """Test log_model_usage with a single model that has usage."""
     text_model = stub_model_registry.get_model(model_alias="stub-text")
     text_model.usage_stats.extend(
-        token_usage=TokenUsageStats(input_tokens=1000, output_tokens=500),
+        token_usage=TokenUsageStats(
+            input_tokens=1000,
+            output_tokens=500,
+            reasoning_tokens=125,
+            reasoning_token_count_source=TokenCountSource.PROVIDER,
+        ),
         request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
     )
 
@@ -465,8 +489,55 @@ def test_log_model_usage_single_model(stub_model_registry: ModelRegistry) -> Non
         calls = [call[0][0] for call in mock_logger.info.call_args_list]
         assert calls[0] == "📊 Model usage summary:"
         assert calls[1] == f"{LOG_INDENT}model: stub-model-text"
-        assert calls[2] == f"{LOG_INDENT}tokens: input=1000, output=500, total=1500, tps=150"
+        assert calls[2] == f"{LOG_INDENT}tokens: input=1000, output=500, reasoning=125, total=1500, tps=150"
         assert calls[3] == f"{LOG_INDENT}requests: success=10, failed=2, total=12, rpm=72"
+
+
+def test_log_model_usage_estimated_reasoning_tokens(stub_model_registry: ModelRegistry) -> None:
+    """Test log_model_usage labels estimated reasoning token counts."""
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+    text_model.usage_stats.extend(
+        token_usage=TokenUsageStats(
+            input_tokens=1000,
+            output_tokens=500,
+            reasoning_tokens=125,
+            reasoning_token_count_source=TokenCountSource.ESTIMATED,
+        ),
+        request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
+    )
+
+    with patch("data_designer.engine.models.registry.logger") as mock_logger:
+        stub_model_registry.log_model_usage(total_time_elapsed=10.0)
+
+        calls = [call[0][0] for call in mock_logger.info.call_args_list]
+        assert calls[0] == "📊 Model usage summary:"
+        assert calls[1] == f"{LOG_INDENT}model: stub-model-text"
+        assert calls[2] == f"{LOG_INDENT}tokens: input=1000, output=500, reasoning=125 (estimated), total=1500, tps=150"
+        assert calls[3] == f"{LOG_INDENT}reasoning token count estimated with tiktoken"
+        assert calls[4] == f"{LOG_INDENT}requests: success=10, failed=0, total=10, rpm=60"
+
+
+def test_log_model_usage_provider_zero_reasoning_tokens(stub_model_registry: ModelRegistry) -> None:
+    """Test log_model_usage shows provider-reported zero reasoning token counts."""
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+    text_model.usage_stats.extend(
+        token_usage=TokenUsageStats(
+            input_tokens=1000,
+            output_tokens=500,
+            reasoning_tokens=0,
+            reasoning_token_count_source=TokenCountSource.PROVIDER,
+        ),
+        request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
+    )
+
+    with patch("data_designer.engine.models.registry.logger") as mock_logger:
+        stub_model_registry.log_model_usage(total_time_elapsed=10.0)
+
+        calls = [call[0][0] for call in mock_logger.info.call_args_list]
+        assert calls[0] == "📊 Model usage summary:"
+        assert calls[1] == f"{LOG_INDENT}model: stub-model-text"
+        assert calls[2] == f"{LOG_INDENT}tokens: input=1000, output=500, reasoning=0, total=1500, tps=150"
+        assert calls[3] == f"{LOG_INDENT}requests: success=10, failed=0, total=10, rpm=60"
 
 
 def test_log_model_usage_multiple_models(stub_model_registry: ModelRegistry) -> None:

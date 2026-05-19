@@ -11,6 +11,7 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
@@ -31,6 +32,14 @@ class DatasetCreationResults(WithRecordSamplerMixin):
     This class provides access to the generated dataset, profiling analysis, and
     visualization utilities. It is returned by the DataDesigner.create() method
     and implements ResultsProtocol of the DataDesigner interface.
+
+    Resume scope: methods that read from the artifact directory (``load_dataset``,
+    ``count_records``, ``load_analysis``, ``export``, ``push_to_hub``) reflect the
+    full dataset on disk, including rows produced by earlier ``create()`` calls
+    that the current invocation resumed. Per-run observability — ``task_traces``
+    and any model-usage / telemetry side effects emitted during the call — is
+    scoped to the current invocation only, because the original run's in-memory
+    state is not persisted across process boundaries.
     """
 
     def __init__(
@@ -50,6 +59,9 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             config_builder: Configuration builder used to create the dataset.
             dataset_metadata: Metadata about the generated dataset (e.g., seed column names).
             task_traces: Optional list of TaskTrace objects from the async scheduler.
+                Resume note: only contains traces for the current invocation; traces
+                from earlier ``create()`` calls that this run resumed are not
+                retained.
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
@@ -73,6 +85,20 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             A pandas DataFrame containing the full generated dataset.
         """
         return self.artifact_storage.load_dataset()
+
+    def to_config_builder(self, columns: list[str] | None = None) -> DataDesignerConfigBuilder:
+        """Create a new config builder seeded from this result dataset.
+
+        Loads the full dataset into memory; intended for interactive use. For
+        production pipelines, prefer ``CompositeWorkflow``.
+        """
+        df = self.load_dataset()
+        if columns is not None:
+            df = df.loc[:, columns]
+        return DataDesignerConfigBuilder(
+            model_configs=self._config_builder.model_configs,
+            tool_configs=self._config_builder.tool_configs,
+        ).with_seed_dataset(DataFrameSeedSource(df=df.copy()))
 
     def count_records(self) -> int:
         """Return the total number of records in the generated dataset.

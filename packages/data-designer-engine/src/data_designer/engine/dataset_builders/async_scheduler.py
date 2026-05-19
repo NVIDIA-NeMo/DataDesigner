@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections import deque
+from collections import defaultdict, deque
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
@@ -21,8 +21,14 @@ from data_designer.engine.dataset_builders.utils.async_progress_reporter import 
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
 )
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
+from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
+from data_designer.engine.dataset_builders.utils.fair_task_queue import (
+    FairTaskQueue,
+    TaskGroupKey,
+    TaskGroupSpec,
+)
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
+from data_designer.engine.dataset_builders.utils.scheduling_hints import SchedulingHint, SchedulingHintResolver
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
@@ -40,7 +46,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_TASK_POOL_SIZE: int = 256
-LLM_WAIT_POOL_MULTIPLIER: int = 2
+# Global LLM wait-pool headroom sizes the memory-safety semaphore above provider capacity.
+GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER: int = 2
+# Per-group admission backlog caps how many ready LLM tasks one fair-queue group can hold.
+LLM_GROUP_ADMISSION_BACKLOG_MULTIPLIER: int = 2
 
 # Degraded-provider WARN: emit at most one warning per interval when the
 # rolling fraction of retryable errors exceeds the threshold. Distinct from
@@ -76,6 +85,15 @@ class _RowGroupState:
     in_flight_count: int = 0
 
 
+@dataclass(frozen=True)
+class _DispatchOutcome:
+    """Result of one fair-dispatch pass over the persistent ready queue."""
+
+    dispatched: bool = False
+    submission_full: bool = False
+    group_blocked: bool = False
+
+
 class AsyncTaskScheduler:
     """Dependency-aware async task scheduler for the dataset builder.
 
@@ -96,7 +114,7 @@ class AsyncTaskScheduler:
         max_llm_wait_tasks: int = DEFAULT_TASK_POOL_SIZE,
         salvage_max_rounds: int = 2,
         on_finalize_row_group: Callable[[int], None] | None = None,
-        on_seeds_complete: Callable[[int, int], None] | None = None,
+        on_seeds_complete: Callable[[int, int], FrontierDelta | None] | None = None,
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
@@ -119,8 +137,15 @@ class AsyncTaskScheduler:
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
         self._submission_semaphore = TrackingSemaphore(max_submitted_tasks)
         self._llm_wait_semaphore = TrackingSemaphore(max_llm_wait_tasks)
+        self._max_llm_wait_tasks = max_llm_wait_tasks
 
         self._llm_bound_lookup = build_llm_bound_lookup(generators)
+        self._scheduling_hints = SchedulingHintResolver(generators)
+        self._fair_queue = FairTaskQueue()
+        self._pending_pre_batch_ready: defaultdict[int, list[Task]] = defaultdict(list)
+        self._pending_pre_batch_ready_tasks: set[Task] = set()
+        # Task group specs are derived from per-generator scheduling hints and flow identity.
+        self._task_group_spec_cache: dict[int, TaskGroupSpec] = {}
 
         self._dispatched: set[Task] = set()
         self._in_flight: set[Task] = set()
@@ -204,7 +229,7 @@ class AsyncTaskScheduler:
         self._rg_size_map: dict[int, int] = dict(row_groups)
 
         # Pre-compute seed columns (graph is static)
-        self._seed_cols: frozenset[str] = frozenset(c for c in graph.columns if not graph.get_upstream_columns(c))
+        self._seed_cols: tuple[str, ...] = tuple(c for c in graph.columns if not graph.get_upstream_columns(c))
 
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
         self._progress_bar = StickyProgressBar() if progress_bar else None
@@ -283,6 +308,107 @@ class AsyncTaskScheduler:
             await asyncio.gather(*self._worker_tasks, return_exceptions=True)
         self._worker_tasks.clear()
 
+    def _apply_frontier_delta(self, delta: FrontierDelta) -> None:
+        if delta.empty:
+            return
+        for task in delta.removed:
+            self._discard_ready_task(task)
+        for task in delta.added:
+            self._enqueue_ready_task(task)
+
+    def _enqueue_ready_task(self, task: Task) -> None:
+        if task in self._dispatched or task.row_group not in self._rg_states:
+            return
+        if not self._tracker.is_frontier_task(task):
+            return
+        state = self._rg_states[task.row_group]
+        if self._on_seeds_complete is not None and not state.pre_batch_done:
+            if task not in self._pending_pre_batch_ready_tasks:
+                self._pending_pre_batch_ready[task.row_group].append(task)
+                self._pending_pre_batch_ready_tasks.add(task)
+            return
+        self._fair_queue.enqueue(task, self._task_group_spec(task))
+
+    def _discard_ready_task(self, task: Task) -> None:
+        self._fair_queue.discard(task)
+        self._pending_pre_batch_ready_tasks.discard(task)
+
+    def _flush_pre_batch_ready(self, row_group: int) -> None:
+        pending = self._pending_pre_batch_ready.pop(row_group, [])
+        for task in pending:
+            if task not in self._pending_pre_batch_ready_tasks:
+                continue
+            self._pending_pre_batch_ready_tasks.discard(task)
+            self._enqueue_ready_task(task)
+
+    def _drop_pending_ready_for_row_group(self, row_group: int) -> None:
+        pending = self._pending_pre_batch_ready.pop(row_group, [])
+        for task in pending:
+            self._pending_pre_batch_ready_tasks.discard(task)
+        self._fair_queue.discard_where(lambda task: task.row_group == row_group)
+
+    def _dispatch_queued_tasks(self) -> _DispatchOutcome:
+        dispatched = False
+
+        while self._fair_queue.has_queued_tasks:
+            if not self._submission_semaphore.try_acquire():
+                return _DispatchOutcome(dispatched=dispatched, submission_full=True)
+
+            selection = self._fair_queue.admit_next()
+            if selection is None:
+                self._submission_semaphore.release()
+                return _DispatchOutcome(dispatched=dispatched, group_blocked=True)
+
+            self._dispatch_selected_task(selection.task)
+            dispatched = True
+
+        return _DispatchOutcome(dispatched=dispatched)
+
+    def _dispatch_selected_task(self, task: Task) -> None:
+        self._dispatched.add(task)
+        self._in_flight.add(task)
+        if (s := self._rg_states.get(task.row_group)) is not None:
+            s.in_flight_count += 1
+        self._spawn_worker(self._execute_task(task))
+
+    def _task_group_spec(self, task: Task) -> TaskGroupSpec:
+        generator = self._generators[task.column]
+        generator_id = id(generator)
+        cached = self._task_group_spec_cache.get(generator_id)
+        if cached is not None:
+            return cached
+
+        spec = self._task_group_spec_from_hint(
+            self._scheduling_hints.hint_for(generator),
+            self._task_flow_identity(task),
+        )
+        self._task_group_spec_cache[generator_id] = spec
+        return spec
+
+    def _task_group_spec_from_hint(self, hint: SchedulingHint, flow_identity: tuple[str, ...]) -> TaskGroupSpec:
+        if hint.group_kind == "local":
+            return TaskGroupSpec(key=TaskGroupKey(kind="local", identity=flow_identity))
+
+        if hint.group_kind == "custom_model":
+            identity = (*flow_identity, *hint.identity_suffix)
+        else:
+            identity = (*hint.identity_prefix, *flow_identity, *hint.identity_suffix)
+
+        weight = max(1, hint.weight)
+        return TaskGroupSpec(
+            key=TaskGroupKey(kind=hint.group_kind, identity=identity),
+            weight=float(weight),
+            admitted_limit=self._llm_group_admitted_limit(weight),
+        )
+
+    def _task_flow_identity(self, task: Task) -> tuple[str, ...]:
+        generator = self._generators[task.column]
+        output_columns = self._gen_instance_to_columns.get(id(generator), [task.column])
+        return tuple(output_columns)
+
+    def _llm_group_admitted_limit(self, weight: int) -> int:
+        return max(1, min(self._max_llm_wait_tasks, LLM_GROUP_ADMISSION_BACKLOG_MULTIPLIER * weight))
+
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
         for rg_id, rg_size in self._row_groups:
@@ -349,7 +475,7 @@ class AsyncTaskScheduler:
 
     async def _main_dispatch_loop(
         self,
-        seed_cols: frozenset[str],
+        seed_cols: tuple[str, ...],
         has_pre_batch: bool,
         all_columns: list[str],
     ) -> None:
@@ -367,25 +493,7 @@ class AsyncTaskScheduler:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
 
-            admitted_ids = set(self._rg_states)
-            ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
-            # Gate non-seed tasks on pre-batch completion when a pre-batch callback is configured
-            if has_pre_batch:
-                ready = [
-                    t
-                    for t in ready
-                    if (s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done or t.column in seed_cols
-                ]
-            semaphore_full = False
-            for task in ready:
-                if not self._submission_semaphore.try_acquire():
-                    semaphore_full = True
-                    break
-                self._dispatched.add(task)
-                self._in_flight.add(task)
-                if (s := self._rg_states.get(task.row_group)) is not None:
-                    s.in_flight_count += 1
-                self._spawn_worker(self._execute_task(task))
+            dispatch_outcome = self._dispatch_queued_tasks()
 
             self._checkpoint_completed_row_groups(all_columns)
 
@@ -400,16 +508,20 @@ class AsyncTaskScheduler:
             if all_done:
                 break
 
-            if not ready and not self._in_flight:
+            if not self._fair_queue.has_queued_tasks and not self._in_flight:
                 if self._all_rgs_admitted:
                     break
 
-            if not ready or semaphore_full:
+            if (
+                not self._fair_queue.has_queued_tasks
+                or dispatch_outcome.submission_full
+                or dispatch_outcome.group_blocked
+            ):
                 await self._wake_event.wait()
 
     async def _salvage_rounds(
         self,
-        seed_cols: frozenset[str],
+        seed_cols: tuple[str, ...],
         has_pre_batch: bool,
         all_columns: list[str],
     ) -> None:
@@ -464,34 +576,25 @@ class AsyncTaskScheduler:
                     self._spawn_worker(self._execute_seed_task(task, gid))
                 else:
                     self._dispatched.discard(task)
+                    self._enqueue_ready_task(task)
             # Drain: dispatch frontier tasks and any newly-ready downstream tasks
             # until nothing remains in-flight or in the frontier.
-            await self._drain_frontier(seed_cols, has_pre_batch, all_columns)
+            await self._drain_frontier(seed_cols, has_pre_batch)
             self._checkpoint_completed_row_groups(all_columns)
 
-    async def _drain_frontier(self, seed_cols: frozenset[str], has_pre_batch: bool, all_columns: list[str]) -> None:
+    async def _drain_frontier(self, seed_cols: tuple[str, ...], has_pre_batch: bool) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
-            admitted_ids = set(self._rg_states)
-            ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
-            if has_pre_batch:
-                ready = [
-                    t
-                    for t in ready
-                    if (s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done or t.column in seed_cols
-                ]
-            for task in ready:
-                if not self._submission_semaphore.try_acquire():
-                    break
-                self._dispatched.add(task)
-                self._in_flight.add(task)
-                if (s := self._rg_states.get(task.row_group)) is not None:
-                    s.in_flight_count += 1
-                self._spawn_worker(self._execute_task(task))
-            if not ready and not self._in_flight:
+            dispatch_outcome = self._dispatch_queued_tasks()
+            has_queued = self._fair_queue.has_queued_tasks
+            if not has_queued and not self._in_flight:
                 break
+            if has_queued and not dispatch_outcome.dispatched and not self._in_flight:
+                raise RuntimeError(
+                    "Ready frontier is admission-blocked with no in-flight task to release scheduler capacity."
+                )
             if not self._in_flight:
                 continue
             self._wake_event.clear()
@@ -499,7 +602,7 @@ class AsyncTaskScheduler:
 
     async def _salvage_stalled_row_groups(
         self,
-        seed_cols: frozenset[str],
+        seed_cols: tuple[str, ...],
         has_pre_batch: bool,
         all_columns: list[str],
     ) -> None:
@@ -583,6 +686,8 @@ class AsyncTaskScheduler:
         if completed:
             checkpointed = {rg_id for rg_id, _ in completed}
             self._deferred = [t for t in self._deferred if t.row_group not in checkpointed]
+            for rg_id in checkpointed:
+                self._drop_pending_ready_for_row_group(rg_id)
 
     def _finalize_after_shutdown(self, all_columns: list[str]) -> None:
         """Salvage row groups left in flight when early shutdown fired.
@@ -622,7 +727,7 @@ class AsyncTaskScheduler:
                     logger.warning(f"Row group {rg_id}: 0 of {rg_size} rows survived early shutdown - skipping write.")
         self._checkpoint_completed_row_groups(all_columns)
 
-    def _run_seeds_complete_check(self, seed_cols: frozenset[str]) -> None:
+    def _run_seeds_complete_check(self, seed_cols: tuple[str, ...]) -> None:
         """Run pre-batch callbacks for row groups whose seeds just completed."""
         for rg_id, state in list(self._rg_states.items()):
             if state.seeds_dispatched and not state.pre_batch_done:
@@ -631,7 +736,7 @@ class AsyncTaskScheduler:
                     state.pre_batch_done = True
                     if self._on_seeds_complete:
                         try:
-                            self._on_seeds_complete(rg_id, state.size)
+                            delta = self._on_seeds_complete(rg_id, state.size)
                         except DatasetGenerationError:
                             raise
                         except Exception as exc:
@@ -645,13 +750,16 @@ class AsyncTaskScheduler:
                             for ri in range(state.size):
                                 if self._tracker.is_dropped(rg_id, ri):
                                     self._record_skipped_tasks_for_row(rg_id, ri)
+                        if delta is not None:
+                            self._apply_frontier_delta(delta)
+                    self._flush_pre_batch_ready(rg_id)
 
     def _drop_row(self, row_group: int, row_index: int, *, exclude_columns: set[str] | None = None) -> None:
         if self._tracker.is_dropped(row_group, row_index):
             return
 
         self._record_skipped_tasks_for_row(row_group, row_index, exclude_columns=exclude_columns)
-        self._tracker.drop_row(row_group, row_index)
+        self._apply_frontier_delta(self._tracker.drop_row(row_group, row_index))
         if self._buffer_manager:
             self._buffer_manager.drop_row(row_group, row_index)
 
@@ -742,12 +850,14 @@ class AsyncTaskScheduler:
             seen_instances.add(gid)
 
             task = Task(column=col, row_group=rg_id, row_index=None, task_type="from_scratch")
-            # Also mark the "batch" variant as dispatched to prevent get_ready_tasks
-            # from generating a duplicate for this column
+            # Also mark the "batch" variant as dispatched to prevent duplicate
+            # scheduling for this column.
             batch_alias = Task(column=col, row_group=rg_id, row_index=None, task_type="batch")
             if task in self._dispatched or batch_alias in self._dispatched:
                 continue
 
+            # Seeds bypass fair-queue admission while row groups are being admitted;
+            # direct dispatch preserves stateful lock ordering across row groups.
             # Acquire stateful lock *before* submission semaphore to preserve
             # row-group ordering. Held until generation completes (_execute_seed_task).
             if gid in self._stateful_locks:
@@ -842,9 +952,10 @@ class AsyncTaskScheduler:
             for col in output_cols:
                 if task.row_index is None:
                     rg_size = self._get_rg_size(task.row_group)
-                    self._tracker.mark_row_range_complete(col, task.row_group, rg_size)
+                    delta = self._tracker.mark_row_range_complete(col, task.row_group, rg_size)
                 else:
-                    self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
+                    delta = self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
+                self._apply_frontier_delta(delta)
 
             self._check_error_rate(success=True)
             # The degraded-provider WARN is provider-scoped: only feed the
@@ -901,6 +1012,7 @@ class AsyncTaskScheduler:
                 trace.completed_at = time.perf_counter()
                 self.traces.append(trace)
 
+            self._fair_queue.release(task)
             self._in_flight.discard(task)
             if (s := self._rg_states.get(task.row_group)) is not None:
                 s.in_flight_count = max(0, s.in_flight_count - 1)

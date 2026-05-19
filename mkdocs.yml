@@ -20,6 +20,7 @@ nav:
       - Custom Columns: concepts/custom_columns.md
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
+      - Workflow Chaining: concepts/workflow-chaining.md
       - Person Sampling: concepts/person_sampling.md
       - Traces: concepts/traces.md
       - Tool Use & MCP:
@@ -71,7 +72,7 @@ nav:
       - Overview: plugins/overview.md
       - Build Your Own: plugins/build_your_own.md
       - Using Models: plugins/models.md
-      - Available Plugins: plugins/available.md
+      - Discover Plugins: plugins/discover.md
   - Code Reference:
       - Overview: code_reference/index.md
       # Keep module reference pages ordered alphabetically by nav label within each package group.
@@ -103,6 +104,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - Have It Your Way: devnotes/posts/have-it-your-way.md
       - VLM Long Document Understanding: devnotes/posts/vlm-long-document-understanding.md
       - Push Datasets to Hugging Face Hub: devnotes/posts/push-datasets-to-hugging-face-hub.md
       - "Text-to-SQL for Nemotron Super": devnotes/posts/text-to-sql.md

@@ -1,6 +1,16 @@
 # Fern Docs
 
-This folder is the Fern Docs build for NeMo Data Designer. The site is published at **`docs.nvidia.com/nemo/datadesigner`** (configured in [`docs.yml`](docs.yml)).
+This folder is the Fern Docs build for NeMo Data Designer. The site currently deploys to **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`**; [`docs.yml`](docs.yml) also declares the future `docs.nvidia.com/nemo/datadesigner` custom domain.
+
+## Migration phase
+
+Data Designer is moving from MkDocs to Fern over several releases. During that transition:
+
+- Keep the MkDocs build and release archive working.
+- Keep Fern working in parallel for local checks and hosted validation.
+- Treat `docs/` as the docs source of truth unless a page has already been intentionally moved to Fern-only MDX.
+- Treat `docs/notebook_source/*.py` as the notebook source of truth.
+- Keep generated Fern API reference and notebook artifacts gitignored.
 
 ## Prerequisites
 
@@ -11,66 +21,93 @@ npm install -g fern-api
 
 ## First-time setup
 
-Two pre-render steps are needed before the dev server has all content. Both produce files that are gitignored OR live alongside committed snapshots — running them is idempotent.
+Two pre-render steps are needed before the dev server has all content. Both produce gitignored files and are safe to rerun.
 
-### 1. Python API reference (gitignored — must regenerate)
+### 1. Python API reference (gitignored - must regenerate)
 
-The `libraries:` block in [`docs.yml`](docs.yml) tells Fern to extract API docs from this repo's Python source (`packages/data-designer-config/src/data_designer/config`). The output lands in `fern/code-reference/data-designer/` (gitignored).
+`make generate-fern-api-reference` uses `py2fern` to extract API docs from local Python source. The output lands in `fern/code-reference/` (gitignored), preserving the existing Config API folder and adding Interface and curated Engine extension API folders.
 
 ```bash
-cd fern
-fern docs md generate     # no FERN_TOKEN required; clones from GitHub + runs Pyright
+make generate-fern-api-reference
 ```
+
+`py2fern` only descends into Python packages. Add `__init__.py` to any new subdirectory whose modules should appear in the API reference.
+
+The `libraries:` block in [`docs.yml`](docs.yml) still documents the Fern-native config generator. Run `make generate-fern-api-reference-native` only when you want the Fern CLI output and have Fern auth.
 
 Re-run when the upstream package source changes.
 
-### 2. Notebook tutorials (committed snapshots — regenerate on edit)
+### 2. Notebook tutorials (gitignored - regenerate on clone)
 
-Each tutorial `.ipynb` is converted to a JSON+TS pair in `fern/components/notebooks/`, then rendered through the `<NotebookViewer>` component on the wrapper MDX page. Snapshots are committed so `fern docs dev` works without an API key.
+Each tutorial source file is converted to a JSON+TS pair in `fern/components/notebooks/`, then rendered through the `<NotebookViewer>` component on the wrapper MDX page. Output is gitignored; regenerate it after cloning and after changing `docs/notebook_source/*.py`.
 
 ```bash
-make generate-fern-notebooks                 # convert existing docs/colab_notebooks/*.ipynb
+make generate-fern-notebooks                 # convert docs/notebook_source/*.py, preferring docs/notebooks/*.ipynb when present
 make generate-fern-notebooks-with-outputs    # full pipeline: execute → colabify → convert (needs NVIDIA_API_KEY)
 ```
 
-The converter (`fern/scripts/ipynb-to-fern-json.py`) auto-strips the leading Colab badge cell — `<NotebookViewer>` renders its own banner from each wrapper's `colabUrl` prop.
+The docs build does not use `docs/colab_notebooks/`; those files exist for the wrapper pages' `colabUrl` links. The converter (`fern/scripts/ipynb-to-fern-json.py`) still strips Colab-only setup cells defensively if run on a Colab notebook.
+
+Fern does not run this conversion automatically. Run `make prepare-fern-docs` before local preview/checks, and run the same notebook conversion in CI before `fern generate --docs`.
 
 ## Local preview
 
 ```bash
-cd fern
-fern docs dev
+make serve-fern-docs-locally
 # → http://localhost:3000
 ```
 
-If the **Python API** sidebar folder is empty, run `fern docs md generate` (step 1 above) — `fern docs dev` doesn't run library generation itself.
+`serve-fern-docs-locally` generates Fern API reference and notebook artifacts before starting `fern docs dev`. It does not publish.
+
+## CI and publishing
+
+Fern publishing runs alongside MkDocs during migration:
+
+- `.github/workflows/build-fern-docs.yml` runs on release publication or manual dispatch. It snapshots release docs into the CI-managed `docs-website` branch, builds executed notebooks from the release source, runs `make check-fern-docs` from `docs-website`, and publishes Fern.
+- `.github/workflows/publish-fern-devnotes.yml` runs on `main` when Dev Notes or Fern Dev Notes assets change, plus manual dispatch. It patches only Dev Notes into the `docs-website` branch's current latest docs, reuses the last docs notebook artifact, runs `make check-fern-docs`, and publishes Fern.
+- `.github/workflows/docs-preview.yml` remains the PR preview workflow and posts both MkDocs and Fern preview links for same-repository PRs. It converts tutorial sources without execution outputs for preview builds. Fork PRs still run docs build/checks, but skip hosted previews because those require deployment secrets.
+
+These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
+
+Fern release snapshots live on `docs-website`, not on `main`. This mirrors the MkDocs `gh-pages` model without mixing Fern source state into the MkDocs output branch. The branch stores a source snapshot, not only `fern/`, because `make check-fern-docs` needs the Python packages and workspace metadata. Pushes to `docs-website` use `GITHUB_TOKEN`, so publishing happens inline in the same workflow instead of relying on a second workflow trigger.
+
+The `docs-website` branch is an orphan-style publish branch. Published commits include `fern/publish-metadata.json` with the source repository, ref, SHA, release tag when applicable, and published branch.
+
+The `docs-website` branch must already contain the historical Fern archive (`v0.6.0`, `v0.5.9`, `v0.5.8`, and `older`) before release publishing runs. The workflow fails if those redirect targets are missing.
+
+Manual dispatch with `release_tag` creates or refreshes that release snapshot. For the already-published `v0.6.0` release, run **Build Fern docs** with `release_tag=v0.6.0` and `source_ref=main` after this fix merges. Future release events default `source_ref` to the release tag.
 
 ## Versioning
 
-Floating-latest pattern (matches NeMo Curator):
+`main` contains only the latest Fern authoring docs. Published release snapshots live on `docs-website`.
 
 ```
 fern/versions/
-├── latest.yml            ← Unix symlink → v0.5.8.yml
-├── v0.5.8.yml            ← real nav file (paths point at ./v0.5.8/pages/...)
-└── v0.5.8/pages/...      ← canonical MDX tree
+├── latest.yml          ← authoring nav
+└── latest/pages/...    ← authoring pages
 ```
 
-`docs.yml` registers both `slug: latest` and `slug: v0.5.8`, so the same MDX renders at `/latest/...` and `/v0.5.8/...`.
+The CI-managed `docs-website` branch has the published archive:
 
-> **Windows note.** `latest.yml` is a real Unix symlink (`fern/versions/latest.yml -> v0.5.8.yml`). On Windows, `git clone` resolves symlinks only when `core.symlinks=true` is set (it's off by default for non-admin accounts). Without it, `latest.yml` will appear as a plain text file containing the literal string `v0.5.8.yml` and Fern will reject the version config. Run `git config --global core.symlinks true` (or per-repo) before cloning, or work in WSL/Git Bash. macOS/Linux are unaffected.
-
-### Cutting a new release
-
-```bash
-cd fern/versions
-cp -R v0.5.8 v0.5.9
-cp v0.5.8.yml v0.5.9.yml
-sed -i '' 's|./v0.5.8/pages/|./v0.5.9/pages/|g' v0.5.9.yml
-ln -sf v0.5.9.yml latest.yml
+```
+fern/versions/
+├── latest.yml
+├── latest/pages/...
+├── v0.6.0.yml
+├── v0.6.0/pages/...
+├── v0.5.9.yml
+├── v0.5.9/pages/...
+├── v0.5.8.yml
+├── v0.5.8/pages/...
+├── older.yml
+└── older/pages/...
 ```
 
-Then add a `v0.5.9` entry to `docs.yml`'s `versions:` list and update the `latest` entry's `display-name`.
+Each frozen `vX.Y.Z.yml` nav on `docs-website` must point only at that version's own `vX.Y.Z/pages/...` files. The release sync materializes shared historical pages into each version folder before publishing.
+
+Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow snapshots the release into `docs-website` and publishes from that branch.
+
+Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages from `main` into the current latest docs on `docs-website`, then republishes Fern.
 
 ## Folder layout
 
@@ -90,24 +127,44 @@ fern/
 │   ├── TrajectoryViewer.tsx   ← multi-turn tool-call traces
 │   ├── ExpandableCode.tsx     ← collapsible code (currently unused — Fern SSR has issues)
 │   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx, CustomFooter.tsx
-│   ├── notebooks/             ← per-tutorial *.json (canonical) + *.ts (MDX import target)
+│   ├── notebooks/             ← gitignored per-tutorial *.json + *.ts output
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
-├── code-reference/            ← gitignored; populated by `fern docs md generate`
+├── code-reference/            ← gitignored; populated by `make generate-fern-api-reference`
 └── versions/
-    ├── latest.yml -> v0.5.8.yml
-    ├── v0.5.8.yml             ← navigation tree
-    └── v0.5.8/pages/          ← MDX content
+    ├── latest.yml             ← authoring navigation tree
+    └── latest/pages/          ← authoring MDX content
 ```
 
 ## Common commands
+
+Primary local commands:
+
+| Command | Purpose |
+|---------|---------|
+| `make check-fern-docs-locally` | Install docs dependencies, generate Fern artifacts, and run `fern check` |
+| `make serve-fern-docs-locally` | Generate local Fern artifacts and serve local docs |
+| `make generate-fern-notebooks-with-outputs` | Full notebook pipeline: execute (needs `NVIDIA_API_KEY`) → colabify → convert |
+| `make prepare-fern-release VERSION=X.Y.Z` | Add or refresh Fern version files for release preview |
+| `make check-fern-release-version VERSION=X.Y.Z REQUIRE_LATEST=1` | Verify Fern release metadata exists before publishing |
+
+Support and CI targets:
+
+| Command | Purpose |
+|---------|---------|
+| `make install-docs-deps` | Install docs and notebook dependencies |
+| `make generate-fern-api-reference` | Generate local Fern API reference with `py2fern` |
+| `make generate-fern-api-reference-native` | Generate Fern API reference with Fern CLI (requires Fern auth) |
+| `make generate-fern-notebooks` | Refresh gitignored notebook output from `docs/notebook_source/*.py` |
+| `make prepare-fern-docs` | Generate local Fern artifacts |
+| `make check-fern-docs` | Generate local Fern artifacts and run `fern check` |
+
+Raw Fern CLI commands, normally wrapped by Make:
 
 | Command | Purpose |
 |---------|---------|
 | `fern docs dev` | Local preview at `http://localhost:3000` |
 | `fern check` | Validate `docs.yml` and MDX |
-| `fern docs md generate` | Generate library API docs (no token) |
-| `fern generate --docs --preview` | Hosted preview on `*.docs.buildwithfern.com` (needs `FERN_TOKEN`) |
-| `make generate-fern-notebooks` | Refresh notebook snapshots from existing colab `.ipynb` |
-| `make generate-fern-notebooks-with-outputs` | Full notebook pipeline: execute (needs `NVIDIA_API_KEY`) → colabify → convert |
+| `fern docs md generate` | Generate library API docs with Fern CLI (requires Fern auth) |
+| `fern generate --docs --preview` | Hosted preview on `*.docs.buildwithfern.com` (needs Fern token) |

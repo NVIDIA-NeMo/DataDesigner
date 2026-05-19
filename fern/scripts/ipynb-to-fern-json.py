@@ -39,6 +39,8 @@ from PIL import Image
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name
+from pygments.style import Style
+from pygments.token import Comment, Error, Generic, Keyword, Literal, Name, Number, Operator, Punctuation, String, Text
 from pygments.util import ClassNotFound
 
 # Cap each image's longest edge so notebook .ts payloads stay small enough for
@@ -49,12 +51,18 @@ MAX_IMAGE_DIMENSION = 800
 # CommonMark-compliant markdown renderer with table + strikethrough +
 # raw-HTML support. Used to pre-render markdown cell sources to HTML at
 # build time so NotebookViewer doesn't have to ship a JS markdown parser.
-_MD = MarkdownIt("commonmark", {"html": True, "linkify": False, "breaks": False}).enable("table").enable("strikethrough")
+_MD = (
+    MarkdownIt("commonmark", {"html": True, "linkify": False, "breaks": False}).enable("table").enable("strikethrough")
+)
 
 COLAB_BADGE_RE = re.compile(
     r"colab\.research\.google\.com/(?:assets/colab-badge\.svg|github/)",
     re.IGNORECASE,
 )
+COLAB_SETUP_HEADING_RE = re.compile(r"^\s*###\s*⚡\s*Colab Setup\b", re.MULTILINE)
+COLAB_INSTALL_RE = re.compile(r"^%%capture\s*\n!pip install -U data-designer\b", re.MULTILINE)
+COLAB_USERDATA_RE = re.compile(r"from google\.colab import userdata")
+COLAB_INJECT_METADATA = "nemo_colab_inject"
 
 # Inline base64 PNG/JPEG embedded in IPython.display.HTML blobs. The image
 # notebooks (5, 6) emit `<img src='data:image/png;base64,...'>` inside HTML
@@ -65,6 +73,65 @@ INLINE_DATA_URI_RE = re.compile(
     r"data:image/(png|jpe?g);base64,([A-Za-z0-9+/=\s]+?)(?=[\"'\s)])",
     re.IGNORECASE,
 )
+STYLE_ATTR_RE = re.compile(r'style="([^"]*color:[^"]*)"')
+COLOR_DECL_RE = re.compile(r"(?<!-)color:\s*([^;]+)")
+
+FERN_DARK_COLOR_BY_LIGHT = {
+    "#032f62": "#a5d6ff",
+    "#005cc5": "#79c0ff",
+    "#22863a": "#7ee787",
+    "#24292e": "#e6edf3",
+    "#6a737d": "#8b949e",
+    "#6f42c1": "#d2a8ff",
+    "#b31d28": "#ffa198",
+    "#d73a49": "#ff7b72",
+    "#e36209": "#ffa657",
+}
+
+
+class FernGithubLightStyle(Style):
+    default_style = "#24292e"
+    background_color = "#ffffff"
+    styles = {
+        Text: "#24292e",
+        Comment: "italic #6a737d",
+        Error: "#b31d28",
+        Keyword: "#d73a49",
+        Keyword.Constant: "#005cc5",
+        Keyword.Declaration: "#d73a49",
+        Keyword.Namespace: "#d73a49",
+        Keyword.Pseudo: "#005cc5",
+        Keyword.Reserved: "#d73a49",
+        Keyword.Type: "#d73a49",
+        Operator: "#d73a49",
+        Operator.Word: "#d73a49",
+        Punctuation: "#24292e",
+        Name: "#24292e",
+        Name.Attribute: "#005cc5",
+        Name.Builtin: "#005cc5",
+        Name.Builtin.Pseudo: "#005cc5",
+        Name.Class: "#6f42c1",
+        Name.Constant: "#005cc5",
+        Name.Decorator: "#6f42c1",
+        Name.Exception: "#d73a49",
+        Name.Function: "#6f42c1",
+        Name.Namespace: "#24292e",
+        Name.Tag: "#22863a",
+        Name.Variable: "#e36209",
+        Literal: "#032f62",
+        String: "#032f62",
+        Number: "#005cc5",
+        Generic.Deleted: "#b31d28",
+        Generic.Emph: "italic",
+        Generic.Error: "#b31d28",
+        Generic.Heading: "bold #005cc5",
+        Generic.Inserted: "#22863a",
+        Generic.Output: "#6a737d",
+        Generic.Prompt: "#6a737d",
+        Generic.Strong: "bold",
+        Generic.Subheading: "bold #6f42c1",
+        Generic.Traceback: "#b31d28",
+    }
 
 
 def get_language(metadata: dict) -> str:
@@ -78,22 +145,48 @@ def highlight_code(source: str, language: str) -> str | None:
         lexer = get_lexer_by_name(language, stripall=True)
     except ClassNotFound:
         return None
-    formatter = HtmlFormatter(noclasses=True, style="friendly", nowrap=True)
-    return highlight(source, lexer, formatter)
+    formatter = HtmlFormatter(noclasses=True, style=FernGithubLightStyle, nowrap=True)
+    return add_fern_highlight_vars(highlight(source, lexer, formatter))
 
 
-def _join_source(source: list | str) -> str:
+def add_fern_highlight_vars(html: str) -> str:
+    def replace_style(match: re.Match[str]) -> str:
+        style = match.group(1)
+        if "--shiki-light" in style:
+            return match.group(0)
+
+        color_match = COLOR_DECL_RE.search(style)
+        if color_match is None:
+            return match.group(0)
+
+        color = color_match.group(1).strip()
+        dark_color = FERN_DARK_COLOR_BY_LIGHT.get(color.lower(), color)
+        style = COLOR_DECL_RE.sub("color: var(--shiki-light)", style, count=1)
+        return f'style="--shiki-light: {color}; --shiki-dark: {dark_color}; {style}"'
+
+    return STYLE_ATTR_RE.sub(replace_style, html)
+
+
+def _join_source(source: list | str | None) -> str:
+    if source is None:
+        return ""
     if isinstance(source, list):
         return "".join(source)
     return str(source)
 
 
-def is_colab_badge_cell(cell: dict) -> bool:
-    """True if the cell is the redundant Colab badge prepended by generate_colab_notebooks.py."""
-    if cell.get("cell_type") != "markdown":
-        return False
+def is_colab_injected_cell(cell: dict) -> bool:
+    """True if the cell is injected for Colab, not rendered docs."""
+    metadata = cell.get("metadata") or {}
+    if metadata.get(COLAB_INJECT_METADATA) is True:
+        return True
+
     src = _join_source(cell.get("source", []))
-    return bool(COLAB_BADGE_RE.search(src))
+    if cell.get("cell_type") == "markdown":
+        return bool(COLAB_BADGE_RE.search(src) or COLAB_SETUP_HEADING_RE.search(src))
+    if cell.get("cell_type") == "code":
+        return bool(COLAB_INSTALL_RE.search(src) or COLAB_USERDATA_RE.search(src))
+    return False
 
 
 def shrink_image_b64(b64: str, max_dim: int = MAX_IMAGE_DIMENSION) -> tuple[str, str]:
@@ -198,7 +291,7 @@ def convert_notebook(ipynb_path: Path) -> tuple[dict, int]:
     skipped = 0
     cells = []
     for cell in raw_cells:
-        if is_colab_badge_cell(cell):
+        if is_colab_injected_cell(cell):
             skipped += 1
             continue
         cells.append(convert_cell(cell, default_language))
@@ -209,8 +302,7 @@ def write_ts_export(data: dict, ts_path: Path) -> None:
     """Write a .ts file that exports the notebook data inline (MDX imports the .ts, not the .json)."""
     cells_json = json.dumps(data["cells"], indent=2, ensure_ascii=False)
     ts_path.write_text(
-        f"/** Auto-generated by ipynb-to-fern-json.py - do not edit */\n"
-        f"export default {{ cells: {cells_json} }};\n",
+        f"/** Auto-generated by ipynb-to-fern-json.py - do not edit */\nexport default {{ cells: {cells_json} }};\n",
         encoding="utf-8",
     )
 

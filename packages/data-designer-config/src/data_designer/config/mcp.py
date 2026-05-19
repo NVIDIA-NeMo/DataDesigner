@@ -22,7 +22,7 @@ class MCPProvider(ConfigBase):
         name (str): Unique name used to reference this MCP provider.
         endpoint (str): Endpoint URL for connecting to the remote MCP server.
         api_key (str | None): Optional API key for authentication. Defaults to None.
-        provider_type (Literal["sse", "streamable_http"]): Transport type discriminator.
+        provider_type (Literal['sse', 'streamable_http']): Transport type discriminator.
             Defaults to ``"sse"``.
 
     Examples:
@@ -61,7 +61,7 @@ class LocalStdioMCPProvider(ConfigBase):
         command (str): Executable to launch the MCP server via stdio transport.
         args (list[str]): Arguments passed to the MCP server executable. Defaults to [].
         env (dict[str, str]): Environment variables passed to the MCP server subprocess. Defaults to {}.
-        provider_type (Literal["stdio"]): Transport type discriminator, always "stdio".
+        provider_type (Literal['stdio']): Transport type discriminator, always "stdio".
 
     Examples:
         Stdio (subprocess) transport:
