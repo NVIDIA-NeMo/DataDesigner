@@ -20,6 +20,7 @@ nav:
       - Custom Columns: concepts/custom_columns.md
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
+      - Workflow Chaining: concepts/workflow-chaining.md
       - Person Sampling: concepts/person_sampling.md
       - Traces: concepts/traces.md
       - Tool Use & MCP:
