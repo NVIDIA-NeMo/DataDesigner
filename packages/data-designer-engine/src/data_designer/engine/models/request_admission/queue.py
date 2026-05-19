@@ -64,6 +64,9 @@ class RequestFairQueue:
     def contains(self, waiter_id: str) -> bool:
         return waiter_id in self._queued
 
+    def waiters(self) -> tuple[RequestWaiter, ...]:
+        return tuple(self._queued.values())
+
     def enqueue(self, waiter: RequestWaiter) -> bool:
         if waiter.waiter_id in self._queued:
             return False

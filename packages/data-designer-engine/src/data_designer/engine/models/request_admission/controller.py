@@ -220,6 +220,18 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         try:
             while True:
                 with self._lock:
+                    if waiter.assigned_lease is not None:
+                        return waiter.assigned_lease
+                    now = time.monotonic()
+                    if deadline is not None and now >= deadline:
+                        self._remove_waiter_locked(waiter)
+                        denied = RequestAdmissionDenied(
+                            item=item,
+                            reason="queue_timeout",
+                            snapshot=self._snapshot_locked(item.resource, now),
+                        )
+                        events.append(self._request_event_locked("request_wait_timeout", item=item, decision=denied))
+                        raise RequestAdmissionError(denied)
                     if not self._queue.contains(waiter.waiter_id) and waiter.assigned_lease is None:
                         self._enqueue_waiter_locked(waiter, events)
                     self._admit_waiters_locked(events)
@@ -266,6 +278,18 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         try:
             while True:
                 with self._lock:
+                    if waiter.assigned_lease is not None:
+                        return waiter.assigned_lease
+                    now = time.monotonic()
+                    if deadline is not None and now >= deadline:
+                        self._remove_waiter_locked(waiter)
+                        denied = RequestAdmissionDenied(
+                            item=item,
+                            reason="queue_timeout",
+                            snapshot=self._snapshot_locked(item.resource, now),
+                        )
+                        events.append(self._request_event_locked("request_wait_timeout", item=item, decision=denied))
+                        raise RequestAdmissionError(denied)
                     if not self._queue.contains(waiter.waiter_id) and waiter.assigned_lease is None:
                         self._enqueue_waiter_locked(waiter, events)
                     self._admit_waiters_locked(events)
@@ -399,6 +423,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
     def _queued_waiter_ahead_locked(self, item: RequestAdmissionItem, now: float) -> bool:
         if not self._queue.has_waiters:
             return False
+        self._expire_waiters_locked(now)
         selection = self._queue.select_next(lambda waiter, _view: self._denial_for(waiter.item, now) is None)
         if selection is None:
             return False
@@ -421,9 +446,18 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         state.waiters = max(0, state.waiters - 1)
         self._sequence += 1
 
+    def _expire_waiters_locked(self, now: float) -> None:
+        for waiter in self._queue.waiters():
+            if waiter.deadline_monotonic is not None and now >= waiter.deadline_monotonic:
+                self._remove_waiter_locked(waiter)
+                self._wake_waiter_locked(waiter)
+
     def _admit_waiters_locked(self, events: list[RequestAdmissionEvent]) -> None:
         while self._queue.has_waiters:
             now = time.monotonic()
+            self._expire_waiters_locked(now)
+            if not self._queue.has_waiters:
+                return
             selection = self._queue.select_next(lambda waiter, _view: self._denial_for(waiter.item, now) is None)
             if selection is None:
                 return
