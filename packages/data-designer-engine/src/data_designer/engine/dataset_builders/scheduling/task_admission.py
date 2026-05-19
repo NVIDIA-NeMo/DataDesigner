@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
@@ -35,6 +35,7 @@ ReleaseReason = Literal[
     "wrong_controller_generation",
     "unknown_lease",
 ]
+RELEASED_TASK_LEASE_HISTORY_LIMIT = 8192
 
 
 @dataclass(frozen=True)
@@ -113,6 +114,7 @@ class TaskAdmissionController:
         self._generation = uuid.uuid4().hex
         self._leases: dict[str, TaskAdmissionLease] = {}
         self._released: set[str] = set()
+        self._released_order: deque[str] = deque(maxlen=RELEASED_TASK_LEASE_HISTORY_LIMIT)
         self._leased_by_resource: Counter[SchedulerResourceKey] = Counter()
         self._leased_by_group: dict[TaskGroupKey, Counter[SchedulerResourceKey]] = defaultdict(Counter)
         self._running_by_group: Counter[TaskGroupKey] = Counter()
@@ -184,7 +186,7 @@ class TaskAdmissionController:
             self._release_diagnostics["stale_lease"] += 1
             return ReleaseResult(released=False, reason="stale_lease")
 
-        self._released.add(lease.lease_id)
+        self._remember_released(lease.lease_id)
         for resource, amount in active.resources.items():
             self._leased_by_resource[resource] = max(0, self._leased_by_resource[resource] - amount)
             self._leased_by_group[active.item.group.key][resource] = max(
@@ -259,3 +261,12 @@ class TaskAdmissionController:
     def _apply_delta(self, delta: PolicyStateDelta) -> None:
         for key, change in delta.debt_changes.items():
             self._policy_debt[key] = max(0, self._policy_debt[key] + change)
+
+    def _remember_released(self, lease_id: str) -> None:
+        if lease_id in self._released:
+            return
+        maxlen = self._released_order.maxlen
+        if maxlen is not None and len(self._released_order) >= maxlen:
+            self._released.discard(self._released_order[0])
+        self._released.add(lease_id)
+        self._released_order.append(lease_id)

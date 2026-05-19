@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 from data_designer.engine.models.request_admission.resources import RequestDomain, RequestResourceKey
 from data_designer.engine.models.resources import ProviderModelKey
 
@@ -43,6 +44,9 @@ class ProviderModelPressureSnapshot:
 
 
 class RequestPressureSnapshotProvider(Protocol):
+    @property
+    def config(self) -> RequestAdmissionConfig | None: ...
+
     def snapshot(self, resource: RequestResourceKey) -> RequestPressureSnapshot | None: ...
 
     def snapshots(self) -> Mapping[RequestResourceKey, RequestPressureSnapshot]: ...

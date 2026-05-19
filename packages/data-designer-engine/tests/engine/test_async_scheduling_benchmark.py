@@ -39,6 +39,11 @@ def _load_idle_regression_module() -> ModuleType:
     return module
 
 
+def _load_idle_report_module() -> ModuleType:
+    _load_idle_regression_module()
+    return sys.modules["generate_async_scheduling_idle_report"]
+
+
 def _capacity_plan() -> SimpleNamespace:
     return SimpleNamespace(
         observed_maxima=SimpleNamespace(
@@ -262,6 +267,24 @@ def test_idle_regression_detects_bad_idle_partition() -> None:
     checks = regression.evaluate_idle_regression_summary(summary)
 
     assert any(not check.passed and check.name == "row-scale/rows-64 idle partition" for check in checks)
+
+
+def test_idle_regression_skip_run_does_not_generate_missing_artifacts(tmp_path: Path) -> None:
+    report = _load_idle_report_module()
+    case = report.IdleBenchmarkCase(
+        name="missing",
+        sweep="reuse",
+        record_count=1,
+        buffer_size=1,
+        row_group_concurrency=1,
+        task_admission_capacity=1,
+        fanout_width=1,
+        upstream_latency_seconds=0.0,
+        downstream_latency_seconds=0.0,
+    )
+
+    with pytest.raises(FileNotFoundError, match="Cannot reuse benchmark artifact"):
+        report._run_or_load_case(case, tmp_path, skip_run=True)
 
 
 def test_idle_regression_requires_adaptation_controls() -> None:

@@ -12,6 +12,7 @@ from data_designer.engine.dataset_builders.scheduling.resources import (
     stable_task_id,
 )
 from data_designer.engine.dataset_builders.scheduling.task_admission import (
+    RELEASED_TASK_LEASE_HISTORY_LIMIT,
     TaskAdmissionConfig,
     TaskAdmissionController,
     TaskAdmissionDenied,
@@ -83,6 +84,23 @@ def test_task_admission_duplicate_release_does_not_increase_capacity() -> None:
     assert second.released is False
     assert second.reason == "duplicate"
     assert controller.view().resources_available["submission"] == 1
+
+
+def test_task_admission_released_history_is_bounded() -> None:
+    controller = TaskAdmissionController(TaskAdmissionConfig(submission_capacity=1))
+    first_lease: TaskAdmissionLease | None = None
+    for index in range(RELEASED_TASK_LEASE_HISTORY_LIMIT + 5):
+        item = _item(f"task-{index}")
+        lease = controller.try_acquire(item, _queue_view(item))
+        assert isinstance(lease, TaskAdmissionLease)
+        first_lease = first_lease or lease
+        controller.release(lease)
+
+    assert len(controller._released) == RELEASED_TASK_LEASE_HISTORY_LIMIT
+    assert len(controller._released_order) == RELEASED_TASK_LEASE_HISTORY_LIMIT
+    assert controller._released_order.maxlen == RELEASED_TASK_LEASE_HISTORY_LIMIT
+    assert first_lease is not None
+    assert controller.release(first_lease).reason == "unknown_lease"
 
 
 def test_task_admission_group_cap_yields_to_peer_pressure() -> None:

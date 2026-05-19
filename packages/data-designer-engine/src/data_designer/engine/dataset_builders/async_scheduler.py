@@ -22,6 +22,7 @@ from data_designer.engine.capacity import (
     AsyncCapacityPlan,
     AsyncCapacityRuntimeSnapshot,
     CapacityValue,
+    RequestAdmissionConfigSnapshot,
     RowGroupAdmission,
 )
 from data_designer.engine.context import current_row_group
@@ -57,6 +58,9 @@ from data_designer.engine.dataset_builders.utils.sticky_progress_bar import Stic
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, GenerationValidationFailureError
+from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+from data_designer.engine.models.request_admission.resources import RequestResourceKey
+from data_designer.engine.models.resources import ProviderModelKey, ProviderModelStaticCap
 from data_designer.engine.observability import (
     RuntimeCorrelation,
     SchedulerAdmissionEvent,
@@ -280,6 +284,10 @@ class AsyncTaskScheduler:
         self._observed_max_row_groups_in_flight = 0
         self._observed_max_task_leases_by_resource: dict[str, int] = {}
         self._observed_max_queued_by_group: dict[str, int] = {}
+        self._observed_max_request_waiters_by_resource: dict[RequestResourceKey, int] = {}
+        self._observed_max_request_in_flight_by_resource: dict[RequestResourceKey, int] = {}
+        self._observed_max_provider_model_aggregate_in_flight: dict[ProviderModelKey, int] = {}
+        self._observed_max_request_domain_current_limits: dict[RequestResourceKey, int] = {}
         self._adaptive_row_group_admission = adaptive_row_group_admission
         self._row_group_admission_hard_cap = max(1, max_concurrent_row_groups)
         self._row_group_admission_target = (
@@ -438,6 +446,26 @@ class AsyncTaskScheduler:
         for group, count in queue_view.queued_by_group.items():
             label = f"{group.kind}:{'/'.join(group.identity)}"
             self._observed_max_queued_by_group[label] = max(self._observed_max_queued_by_group.get(label, 0), count)
+        if self._request_pressure_provider is None:
+            return
+        for resource, snapshot in self._request_pressure_provider.snapshots().items():
+            self._observed_max_request_waiters_by_resource[resource] = max(
+                self._observed_max_request_waiters_by_resource.get(resource, 0),
+                snapshot.waiters,
+            )
+            self._observed_max_request_in_flight_by_resource[resource] = max(
+                self._observed_max_request_in_flight_by_resource.get(resource, 0),
+                snapshot.in_flight_count,
+            )
+            self._observed_max_request_domain_current_limits[resource] = max(
+                self._observed_max_request_domain_current_limits.get(resource, 0),
+                snapshot.current_limit,
+            )
+        for provider_model, snapshot in self._request_pressure_provider.global_snapshots().items():
+            self._observed_max_provider_model_aggregate_in_flight[provider_model] = max(
+                self._observed_max_provider_model_aggregate_in_flight.get(provider_model, 0),
+                snapshot.aggregate_in_flight,
+            )
 
     def _emit_scheduler_health_snapshot(self, reason: str) -> None:
         self._emit_scheduler_event(
@@ -1758,6 +1786,53 @@ class AsyncTaskScheduler:
     def capacity_plan(self) -> AsyncCapacityPlan:
         """Return the scheduler-side async capacity explanation for this run."""
         task_view = self._task_admission.view()
+        request_snapshots = (
+            dict(self._request_pressure_provider.snapshots()) if self._request_pressure_provider is not None else {}
+        )
+        provider_snapshots = (
+            dict(self._request_pressure_provider.global_snapshots())
+            if self._request_pressure_provider is not None
+            else {}
+        )
+        request_resources = tuple(sorted(request_snapshots))
+        provider_model_static_caps = {
+            provider_model: ProviderModelStaticCap(
+                cap=snapshot.static_cap,
+                aliases=snapshot.aliases,
+                raw_caps=snapshot.raw_caps,
+            )
+            for provider_model, snapshot in provider_snapshots.items()
+        }
+        request_config = self._request_pressure_provider.config if self._request_pressure_provider is not None else None
+        request_config_snapshot = (
+            RequestAdmissionConfigSnapshot.from_config(request_config)
+            if isinstance(request_config, RequestAdmissionConfig)
+            else None
+        )
+        request_domain_initial_limits: dict[RequestResourceKey, int] = {}
+        if request_config_snapshot is not None:
+            request_domain_initial_limits.update(request_config_snapshot.initial_limits)
+        for resource, snapshot in request_snapshots.items():
+            configured_initial = (
+                request_config_snapshot.initial_limits.get(resource) if request_config_snapshot is not None else None
+            )
+            request_domain_initial_limits[resource] = (
+                max(1, min(configured_initial, snapshot.effective_max))
+                if configured_initial is not None
+                else snapshot.effective_max
+            )
+        request_domain_current_limits = {
+            resource: snapshot.current_limit for resource, snapshot in request_snapshots.items()
+        }
+        request_domain_effective_max = {
+            resource: snapshot.effective_max for resource, snapshot in request_snapshots.items()
+        }
+        request_domain_blocked_until = {
+            resource: snapshot.blocked_until_monotonic for resource, snapshot in request_snapshots.items()
+        }
+        provider_model_aggregate_in_flight = {
+            provider_model: snapshot.aggregate_in_flight for provider_model, snapshot in provider_snapshots.items()
+        }
         return AsyncCapacityPlan(
             configured=AsyncCapacityConfigured(
                 buffer_size=CapacityValue(value=self._buffer_size, source="run_config"),
@@ -1779,24 +1854,28 @@ class AsyncTaskScheduler:
                     source="engine_internal_config",
                 ),
                 request_resources=CapacityValue(
-                    value=(),
+                    value=request_resources,
                     source="runtime_snapshot",
-                    missing_reason="request admission resources are reported by the model registry request controller",
+                    missing_reason=None if request_resources else "request admission has not observed any resources",
                 ),
                 provider_model_static_caps=CapacityValue(
-                    value={},
-                    source="runtime_snapshot",
-                    missing_reason="request admission caps are reported by the model registry request controller",
+                    value=provider_model_static_caps,
+                    source="model_metadata",
+                    missing_reason=None if provider_model_static_caps else "request admission has no registered models",
                 ),
                 request_domain_initial_limits=CapacityValue(
-                    value={},
-                    source="runtime_snapshot",
-                    missing_reason="request admission limits are reported by the model registry request controller",
+                    value=request_domain_initial_limits,
+                    source="engine_internal_config" if request_config_snapshot is not None else "runtime_snapshot",
+                    missing_reason=None
+                    if request_domain_initial_limits
+                    else "request admission has not observed any domain limits",
                 ),
                 request_admission_config=CapacityValue(
-                    value=None,
-                    source="runtime_snapshot",
-                    missing_reason="request admission config is owned by the model registry request controller",
+                    value=request_config_snapshot,
+                    source="engine_internal_config",
+                    missing_reason=None
+                    if request_config_snapshot is not None
+                    else "request admission config is not exposed by the pressure provider",
                 ),
                 transport_pool_limits=CapacityValue(
                     value={},
@@ -1804,11 +1883,30 @@ class AsyncTaskScheduler:
                     missing_reason="transport pool utilization is adapter-specific",
                 ),
             ),
-            runtime_snapshot=AsyncCapacityRuntimeSnapshot(),
+            runtime_snapshot=AsyncCapacityRuntimeSnapshot(
+                request_domain_current_limits=request_domain_current_limits,
+                request_domain_effective_max=request_domain_effective_max,
+                request_domain_blocked_until=request_domain_blocked_until,
+                provider_model_aggregate_in_flight=provider_model_aggregate_in_flight,
+            ),
             observed_maxima=AsyncCapacityObservedMaxima(
                 row_groups_in_flight=self._observed_max_row_groups_in_flight,
                 queued_tasks_by_group=dict(self._observed_max_queued_by_group),
                 task_leases_by_resource=dict(self._observed_max_task_leases_by_resource or task_view.leased_resources),
+                request_waiters_by_resource=dict(
+                    self._observed_max_request_waiters_by_resource
+                    or {resource: snapshot.waiters for resource, snapshot in request_snapshots.items()}
+                ),
+                request_in_flight_by_resource=dict(
+                    self._observed_max_request_in_flight_by_resource
+                    or {resource: snapshot.in_flight_count for resource, snapshot in request_snapshots.items()}
+                ),
+                provider_model_aggregate_in_flight=dict(
+                    self._observed_max_provider_model_aggregate_in_flight or provider_model_aggregate_in_flight
+                ),
+                request_domain_current_limits=dict(
+                    self._observed_max_request_domain_current_limits or request_domain_current_limits
+                ),
                 transport_pool_utilization=None,
             ),
         )

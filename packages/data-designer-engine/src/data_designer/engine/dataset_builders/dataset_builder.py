@@ -1045,6 +1045,7 @@ class DatasetBuilder:
             buffer_size=buffer_size,
             progress_interval=self._resource_provider.run_config.progress_interval,
             progress_bar=self._resource_provider.run_config.progress_bar,
+            request_pressure_provider=self._resource_provider.model_registry.request_admission,
         )
         return scheduler, buffer_manager
 
