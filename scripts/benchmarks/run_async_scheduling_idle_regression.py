@@ -23,8 +23,9 @@ from generate_async_scheduling_idle_report import (
     write_idle_results_summary,
 )
 
-DEFAULT_ARTIFACT_DIR = Path("artifacts/async-scheduling-idle-regression")
-DEFAULT_REPORT_PATH = Path("reports/async-scheduling-idle-regression.html")
+DEFAULT_OUTPUT_ROOT = Path(".scratch/async-scheduling-idle-regression")
+DEFAULT_ARTIFACT_DIR = DEFAULT_OUTPUT_ROOT / "artifacts"
+DEFAULT_REPORT_PATH = DEFAULT_OUTPUT_ROOT / "async-scheduling-idle-regression.html"
 DEFAULT_SUMMARY_PATH = DEFAULT_ARTIFACT_DIR / "idle_regression_summary.json"
 DEFAULT_CHECKS_PATH = DEFAULT_ARTIFACT_DIR / "idle_regression_checks.json"
 CHECKS_SCHEMA_VERSION = "async-scheduling-idle-checks-v1"
