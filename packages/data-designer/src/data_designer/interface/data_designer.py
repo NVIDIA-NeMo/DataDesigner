@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -247,6 +248,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         dataset_name: str = "dataset",
         resume: ResumeMode = ResumeMode.NEVER,
         artifact_path: Path | str | None = None,
+        on_batch_complete: Callable[[Path], None] | None = None,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -280,6 +282,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 discarded before generation continues.
             artifact_path: Optional artifact root for this create call. Defaults
                 to the path configured on this DataDesigner instance.
+            on_batch_complete: Optional callback called with the completed batch artifact path after
+                each batch is written. Useful for incremental workflows such as uploading each batch
+                to remote storage, updating an external run monitor, or triggering downstream processing
+                before the full dataset has finished. The callback runs synchronously in the generation
+                path, so it is recommended to keep it lightweight or delegate slow work to a queue, e.g.
+                ``on_batch_complete=lambda path: queue_upload(path)``. Callback exceptions abort the run
+                and are wrapped as ``DataDesignerGenerationError``.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -314,7 +323,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
         try:
-            builder.build(num_records=num_records, resume=resume)
+            builder.build(num_records=num_records, on_batch_complete=on_batch_complete, resume=resume)
         except DeprecationWarning:
             raise
         except Exception as e:
