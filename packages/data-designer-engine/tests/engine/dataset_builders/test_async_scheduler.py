@@ -596,6 +596,40 @@ async def test_scheduler_internal_bug_failure_aborts_instead_of_dropping_row(
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_custom_generator_key_error_drops_row_without_fatal_abort(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    @custom_column_generator()
+    def failing_custom(row: dict) -> dict:
+        raise KeyError("missing user field")
+
+    provider = _mock_provider()
+    custom_config = CustomColumnConfig(name="custom_col", generator_function=failing_custom)
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=1,
+        configs=[
+            SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+            custom_config,
+        ],
+        strategies={
+            "seed": GenerationStrategy.FULL_COLUMN,
+            "custom_col": GenerationStrategy.CELL_BY_CELL,
+        },
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "custom_col": CustomColumnGenerator(config=custom_config, resource_provider=provider),
+        },
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert "This record will be skipped" in caplog.text
+    assert "Unexpected fatal Non-retryable failure" not in caplog.text
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_logs_sink_failures(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.WARNING, logger="data_designer.engine.dataset_builders.async_scheduler")
     scheduler, tracker = _build_simple_pipeline(num_records=1, scheduler_event_sink=_BrokenSchedulerSink())
