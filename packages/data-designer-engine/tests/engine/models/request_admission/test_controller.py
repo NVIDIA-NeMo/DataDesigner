@@ -152,7 +152,40 @@ def test_request_admission_rate_limit_burst_decreases_once_per_cascade() -> None
 
     assert snapshot is not None
     assert snapshot.current_limit == 4
+    assert snapshot.rate_limit_ceiling == 8
     assert snapshot.consecutive_rate_limits == 8
+
+
+def test_request_admission_fresh_rate_limit_after_burst_decreases_again() -> None:
+    controller = _controller(
+        cap=8,
+        config=RequestAdmissionConfig(
+            multiplicative_decrease_factor=0.5,
+            cooldown_seconds=0,
+        ),
+    )
+    item = _item()
+    leases = [controller.try_acquire(item) for _ in range(8)]
+    assert all(isinstance(lease, RequestAdmissionLease) for lease in leases)
+
+    for lease in leases:
+        controller.release(lease, RequestReleaseOutcome(kind="rate_limited"))
+    snapshot = controller.pressure.snapshot(item.resource)
+    assert snapshot is not None
+    assert snapshot.current_limit == 4
+    assert snapshot.rate_limit_ceiling == 8
+
+    fresh_lease = controller.try_acquire(item)
+    assert isinstance(fresh_lease, RequestAdmissionLease)
+    assert fresh_lease.current_adaptive_limit == 4
+
+    controller.release(fresh_lease, RequestReleaseOutcome(kind="rate_limited"))
+    snapshot = controller.pressure.snapshot(item.resource)
+
+    assert snapshot is not None
+    assert snapshot.current_limit == 2
+    assert snapshot.rate_limit_ceiling == 4
+    assert snapshot.consecutive_rate_limits == 9
 
 
 def test_request_admission_additive_recovery_after_successes() -> None:
