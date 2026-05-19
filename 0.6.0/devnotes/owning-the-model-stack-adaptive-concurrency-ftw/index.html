@@ -3569,6 +3569,8 @@
       
         
       
+        
+      
     
     
     
@@ -3616,6 +3618,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../retriever-sdg-toolkit-from-documents-to-training-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retriever SDG Plugin: Turn Your Documents Into Retriever Training Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -3874,6 +3904,17 @@
     <span class="md-ellipsis">
       
         AIMD: Additive Increase / Multiplicative Decrease
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#startup-ramp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup ramp
       
     </span>
   </a>
@@ -4158,10 +4199,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_14" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_15" >
         
           
-          <label class="md-nav__link" for="__nav_7_14" id="__nav_7_14_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7_15" id="__nav_7_15_label" tabindex="0">
             
   
   
@@ -4179,8 +4220,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_14_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_14">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_15">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -4313,6 +4354,17 @@
     <span class="md-ellipsis">
       
         AIMD: Additive Increase / Multiplicative Decrease
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#startup-ramp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup ramp
       
     </span>
   </a>
@@ -4469,7 +4521,7 @@
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 20a8 8 0 0 0 8-8 8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8m0-18a10 10 0 0 1 10 10 10 10 0 0 1-10 10C6.47 22 2 17.5 2 12A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7z"/></svg>
                           <span class="md-ellipsis">
                             
-                              11 min read
+                              12 min read
                             
                           </span>
                         </div>
@@ -4542,15 +4594,19 @@
 <h3 id="aimd-additive-increase-multiplicative-decrease"><strong>AIMD: Additive Increase / Multiplicative Decrease</strong></h3>
 <p>If you've studied networking, this will sound familiar. <a href="https://en.wikipedia.org/wiki/Additive_increase/multiplicative_decrease">AIMD</a> is the algorithm behind TCP congestion control. We apply the same idea to LLM API concurrency:</p>
 <ul>
+<li><strong>During optional startup ramp</strong>: if <code>rampup_seconds</code> is set, start a new route at one concurrent request and climb linearly toward <code>max_parallel_requests</code> over that duration.</li>
 <li><strong>On success</strong>: after a window of consecutive successful requests (default: 25), increase the concurrency limit by 1. Slow, cautious growth.</li>
 <li><strong>On 429</strong>: multiply the current limit by a reduce factor (default: 0.75, a 25% cut). Fast, decisive pullback. Then apply a cooldown using the provider's <code>Retry-After</code> header when available, or a default of 2 seconds.</li>
 </ul>
 <p>The asymmetry is deliberate. You probe upward slowly because overshooting wastes requests. You pull back quickly because staying above the limit wastes <em>everything</em> because every request in the burst gets rejected. This is the same insight that makes TCP work: be optimistic cautiously, be pessimistic decisively.</p>
-<p>The result is that the system converges on the provider's actual capacity without you setting it. It starts at your configured <code>max_parallel_requests</code>, discovers the real limit through 429 signals, and settles into a steady state that tracks the provider's capacity as it changes.</p>
+<p>The result is that the system converges on the provider's actual capacity without you setting it. By default it starts at your configured <code>max_parallel_requests</code>; for cold inference servers, you can set <code>rampup_seconds</code> to ease in from 1 request to that configured peak. Either way, once a 429 arrives, the controller discovers the real limit through rate-limit signals and settles into a steady state that tracks the provider's capacity as it changes.</p>
 <div style="text-align: center;">
 <p><img alt="AIMD concurrency control over time: initial phase, 429 drop, recovery, ceiling stabilization, steady state" src="../assets/owning-the-model-stack/aimd-concurrency-over-time.png" style="max-width:75%; height:auto" /></p>
 </div>
 <p>This is especially useful when you're self-hosting your inference stack (running vLLM or NVIDIA NIM on your own hardware) as long as the serving framework returns 429s when it's at capacity. The capacity of a self-hosted endpoint depends on your GPU count, model size, quantization, batch settings, and whatever else is sharing the cluster. That capacity might change between runs, or even mid-run if other workloads spin up. If your serving layer signals overload with 429s, you don't need to figure any of that out. Point Data Designer at your endpoint, set <code>max_parallel_requests</code> to a generous upper bound, and the system self-adjusts to whatever your infrastructure can actually handle.</p>
+<h3 id="startup-ramp"><strong>Startup ramp</strong></h3>
+<p>Some inference servers do not handle an immediate cold burst well, even when their steady-state capacity is high. For those endpoints, <code>ThrottleConfig(rampup_seconds=...)</code> enables a time-based startup ramp. Each throttle domain starts at one concurrent request and linearly climbs toward the configured <code>max_parallel_requests</code> ceiling over the ramp duration.</p>
+<p>The ramp is optimistic but interruptible. If no 429s arrive, it reaches the configured peak. If a 429 arrives during the ramp, the ramp is aborted immediately and the domain switches to normal AIMD behavior: multiplicative decrease, cooldown, ceiling recording when the decrease reveals a higher failed limit, and additive recovery.</p>
 <h3 id="ceiling-stabilization"><strong>Ceiling stabilization</strong></h3>
 <p>Classic AIMD has a well-known problem, the sawtooth. After a 429 drops the limit, additive increase climbs all the way back to the configured max, hits another 429, drops again, and repeats. Every climb wastes requests, and the 429 bursts are predictable.</p>
 <p>We dampen it with <strong>ceiling stabilization</strong>. After the first 429, the system records the pre-decrease limit as a <code>rate_limit_ceiling</code>. Subsequent additive increases don't climb all the way back to <code>max_parallel_requests</code> — they stop at <code>ceiling * (1 + ceiling_overshoot)</code> (by default 10% above the observed limit). This lets the system probe gently above what it knows works — the 10% overshoot band — without repeatedly slamming into the wall. If the probe succeeds (no 429), the limit keeps rising within the overshoot band while the ceiling stays put. If a 429 fires at or below the existing ceiling, the ceiling is updated downward to the lower observed limit via <code>min(existing_ceiling, prev_limit)</code>, tightening the band over time. The result is that oscillations shrink and the system converges on a tight band around the provider's real capacity.</p>
@@ -4596,6 +4652,7 @@
             <span class="n">success_window</span><span class="o">=</span><span class="mi">25</span><span class="p">,</span>
             <span class="n">cooldown_seconds</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>
             <span class="n">ceiling_overshoot</span><span class="o">=</span><span class="mf">0.10</span><span class="p">,</span>
+            <span class="n">rampup_seconds</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="p">)</span>
 <span class="p">)</span>
@@ -4653,9 +4710,14 @@
 <td>0.10</td>
 <td>How far above the observed ceiling to probe (10%)</td>
 </tr>
+<tr>
+<td><code>rampup_seconds</code></td>
+<td>0.0</td>
+<td>Optional startup ramp duration. <code>0.0</code> keeps the previous immediate-start behavior</td>
+</tr>
 </tbody>
 </table>
-<p>In practice, the parameter most worth adjusting is <code>success_window</code>. A smaller window (say, 10) makes the system more aggressive about reclaiming throughput after a pullback, useful when you know the provider's capacity fluctuates quickly. A larger window (say, 50) makes it more conservative, better for providers with strict, stable rate limits where you'd rather not probe at all.</p>
+<p>In practice, the parameter most worth adjusting after a 429 is <code>success_window</code>. A smaller window (say, 10) makes the system more aggressive about reclaiming throughput after a pullback, useful when you know the provider's capacity fluctuates quickly. A larger window (say, 50) makes it more conservative, better for providers with strict, stable rate limits where you'd rather not probe at all. For cold self-hosted endpoints, set <code>rampup_seconds</code> to ease into the first burst without changing steady-state AIMD behavior.</p>
 <p>Most users will never need to touch any of these. The system adapts automatically.</p>
 <h2 id="what-it-looks-like-in-the-logs"><strong>What It Looks Like in the Logs</strong></h2>
 <p><code>ThrottleManager</code> logs every state transition at <code>INFO</code> level, so the adaptation story is visible in your terminal as the run progresses.</p>
