@@ -26,6 +26,7 @@ from data_designer.engine.models.request_admission.resources import (
     RequestGroupSpec,
     RequestResourceKey,
 )
+from data_designer.engine.observability import InMemoryAdmissionEventSink
 
 
 def _item(domain: RequestDomain = RequestDomain.CHAT, timeout: float | None = None) -> RequestAdmissionItem:
@@ -184,7 +185,7 @@ def test_request_admission_fresh_rate_limit_after_burst_decreases_again() -> Non
 
     assert snapshot is not None
     assert snapshot.current_limit == 2
-    assert snapshot.rate_limit_ceiling == 4
+    assert snapshot.rate_limit_ceiling == 8
     assert snapshot.consecutive_rate_limits == 9
 
 
@@ -253,6 +254,21 @@ def test_request_admission_logs_sink_failures(caplog: pytest.LogCaptureFixture) 
     controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
 
     assert "Request admission event sink raised; dropping event." in caplog.text
+
+
+def test_request_lease_released_event_records_release_outcome() -> None:
+    sink = InMemoryAdmissionEventSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    item = _item()
+    lease = controller.try_acquire(item)
+    assert isinstance(lease, RequestAdmissionLease)
+
+    controller.release(lease, RequestReleaseOutcome(kind="provider_failure"))
+
+    release_events = [event for event in sink.request_events if event.event_kind == "request_lease_released"]
+    assert release_events
+    assert release_events[-1].reason_or_outcome == "provider_failure"
 
 
 @pytest.mark.asyncio(loop_scope="session")

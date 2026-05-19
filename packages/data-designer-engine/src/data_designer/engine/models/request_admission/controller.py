@@ -388,9 +388,15 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                 self._sequence += 1
                 result = ReleaseResult(released=True, reason="released")
                 if outcome.kind == "rate_limited":
-                    events.append(self._request_event_locked("request_rate_limited", item=lease.item, lease=lease))
+                    events.append(self._request_event_locked("request_rate_limited", item=active.item, lease=active))
                 events.append(
-                    self._request_event_locked("request_lease_released", item=lease.item, lease=lease, result=result)
+                    self._request_event_locked(
+                        "request_lease_released",
+                        item=active.item,
+                        lease=active,
+                        result=result,
+                        outcome=outcome,
+                    )
                 )
                 self._admit_waiters_locked(events)
             self._condition.notify_all()
@@ -579,10 +585,8 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                 state.current_limit = max(
                     1, math.floor(state.current_limit * self._config.multiplicative_decrease_factor)
                 )
-                observed_limit = max(1, admitted_adaptive_limit)
-                state.rate_limit_ceiling = (
-                    observed_limit if state.rate_limit_ceiling == 0 else min(state.rate_limit_ceiling, observed_limit)
-                )
+                if state.rate_limit_ceiling == 0:
+                    state.rate_limit_ceiling = max(1, admitted_adaptive_limit)
                 if state.current_limit != prev_limit:
                     events.append(
                         self._request_event_locked(
@@ -696,6 +700,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         lease: RequestAdmissionLease | None = None,
         decision: RequestAdmissionDenied | None = None,
         result: ReleaseResult | None = None,
+        outcome: RequestReleaseOutcome | None = None,
         request_resource_key: RequestResourceKey | None = None,
         diagnostics: Mapping[str, object] | None = None,
     ) -> RequestAdmissionEvent:
@@ -706,6 +711,8 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         reason_or_outcome = None
         if decision is not None:
             reason_or_outcome = decision.reason
+        elif outcome is not None:
+            reason_or_outcome = outcome.kind
         elif result is not None:
             reason_or_outcome = result.reason
         return RequestAdmissionEvent.capture(
