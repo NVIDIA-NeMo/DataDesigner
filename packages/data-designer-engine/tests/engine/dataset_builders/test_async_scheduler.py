@@ -46,8 +46,19 @@ from data_designer.engine.models.errors import (
     ModelRateLimitError,
     ModelTimeoutError,
 )
+from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+from data_designer.engine.models.request_admission.controller import (
+    AdaptiveRequestAdmissionController,
+    RequestAdmissionLease,
+)
+from data_designer.engine.models.request_admission.outcomes import RequestReleaseOutcome
 from data_designer.engine.models.request_admission.pressure import RequestPressureSnapshot
-from data_designer.engine.models.request_admission.resources import RequestDomain, RequestResourceKey
+from data_designer.engine.models.request_admission.resources import (
+    RequestAdmissionItem,
+    RequestDomain,
+    RequestGroupSpec,
+    RequestResourceKey,
+)
 from data_designer.engine.models.resources import ProviderModelKey
 from data_designer.engine.observability import InMemoryAdmissionEventSink
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -2321,6 +2332,10 @@ class _StaticRequestPressureProvider:
     def __init__(self, snapshots: dict[RequestResourceKey, RequestPressureSnapshot]) -> None:
         self._snapshots = snapshots
 
+    @property
+    def config(self) -> RequestAdmissionConfig | None:
+        return None
+
     def snapshot(self, resource: RequestResourceKey) -> RequestPressureSnapshot | None:
         return self._snapshots.get(resource)
 
@@ -2643,6 +2658,37 @@ async def test_scheduler_capacity_plan_observes_buffer_backpressure() -> None:
     assert plan.observed_maxima.row_groups_in_flight == 2
     assert plan.observed_maxima.queued_tasks_by_group
     assert max(plan.observed_maxima.task_leases_by_resource.values()) <= 2
+
+
+def test_scheduler_capacity_plan_reports_request_admission_state() -> None:
+    resource = RequestResourceKey("provider", "model", RequestDomain.CHAT)
+    request_admission = AdaptiveRequestAdmissionController(
+        RequestAdmissionConfig(initial_limits={resource: 2}, max_limit_clamps={resource: 3})
+    )
+    request_admission.register(
+        provider_name="provider",
+        model_id="model",
+        alias="primary",
+        max_parallel_requests=4,
+    )
+    lease = request_admission.try_acquire(RequestAdmissionItem(resource, RequestGroupSpec(resource)))
+    assert isinstance(lease, RequestAdmissionLease)
+
+    scheduler, _tracker = _build_simple_pipeline()
+    scheduler._request_pressure_provider = request_admission
+    scheduler._record_observed_task_state()
+    plan = scheduler.capacity_plan()
+
+    assert plan.configured.request_resources.value == (resource,)
+    assert plan.configured.request_domain_initial_limits.value[resource] == 2
+    assert plan.configured.request_admission_config.value is not None
+    assert plan.configured.provider_model_static_caps.value[ProviderModelKey("provider", "model")].cap == 4
+    assert plan.runtime_snapshot.request_domain_current_limits[resource] == 2
+    assert plan.runtime_snapshot.request_domain_effective_max[resource] == 3
+    assert plan.runtime_snapshot.provider_model_aggregate_in_flight[ProviderModelKey("provider", "model")] == 1
+    assert plan.observed_maxima.request_in_flight_by_resource[resource] == 1
+    assert plan.observed_maxima.provider_model_aggregate_in_flight[ProviderModelKey("provider", "model")] == 1
+    request_admission.release(lease, RequestReleaseOutcome(kind="success"))
 
 
 @pytest.mark.asyncio(loop_scope="session")

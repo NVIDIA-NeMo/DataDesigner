@@ -308,6 +308,7 @@ def _build_cases(quick: bool) -> list[IdleBenchmarkCase]:
                 fanout_width=1,
                 upstream_latency_seconds=0.006,
                 downstream_latency_seconds=0.0003,
+                iterations=3,
             ),
             replace(
                 base,
@@ -320,6 +321,7 @@ def _build_cases(quick: bool) -> list[IdleBenchmarkCase]:
                 fanout_width=4,
                 upstream_latency_seconds=0.006,
                 downstream_latency_seconds=0.0003,
+                iterations=3,
             ),
         )
     )
@@ -432,7 +434,11 @@ def _build_cases(quick: bool) -> list[IdleBenchmarkCase]:
 def _run_or_load_case(case: IdleBenchmarkCase, artifact_dir: Path, *, skip_run: bool) -> IdleBenchmarkResult:
     output_dir = artifact_dir / case.sweep / case.name
     json_path = output_dir / "async_scheduling_benchmark.json"
-    if not skip_run or not json_path.exists():
+    if skip_run and not json_path.exists():
+        raise FileNotFoundError(
+            f"Cannot reuse benchmark artifact for {case.sweep}/{case.name}: {json_path} does not exist."
+        )
+    if not skip_run:
         output_dir.mkdir(parents=True, exist_ok=True)
         command = [
             sys.executable,

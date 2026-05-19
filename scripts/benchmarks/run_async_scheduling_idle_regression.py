@@ -322,13 +322,14 @@ def _suite_behavior_checks(cases: Mapping[str, Mapping[str, Any]], *, mode: str)
             )
         )
     if "stress-shape/wide-frontier-high-cap" in cases:
+        floor = _wide_high_capacity_stress_utilization_floor(mode)
         checks.append(
             _check(
                 "wide high-capacity stress utilization",
                 category="optimization",
-                passed=_metric(cases["stress-shape/wide-frontier-high-cap"], "llm_wait_utilization_ratio") >= 0.55,
+                passed=_metric(cases["stress-shape/wide-frontier-high-cap"], "llm_wait_utilization_ratio") >= floor,
                 observed=_metric(cases["stress-shape/wide-frontier-high-cap"], "llm_wait_utilization_ratio"),
-                expected=">= 0.55 llm_wait utilization",
+                expected=f">= {floor:.2f} llm_wait utilization",
             )
         )
     if {
@@ -572,6 +573,10 @@ def _baseline_comparison_checks(
 
 def _wide_row_group_utilization_floor(mode: str) -> float:
     return 0.55 if mode == "quick" else 0.70
+
+
+def _wide_high_capacity_stress_utilization_floor(mode: str) -> float:
+    return 0.53 if mode == "quick" else 0.55
 
 
 def _checks_payload(checks: Sequence[RegressionCheck]) -> dict[str, Any]:

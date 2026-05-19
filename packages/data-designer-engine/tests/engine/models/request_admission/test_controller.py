@@ -10,6 +10,7 @@ import pytest
 
 from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 from data_designer.engine.models.request_admission.controller import (
+    RELEASED_LEASE_HISTORY_LIMIT,
     AdaptiveRequestAdmissionController,
     RequestAdmissionDenied,
     RequestAdmissionError,
@@ -154,6 +155,18 @@ def test_request_admission_zero_sync_timeout_is_immediate() -> None:
     controller.release(lease, RequestReleaseOutcome(kind="success"))
 
 
+def test_request_admission_sync_unregistered_provider_raises_hard_denial() -> None:
+    controller = AdaptiveRequestAdmissionController()
+
+    with pytest.raises(RequestAdmissionError) as exc_info:
+        controller.acquire_sync(_item())
+
+    assert exc_info.value.decision.reason == "hard_policy_denial"
+    snapshot = controller.pressure.snapshot(_item().resource)
+    assert snapshot is not None
+    assert snapshot.waiters == 0
+
+
 def test_request_admission_logs_sink_failures(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.WARNING, logger="data_designer.engine.models.request_admission.controller")
     controller = AdaptiveRequestAdmissionController(event_sink=_BrokenRequestSink())
@@ -235,24 +248,32 @@ async def test_acquire_async_wakes_when_release_assigns_lease(monkeypatch: pytes
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_register_wakes_unregistered_async_waiter(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_acquire_async_unregistered_provider_raises_hard_denial(monkeypatch: pytest.MonkeyPatch) -> None:
     controller = AdaptiveRequestAdmissionController()
     monkeypatch.setattr(controller, "_wait_seconds_locked", lambda _item, _now, _deadline: 10.0)
     queued = _item(RequestDomain.CHAT, timeout=30.0)
 
-    queued_task = asyncio.create_task(controller.acquire_async(queued))
-    for _ in range(20):
-        snapshot = controller.pressure.snapshot(queued.resource)
-        if snapshot is not None and snapshot.waiters == 1:
-            break
-        await asyncio.sleep(0)
-    else:
-        raise AssertionError("async waiter did not enqueue")
+    with pytest.raises(RequestAdmissionError) as exc_info:
+        await asyncio.wait_for(controller.acquire_async(queued), timeout=0.5)
 
-    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
-    queued_lease = await asyncio.wait_for(queued_task, timeout=0.5)
+    assert exc_info.value.decision.reason == "hard_policy_denial"
+    snapshot = controller.pressure.snapshot(queued.resource)
+    assert snapshot is not None
+    assert snapshot.waiters == 0
 
-    controller.release(queued_lease, RequestReleaseOutcome(kind="success"))
+
+def test_request_admission_released_history_is_bounded() -> None:
+    controller = _controller(cap=1)
+    first_lease: RequestAdmissionLease | None = None
+    for _ in range(RELEASED_LEASE_HISTORY_LIMIT + 5):
+        lease = controller.try_acquire(_item())
+        assert isinstance(lease, RequestAdmissionLease)
+        first_lease = first_lease or lease
+        controller.release(lease, RequestReleaseOutcome(kind="success"))
+
+    assert len(controller._released) == RELEASED_LEASE_HISTORY_LIMIT
+    assert first_lease is not None
+    assert controller.release(first_lease, RequestReleaseOutcome(kind="success")).reason == "unknown_lease"
 
 
 @pytest.mark.asyncio(loop_scope="session")

@@ -10,6 +10,7 @@ import pytest
 
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
+from data_designer.engine.models.clients.retry import RetryConfig
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
     ChatCompletionRequest,
@@ -100,6 +101,40 @@ class _GatedAsyncClient(_Client):
         return ImageGenerationResponse(images=[ImagePayload("image")])
 
 
+class _FlakyClient(_Client):
+    def __init__(
+        self,
+        *,
+        failures: int,
+        kind: ProviderErrorKind = ProviderErrorKind.INTERNAL_SERVER,
+        status_code: int | None = 503,
+    ) -> None:
+        super().__init__()
+        self.failures = failures
+        self.calls = 0
+        self.kind = kind
+        self.status_code = status_code
+
+    def _maybe_fail(self) -> None:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise ProviderError(
+                kind=self.kind,
+                message="temporarily unavailable",
+                status_code=self.status_code,
+                provider_name="nvidia",
+                model_name="nemotron",
+            )
+
+    def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        self._maybe_fail()
+        return ChatCompletionResponse(AssistantMessage(content="ok"))
+
+    async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        self._maybe_fail()
+        return ChatCompletionResponse(AssistantMessage(content="ok"))
+
+
 def _executor() -> tuple[ModelRequestExecutor, AdaptiveRequestAdmissionController, _Client]:
     controller = AdaptiveRequestAdmissionController()
     controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
@@ -136,6 +171,76 @@ def test_model_request_executor_classifies_rate_limit() -> None:
     assert snapshot is not None
     assert snapshot.last_outcome == "rate_limited"
     assert snapshot.cooldown_remaining_seconds > 0
+
+
+def test_model_request_executor_retries_provider_503_with_fresh_leases() -> None:
+    sink = InMemoryAdmissionEventSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    client = _FlakyClient(failures=1)
+    executor = ModelRequestExecutor(
+        client,
+        controller,
+        "nvidia",
+        "nemotron",
+        event_sink=sink,
+        retry_config=RetryConfig(max_retries=1, backoff_factor=0.0),
+    )
+
+    response = executor.completion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    assert response.message.content == "ok"
+    assert client.calls == 2
+    acquired = [event for event in sink.request_events if event.event_kind == "request_lease_acquired"]
+    released = [event for event in sink.request_events if event.event_kind == "request_lease_released"]
+    assert len(acquired) == 2
+    assert len(released) == 2
+    assert {event.request_lease_id for event in acquired} == {event.request_lease_id for event in released}
+
+
+def test_model_request_executor_does_not_retry_provider_timeout_without_status() -> None:
+    controller = AdaptiveRequestAdmissionController()
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    client = _FlakyClient(failures=2, kind=ProviderErrorKind.TIMEOUT, status_code=None)
+    executor = ModelRequestExecutor(
+        client,
+        controller,
+        "nvidia",
+        "nemotron",
+        retry_config=RetryConfig(max_retries=2, backoff_factor=0.0),
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        executor.completion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    assert exc_info.value.kind == ProviderErrorKind.TIMEOUT
+    assert client.calls == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_model_request_executor_retries_async_provider_503_with_fresh_leases() -> None:
+    sink = InMemoryAdmissionEventSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    client = _FlakyClient(failures=1)
+    executor = ModelRequestExecutor(
+        client,
+        controller,
+        "nvidia",
+        "nemotron",
+        event_sink=sink,
+        retry_config=RetryConfig(max_retries=1, backoff_factor=0.0),
+    )
+
+    response = await executor.acompletion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    assert response.message.content == "ok"
+    assert client.calls == 2
+    acquired = [event for event in sink.request_events if event.event_kind == "request_lease_acquired"]
+    released = [event for event in sink.request_events if event.event_kind == "request_lease_released"]
+    assert len(acquired) == 2
+    assert len(released) == 2
+    assert {event.request_lease_id for event in acquired} == {event.request_lease_id for event in released}
 
 
 @pytest.mark.asyncio(loop_scope="session")

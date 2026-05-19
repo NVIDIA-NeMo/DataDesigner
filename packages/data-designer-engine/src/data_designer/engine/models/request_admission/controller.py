@@ -9,7 +9,7 @@ import math
 import threading
 import time
 import uuid
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
@@ -46,6 +46,8 @@ RequestDenyReason = Literal[
     "shutdown",
     "hard_policy_denial",
 ]
+RELEASED_LEASE_HISTORY_LIMIT = 8192
+_TERMINAL_DENIAL_REASONS: frozenset[RequestDenyReason] = frozenset({"hard_policy_denial", "shutdown"})
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         self._domains: dict[RequestResourceKey, AdaptiveRequestLimitState] = {}
         self._active_leases: dict[str, RequestAdmissionLease] = {}
         self._released: set[str] = set()
+        self._released_order: deque[str] = deque()
         self._aggregate_in_flight: Counter[ProviderModelKey] = Counter()
         self._aggregate_active_leases: Counter[ProviderModelKey] = Counter()
         self._sequence = 0
@@ -223,6 +226,11 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                     if waiter.assigned_lease is not None:
                         return waiter.assigned_lease
                     now = time.monotonic()
+                    if (denied := self._terminal_denial_for(item, now)) is not None:
+                        self._remove_waiter_locked(waiter)
+                        events.append(self._request_event_locked("request_acquire_denied", item=item, decision=denied))
+                        self._condition.notify_all()
+                        raise RequestAdmissionError(denied)
                     if deadline is not None and now >= deadline:
                         self._remove_waiter_locked(waiter)
                         denied = RequestAdmissionDenied(
@@ -264,6 +272,11 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                     if waiter.assigned_lease is not None:
                         return waiter.assigned_lease
                     now = time.monotonic()
+                    if (denied := self._terminal_denial_for(item, now)) is not None:
+                        self._remove_waiter_locked(waiter)
+                        events.append(self._request_event_locked("request_acquire_denied", item=item, decision=denied))
+                        self._condition.notify_all()
+                        raise RequestAdmissionError(denied)
                     if deadline is not None and now >= deadline:
                         self._remove_waiter_locked(waiter)
                         denied = RequestAdmissionDenied(
@@ -335,7 +348,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                     )
                 )
             else:
-                self._released.add(lease.lease_id)
+                self._remember_released_locked(lease.lease_id)
                 resource = active.item.resource
                 provider_model = resource.provider_model_key
                 state = self._get_or_create_state(resource)
@@ -471,6 +484,21 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                 item=item, reason="no_capacity", snapshot=self._snapshot_locked(resource, now)
             )
         return None
+
+    def _terminal_denial_for(self, item: RequestAdmissionItem, now: float) -> RequestAdmissionDenied | None:
+        denied = self._denial_for(item, now)
+        if denied is None or denied.reason not in _TERMINAL_DENIAL_REASONS:
+            return None
+        return denied
+
+    def _remember_released_locked(self, lease_id: str) -> None:
+        if lease_id in self._released:
+            return
+        self._released.add(lease_id)
+        self._released_order.append(lease_id)
+        while len(self._released_order) > RELEASED_LEASE_HISTORY_LIMIT:
+            expired = self._released_order.popleft()
+            self._released.discard(expired)
 
     def _acquire_locked(self, item: RequestAdmissionItem, now: float) -> RequestAdmissionLease:
         resource = item.resource

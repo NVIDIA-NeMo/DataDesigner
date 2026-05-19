@@ -187,15 +187,18 @@ def test_request_admission_wraps_openai_client(
     openai_registry: ModelProviderRegistry,
 ) -> None:
     controller = AdaptiveRequestAdmissionController()
+    retry_config = RetryConfig(max_retries=5)
     client = create_model_client(
         openai_model_config,
         secret_resolver,
         openai_registry,
-        retry_config=RetryConfig(),
+        retry_config=retry_config,
         request_admission=controller,
     )
     assert isinstance(client, ModelRequestExecutor)
     assert isinstance(client._inner, OpenAICompatibleClient)
+    assert client._retry_config is retry_config
+    assert client._inner._retry_config.max_retries == 0
 
 
 def test_request_admission_wraps_anthropic_client(

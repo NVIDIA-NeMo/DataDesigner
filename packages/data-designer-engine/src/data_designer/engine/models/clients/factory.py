@@ -18,6 +18,7 @@ from data_designer.engine.observability import RequestAdmissionEventSink
 from data_designer.engine.secret_resolver import SecretResolver
 
 _SUPPORTED_PROVIDER_TYPES = ("openai", "anthropic")
+_NO_TRANSPORT_RETRY_CONFIG = RetryConfig(max_retries=0, retryable_status_codes=frozenset())
 
 
 def create_model_client(
@@ -71,13 +72,14 @@ def create_model_client(
     max_parallel = model_config.inference_parameters.max_parallel_requests
     raw_timeout = model_config.inference_parameters.timeout
     timeout_s = float(raw_timeout if raw_timeout is not None else 60)
+    adapter_retry_config = _NO_TRANSPORT_RETRY_CONFIG if request_admission is not None else retry_config
 
     if provider.provider_type == "openai":
         client: ModelClient = OpenAICompatibleClient(
             provider_name=provider.name,
             endpoint=provider.endpoint,
             api_key=api_key,
-            retry_config=retry_config,
+            retry_config=adapter_retry_config,
             max_parallel_requests=max_parallel,
             timeout_s=timeout_s,
             concurrency_mode=client_concurrency_mode,
@@ -87,7 +89,7 @@ def create_model_client(
             provider_name=provider.name,
             endpoint=provider.endpoint,
             api_key=api_key,
-            retry_config=retry_config,
+            retry_config=adapter_retry_config,
             max_parallel_requests=max_parallel,
             timeout_s=timeout_s,
             concurrency_mode=client_concurrency_mode,
@@ -111,6 +113,7 @@ def create_model_client(
             provider_name=provider.name,
             model_id=model_config.model,
             event_sink=request_event_sink,
+            retry_config=retry_config,
         )
 
     return client

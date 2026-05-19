@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from typing import TYPE_CHECKING, TypeVar
 
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
+from data_designer.engine.models.clients.retry import RetryConfig
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -56,6 +58,7 @@ class ModelRequestExecutor(ModelClient):
         model_id: str,
         event_sink: RequestAdmissionEventSink | None = None,
         resource_resolver: RequestResourceResolver | None = None,
+        retry_config: RetryConfig | None = None,
     ) -> None:
         self._inner = inner
         self._request_admission = request_admission
@@ -63,6 +66,7 @@ class ModelRequestExecutor(ModelClient):
         self._model_id = model_id
         self._event_sink = event_sink
         self._resource_resolver = resource_resolver or RequestResourceResolver()
+        self._retry_config = retry_config or RetryConfig()
         self._event_sequence = 0
 
     @property
@@ -103,6 +107,16 @@ class ModelRequestExecutor(ModelClient):
         return await self._execute_async(self._image_domain(request), lambda: self._inner.agenerate_image(request))
 
     def _execute_sync(self, domain: RequestDomain, call: Callable[[], _T]) -> _T:
+        for attempt in range(self._max_attempts()):
+            try:
+                return self._execute_sync_attempt(domain, call)
+            except ProviderError as exc:
+                if not self._should_retry(exc, attempt):
+                    raise
+                self._sleep_before_retry(attempt)
+        raise RuntimeError("unreachable request retry state")
+
+    def _execute_sync_attempt(self, domain: RequestDomain, call: Callable[[], _T]) -> _T:
         item = self._item(domain)
         try:
             lease = self._request_admission.acquire_sync(item)
@@ -141,6 +155,16 @@ class ModelRequestExecutor(ModelClient):
             return result
 
     async def _execute_async(self, domain: RequestDomain, call: Callable[[], Awaitable[_T]]) -> _T:
+        for attempt in range(self._max_attempts()):
+            try:
+                return await self._execute_async_attempt(domain, call)
+            except ProviderError as exc:
+                if not self._should_retry(exc, attempt):
+                    raise
+                await self._async_sleep_before_retry(attempt)
+        raise RuntimeError("unreachable request retry state")
+
+    async def _execute_async_attempt(self, domain: RequestDomain, call: Callable[[], Awaitable[_T]]) -> _T:
         item = self._item(domain)
         try:
             lease = await self._request_admission.acquire_async(item)
@@ -186,6 +210,36 @@ class ModelRequestExecutor(ModelClient):
                 "model_request_completed", item=item, lease=lease, diagnostics={"outcome": "success"}
             )
             return result
+
+    def _max_attempts(self) -> int:
+        return max(1, self._retry_config.max_retries + 1)
+
+    def _should_retry(self, exc: ProviderError, attempt: int) -> bool:
+        if attempt >= self._max_attempts() - 1:
+            return False
+        if isinstance(exc.__cause__, RequestAdmissionError):
+            return False
+        if exc.kind == ProviderErrorKind.RATE_LIMIT:
+            return False
+        if exc.status_code is not None:
+            return exc.status_code in self._retry_config.retryable_status_codes
+        return exc.kind == ProviderErrorKind.API_CONNECTION
+
+    def _sleep_before_retry(self, attempt: int) -> None:
+        delay = self._retry_delay_seconds(attempt)
+        if delay > 0.0:
+            time.sleep(delay)
+
+    async def _async_sleep_before_retry(self, attempt: int) -> None:
+        delay = self._retry_delay_seconds(attempt)
+        if delay > 0.0:
+            await asyncio.sleep(delay)
+
+    def _retry_delay_seconds(self, attempt: int) -> float:
+        if self._retry_config.backoff_factor <= 0.0:
+            return 0.0
+        delay = self._retry_config.backoff_factor * (2**attempt)
+        return min(delay, self._retry_config.max_backoff_wait)
 
     def _release_provider_error(self, lease: RequestAdmissionLease, exc: ProviderError) -> None:
         if exc.kind == ProviderErrorKind.RATE_LIMIT:
