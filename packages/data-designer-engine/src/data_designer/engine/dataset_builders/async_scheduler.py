@@ -1812,12 +1812,15 @@ class AsyncTaskScheduler:
         request_domain_initial_limits: dict[RequestResourceKey, int] = {}
         if request_config_snapshot is not None:
             request_domain_initial_limits.update(request_config_snapshot.initial_limits)
-        request_domain_initial_limits.update(
-            {
-                resource: request_domain_initial_limits.get(resource, snapshot.current_limit)
-                for resource, snapshot in request_snapshots.items()
-            }
-        )
+        for resource, snapshot in request_snapshots.items():
+            configured_initial = (
+                request_config_snapshot.initial_limits.get(resource) if request_config_snapshot is not None else None
+            )
+            request_domain_initial_limits[resource] = (
+                max(1, min(configured_initial, snapshot.effective_max))
+                if configured_initial is not None
+                else snapshot.effective_max
+            )
         request_domain_current_limits = {
             resource: snapshot.current_limit for resource, snapshot in request_snapshots.items()
         }

@@ -2691,6 +2691,28 @@ def test_scheduler_capacity_plan_reports_request_admission_state() -> None:
     request_admission.release(lease, RequestReleaseOutcome(kind="success"))
 
 
+def test_scheduler_capacity_plan_reports_default_request_initial_limit_after_aimd_drop() -> None:
+    resource = RequestResourceKey("provider", "model", RequestDomain.CHAT)
+    request_admission = AdaptiveRequestAdmissionController()
+    request_admission.register(
+        provider_name="provider",
+        model_id="model",
+        alias="primary",
+        max_parallel_requests=4,
+    )
+    lease = request_admission.try_acquire(RequestAdmissionItem(resource, RequestGroupSpec(resource)))
+    assert isinstance(lease, RequestAdmissionLease)
+    request_admission.release(lease, RequestReleaseOutcome(kind="rate_limited"))
+
+    scheduler, _tracker = _build_simple_pipeline()
+    scheduler._request_pressure_provider = request_admission
+    plan = scheduler.capacity_plan()
+
+    assert plan.configured.request_domain_initial_limits.value[resource] == 4
+    assert plan.runtime_snapshot.request_domain_effective_max[resource] == 4
+    assert plan.runtime_snapshot.request_domain_current_limits[resource] == 3
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_emits_job_health_and_row_group_telemetry() -> None:
     provider = _mock_provider()
