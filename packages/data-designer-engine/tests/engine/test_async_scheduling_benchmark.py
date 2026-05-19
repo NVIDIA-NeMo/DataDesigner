@@ -287,6 +287,33 @@ def test_idle_regression_skip_run_does_not_generate_missing_artifacts(tmp_path: 
         report._run_or_load_case(case, tmp_path, skip_run=True)
 
 
+def test_idle_benchmark_defaults_write_to_scratch() -> None:
+    report = _load_idle_report_module()
+    regression = _load_idle_regression_module()
+
+    assert report.DEFAULT_ARTIFACT_DIR == Path(".scratch/async-scheduling-idle-analysis/artifacts")
+    assert report.DEFAULT_REPORT_PATH == Path(
+        ".scratch/async-scheduling-idle-analysis/async-scheduling-idle-analysis.html"
+    )
+    assert regression.DEFAULT_ARTIFACT_DIR == Path(".scratch/async-scheduling-idle-regression/artifacts")
+    assert regression.DEFAULT_REPORT_PATH == Path(
+        ".scratch/async-scheduling-idle-regression/async-scheduling-idle-regression.html"
+    )
+
+
+def test_idle_report_links_artifacts_relative_to_report() -> None:
+    report = _load_idle_report_module()
+
+    assert (
+        report._relative_href(
+            Path(".scratch/async-scheduling-idle-analysis/async-scheduling-idle-analysis.html"),
+            Path(".scratch/async-scheduling-idle-analysis/artifacts/case.json"),
+        )
+        == "artifacts/case.json"
+    )
+    assert report._relative_href(Path("reports/idle.html"), Path("artifacts/case.json")) == "../artifacts/case.json"
+
+
 def test_idle_regression_requires_adaptation_controls() -> None:
     regression = _load_idle_regression_module()
     summary = _idle_regression_summary()

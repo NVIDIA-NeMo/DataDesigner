@@ -9,6 +9,7 @@ import argparse
 import html
 import json
 import math
+import os
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping, Sequence
@@ -16,8 +17,9 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-DEFAULT_ARTIFACT_DIR = Path("artifacts/async-scheduling-idle-analysis")
-DEFAULT_REPORT_PATH = Path("reports/async-scheduling-idle-analysis.html")
+DEFAULT_OUTPUT_ROOT = Path(".scratch/async-scheduling-idle-analysis")
+DEFAULT_ARTIFACT_DIR = DEFAULT_OUTPUT_ROOT / "artifacts"
+DEFAULT_REPORT_PATH = DEFAULT_OUTPUT_ROOT / "async-scheduling-idle-analysis.html"
 BENCHMARK_SCRIPT = Path("scripts/benchmarks/benchmark_async_scheduling.py")
 IDLE_SUITE_ID = "async-scheduling-idle-regression"
 IDLE_SUITE_VERSION = "1.1"
@@ -1762,7 +1764,9 @@ def _class_slug(idle_class: str) -> str:
 
 def _relative_href(report_path: Path, target_path: Path) -> str:
     try:
-        return Path("../" + str(target_path)).as_posix() if not target_path.is_absolute() else target_path.as_uri()
+        if target_path.is_absolute():
+            return target_path.as_uri()
+        return Path(os.path.relpath(target_path, start=report_path.parent)).as_posix()
     except ValueError:
         return str(target_path)
 
