@@ -272,6 +272,8 @@ def test_request_admission_released_history_is_bounded() -> None:
         controller.release(lease, RequestReleaseOutcome(kind="success"))
 
     assert len(controller._released) == RELEASED_LEASE_HISTORY_LIMIT
+    assert len(controller._released_order) == RELEASED_LEASE_HISTORY_LIMIT
+    assert controller._released_order.maxlen == RELEASED_LEASE_HISTORY_LIMIT
     assert first_lease is not None
     assert controller.release(first_lease, RequestReleaseOutcome(kind="success")).reason == "unknown_lease"
 

@@ -114,7 +114,7 @@ class TaskAdmissionController:
         self._generation = uuid.uuid4().hex
         self._leases: dict[str, TaskAdmissionLease] = {}
         self._released: set[str] = set()
-        self._released_order: deque[str] = deque()
+        self._released_order: deque[str] = deque(maxlen=RELEASED_TASK_LEASE_HISTORY_LIMIT)
         self._leased_by_resource: Counter[SchedulerResourceKey] = Counter()
         self._leased_by_group: dict[TaskGroupKey, Counter[SchedulerResourceKey]] = defaultdict(Counter)
         self._running_by_group: Counter[TaskGroupKey] = Counter()
@@ -265,8 +265,8 @@ class TaskAdmissionController:
     def _remember_released(self, lease_id: str) -> None:
         if lease_id in self._released:
             return
+        maxlen = self._released_order.maxlen
+        if maxlen is not None and len(self._released_order) >= maxlen:
+            self._released.discard(self._released_order[0])
         self._released.add(lease_id)
         self._released_order.append(lease_id)
-        while len(self._released_order) > RELEASED_TASK_LEASE_HISTORY_LIMIT:
-            expired = self._released_order.popleft()
-            self._released.discard(expired)

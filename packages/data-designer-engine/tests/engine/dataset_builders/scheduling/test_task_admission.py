@@ -97,6 +97,8 @@ def test_task_admission_released_history_is_bounded() -> None:
         controller.release(lease)
 
     assert len(controller._released) == RELEASED_TASK_LEASE_HISTORY_LIMIT
+    assert len(controller._released_order) == RELEASED_TASK_LEASE_HISTORY_LIMIT
+    assert controller._released_order.maxlen == RELEASED_TASK_LEASE_HISTORY_LIMIT
     assert first_lease is not None
     assert controller.release(first_lease).reason == "unknown_lease"
 

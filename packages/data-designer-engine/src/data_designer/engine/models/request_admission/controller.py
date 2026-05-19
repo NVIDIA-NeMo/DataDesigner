@@ -121,7 +121,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         self._domains: dict[RequestResourceKey, AdaptiveRequestLimitState] = {}
         self._active_leases: dict[str, RequestAdmissionLease] = {}
         self._released: set[str] = set()
-        self._released_order: deque[str] = deque()
+        self._released_order: deque[str] = deque(maxlen=RELEASED_LEASE_HISTORY_LIMIT)
         self._aggregate_in_flight: Counter[ProviderModelKey] = Counter()
         self._aggregate_active_leases: Counter[ProviderModelKey] = Counter()
         self._sequence = 0
@@ -494,11 +494,11 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
     def _remember_released_locked(self, lease_id: str) -> None:
         if lease_id in self._released:
             return
+        maxlen = self._released_order.maxlen
+        if maxlen is not None and len(self._released_order) >= maxlen:
+            self._released.discard(self._released_order[0])
         self._released.add(lease_id)
         self._released_order.append(lease_id)
-        while len(self._released_order) > RELEASED_LEASE_HISTORY_LIMIT:
-            expired = self._released_order.popleft()
-            self._released.discard(expired)
 
     def _acquire_locked(self, item: RequestAdmissionItem, now: float) -> RequestAdmissionLease:
         resource = item.resource
