@@ -362,7 +362,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                         "request_release_diagnostic", item=lease.item, lease=lease, result=result
                     )
                 )
-            elif active.item.resource != lease.item.resource:
+            elif active != lease:
                 self._active_leases[lease.lease_id] = active
                 self._release_diagnostics["stale_lease"] += 1
                 result = ReleaseResult(released=False, reason="stale_lease")
@@ -384,7 +384,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                     0,
                     self._aggregate_active_leases[provider_model] - 1,
                 )
-                self._apply_outcome(state, resource, outcome, now, events)
+                self._apply_outcome(state, resource, active.current_adaptive_limit, outcome, now, events)
                 self._sequence += 1
                 result = ReleaseResult(released=True, reason="released")
                 if outcome.kind == "rate_limited":
@@ -558,6 +558,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         self,
         state: AdaptiveRequestLimitState,
         resource: RequestResourceKey,
+        admitted_adaptive_limit: int,
         outcome: RequestReleaseOutcome,
         now: float,
         events: list[RequestAdmissionEvent],
@@ -565,7 +566,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         effective_max = self._effective_max_for_resource(resource)
         if outcome.kind == "rate_limited":
             prev_limit = state.current_limit
-            first_in_cascade = state.consecutive_rate_limits == 0
+            should_decrease = admitted_adaptive_limit <= prev_limit
             state.consecutive_rate_limits += 1
             cooldown = (
                 outcome.retry_after_seconds
@@ -574,12 +575,13 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
             )
             state.blocked_until = now + cooldown
             state.success_streak = 0
-            if first_in_cascade:
+            if should_decrease:
                 state.current_limit = max(
                     1, math.floor(state.current_limit * self._config.multiplicative_decrease_factor)
                 )
+                observed_limit = max(1, admitted_adaptive_limit)
                 state.rate_limit_ceiling = (
-                    prev_limit if state.rate_limit_ceiling == 0 else min(state.rate_limit_ceiling, prev_limit)
+                    observed_limit if state.rate_limit_ceiling == 0 else min(state.rate_limit_ceiling, observed_limit)
                 )
                 if state.current_limit != prev_limit:
                     events.append(

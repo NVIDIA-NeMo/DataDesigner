@@ -7,6 +7,7 @@ import asyncio
 import logging
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -88,6 +89,28 @@ def test_request_admission_duplicate_release_does_not_corrupt_counts() -> None:
     assert controller.pressure.snapshot(item.resource).active_lease_count == 0  # type: ignore[union-attr]
 
 
+def test_request_admission_stale_release_requires_exact_lease() -> None:
+    controller = _controller(cap=1)
+    item = _item()
+    lease = controller.try_acquire(item)
+    assert isinstance(lease, RequestAdmissionLease)
+    stale = replace(lease, current_adaptive_limit=lease.current_adaptive_limit + 1)
+
+    stale_result = controller.release(stale, RequestReleaseOutcome(kind="provider_failure"))
+    snapshot = controller.pressure.snapshot(item.resource)
+
+    assert stale_result.released is False
+    assert stale_result.reason == "stale_lease"
+    assert snapshot is not None
+    assert snapshot.in_flight_count == 1
+    assert snapshot.active_lease_count == 1
+
+    released = controller.release(lease, RequestReleaseOutcome(kind="success"))
+
+    assert released.released is True
+    assert controller.pressure.snapshot(item.resource).active_lease_count == 0  # type: ignore[union-attr]
+
+
 def test_request_admission_rate_limit_decreases_and_sets_cooldown() -> None:
     controller = _controller(
         cap=4,
@@ -109,6 +132,60 @@ def test_request_admission_rate_limit_decreases_and_sets_cooldown() -> None:
     assert snapshot is not None
     assert snapshot.current_limit == 2
     assert snapshot.cooldown_remaining_seconds > 0
+
+
+def test_request_admission_rate_limit_burst_decreases_once_per_cascade() -> None:
+    controller = _controller(
+        cap=8,
+        config=RequestAdmissionConfig(
+            multiplicative_decrease_factor=0.5,
+            cooldown_seconds=10,
+        ),
+    )
+    item = _item()
+    leases = [controller.try_acquire(item) for _ in range(8)]
+    assert all(isinstance(lease, RequestAdmissionLease) for lease in leases)
+
+    for lease in leases:
+        controller.release(lease, RequestReleaseOutcome(kind="rate_limited"))
+    snapshot = controller.pressure.snapshot(item.resource)
+
+    assert snapshot is not None
+    assert snapshot.current_limit == 4
+    assert snapshot.rate_limit_ceiling == 8
+    assert snapshot.consecutive_rate_limits == 8
+
+
+def test_request_admission_fresh_rate_limit_after_burst_decreases_again() -> None:
+    controller = _controller(
+        cap=8,
+        config=RequestAdmissionConfig(
+            multiplicative_decrease_factor=0.5,
+            cooldown_seconds=0,
+        ),
+    )
+    item = _item()
+    leases = [controller.try_acquire(item) for _ in range(8)]
+    assert all(isinstance(lease, RequestAdmissionLease) for lease in leases)
+
+    for lease in leases:
+        controller.release(lease, RequestReleaseOutcome(kind="rate_limited"))
+    snapshot = controller.pressure.snapshot(item.resource)
+    assert snapshot is not None
+    assert snapshot.current_limit == 4
+    assert snapshot.rate_limit_ceiling == 8
+
+    fresh_lease = controller.try_acquire(item)
+    assert isinstance(fresh_lease, RequestAdmissionLease)
+    assert fresh_lease.current_adaptive_limit == 4
+
+    controller.release(fresh_lease, RequestReleaseOutcome(kind="rate_limited"))
+    snapshot = controller.pressure.snapshot(item.resource)
+
+    assert snapshot is not None
+    assert snapshot.current_limit == 2
+    assert snapshot.rate_limit_ceiling == 4
+    assert snapshot.consecutive_rate_limits == 9
 
 
 def test_request_admission_additive_recovery_after_successes() -> None:
