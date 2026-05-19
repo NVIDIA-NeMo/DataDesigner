@@ -362,7 +362,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                         "request_release_diagnostic", item=lease.item, lease=lease, result=result
                     )
                 )
-            elif active.item.resource != lease.item.resource:
+            elif active != lease:
                 self._active_leases[lease.lease_id] = active
                 self._release_diagnostics["stale_lease"] += 1
                 result = ReleaseResult(released=False, reason="stale_lease")

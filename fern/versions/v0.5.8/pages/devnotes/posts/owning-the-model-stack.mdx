@@ -135,23 +135,13 @@ One caveat: this boundary behaves differently depending on the execution mode. I
 
 The throttle system is designed to work well out of the box. The defaults are conservative and handle most workloads without tuning. The primary user-facing knob is still `max_parallel_requests` on your model's inference parameters, which sets the hard upper bound for concurrency. AIMD floats below it.
 
-For workloads where you want to fine-tune the adaptation behavior, `ThrottleConfig` is available on `RunConfig`:
+Request admission is internal in v0.5.8, so `RunConfig.throttle` and `ThrottleConfig` are not public configuration APIs. Set a generous but safe per-model ceiling and let the runtime adapt below it:
 
 ```python
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 data_designer = DataDesigner()
-data_designer.set_run_config(
-    dd.RunConfig(
-        throttle=dd.ThrottleConfig(
-            reduce_factor=0.75,
-            success_window=25,
-            cooldown_seconds=2.0,
-            ceiling_overshoot=0.10,
-        )
-    )
-)
 config_builder = dd.DataDesignerConfigBuilder(
     model_configs=[
         dd.ModelConfig(
@@ -173,17 +163,7 @@ create_result = data_designer.create(
 )
 ```
 
-| Parameter | Default | What it does |
-|---|---|---|
-| `reduce_factor` | 0.75 | Multiplicative decrease on 429 (0.75 = reduce by 25%) |
-| `additive_increase` | 1 | How much to increase the limit after a success window |
-| `success_window` | 25 | Consecutive successes before additive increase |
-| `cooldown_seconds` | 2.0 | Default cooldown when no `Retry-After` header |
-| `ceiling_overshoot` | 0.10 | How far above the observed ceiling to probe (10%) |
-
-In practice, the parameter most worth adjusting is `success_window`. A smaller window (say, 10) makes the system more aggressive about reclaiming throughput after a pullback, useful when you know the provider's capacity fluctuates quickly. A larger window (say, 50) makes it more conservative, better for providers with strict, stable rate limits where you'd rather not probe at all.
-
-Most users will never need to touch any of these. The system adapts automatically.
+Most users will never need any additional throttle configuration. The system adapts automatically.
 
 ## **What It Looks Like in the Logs**
 
@@ -212,7 +192,7 @@ Reading these lines in sequence tells you exactly what happened: where the syste
 
 This shipped in Data Designer v0.5.4. If you're using Data Designer today, nothing changes in your pipeline code. `ModelFacade` is the same API it's always been. What changes is what happens underneath. The system now discovers provider capacity at runtime, isolates throttle state per route, and separates retry logic from rate-limit adaptation. Adaptive throttling is enabled by default for all providers. You don't opt in or configure anything; it just starts learning. If you want to see this fully in action, turn on async mode — see [Async All the Way Down](/dev-notes/async-all-the-way-down) for details.
 
-For most workloads, the defaults are all you need. Set `max_parallel_requests` to a generous upper bound and let AIMD find the right level. If you're running against a stack that returns 429s, the system adapts to the available capacity without any tuning. If you want finer control, `ThrottleConfig` is there — but the goal is that you spend your time designing datasets, not tuning concurrency knobs.
+For most workloads, the defaults are all you need. Set `max_parallel_requests` to a generous upper bound and let AIMD find the right level. If you're running against a stack that returns 429s, the system adapts to the available capacity without any tuning.
 
 Key Resources:
 
