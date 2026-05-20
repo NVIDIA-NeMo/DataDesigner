@@ -55,6 +55,23 @@ def _identity(x: Any) -> Any:
     return x
 
 
+def _drop_multi_choice_request_fields(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Remove request controls that would make a single-result API discard choices."""
+    sanitized = dict(kwargs)
+    sanitized.pop("n", None)
+
+    extra_body = sanitized.get("extra_body")
+    if isinstance(extra_body, dict) and "n" in extra_body:
+        extra_body = dict(extra_body)
+        extra_body.pop("n", None)
+        if extra_body:
+            sanitized["extra_body"] = extra_body
+        else:
+            sanitized.pop("extra_body", None)
+
+    return sanitized
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -199,7 +216,12 @@ class ModelFacade:
     # --- completion / acompletion ---
 
     def completion(
-        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
+        self,
+        messages: list[ChatMessage],
+        skip_usage_tracking: bool = False,
+        *,
+        _allow_multiple_choices: bool = True,
+        **kwargs: Any,
     ) -> ChatCompletionResponse:
         message_payloads = [message.to_dict() for message in messages]
         logger.debug(
@@ -208,6 +230,8 @@ class ModelFacade:
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
+        if not _allow_multiple_choices:
+            kwargs = _drop_multi_choice_request_fields(kwargs)
         try:
             request = self._build_chat_completion_request(message_payloads, kwargs)
             response = self._client.completion(request)
@@ -229,7 +253,12 @@ class ModelFacade:
                 )
 
     async def acompletion(
-        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
+        self,
+        messages: list[ChatMessage],
+        skip_usage_tracking: bool = False,
+        *,
+        _allow_multiple_choices: bool = True,
+        **kwargs: Any,
     ) -> ChatCompletionResponse:
         message_payloads = [message.to_dict() for message in messages]
         logger.debug(
@@ -238,6 +267,8 @@ class ModelFacade:
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
+        if not _allow_multiple_choices:
+            kwargs = _drop_multi_choice_request_fields(kwargs)
         try:
             request = self._build_chat_completion_request(message_payloads, kwargs)
             response = await self._client.acompletion(request)
@@ -347,13 +378,13 @@ class ModelFacade:
 
         while True:
             completion_kwargs = dict(kwargs)
-            completion_kwargs.pop("n", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
 
             completion_response = self.completion(
                 messages,
                 skip_usage_tracking=skip_usage_tracking,
+                _allow_multiple_choices=False,
                 **completion_kwargs,
             )
 
@@ -453,13 +484,13 @@ class ModelFacade:
 
         while True:
             completion_kwargs = dict(kwargs)
-            completion_kwargs.pop("n", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
 
             completion_response = await self.acompletion(
                 messages,
                 skip_usage_tracking=skip_usage_tracking,
+                _allow_multiple_choices=False,
                 **completion_kwargs,
             )
 

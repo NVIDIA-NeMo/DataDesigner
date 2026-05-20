@@ -32,6 +32,15 @@ def _make_response(content: str | None = None, **kwargs: Any) -> ChatCompletionR
     return make_stub_completion_response(content=content, **kwargs)
 
 
+def _assert_no_multi_choice_request(
+    request: Any,
+    expected_extra_body: dict[str, Any] | None = None,
+) -> None:
+    assert isinstance(request, ChatCompletionRequest)
+    assert request.n is None
+    assert request.extra_body == expected_extra_body
+
+
 @pytest.fixture
 def stub_model_facade(
     stub_model_configs: list[Any],
@@ -123,29 +132,76 @@ def test_generate_with_system_prompt(
     assert captured_messages[0] == expected_messages
 
 
-@patch.object(ModelFacade, "completion", autospec=True)
-def test_generate_drops_n_before_completion(
-    mock_completion: Any,
+def test_generate_drops_n_from_single_result_request(
     stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
 ) -> None:
-    mock_completion.return_value = _make_response("Hello!")
+    stub_model_client.completion.return_value = _make_response("Hello!")
 
     stub_model_facade.generate(prompt="does not matter", parser=lambda x: x, n=4)
 
-    assert "n" not in mock_completion.call_args.kwargs
+    _assert_no_multi_choice_request(stub_model_client.completion.call_args.args[0])
 
 
-@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
-@pytest.mark.asyncio
-async def test_agenerate_drops_n_before_acompletion(
-    mock_acompletion: AsyncMock,
+def test_generate_drops_extra_body_n_from_single_result_request(
     stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
 ) -> None:
-    mock_acompletion.return_value = _make_response("Hello!")
+    stub_model_client.completion.return_value = _make_response("Hello!")
+
+    stub_model_facade.generate(prompt="does not matter", parser=lambda x: x, extra_body={"n": 4, "seed": 42})
+
+    _assert_no_multi_choice_request(
+        stub_model_client.completion.call_args.args[0],
+        expected_extra_body={"seed": 42},
+    )
+
+
+def test_generate_drops_configured_extra_body_n_from_single_result_request(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"n": 4, "seed": 42}
+    stub_model_facade.model_provider.extra_body = {"n": 5, "provider": "kept"}
+    stub_model_client.completion.return_value = _make_response("Hello!")
+
+    stub_model_facade.generate(prompt="does not matter", parser=lambda x: x)
+
+    _assert_no_multi_choice_request(
+        stub_model_client.completion.call_args.args[0],
+        expected_extra_body={"seed": 42, "provider": "kept"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_agenerate_drops_n_from_single_result_request(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.acompletion = AsyncMock(return_value=_make_response("Hello!"))
 
     await stub_model_facade.agenerate(prompt="does not matter", parser=lambda x: x, n=4)
 
-    assert "n" not in mock_acompletion.call_args.kwargs
+    _assert_no_multi_choice_request(stub_model_client.acompletion.call_args.args[0])
+
+
+@pytest.mark.asyncio
+async def test_agenerate_drops_configured_extra_body_n_from_single_result_request(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"n": 4, "seed": 42}
+    stub_model_facade.model_provider.extra_body = {"n": 5, "provider": "kept"}
+    stub_model_client.acompletion = AsyncMock(return_value=_make_response("Hello!"))
+
+    await stub_model_facade.agenerate(prompt="does not matter", parser=lambda x: x)
+
+    _assert_no_multi_choice_request(
+        stub_model_client.acompletion.call_args.args[0],
+        expected_extra_body={"seed": 42, "provider": "kept"},
+    )
 
 
 @patch.object(ModelFacade, "completion", autospec=True)
