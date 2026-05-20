@@ -900,6 +900,8 @@ def test_create_with_drop_true_can_skip_dropped_column_artifacts(
     assert "uuid" in df.columns
     assert "hidden_category" not in df.columns
     assert not results.artifact_storage.dropped_columns_dataset_path.exists()
+    metadata = json.loads(results.artifact_storage.metadata_file_path.read_text())
+    assert metadata["preserve_dropped_columns"] is False
 
 
 def test_create_with_drop_true_preserves_columns_only_in_dropped_artifacts(
@@ -940,6 +942,8 @@ def test_create_with_drop_true_preserves_columns_only_in_dropped_artifacts(
     assert "hidden_category" not in main_df.columns
     assert "hidden_category" in dropped_df.columns
     assert "uuid" not in dropped_df.columns
+    metadata = json.loads(results.artifact_storage.metadata_file_path.read_text())
+    assert metadata["preserve_dropped_columns"] is True
 
 
 def test_create_raises_error_when_builder_fails(
