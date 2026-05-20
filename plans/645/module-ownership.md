@@ -171,7 +171,8 @@ packages/data-designer-engine/src/data_designer/engine/
 | `models/telemetry.py` | keep product/provider usage telemetry separate from admission event DTOs |
 | `capacity.py` | keep as cross-cutting capacity diagnostic/reporting code that consumes read-only scheduler/request DTOs and snapshots |
 | `SchedulingHintResolver`, `SchedulingHint`, and scheduler-side model-bound fallbacks | remove; `SchedulingMetadata` plus `TaskSchedulingResolver` are the only durable path |
-| `ThrottleManager`, `ThrottleDomain`, `ThrottleConfig`, `ThrottledModelClient`, and `throttled_model_client` | remove; request admission and `ModelRequestExecutor` are the only durable request-control path |
+| `ThrottleManager`, `ThrottleDomain`, `ThrottledModelClient`, and `throttled_model_client` | remove; request admission and `ModelRequestExecutor` are the only durable request-control path |
+| `ThrottleConfig` and `RunConfig.throttle` | keep only as deprecated public config compatibility shims that translate to `RequestAdmissionTuningConfig` and emit `DeprecationWarning`; not durable engine architecture |
 
 ## Import Rules
 

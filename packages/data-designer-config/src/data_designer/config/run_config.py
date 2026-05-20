@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, ClassVar
 
 from pydantic import Field, model_validator
@@ -19,12 +20,10 @@ class JinjaRenderingEngine(StrEnum):
     SECURE = "secure"
 
 
-_REMOVED_EXPORTS: dict[str, str] = {
-    "ThrottleConfig": (
-        "ThrottleConfig was removed. Use RunConfig.request_admission with "
-        "RequestAdmissionTuningConfig for supported advanced request-admission tuning."
-    ),
-}
+_THROTTLE_DEPRECATION_MESSAGE = (
+    "RunConfig.throttle and ThrottleConfig are deprecated. Use RunConfig.request_admission with "
+    "RequestAdmissionTuningConfig for supported advanced request-admission tuning."
+)
 
 
 class RequestAdmissionTuningConfig(ConfigBase):
@@ -86,6 +85,51 @@ class RequestAdmissionTuningConfig(ConfigBase):
                 raise ValueError(f"Specify either {old_name!r} or {new_name!r} for request admission tuning, not both.")
             normalized[new_name] = normalized.pop(old_name)
         return normalized
+
+
+class ThrottleConfig(ConfigBase):
+    """Deprecated compatibility DTO for request-admission tuning.
+
+    Use ``RequestAdmissionTuningConfig`` via ``RunConfig.request_admission``
+    instead. ``ceiling_overshoot`` is accepted for compatibility but is not
+    forwarded because request admission no longer exposes an overshoot knob.
+    """
+
+    reduce_factor: float = Field(
+        default=0.75,
+        gt=0.0,
+        lt=1.0,
+        description="Deprecated alias for RequestAdmissionTuningConfig.multiplicative_decrease_factor.",
+    )
+    additive_increase: int = Field(
+        default=1,
+        ge=1,
+        description="Deprecated alias for RequestAdmissionTuningConfig.additive_increase_step.",
+    )
+    success_window: int = Field(
+        default=25,
+        ge=1,
+        description="Deprecated alias for RequestAdmissionTuningConfig.increase_after_successes.",
+    )
+    cooldown_seconds: float = Field(
+        default=2.0,
+        gt=0.0,
+        description="Deprecated alias for RequestAdmissionTuningConfig.cooldown_seconds.",
+    )
+    ceiling_overshoot: float = Field(
+        default=0.10,
+        ge=0.0,
+        description="Deprecated compatibility field; not forwarded to request admission.",
+    )
+
+    def to_request_admission_tuning(self) -> RequestAdmissionTuningConfig:
+        """Translate legacy throttle tuning into the request-admission DTO."""
+        return RequestAdmissionTuningConfig(
+            multiplicative_decrease_factor=self.reduce_factor,
+            additive_increase_step=self.additive_increase,
+            increase_after_successes=self.success_window,
+            cooldown_seconds=self.cooldown_seconds,
+        )
 
 
 class RunConfig(ConfigBase):
@@ -154,12 +198,26 @@ class RunConfig(ConfigBase):
 
     @model_validator(mode="before")
     @classmethod
-    def reject_removed_throttle_config(cls, data: Any) -> Any:
+    def translate_deprecated_throttle_config(cls, data: Any) -> Any:
         if isinstance(data, dict) and "throttle" in data:
-            raise ValueError(
-                "RunConfig.throttle was removed. Use RunConfig.request_admission with "
-                "RequestAdmissionTuningConfig for supported advanced AIMD tuning."
+            normalized = dict(data)
+            throttle = normalized.pop("throttle")
+            if normalized.get("request_admission") is not None:
+                raise ValueError(
+                    "Specify either RunConfig.throttle or RunConfig.request_admission, not both. "
+                    "RunConfig.throttle is deprecated."
+                )
+            if throttle is not None:
+                throttle_config = (
+                    throttle if isinstance(throttle, ThrottleConfig) else ThrottleConfig.model_validate(throttle)
+                )
+                normalized["request_admission"] = throttle_config.to_request_admission_tuning()
+            warnings.warn(
+                _THROTTLE_DEPRECATION_MESSAGE,
+                DeprecationWarning,
+                stacklevel=2,
             )
+            return normalized
         return data
 
     @model_validator(mode="after")
@@ -168,9 +226,3 @@ class RunConfig(ConfigBase):
         if self.disable_early_shutdown:
             self.shutdown_error_rate = 1.0
         return self
-
-
-def __getattr__(name: str) -> object:
-    if name in _REMOVED_EXPORTS:
-        raise ImportError(_REMOVED_EXPORTS[name])
-    raise AttributeError(f"module 'data_designer.config.run_config' has no attribute {name!r}")

@@ -62,6 +62,7 @@ if TYPE_CHECKING:
         JinjaRenderingEngine,
         RequestAdmissionTuningConfig,
         RunConfig,
+        ThrottleConfig,
     )
     from data_designer.config.sampler_constraints import (  # noqa: F401
         ColumnInequalityConstraint,
@@ -183,6 +184,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "JinjaRenderingEngine": (f"{_MOD_BASE}.run_config", "JinjaRenderingEngine"),
     "RequestAdmissionTuningConfig": (f"{_MOD_BASE}.run_config", "RequestAdmissionTuningConfig"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
+    "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
     # scheduling metadata
     "SchedulingMetadata": (f"{_MOD_BASE}.scheduling", "SchedulingMetadata"),
     "SchedulingMetadataError": (f"{_MOD_BASE}.scheduling", "SchedulingMetadataError"),
@@ -233,13 +235,6 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "get_library_version": (f"{_MOD_BASE}.version", "get_library_version"),
 }
 
-_REMOVED_EXPORTS: dict[str, str] = {
-    "ThrottleConfig": (
-        "ThrottleConfig was removed. Use RunConfig.request_admission with "
-        "RequestAdmissionTuningConfig for supported advanced request-admission tuning."
-    ),
-}
-
 __all__ = list(_LAZY_IMPORTS.keys())
 
 
@@ -256,8 +251,6 @@ def __getattr__(name: str) -> object:
         # Cache so subsequent accesses find a real attribute and skip __getattr__.
         globals()[name] = attr
         return attr
-    if name in _REMOVED_EXPORTS:
-        raise ImportError(_REMOVED_EXPORTS[name])
 
     raise AttributeError(f"module 'data_designer.config' has no attribute {name!r}")
 

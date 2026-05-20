@@ -14,7 +14,7 @@ Durable names in this file are not public API by default. Publicness and final m
 
 Config-layer contracts must not import engine runtime protocols. Engine contracts may consume config-layer DTOs.
 
-The final repository layout is specified in [Module ownership](module-ownership.md). Runtime contracts must live in their owning target modules; do not preserve old module paths through aliases, shim files, or broad package reexports.
+The final repository layout is specified in [Module ownership](module-ownership.md). Runtime contracts must live in their owning target modules; do not preserve old engine module paths through aliases, shim files, or broad package reexports. Public config may keep explicitly deprecated compatibility DTOs when they translate into the new durable config surface and warn users.
 
 ## Config Surface Status
 
@@ -22,12 +22,16 @@ The final repository layout is specified in [Module ownership](module-ownership.
 | --- | --- | --- |
 | `SchedulingMetadata` | public plugin-facing DTO | `data-designer-config` |
 | `RequestAdmissionTuningConfig` | public advanced `RunConfig.request_admission` DTO for supported AIMD tuning only | `data-designer-config` |
+| `ThrottleConfig` | deprecated compatibility DTO translated into `RequestAdmissionTuningConfig` by `RunConfig.throttle` | `data-designer-config` |
 | `TaskAdmissionConfig` | engine-internal config and benchmark injection surface; not a public `RunConfig` knob in V1 | `data-designer-engine` |
 | `RequestAdmissionConfig` | engine-internal config and benchmark injection surface in V1 | `data-designer-engine` |
 | `RunConfig.request_admission` | public advanced request-admission tuning surface backed by `RequestAdmissionTuningConfig`; does not expose internal controller APIs | `data-designer-config` |
+| `RunConfig.throttle` | deprecated compatibility input translated into `RunConfig.request_admission` with a `DeprecationWarning` | `data-designer-config` |
 | `AsyncCapacityPlan` | diagnostic/reporting DTO, emitted to explain a run | `data-designer-engine` |
 
 Public request-admission tuning is limited to the supported fields on `RequestAdmissionTuningConfig`: multiplicative decrease factor, additive increase step, successes before increase, fallback cooldown, and startup ramp seconds. Benchmarks may still inject lower-level capacity values through harness-only configuration without committing those values to public API.
+
+`ThrottleConfig` is retained only as a migration shim for existing configs that pass `RunConfig(throttle=...)`. The shim maps `reduce_factor`, `additive_increase`, `success_window`, and `cooldown_seconds` into the corresponding `RequestAdmissionTuningConfig` fields and emits a `DeprecationWarning`. `ceiling_overshoot` is accepted for DTO compatibility but is not forwarded because request admission does not expose an overshoot knob.
 
 ## Metadata Contracts
 
@@ -348,7 +352,7 @@ It has no mutation or admission methods.
 
 Snapshots are immutable and internally consistent for their capture point. Domain snapshots include `captured_at`, monotonic `sequence`, resource, effective max, current limit, in-flight count, active lease count, waiters, blocked-until timing, cooldown remaining, rate-limit ceiling, consecutive rate limits, last outcome summary, and leak diagnostic counters. Global provider/model snapshots include aggregate static cap, aggregate in-flight count across domains, aggregate active lease count, aliases contributing to the cap, and per-domain limit summaries.
 
-`RequestAdmissionConfig` is the durable engine-internal request-admission tuning/config vocabulary for V1. It includes request resources, per-resource `initial_limit`, optional `max_limit_clamp`, configured cooldown, `multiplicative_decrease_factor`, `additive_increase_step`, `increase_after_successes`, `startup_ramp_seconds`, and default queue-wait timeout. Legacy request-control config names are not durable names; the public `RequestAdmissionTuningConfig` may accept old throttle-era spelling as input aliases for migration, but stores and documents scheduler-era names.
+`RequestAdmissionConfig` is the durable engine-internal request-admission tuning/config vocabulary for V1. It includes request resources, per-resource `initial_limit`, optional `max_limit_clamp`, configured cooldown, `multiplicative_decrease_factor`, `additive_increase_step`, `increase_after_successes`, `startup_ramp_seconds`, and default queue-wait timeout. Legacy request-control config names are not durable names; the public `RequestAdmissionTuningConfig` may accept old throttle-era spelling as input aliases for migration, and `RunConfig.throttle` may translate a deprecated `ThrottleConfig` into `RequestAdmissionTuningConfig`, but both paths store and document scheduler-era names.
 
 ## Telemetry And Correlation Contracts
 

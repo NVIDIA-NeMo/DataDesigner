@@ -19,7 +19,7 @@ Unacceptable end states:
 - a parallel fallback that independently introspects generators, configs, model registries, aliases, or admitted policy data under the old resolver contract
 - a compatibility adapter, alias, or reexport that preserves the old resolver vocabulary as a durable production path
 
-Final legacy-name search gate should have no production/current-doc matches for these historical strings:
+Final legacy-name search gate should have no production/current-doc matches for these historical strings except the explicitly deprecated config compatibility shim for `ThrottleConfig` / `RunConfig.throttle`:
 
 ```text
 SchedulingHintResolver
