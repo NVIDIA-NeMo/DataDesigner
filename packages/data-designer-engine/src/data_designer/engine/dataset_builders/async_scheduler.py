@@ -1642,6 +1642,25 @@ class AsyncTaskScheduler:
                 f"Generator failed for column '{task.column}' during {operation}: {exc}"
             ) from exc
 
+    def _require_dataframe_result(
+        self,
+        task: Task,
+        operation: str,
+        result: Any,
+        *,
+        expected_rows: int | None = None,
+    ) -> Any:
+        if not isinstance(result, lazy.pd.DataFrame):
+            raise DatasetGenerationError(
+                f"{operation} for column '{task.column}' must return a DataFrame, got {type(result).__name__}."
+            )
+        if expected_rows is not None and len(result) != expected_rows:
+            raise DatasetGenerationError(
+                f"{operation} for column '{task.column}' returned {len(result)} rows "
+                f"but {expected_rows} were expected (rg={task.row_group})."
+            )
+        return result
+
     async def _run_from_scratch(self, task: Task, generator: ColumnGenerator) -> Any:
         """Execute a from_scratch task."""
         rg_size = self._get_rg_size(task.row_group)
@@ -1654,6 +1673,7 @@ class AsyncTaskScheduler:
                 "from-scratch generation",
                 generator.agenerate_from_scratch(rg_size),
             )
+            result_operation = "From-scratch generator"
         else:
             # Non-FromScratch generators dispatched as seeds (no upstream columns)
             # operate on existing buffer rows — same contract as the sync engine's
@@ -1670,6 +1690,13 @@ class AsyncTaskScheduler:
                 "full-column generation",
                 generator.agenerate(input_df),
             )
+            result_operation = "Full-column generator"
+        result_df = self._require_dataframe_result(
+            task,
+            result_operation,
+            result_df,
+            expected_rows=rg_size,
+        )
 
         # Write results to buffer (include side-effect columns)
         if self._buffer_manager is not None:
@@ -1777,21 +1804,22 @@ class AsyncTaskScheduler:
         if len(batch_df) == 0:
             return batch_df
 
+        active_rows = rg_size - len(pre_dropped) - len(pre_skipped) if self._buffer_manager is not None else None
         result_df = await self._run_generator_call(
             task,
             "batch generation",
             generator.agenerate(batch_df),
         )
+        result_df = self._require_dataframe_result(
+            task,
+            "Batch generator",
+            result_df,
+            expected_rows=active_rows,
+        )
 
         # Merge result columns back to buffer (include side-effect columns)
         if self._buffer_manager is not None:
             write_cols = self._gen_instance_to_columns_including_side_effects.get(id(generator), [task.column])
-            active_rows = rg_size - len(pre_dropped) - len(pre_skipped)
-            if len(result_df) != active_rows:
-                raise ValueError(
-                    f"Batch generator for '{task.column}' returned {len(result_df)} rows "
-                    f"but {active_rows} were expected (rg={task.row_group})."
-                )
             result_idx = 0
             for ri in range(rg_size):
                 if ri in pre_dropped or ri in pre_skipped:
