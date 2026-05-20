@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import asdict, dataclass
+from enum import Enum
+
 from data_designer.engine.observability import (
     CorrelatedRuntimeView,
     InMemoryAdmissionEventSink,
@@ -11,6 +15,16 @@ from data_designer.engine.observability import (
     RuntimeCorrelationProvider,
     SchedulerAdmissionEvent,
 )
+
+
+class _DiagnosticMode(Enum):
+    TEST = "test"
+
+
+@dataclass(frozen=True)
+class _DiagnosticPayload:
+    label: str
+    mode: _DiagnosticMode
 
 
 def _correlation() -> RuntimeCorrelation:
@@ -56,12 +70,40 @@ def test_admission_events_capture_correlation_and_diagnostics() -> None:
         diagnostics={"resource": "chat"},
     )
 
-    assert scheduler_event.captured_correlation == correlation
+    assert scheduler_event.captured_correlation == asdict(correlation)
     assert scheduler_event.task_id == "task-1"
     assert scheduler_event.diagnostics == {"resource": "submission"}
-    assert request_event.captured_correlation == correlation
+    assert request_event.captured_correlation == asdict(correlation)
     assert request_event.request_attempt_id == "request-1"
     assert request_event.diagnostics == {"resource": "chat"}
+
+
+def test_admission_events_are_json_safe_at_construction() -> None:
+    correlation = _correlation()
+    payload = _DiagnosticPayload(label="payload", mode=_DiagnosticMode.TEST)
+
+    scheduler_event = SchedulerAdmissionEvent.capture(
+        "admission_blocked",
+        sequence=1,
+        correlation=correlation,
+        snapshot=payload,
+        diagnostics={"payload": payload, "values": {"b", "a"}, "pair": ("x", _DiagnosticMode.TEST)},
+    )
+    request_event = RequestAdmissionEvent.capture(
+        "request_wait_started",
+        sequence=2,
+        correlation=correlation,
+        request_resource_key=payload,
+        request_group_key=("group", _DiagnosticMode.TEST),
+        pressure_snapshot={"payload": payload},
+        diagnostics={"payload": payload},
+    )
+
+    json.dumps(asdict(scheduler_event), sort_keys=True)
+    json.dumps(asdict(request_event), sort_keys=True)
+    assert scheduler_event.snapshot == {"label": "payload", "mode": "test"}
+    assert scheduler_event.diagnostics["values"] == ["a", "b"]
+    assert request_event.request_resource_key == {"label": "payload", "mode": "test"}
 
 
 def test_in_memory_admission_event_sink_collects_scheduler_and_request_events() -> None:

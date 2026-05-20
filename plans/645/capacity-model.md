@@ -79,9 +79,11 @@ HTTP transport pools may be larger than the static provider cap. They are transp
 
 `buffer_size` defines the record-window shape used by the dataset builder. Row groups are the concrete execution partitions produced from that windowing behavior.
 
-Row-group admission remains scheduler-owned but is not changed by the V1 task-admission lease boundary. For this epic, #654 records row-group configured concurrency and observed row groups in flight through the `RowGroupAdmission` section of `AsyncCapacityPlan`; it does not introduce a new row-group scheduling policy unless a later issue explicitly does so.
+Row-group admission remains scheduler-owned and is separate from the V1 task-admission lease boundary. The normal dataset-builder wiring uses fixed row-group admission: `max_concurrent_row_groups` is the hard in-flight cap, and task admission leases then control ready task dispatch inside admitted row groups.
 
-Preview, resume, and checkpoint behavior use the existing dataset-builder partitioning rules. `AsyncCapacityPlan` reports the row-group values that the current engine used rather than redefining those rules.
+The current branch also contains an internal adaptive row-group admission mode for direct scheduler use. That mode is additive-only: it starts from an initial target and can raise the soft in-flight row-group target up to the semaphore hard cap when no local scheduler-pressure reason blocks growth. It does not decrease the target, so docs and telemetry must not describe it as AIMD. It remains off by default unless a later issue explicitly promotes it to a durable scheduler policy.
+
+`AsyncCapacityPlan.configured.row_group_admission` records the mode, configured row-group concurrency, current/observed adaptive target when applicable, observed row groups in flight, optional max-admitted-row guardrail, and blocked reasons. Preview, resume, and checkpoint behavior use the existing dataset-builder partitioning rules. `AsyncCapacityPlan` reports the row-group values that the current engine used rather than redefining those rules.
 
 ## Transitional Values
 

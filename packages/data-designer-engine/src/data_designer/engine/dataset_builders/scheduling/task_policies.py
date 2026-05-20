@@ -31,7 +31,12 @@ TaskAdmissionDenyReason = Literal[
 
 @dataclass(frozen=True)
 class BoundedBorrowTaskAdmissionPolicyConfig:
-    """Engine-internal bounded-borrow policy configuration."""
+    """Engine-internal bounded-borrow policy configuration.
+
+    Borrow debt is tracked by task group and scheduler resource. Any completed
+    lease in the same group repays debt for the released resources; repayment is
+    not tied to the specific lease that originally borrowed.
+    """
 
     borrow_ceiling_by_group_resource: Mapping[tuple[TaskGroupKey, SchedulerResourceKey], int] = field(
         default_factory=dict

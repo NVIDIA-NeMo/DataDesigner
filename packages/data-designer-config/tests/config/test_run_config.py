@@ -79,3 +79,10 @@ def test_run_config_accepts_request_admission_tuning_dict_with_throttle_era_name
 
 def test_request_admission_tuning_config_is_exported_from_config_package() -> None:
     assert dd.RequestAdmissionTuningConfig is RequestAdmissionTuningConfig
+
+
+def test_removed_throttle_config_export_has_migration_message() -> None:
+    with pytest.raises(ImportError, match="ThrottleConfig was removed.*RunConfig.request_admission"):
+        getattr(dd, "ThrottleConfig")
+    with pytest.raises(ImportError, match="ThrottleConfig was removed.*RequestAdmissionTuningConfig"):
+        exec("from data_designer.config import ThrottleConfig", {})

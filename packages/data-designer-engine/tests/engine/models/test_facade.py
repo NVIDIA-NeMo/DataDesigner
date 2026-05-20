@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
     ChatCompletionResponse,
     EmbeddingResponse,
@@ -16,7 +17,11 @@ from data_designer.engine.models.clients.types import (
     ImagePayload,
     ToolCall,
 )
-from data_designer.engine.models.errors import ImageGenerationError, ModelGenerationValidationFailureError
+from data_designer.engine.models.errors import (
+    ImageGenerationError,
+    ModelGenerationValidationFailureError,
+    ModelTimeoutError,
+)
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.utils import ChatMessage
@@ -190,6 +195,35 @@ def test_generate_strips_response_content(
     mock_completion.side_effect = lambda *args, **kwargs: _make_response(raw_content)
     result, _ = stub_model_facade.generate(prompt="test", parser=lambda x: x)
     assert result == expected
+
+
+def test_generate_maps_statusless_provider_timeout_to_model_timeout(stub_model_facade: ModelFacade) -> None:
+    stub_model_facade._client.completion.side_effect = ProviderError(
+        kind=ProviderErrorKind.TIMEOUT,
+        message="request timed out",
+        status_code=None,
+        provider_name="stub",
+        model_name=stub_model_facade.model_name,
+    )
+
+    with pytest.raises(ModelTimeoutError, match="timed out"):
+        stub_model_facade.generate(prompt="test", parser=lambda value: value)
+
+
+@pytest.mark.asyncio
+async def test_agenerate_maps_statusless_provider_timeout_to_model_timeout(stub_model_facade: ModelFacade) -> None:
+    stub_model_facade._client.acompletion = AsyncMock(
+        side_effect=ProviderError(
+            kind=ProviderErrorKind.TIMEOUT,
+            message="request timed out",
+            status_code=None,
+            provider_name="stub",
+            model_name=stub_model_facade.model_name,
+        )
+    )
+
+    with pytest.raises(ModelTimeoutError, match="timed out"):
+        await stub_model_facade.agenerate(prompt="test", parser=lambda value: value)
 
 
 def test_model_alias_property(stub_model_facade: ModelFacade, stub_model_configs: list[Any]) -> None:

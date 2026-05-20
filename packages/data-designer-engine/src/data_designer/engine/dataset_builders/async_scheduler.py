@@ -806,6 +806,10 @@ class AsyncTaskScheduler:
             self._emit_scheduler_event("worker_spawned", task=task, lease=lease, task_execution_id=task_execution_id)
         except Exception:
             result = self._task_admission.release(lease)
+            self._in_flight.discard(task)
+            self._dispatched.discard(task)
+            if (s := self._rg_states.get(task.row_group)) is not None:
+                s.in_flight_count = max(0, s.in_flight_count - 1)
             self._emit_scheduler_event(
                 "worker_spawn_failed",
                 task=task,
@@ -813,7 +817,6 @@ class AsyncTaskScheduler:
                 task_execution_id=task_execution_id,
                 reason_or_result=result.reason,
             )
-            self._in_flight.discard(task)
             raise
 
     def _schedulable_task(self, task: Task) -> SchedulableTask:
@@ -1090,6 +1093,7 @@ class AsyncTaskScheduler:
                 if self._all_rgs_admitted and not pending_pre_batch:
                     break
                 if pending_pre_batch:
+                    await asyncio.sleep(0)
                     continue
 
             if not self._fair_queue.has_queued_tasks or dispatch_outcome.admission_blocked:

@@ -1778,6 +1778,76 @@ async def test_drain_frontier_raises_when_ready_but_no_capacity_or_inflight() ->
         await scheduler._drain_frontier(("seed",), False)
 
 
+def test_dispatch_selected_task_rolls_back_scheduler_state_when_worker_spawn_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _mock_provider()
+    config = ExpressionColumnConfig(name="cell_out", expr="'x'", dtype="str")
+    graph = ExecutionGraph.create([config], {"cell_out": GenerationStrategy.CELL_BY_CELL})
+    scheduler = AsyncTaskScheduler(
+        generators={"cell_out": MockCellGenerator(config=config, resource_provider=provider)},
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, [(0, 1)]),
+        row_groups=[(0, 1)],
+        scheduler_event_sink=(sink := InMemoryAdmissionEventSink()),
+    )
+    task = Task(column="cell_out", row_group=0, row_index=0, task_type="cell")
+    item = scheduler._schedulable_task(task)
+    lease = scheduler._task_admission.try_acquire(item, scheduler._fair_queue.view())
+    assert isinstance(lease, TaskAdmissionLease)
+    scheduler._rg_states[0] = SimpleNamespace(size=1, in_flight_count=0)
+
+    def fail_spawn(coro: Any) -> None:
+        coro.close()
+        raise RuntimeError("spawn failed")
+
+    monkeypatch.setattr(scheduler, "_spawn_worker", fail_spawn)
+
+    with pytest.raises(RuntimeError, match="spawn failed"):
+        scheduler._dispatch_selected_task(item, lease)
+
+    assert task not in scheduler._dispatched
+    assert task not in scheduler._in_flight
+    assert scheduler._rg_states[0].in_flight_count == 0
+    assert scheduler.task_admission_snapshot().leased_resources == {}
+    assert scheduler.task_admission_snapshot().running_counts_by_group == {}
+    assert any(event.event_kind == "worker_spawn_failed" for event in sink.scheduler_events)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_main_dispatch_loop_yields_when_pre_batch_is_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _mock_provider()
+    seed_config = ExpressionColumnConfig(name="seed", expr="'seed'", dtype="str")
+    graph = ExecutionGraph.create([seed_config], {"seed": GenerationStrategy.FULL_COLUMN})
+    scheduler = AsyncTaskScheduler(
+        generators={"seed": MockSeedGenerator(config=seed_config, resource_provider=provider)},
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, [(0, 1)]),
+        row_groups=[(0, 1)],
+    )
+    scheduler._all_rgs_admitted = True
+    scheduler._rg_states[0] = SimpleNamespace(size=1, seeds_dispatched=True, pre_batch_done=False)
+    monkeypatch.setattr(scheduler, "_run_seeds_complete_check", lambda seed_cols: None)
+    monkeypatch.setattr(
+        scheduler, "_dispatch_queued_tasks", lambda: SimpleNamespace(dispatched=False, admission_blocked=False)
+    )
+    monkeypatch.setattr(scheduler, "_checkpoint_completed_row_groups", lambda all_columns: None)
+    monkeypatch.setattr(scheduler, "_maybe_update_adaptive_row_group_target", lambda: None)
+    yielded_delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        yielded_delays.append(delay)
+        scheduler._rg_states[0].pre_batch_done = True
+
+    monkeypatch.setattr(asyncio, "sleep", record_sleep)
+
+    await scheduler._main_dispatch_loop(("seed",), True, ["seed"])
+
+    assert yielded_delays == [0]
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_dispatch_does_not_scan_ready_frontier(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = _mock_provider()
@@ -2796,7 +2866,7 @@ async def test_scheduler_emits_job_health_and_row_group_telemetry() -> None:
     assert started.diagnostics["row_group_count"] == 1
     assert started.diagnostics["graph_depth"] == 2
     column_scheduling = started.diagnostics["column_scheduling"]
-    assert isinstance(column_scheduling, tuple)
+    assert isinstance(column_scheduling, list)
     model_column = next(item for item in column_scheduling if item["column"] == "model_col")
     assert model_column["group_kind"] == "custom_model"
     assert model_column["resource_request"] == {"submission": 1, "llm_wait": 1}

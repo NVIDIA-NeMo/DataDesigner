@@ -365,7 +365,9 @@ def test_model_request_executor_emits_attempt_events_with_correlation_fields() -
     attempt_events = [event for event in sink.request_events if event.request_attempt_id is not None]
     assert attempt_events
     assert all(event.request_group_key is not None for event in attempt_events)
-    assert all(event.pressure_snapshot.resource == event.request_resource_key for event in attempt_events)
+    for event in attempt_events:
+        assert isinstance(event.pressure_snapshot, dict)
+        assert event.pressure_snapshot["resource"] == event.request_resource_key
 
 
 def test_model_request_executor_logs_sink_failures(caplog: pytest.LogCaptureFixture) -> None:

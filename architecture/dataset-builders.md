@@ -123,11 +123,16 @@ DatasetBuilder.build()
       → CompletionTracker.with_graph()
       → AsyncTaskScheduler(task admission, fair queue, salvage_rounds)
   → scheduler.run()
-      → for each row group, fairly admit ready tasks from frontier
+      → admit row groups under the configured row-group cap
+      → fairly admit ready tasks from the frontier through task admission
       → tasks execute generators, update CompletionTracker
       → checkpoints via RowGroupBufferManager
   → collect TaskTraces, emit telemetry
 ```
+
+Row-group admission is fixed by default in the dataset-builder path: the configured row-group concurrency is the hard in-flight cap. The scheduler also has an internal adaptive row-group mode for direct use that only raises a soft target up to that cap; it is additive ramp-up, not AIMD shrink/recovery behavior.
+
+When request admission is available, async scheduling may use request-pressure snapshots as a read-only advisory during fair-queue selection. A request-pressured task can be skipped for an eligible peer without mutating request-admission state; provider/model/domain request limits remain owned by request admission.
 
 ## Design Decisions
 

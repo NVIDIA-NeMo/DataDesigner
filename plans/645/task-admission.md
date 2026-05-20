@@ -102,6 +102,8 @@ V1 includes:
 
 V1 request waits remain inside admitted task execution and the task lease is retained until worker completion. That preserves the lease boundary and makes request waits visible, but it does not by itself solve cross-provider utilization when tasks for a cooled-down provider occupy all scheduler task slots. Issue #651 must address provider/resource-aware task admission or an explicit yield/reacquire design before the epic claims cross-provider scheduling optimization as complete.
 
+The current branch includes a narrow request-pressure advisory inside scheduler selection: when request-admission pressure is visible for one candidate and another eligible peer is not pressured, the scheduler may skip the pressured candidate for that selection pass. This consumes request-pressure snapshots as read-only input and does not mutate request-admission state or duplicate provider/model/domain AIMD. Treat broader provider/resource-aware scheduling as #651 scope.
+
 V1 excludes:
 
 - row-group admission
@@ -172,7 +174,7 @@ Policy constraints:
 - Borrow debt is measured in admitted scheduler-resource units above strict fair share for a group/resource. Strict share is computed from scheduler-known competing groups and their weights; #650 owns the exact rounding rule and benchmark evidence.
 - A group may borrow beyond strict share only up to its configured ceiling while no eligible peer can use the resource.
 - When peer queue pressure exists and a group has borrow debt, that group receives no further admissions for the borrowed resource while an eligible peer has queued work and the required resource is available.
-- Debt repayment happens when peer pressure exists and the indebted group is withheld, or when policy-defined repayment work completes. Repayment changes policy debt counters only, not hard resource availability.
+- Debt repayment happens when peer pressure exists and the indebted group is withheld, or when policy-defined repayment work completes. Runtime debt is tracked by task group and scheduler resource; any completed lease in the same task group repays debt for the resources it releases. Repayment changes policy debt counters only, not hard resource availability.
 - The policy must not traverse the DAG inside `FairTaskQueue`.
 - No public knob is added until benchmark evidence supports it.
 

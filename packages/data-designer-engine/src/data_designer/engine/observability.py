@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import contextvars
+import math
 import time
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields, is_dataclass
+from enum import Enum
 from typing import Literal, Protocol
 
 
@@ -18,6 +21,40 @@ class RuntimeCorrelation:
     scheduling_group_kind: str | None
     scheduling_group_identity_hash: str | None
     task_execution_id: str | None
+
+
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+def _json_safe(value: object) -> JsonValue:
+    if value is None or isinstance(value, str | int | bool):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
+    if isinstance(value, Enum):
+        return _json_safe(value.value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _json_safe(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, Mapping):
+        return {_json_safe_key(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, set | frozenset):
+        return [_json_safe(item) for item in sorted(value, key=repr)]
+    return str(value)
+
+
+def _json_safe_key(value: object) -> str:
+    safe = _json_safe(value)
+    if isinstance(safe, str):
+        return safe
+    return str(safe)
+
+
+def _json_safe_dict(value: Mapping[str, object] | None) -> dict[str, JsonValue]:
+    if value is None:
+        return {}
+    return {_json_safe_key(key): _json_safe(item) for key, item in value.items()}
 
 
 class RuntimeCorrelationProvider:
@@ -99,14 +136,19 @@ class SchedulerAdmissionEvent:
     event_kind: SchedulerAdmissionEventKind
     captured_at_monotonic: float
     sequence: int
-    captured_correlation: RuntimeCorrelation | None = None
+    captured_correlation: JsonValue = None
     task_id: str | None = None
     task_execution_id: str | None = None
     task_lease_id: str | None = None
     scheduler_resource_key: str | None = None
     reason_or_result: str | None = None
-    snapshot: object | None = None
-    diagnostics: dict[str, object] = field(default_factory=dict)
+    snapshot: JsonValue = None
+    diagnostics: dict[str, JsonValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "captured_correlation", _json_safe(self.captured_correlation))
+        object.__setattr__(self, "snapshot", _json_safe(self.snapshot))
+        object.__setattr__(self, "diagnostics", _json_safe_dict(self.diagnostics))
 
     @classmethod
     def capture(
@@ -131,14 +173,21 @@ class RequestAdmissionEvent:
     event_kind: RequestAdmissionEventKind
     captured_at_monotonic: float
     sequence: int
-    captured_correlation: RuntimeCorrelation | None = None
+    captured_correlation: JsonValue = None
     request_attempt_id: str | None = None
     request_lease_id: str | None = None
-    request_resource_key: object | None = None
-    request_group_key: object | None = None
+    request_resource_key: JsonValue = None
+    request_group_key: JsonValue = None
     reason_or_outcome: str | None = None
-    pressure_snapshot: object | None = None
-    diagnostics: dict[str, object] = field(default_factory=dict)
+    pressure_snapshot: JsonValue = None
+    diagnostics: dict[str, JsonValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "captured_correlation", _json_safe(self.captured_correlation))
+        object.__setattr__(self, "request_resource_key", _json_safe(self.request_resource_key))
+        object.__setattr__(self, "request_group_key", _json_safe(self.request_group_key))
+        object.__setattr__(self, "pressure_snapshot", _json_safe(self.pressure_snapshot))
+        object.__setattr__(self, "diagnostics", _json_safe_dict(self.diagnostics))
 
     @classmethod
     def capture(

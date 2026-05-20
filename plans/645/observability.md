@@ -14,7 +14,7 @@ Sink failures must never interrupt generation. Event data can be collected under
 
 Event DTOs capture primitive correlation fields at construction time. Sinks receive already-captured event data; they must not read ambient context later to discover which task/request an event belongs to.
 
-All event DTOs include `captured_at_monotonic` and a monotonic per-stream `sequence`. Scheduler events include task id, task execution id when a worker execution exists, task lease id when available, scheduler resource key when applicable, denial/release reason when applicable, optional snapshot, and sanitized diagnostics. Request events include request attempt id when they belong to one concrete attempt, request lease id when available, canonical request resource when resource-specific, request group key when queue/admission-specific, denial/release outcome when applicable, optional pressure snapshot, and sanitized diagnostics.
+All event DTOs include `captured_at_monotonic` and a monotonic per-stream `sequence`. Scheduler events include task id, task execution id when a worker execution exists, task lease id when available, scheduler resource key when applicable, denial/release reason when applicable, optional snapshot, and diagnostics. Request events include request attempt id when they belong to one concrete attempt, request lease id when available, canonical request resource when resource-specific, request group key when queue/admission-specific, denial/release outcome when applicable, optional pressure snapshot, and diagnostics. Event construction normalizes correlation, keys, snapshots, and diagnostics to JSON-compatible values so structured sinks do not need to understand internal dataclass or enum types.
 
 ## Scheduler Admission Events
 
@@ -22,12 +22,20 @@ Scheduler events describe dependency-ready work moving through ready ordering, t
 
 Canonical scheduler event kinds:
 
+- `scheduler_job_started`
+- `scheduler_job_completed`
+- `scheduler_health_snapshot`
 - `dependency_ready`
 - `ready_enqueued`
+- `row_group_admitted`
+- `row_group_admission_blocked`
+- `row_group_admission_target_changed`
+- `row_group_checkpointed`
 - `selected`
 - `queue_empty`
 - `admission_blocked`
 - `group_capped`
+- `request_pressure_advisory_skipped`
 - `task_lease_acquired`
 - `admission_denied`
 - `worker_spawned`

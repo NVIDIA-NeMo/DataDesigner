@@ -45,7 +45,7 @@ The implementation order remains:
 
 #644 cannot close until task admission uses the final scheduler module homes and the accepted metadata contract. The accepted end state is `SchedulingMetadata` feeding task admission through `TaskSchedulingResolver`; old resolver paths, compatibility adapters, and duplicate module homes are not part of the target architecture.
 
-#660 promotes the stabilized V1 admission/capacity/telemetry docs. #650 and #651 are follow-on policy/design issues; if they change behavior or public/operator guidance, they must update this source-of-truth plan and any promoted docs as part of their own acceptance gates. #651 is design-first unless its issue body explicitly promotes an implementation slice.
+#660 promotes the stabilized V1 admission/capacity/telemetry docs. #650 and #651 are follow-on policy/design issues; if they change behavior or public/operator guidance, they must update this source-of-truth plan and any promoted docs as part of their own acceptance gates. #651 is design-first unless its issue body explicitly promotes an implementation slice. The request-pressure advisory selection path currently in PR #661 is a narrow implementation slice ahead of the broader #651 design; it must remain read-only with respect to request admission until #651 defines a durable provider/resource-aware policy.
 
 ## Evidence Phasing
 
