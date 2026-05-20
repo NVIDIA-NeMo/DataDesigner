@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import MagicMock
 
 import pytest
 
+from data_designer.config.base import SingleColumnConfig
 from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.config.models import GenerationType
 from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError
@@ -125,3 +127,66 @@ def test_model_registry_generator_metadata_deduplicates_same_endpoint_aliases() 
     resolver = TaskSchedulingResolver({"answer": generator})  # type: ignore[arg-type]
     schedulable = resolver.schedulable_task(_task(), ("answer",))
     assert schedulable.request_resource_key == RequestResourceKey("nvidia", "endpoint", RequestDomain.CHAT)
+
+
+def test_model_registry_generator_metadata_uses_custom_model_for_multi_endpoint_aliases() -> None:
+    class _PairwiseJudgeColumnConfig(SingleColumnConfig):
+        column_type: Literal["pairwise-judge-test"] = "pairwise-judge-test"
+        model_alias: str
+        judge_model_alias: str
+
+        @property
+        def required_columns(self) -> list[str]:
+            return []
+
+        @property
+        def side_effect_columns(self) -> list[str]:
+            return []
+
+        def get_model_aliases(self) -> list[str]:
+            return [self.model_alias, self.judge_model_alias]
+
+    class _RegistryGenerator(ColumnGeneratorWithModelRegistry[_PairwiseJudgeColumnConfig]):
+        @staticmethod
+        def get_generation_strategy() -> object:
+            return object()
+
+        def generate(self, data: object) -> object:
+            return data
+
+    config = _PairwiseJudgeColumnConfig(name="answer", model_alias="draft", judge_model_alias="judge")
+    assert config.get_model_aliases() == ["draft", "judge"]
+    generator = _RegistryGenerator(config=config, resource_provider=MagicMock())
+    configs = {
+        "draft": SimpleNamespace(
+            model="draft-endpoint",
+            generation_type=GenerationType.CHAT_COMPLETION,
+            inference_parameters=SimpleNamespace(max_parallel_requests=4),
+        ),
+        "judge": SimpleNamespace(
+            model="judge-endpoint",
+            generation_type=GenerationType.CHAT_COMPLETION,
+            inference_parameters=SimpleNamespace(max_parallel_requests=2),
+        ),
+    }
+    providers = {
+        "draft": SimpleNamespace(name="nvidia"),
+        "judge": SimpleNamespace(name="openai"),
+    }
+    generator.get_model_config = lambda model_alias: configs[model_alias]  # type: ignore[method-assign]
+    generator.get_model_provider_name = lambda model_alias: providers[model_alias].name  # type: ignore[method-assign]
+
+    metadata = generator.get_scheduling_metadata()
+
+    assert metadata.kind == "custom_model"
+    assert metadata.identity[1].endswith("._RegistryGenerator")
+    assert metadata.identity[2].startswith("alias-set-")
+    assert metadata.weight == 6
+    assert metadata.diagnostics["aliases"] == ("draft", "judge")
+    assert metadata.diagnostics["fallback_reason"] == "multi_endpoint_alias_set"
+    assert metadata.diagnostics["raw_caps"] == (4, 2)
+
+    resolver = TaskSchedulingResolver({"answer": generator})  # type: ignore[arg-type]
+    schedulable = resolver.schedulable_task(_task(), ("answer",))
+    assert schedulable.group.key.kind == "custom_model"
+    assert schedulable.request_resource_key is None

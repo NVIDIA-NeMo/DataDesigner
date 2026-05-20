@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import functools
+import hashlib
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -211,10 +212,18 @@ class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
             bucket.caps.append(cap)
 
         if len(endpoints) != 1:
-            raise SchedulingMetadataError(
-                code="ambiguous_model_aliases",
-                message="Model scheduling metadata must resolve to one provider/model/generation endpoint.",
-                diagnostics={"endpoints": sorted(str(endpoint) for endpoint in endpoints)},
+            raw_caps = tuple(cap for bucket in endpoints.values() for cap in bucket.caps)
+            return SchedulingMetadata.custom_model(
+                _scheduling_plugin_namespace(type(self)),
+                _scheduling_alias_set_resource_name(aliases),
+                "v1",
+                weight=max(1, sum(raw_caps)),
+                diagnostics={
+                    "aliases": tuple(sorted(aliases)),
+                    "endpoints": tuple(sorted(str(endpoint) for endpoint in endpoints)),
+                    "fallback_reason": "multi_endpoint_alias_set",
+                    "raw_caps": raw_caps,
+                },
             )
 
         endpoint, bucket = next(iter(endpoints.items()))
@@ -242,6 +251,16 @@ class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
                 aliases.append(alias)
             aliases.extend(getattr(self.config, "model_aliases", []) or [])
         return list(dict.fromkeys(str(alias) for alias in aliases if alias))
+
+
+def _scheduling_plugin_namespace(generator_type: type[object]) -> str:
+    return f"{generator_type.__module__}.{generator_type.__qualname__}"
+
+
+def _scheduling_alias_set_resource_name(aliases: list[str]) -> str:
+    alias_key = "\0".join(sorted(aliases)).encode()
+    digest = hashlib.sha1(alias_key).hexdigest()[:16]
+    return f"alias-set-{digest}"
 
 
 class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], ABC):

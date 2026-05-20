@@ -49,12 +49,13 @@ Rules:
 
 - Metadata identity is resource identity, not a queue key.
 - Metadata cannot encode queue depth, admitted limits, runtime pressure, request domains, AIMD state, or provider cooldown.
-- Multi-alias metadata deduplicates aliases that resolve to the same provider/model/generation resource before summing weight.
+- Alias-derived model metadata deduplicates aliases that resolve to the same provider/model/generation resource before deriving effective weight.
 - Alias ordering is canonicalized so equivalent configs produce equivalent metadata.
 - Generators that do not override `get_scheduling_metadata()` receive a documented default metadata value. The default must preserve current behavior and must not infer provider/model pressure dynamically.
-- Invalid `kind`, non-deterministic `identity`, non-positive `weight`, or ambiguous alias resolution raises `SchedulingMetadataError`.
-- Differing `max_parallel_requests` values for aliases that resolve to the same concrete provider/model endpoint are not, by themselves, ambiguous. They merge through the static-cap min rule in the capacity model. Alias ambiguity is fatal when aliases cannot be resolved to one concrete endpoint, resolve to conflicting endpoint identities, or would require hidden dynamic inference to choose a resource.
-- Fallback metadata is safe only when it preserves current scheduling behavior and the resolver can explain the fallback in diagnostics. Ambiguous resource identity or invalid weights are fatal.
+- Invalid `kind`, non-deterministic `identity`, or non-positive `weight` raises `SchedulingMetadataError`.
+- Differing `max_parallel_requests` values for aliases that resolve to the same concrete provider/model endpoint are not, by themselves, ambiguous. They merge through the static-cap min rule in the capacity model.
+- A default implementation must not turn `get_model_aliases()` into a requirement that every health-check alias collapse to one scheduler endpoint. If a registry-backed generator reports multiple aliases that resolve to different concrete endpoints and does not override `get_scheduling_metadata()`, the default metadata should fall back to deterministic `custom_model` metadata with diagnostics. Plugins that need sharper endpoint-aware scheduler grouping should override `get_scheduling_metadata()` directly.
+- Fallback metadata is safe only when it preserves current scheduling behavior and the resolver can explain the fallback in diagnostics. Invalid metadata shape or invalid weights are fatal.
 
 Normative V1 metadata shapes:
 
@@ -62,7 +63,7 @@ Normative V1 metadata shapes:
 | --- | --- | --- | --- |
 | `local` | `("local", resource_name)` where `resource_name` defaults to `"default"` | positive integer, default `1` | the default for generators that do not override `get_scheduling_metadata()` is `SchedulingMetadata(kind="local", identity=("local", "default"), weight=1)` |
 | `model` | `("model", provider_name, canonical_model_id, generation_kind)` after alias resolution | effective static provider/model capacity hint, normally derived from the model config's `max_parallel_requests` and clamped to at least `1` | safe fallback is allowed only when the resolver can identify the same canonical provider/model resource as the current implementation |
-| `custom_model` | `("custom_model", plugin_namespace, resource_name, version)` with deterministic plugin-provided values | positive plugin-provided capacity hint, defaulting to `1` if omitted | no alias inference is performed unless the plugin returns model aliases through the documented metadata API |
+| `custom_model` | `("custom_model", plugin_namespace, resource_name, version)` with deterministic plugin-provided values | positive plugin-provided capacity hint, defaulting to `1` if omitted | used for explicit plugin metadata and for compatibility-preserving defaults when model aliases cannot be represented as one concrete provider/model/generation resource |
 
 `SchedulingMetadataError` contains:
 

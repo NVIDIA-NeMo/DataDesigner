@@ -93,13 +93,13 @@ If a distinct task-stage backpressure resource remains for model-producing work,
 
 ## Alias And Provider Semantics
 
-Scheduling metadata may use model aliases to derive static resource identity and weight. Alias metadata should deduplicate aliases that resolve to the same provider/model/generation resource before summing weight.
+Scheduling metadata may use model aliases to derive static resource identity and weight. Alias metadata should deduplicate aliases that resolve to the same provider/model/generation resource before deriving effective weight. The startup health-check hook `get_model_aliases()` remains separate from the scheduler metadata hook; a multi-endpoint alias set reported for health checks must not be forced into one provider/model resource.
 
 Request admission resources are provider/model/domain scoped. A provider/model may have a global effective static cap while each request domain has its own adaptive state. The capacity plan must make that distinction visible.
 
 V1 does not define a cross-domain aggregate AIMD provider cap beyond the documented provider/model effective static cap unless a later issue explicitly adds that policy. The request controller still enforces the static aggregate cap by checking provider/model aggregate in-flight counts before admitting a domain request.
 
-Alias-derived provider/model caps deduplicate aliases that resolve to the same concrete provider/model endpoint. If aliases for the same endpoint specify different `max_parallel_requests` values, V1 uses the minimum as the effective static cap and records every contributing alias and raw cap in `AsyncCapacityPlan`. This min-merge is not a metadata error. Alias resolution is fatal only when endpoint identity is ambiguous or conflicting. If the provider treats generation type as a distinct endpoint, the canonical model id includes that distinction before cap merging.
+Alias-derived provider/model caps deduplicate aliases that resolve to the same concrete provider/model endpoint. If aliases for the same endpoint specify different `max_parallel_requests` values, V1 uses the minimum as the effective static cap and records every contributing alias and raw cap in `AsyncCapacityPlan`. This min-merge is not a metadata error. If a default registry-backed generator sees multiple aliases that resolve to different concrete endpoints, it should use deterministic `custom_model` task-stage metadata unless the plugin overrides `get_scheduling_metadata()` with a sharper declaration. If the provider treats generation type as a distinct endpoint, the canonical model id includes that distinction before cap merging.
 
 ## Observability Requirements
 
