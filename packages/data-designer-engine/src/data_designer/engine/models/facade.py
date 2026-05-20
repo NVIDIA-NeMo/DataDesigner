@@ -738,17 +738,6 @@ class ModelFacade:
 
     # --- private helpers ---
 
-    def _get_mcp_facade(self, tool_alias: str | None) -> MCPFacade | None:
-        if tool_alias is None:
-            return None
-        if self._mcp_registry is None:
-            raise MCPConfigurationError(f"Tool alias {tool_alias!r} specified but no MCPRegistry configured.")
-
-        try:
-            return self._mcp_registry.get_mcp(tool_alias=tool_alias)
-        except ValueError as exc:
-            raise MCPConfigurationError(f"Tool alias {tool_alias!r} is not registered.") from exc
-
     @staticmethod
     def _drop_multi_choice_request_fields(kwargs: dict[str, Any]) -> dict[str, Any]:
         """Remove request controls that would make a single-result API discard choices."""
@@ -765,6 +754,17 @@ class ModelFacade:
                 sanitized.pop("extra_body", None)
 
         return sanitized
+
+    def _get_mcp_facade(self, tool_alias: str | None) -> MCPFacade | None:
+        if tool_alias is None:
+            return None
+        if self._mcp_registry is None:
+            raise MCPConfigurationError(f"Tool alias {tool_alias!r} specified but no MCPRegistry configured.")
+
+        try:
+            return self._mcp_registry.get_mcp(tool_alias=tool_alias)
+        except ValueError as exc:
+            raise MCPConfigurationError(f"Tool alias {tool_alias!r} is not registered.") from exc
 
     def _build_chat_completion_request(
         self, messages: list[dict[str, Any]], kwargs: dict[str, Any]
