@@ -1,18 +1,24 @@
-name: Docs preview
+name: Fern docs preview
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "docs/**"
       - "fern/**"
-      - "mkdocs.yml"
+      - "docs/notebook_source/**"
+      - "docs/colab_notebooks/**"
+      - "packages/data-designer-config/src/data_designer/config/**"
+      - "packages/data-designer/src/data_designer/interface/**"
+      - "packages/data-designer-engine/src/data_designer/engine/column_generators/generators/base.py"
+      - "packages/data-designer-engine/src/data_designer/engine/mcp/**"
+      - "packages/data-designer-engine/src/data_designer/engine/processing/processors/**"
+      - "packages/data-designer-engine/src/data_designer/engine/resources/seed_reader.py"
       - ".github/workflows/docs-preview.yml"
 
 permissions: {}
 
 concurrency:
-  group: docs-preview-${{ github.event.pull_request.number }}
+  group: fern-docs-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:
@@ -40,20 +46,6 @@ jobs:
 
       - name: Install docs dependencies
         run: uv sync --all-packages --group docs --group notebooks
-
-      - name: Create preview notebooks
-        run: |
-          mkdir -p docs/notebooks
-          cp docs/notebook_source/_README.md docs/notebooks/README.md
-          cp docs/notebook_source/_pyproject.toml docs/notebooks/pyproject.toml
-
-          for src in docs/notebook_source/*.py; do
-            name=$(basename "$src" .py)
-            .venv/bin/jupytext --to ipynb --output "docs/notebooks/${name}.ipynb" "$src"
-          done
-
-      - name: Build docs
-        run: .venv/bin/mkdocs build
 
       - name: Verify published Fern archive exists
         run: |
@@ -122,16 +114,6 @@ jobs:
 
           echo "url=https://nvidia-preview-pr-$PR_NUMBER.docs.buildwithfern.com/nemo/datadesigner" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy to Cloudflare Pages
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        id: deploy
-        continue-on-error: true
-        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site/ --project-name=dd-docs-preview --branch=pr-${{ github.event.pull_request.number }}
-
       - name: Find existing comment
         if: github.event.pull_request.head.repo.full_name == github.repository
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4
@@ -150,8 +132,6 @@ jobs:
           edit-mode: replace
           body: |
             <!-- docs-preview -->
-            **MkDocs preview:** ${{ steps.deploy.outcome == 'success' && steps.deploy.outputs.deployment-url || 'MkDocs preview failed; see workflow logs.' }}
-
             **Fern preview:** ${{ steps.fern-preview.outcome == 'success' && steps.fern-preview.outputs.url || 'Fern preview failed or skipped; see workflow logs.' }}
 
             > Fern previews include the `docs-website` version archive with PR changes synced into latest. Notebook tutorials are rendered without execution outputs in previews.

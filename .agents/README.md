@@ -25,4 +25,4 @@ Tool-specific directories symlink back here so each harness resolves skills from
 
 All skills and agents in this directory are for **contributors developing DataDesigner** — not for end users building datasets.
 
-The usage skill for building datasets with DataDesigner lives separately at [`skills/data-designer/`](../skills/data-designer/). For product documentation, see the [docs site](https://nvidia-nemo.github.io/DataDesigner/).
+The usage skill for building datasets with DataDesigner lives separately at [`skills/data-designer/`](../skills/data-designer/). For product documentation, see the [docs site](https://docs.nvidia.com/nemo/datadesigner/).

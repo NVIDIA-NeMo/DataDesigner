@@ -12,11 +12,11 @@ description: >
 
 Unified skill for adding, updating, moving, and removing pages on the NeMo Data Designer Fern docs site.
 
-Current URL: **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`** (see `instances` in [`fern/docs.yml`](../../../fern/docs.yml)). Source of truth for everything user-facing is `fern/`.
+Current URL: **`docs.nvidia.com/nemo/datadesigner`** (see `instances` in [`fern/docs.yml`](../../../fern/docs.yml)). Source of truth for everything user-facing is `fern/`.
 
 ## Scope Rule
 
-**ALL doc edits happen under `fern/`.** The legacy `docs/` directory is the original MkDocs source. `docs/notebook_source/*.py` remains canonical for notebook code, but **do not add new top-level prose pages under `docs/`**. Concept pages, recipes, plugins, and Dev Notes prose live under `fern/versions/latest/pages/`.
+**ALL doc prose edits happen under `fern/`.** The remaining `docs/` directory is only for notebook source, generated Colab notebooks, docs scripts, and downloadable recipe scripts. `docs/notebook_source/*.py` remains canonical for notebook code. Concept pages, recipes, plugins, and Dev Notes prose live under `fern/versions/latest/pages/`.
 
 ## Versioning Model
 
@@ -43,7 +43,7 @@ fern/
 ├── fern.config.json           ← organization + fern-api version pin
 ├── main.css                   ← bundled NVIDIA theme CSS
 ├── assets/                    ← logos, favicon, recipe assets, devnote post images (shared)
-├── images/                    ← /images/* references from MDX (mirrors docs/images/)
+├── images/                    ← /images/* references from MDX
 ├── styles/                    ← per-component CSS (notebook-viewer, authors, metrics-table, …)
 ├── components/                ← React/JSX MDX components
 │   ├── NotebookViewer.tsx     ← renders converted .ipynb cells with outputs
@@ -434,7 +434,7 @@ git commit -s -m "docs: <add|update|remove> <page-title>"
 
 DCO sign-off (`-s`) is required by CONTRIBUTING. Use `docs:` prefix (matches recent commit history). Subject line ≤ 50 chars (hard limit 72).
 
-When the team adds a Fern preview workflow (modeled after Gym's `fern-docs-preview-comment.yml`), PRs touching `fern/**` will get an automatic preview URL posted as a comment. Until that lands, share local dev-server screenshots in PR descriptions.
+PRs touching Fern docs inputs get an automatic Fern preview URL posted as a comment. Fork PRs still run checks, but hosted preview publishing is skipped because it requires deployment secrets.
 
 ## Cutting a New Version Train
 
@@ -461,4 +461,4 @@ Do not copy page trees by hand on `main`. The release workflow copies `latest/pa
 
 - Editing Python source under `packages/` — that's a code change, not a docs change.
 - Adding a notebook tutorial's *code*: edit `docs/notebook_source/<name>.py`, not the converted `.ipynb` or the wrapper MDX.
-- Editing dev note *prose*: edit the migrated MDX under `fern/versions/latest/pages/devnotes/posts/<name>.mdx`. (The original `docs/devnotes/posts/<name>.md` is no longer the source of truth — Fern is.)
+- Editing dev note *prose*: edit the MDX under `fern/versions/latest/pages/devnotes/posts/<name>.mdx`.

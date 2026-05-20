@@ -87,7 +87,6 @@ help:
 	@echo "  check-fern-docs           - Generate local Fern artifacts and run fern check"
 	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
-	@echo "  serve-docs-locally        - Serve legacy MkDocs documentation locally"
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
@@ -471,7 +470,6 @@ update-license-headers:
 DOCS_PYTHON_VERSION ?= 3.13
 DOCS_PYTHON ?= .venv/bin/python
 DOCS_JUPYTEXT ?= .venv/bin/jupytext
-DOCS_MKDOCS ?= .venv/bin/mkdocs
 FERN_VERSION ?= $(shell jq -r .version fern/fern.config.json)
 FERN ?= npx -y fern-api@$(FERN_VERSION)
 
@@ -484,11 +482,6 @@ DOCS_CERTS = SSL_CERT_FILE=$$($(DOCS_PYTHON) -c "import certifi; print(certifi.w
 install-docs-deps:
 	@echo "📦 Installing docs dependencies (Python $(DOCS_PYTHON_VERSION))..."
 	uv sync --python $(DOCS_PYTHON_VERSION) --all-packages --group docs --group notebooks
-
-serve-docs-locally:
-	@$(MAKE) install-docs-deps
-	@echo "📝 Building and serving docs (Python $(DOCS_PYTHON_VERSION))..."
-	$(DOCS_MKDOCS) serve --livereload
 
 prepare-fern-release:
 ifndef VERSION
@@ -736,7 +729,7 @@ clean-test-coverage:
         generate-colab-notebooks generate-fern-notebooks generate-fern-notebooks-with-outputs help \
         install install-dev install-dev-notebooks install-dev-recipes install-docs-deps \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
-        perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-docs-locally serve-fern-docs-locally show-versions \
+        perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-fern-docs-locally show-versions \
         health-checks \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
         test-interface test-interface-isolated test-isolated \
