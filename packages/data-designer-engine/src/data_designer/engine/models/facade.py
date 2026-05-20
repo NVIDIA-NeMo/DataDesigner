@@ -55,23 +55,6 @@ def _identity(x: Any) -> Any:
     return x
 
 
-def _drop_multi_choice_request_fields(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Remove request controls that would make a single-result API discard choices."""
-    sanitized = dict(kwargs)
-    sanitized.pop("n", None)
-
-    extra_body = sanitized.get("extra_body")
-    if isinstance(extra_body, dict) and "n" in extra_body:
-        extra_body = dict(extra_body)
-        extra_body.pop("n", None)
-        if extra_body:
-            sanitized["extra_body"] = extra_body
-        else:
-            sanitized.pop("extra_body", None)
-
-    return sanitized
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -231,7 +214,7 @@ class ModelFacade:
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
         if not allow_multiple_choices:
-            kwargs = _drop_multi_choice_request_fields(kwargs)
+            kwargs = self._drop_multi_choice_request_fields(kwargs)
         try:
             request = self._build_chat_completion_request(message_payloads, kwargs)
             response = self._client.completion(request)
@@ -268,7 +251,7 @@ class ModelFacade:
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
         if not allow_multiple_choices:
-            kwargs = _drop_multi_choice_request_fields(kwargs)
+            kwargs = self._drop_multi_choice_request_fields(kwargs)
         try:
             request = self._build_chat_completion_request(message_payloads, kwargs)
             response = await self._client.acompletion(request)
@@ -765,6 +748,23 @@ class ModelFacade:
             return self._mcp_registry.get_mcp(tool_alias=tool_alias)
         except ValueError as exc:
             raise MCPConfigurationError(f"Tool alias {tool_alias!r} is not registered.") from exc
+
+    @staticmethod
+    def _drop_multi_choice_request_fields(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Remove request controls that would make a single-result API discard choices."""
+        sanitized = dict(kwargs)
+        sanitized.pop("n", None)
+
+        extra_body = sanitized.get("extra_body")
+        if isinstance(extra_body, dict) and "n" in extra_body:
+            extra_body = dict(extra_body)
+            extra_body.pop("n", None)
+            if extra_body:
+                sanitized["extra_body"] = extra_body
+            else:
+                sanitized.pop("extra_body", None)
+
+        return sanitized
 
     def _build_chat_completion_request(
         self, messages: list[dict[str, Any]], kwargs: dict[str, Any]
