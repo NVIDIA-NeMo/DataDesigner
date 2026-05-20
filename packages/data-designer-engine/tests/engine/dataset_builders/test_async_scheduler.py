@@ -192,7 +192,7 @@ class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
 
 
 class MockBuggyGenerator(ColumnGenerator[ExpressionColumnConfig]):
-    """Generator that simulates an internal scheduler/generator bug."""
+    """Generator that raises a bare built-in exception from generator code."""
 
     @staticmethod
     def get_generation_strategy() -> GenerationStrategy:
@@ -200,6 +200,27 @@ class MockBuggyGenerator(ColumnGenerator[ExpressionColumnConfig]):
 
     def generate(self, _data: dict) -> dict:
         raise KeyError("missing internal key")
+
+
+class MockBuggyFromScratchGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+    """From-scratch generator that raises a bare built-in exception from generator code."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return data
+
+    def generate_from_scratch(self, _num_records: int) -> lazy.pd.DataFrame:
+        raise AssertionError("invalid seed source")
+
+
+class MockBuggyFullColumnGenerator(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
+    """Full-column generator that raises a bare built-in exception from generator code."""
+
+    def generate(self, _data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        raise TypeError("bad batch shape")
 
 
 class MockRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
@@ -556,43 +577,109 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
 
 
+def test_scheduler_internal_bug_classifier_preserves_scheduler_builtin_failures() -> None:
+    scheduler, tracker = _build_simple_pipeline(num_records=1)
+    assert scheduler._is_internal_bug(KeyError("missing internal key"))
+    assert not scheduler._is_internal_bug(DatasetGenerationError("generator failure"))
+    assert not tracker.is_dropped(0, 0)
+
+
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_internal_bug_failure_aborts_instead_of_dropping_row(
+async def test_scheduler_generator_builtin_exception_drops_cell_without_fatal_abort(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = _mock_provider()
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=1,
+        configs=[
+            SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+            LLMTextColumnConfig(name="buggy_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        ],
+        strategies={
+            "seed": GenerationStrategy.FULL_COLUMN,
+            "buggy_col": GenerationStrategy.CELL_BY_CELL,
+        },
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "buggy_col": MockBuggyGenerator(config=_expr_config("buggy_col"), resource_provider=provider),
+        },
+    )
+
+    with caplog.at_level(logging.WARNING, logger="data_designer.engine.dataset_builders.async_scheduler"):
+        await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert isinstance(scheduler.first_non_retryable_error, DatasetGenerationError)
+    assert isinstance(scheduler.first_non_retryable_error.__cause__, KeyError)
+    assert "Unexpected fatal Non-retryable failure" not in caplog.text
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_generator_builtin_exception_drops_from_scratch_group_without_fatal_abort(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": MockBuggyFromScratchGenerator(config=_expr_config("seed"), resource_provider=provider)}
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, [(0, 2)])
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=[(0, 2)],
+    )
+
+    with caplog.at_level(logging.WARNING, logger="data_designer.engine.dataset_builders.async_scheduler"):
+        await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert tracker.is_dropped(0, 1)
+    assert isinstance(scheduler.first_non_retryable_error, DatasetGenerationError)
+    assert isinstance(scheduler.first_non_retryable_error.__cause__, AssertionError)
+    assert "Unexpected fatal Non-retryable failure" not in caplog.text
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_generator_builtin_exception_drops_batch_group_without_fatal_abort(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
-        LLMTextColumnConfig(name="buggy_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="buggy_batch", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
     ]
     strategies = {
         "seed": GenerationStrategy.FULL_COLUMN,
-        "buggy_col": GenerationStrategy.CELL_BY_CELL,
+        "buggy_batch": GenerationStrategy.FULL_COLUMN,
     }
     generators = {
         "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "buggy_col": MockBuggyGenerator(config=_expr_config("buggy_col"), resource_provider=provider),
+        "buggy_batch": MockBuggyFullColumnGenerator(
+            config=_expr_config("buggy_batch"),
+            resource_provider=provider,
+        ),
     }
     graph = ExecutionGraph.create(configs, strategies)
-    tracker = CompletionTracker.with_graph(graph, [(0, 1)])
+    row_groups = [(0, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
-        row_groups=[(0, 1)],
+        row_groups=row_groups,
+        buffer_manager=RowGroupBufferManager(_make_storage()),
     )
 
-    with caplog.at_level(logging.ERROR, logger="data_designer.engine.dataset_builders.async_scheduler"):
-        with pytest.raises(DatasetGenerationError, match="Unexpected internal task failure") as exc_info:
-            await scheduler.run()
+    with caplog.at_level(logging.WARNING, logger="data_designer.engine.dataset_builders.async_scheduler"):
+        await scheduler.run()
 
-    assert isinstance(exc_info.value.__cause__, KeyError)
-    assert not tracker.is_dropped(0, 0)
-    error_records = [
-        record for record in caplog.records if "Unexpected fatal Non-retryable failure" in record.getMessage()
-    ]
-    assert error_records
-    assert error_records[0].exc_info is not None
+    assert tracker.is_dropped(0, 0)
+    assert tracker.is_dropped(0, 1)
+    assert isinstance(scheduler.first_non_retryable_error, DatasetGenerationError)
+    assert isinstance(scheduler.first_non_retryable_error.__cause__, TypeError)
+    assert "Unexpected fatal Non-retryable failure" not in caplog.text
 
 
 @pytest.mark.asyncio(loop_scope="session")

@@ -1631,6 +1631,17 @@ class AsyncTaskScheduler:
             self._record_observed_task_state()
             self._wake_event.set()
 
+    async def _run_generator_call(self, task: Task, operation: str, call: Coroutine[Any, Any, Any]) -> Any:
+        """Run user/plugin generator code while preserving scheduler-owned failures."""
+        try:
+            return await call
+        except Exception as exc:
+            if self._is_retryable(exc) or self._is_expected_non_retryable(exc):
+                raise
+            raise DatasetGenerationError(
+                f"Generator failed for column '{task.column}' during {operation}: {exc}"
+            ) from exc
+
     async def _run_from_scratch(self, task: Task, generator: ColumnGenerator) -> Any:
         """Execute a from_scratch task."""
         rg_size = self._get_rg_size(task.row_group)
@@ -1638,7 +1649,11 @@ class AsyncTaskScheduler:
         from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator
 
         if isinstance(generator, FromScratchColumnGenerator):
-            result_df = await generator.agenerate_from_scratch(rg_size)
+            result_df = await self._run_generator_call(
+                task,
+                "from-scratch generation",
+                generator.agenerate_from_scratch(rg_size),
+            )
         else:
             # Non-FromScratch generators dispatched as seeds (no upstream columns)
             # operate on existing buffer rows — same contract as the sync engine's
@@ -1650,7 +1665,11 @@ class AsyncTaskScheduler:
                 input_df = lazy.pd.DataFrame(records)
             else:
                 input_df = lazy.pd.DataFrame(index=range(rg_size))
-            result_df = await generator.agenerate(input_df)
+            result_df = await self._run_generator_call(
+                task,
+                "full-column generation",
+                generator.agenerate(input_df),
+            )
 
         # Write results to buffer (include side-effect columns)
         if self._buffer_manager is not None:
@@ -1684,7 +1703,11 @@ class AsyncTaskScheduler:
 
         # Copy for generation: agenerate crosses an await boundary, so the
         # generator must not hold a mutable reference to the live record.
-        result = await generator.agenerate(dict(record))
+        result = await self._run_generator_call(
+            task,
+            "cell generation",
+            generator.agenerate(dict(record)),
+        )
 
         # Write back to buffer (include side-effect columns)
         if self._buffer_manager is not None and not self._tracker.is_dropped(task.row_group, task.row_index):
@@ -1754,7 +1777,11 @@ class AsyncTaskScheduler:
         if len(batch_df) == 0:
             return batch_df
 
-        result_df = await generator.agenerate(batch_df)
+        result_df = await self._run_generator_call(
+            task,
+            "batch generation",
+            generator.agenerate(batch_df),
+        )
 
         # Merge result columns back to buffer (include side-effect columns)
         if self._buffer_manager is not None:
