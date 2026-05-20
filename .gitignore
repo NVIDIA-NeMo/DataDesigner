@@ -85,6 +85,10 @@ venv.bak/
 # Local scratch space
 .scratch/
 
+# Generated benchmark/report output
+/artifacts/
+/reports/
+
 docs/notebooks/
 docs/notebook_source/*.ipynb
 docs/notebook_source/*.csv
