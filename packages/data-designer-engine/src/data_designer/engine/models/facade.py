@@ -220,7 +220,7 @@ class ModelFacade:
         messages: list[ChatMessage],
         skip_usage_tracking: bool = False,
         *,
-        _allow_multiple_choices: bool = True,
+        allow_multiple_choices: bool = True,
         **kwargs: Any,
     ) -> ChatCompletionResponse:
         message_payloads = [message.to_dict() for message in messages]
@@ -230,7 +230,7 @@ class ModelFacade:
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
-        if not _allow_multiple_choices:
+        if not allow_multiple_choices:
             kwargs = _drop_multi_choice_request_fields(kwargs)
         try:
             request = self._build_chat_completion_request(message_payloads, kwargs)
@@ -257,7 +257,7 @@ class ModelFacade:
         messages: list[ChatMessage],
         skip_usage_tracking: bool = False,
         *,
-        _allow_multiple_choices: bool = True,
+        allow_multiple_choices: bool = True,
         **kwargs: Any,
     ) -> ChatCompletionResponse:
         message_payloads = [message.to_dict() for message in messages]
@@ -267,7 +267,7 @@ class ModelFacade:
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
-        if not _allow_multiple_choices:
+        if not allow_multiple_choices:
             kwargs = _drop_multi_choice_request_fields(kwargs)
         try:
             request = self._build_chat_completion_request(message_payloads, kwargs)
@@ -378,13 +378,14 @@ class ModelFacade:
 
         while True:
             completion_kwargs = dict(kwargs)
+            completion_kwargs.pop("allow_multiple_choices", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
 
             completion_response = self.completion(
                 messages,
                 skip_usage_tracking=skip_usage_tracking,
-                _allow_multiple_choices=False,
+                allow_multiple_choices=False,
                 **completion_kwargs,
             )
 
@@ -484,13 +485,14 @@ class ModelFacade:
 
         while True:
             completion_kwargs = dict(kwargs)
+            completion_kwargs.pop("allow_multiple_choices", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
 
             completion_response = await self.acompletion(
                 messages,
                 skip_usage_tracking=skip_usage_tracking,
-                _allow_multiple_choices=False,
+                allow_multiple_choices=False,
                 **completion_kwargs,
             )
 
