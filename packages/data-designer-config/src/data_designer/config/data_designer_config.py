@@ -28,7 +28,7 @@ class DataDesignerConfig(ExportableConfigBase):
 
     Attributes:
         columns: Required list of column configurations defining how each column
-            should be generated. Must contain at least one column.
+            should be generated. May be empty for seeded processor-only configs.
         model_configs: Optional list of model configurations for LLM-based generation.
             Each model config defines the model, provider, and inference parameters.
         tool_configs: Optional list of tool configurations for MCP tool calling.
@@ -39,7 +39,7 @@ class DataDesignerConfig(ExportableConfigBase):
         processors: Optional list of processor configurations for post-generation transformations.
     """
 
-    columns: list[Annotated[ColumnConfigT, Field(discriminator="column_type")]] = Field(min_length=1)
+    columns: list[Annotated[ColumnConfigT, Field(discriminator="column_type")]]
     model_configs: list[ModelConfig] | None = None
     tool_configs: list[ToolConfig] | None = None
     seed_config: SeedConfig | None = None
