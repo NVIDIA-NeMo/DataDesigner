@@ -11,11 +11,14 @@ import pytest
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
+    AssistantMessage,
+    ChatCompletionRequest,
     ChatCompletionResponse,
     EmbeddingResponse,
     ImageGenerationResponse,
     ImagePayload,
     ToolCall,
+    Usage,
 )
 from data_designer.engine.models.errors import (
     ImageGenerationError,
@@ -24,6 +27,7 @@ from data_designer.engine.models.errors import (
 )
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
+from data_designer.engine.models.usage import TokenCountSource
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_stub_completion_response
 
@@ -31,6 +35,15 @@ from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_st
 def _make_response(content: str | None = None, **kwargs: Any) -> ChatCompletionResponse:
     """Shorthand for creating a ChatCompletionResponse in tests."""
     return make_stub_completion_response(content=content, **kwargs)
+
+
+def _assert_no_multi_choice_request(
+    request: Any,
+    expected_extra_body: dict[str, Any] | None = None,
+) -> None:
+    assert isinstance(request, ChatCompletionRequest)
+    assert request.n is None
+    assert request.extra_body == expected_extra_body
 
 
 @pytest.fixture
@@ -122,6 +135,78 @@ def test_generate_with_system_prompt(
     stub_model_facade.generate(prompt="does not matter", system_prompt=system_prompt, parser=lambda x: x)
     assert mock_completion.call_count == 1
     assert captured_messages[0] == expected_messages
+
+
+def test_generate_drops_n_from_single_result_request(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.completion.return_value = _make_response("Hello!")
+
+    stub_model_facade.generate(prompt="does not matter", parser=lambda x: x, n=4)
+
+    _assert_no_multi_choice_request(stub_model_client.completion.call_args.args[0])
+
+
+def test_generate_drops_extra_body_n_from_single_result_request(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.completion.return_value = _make_response("Hello!")
+
+    stub_model_facade.generate(prompt="does not matter", parser=lambda x: x, extra_body={"n": 4, "seed": 42})
+
+    _assert_no_multi_choice_request(
+        stub_model_client.completion.call_args.args[0],
+        expected_extra_body={"seed": 42},
+    )
+
+
+def test_generate_drops_configured_extra_body_n_from_single_result_request(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"n": 4, "seed": 42}
+    stub_model_facade.model_provider.extra_body = {"n": 5, "provider": "kept"}
+    stub_model_client.completion.return_value = _make_response("Hello!")
+
+    stub_model_facade.generate(prompt="does not matter", parser=lambda x: x)
+
+    _assert_no_multi_choice_request(
+        stub_model_client.completion.call_args.args[0],
+        expected_extra_body={"seed": 42, "provider": "kept"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_agenerate_drops_n_from_single_result_request(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.acompletion = AsyncMock(return_value=_make_response("Hello!"))
+
+    await stub_model_facade.agenerate(prompt="does not matter", parser=lambda x: x, n=4)
+
+    _assert_no_multi_choice_request(stub_model_client.acompletion.call_args.args[0])
+
+
+@pytest.mark.asyncio
+async def test_agenerate_drops_configured_extra_body_n_from_single_result_request(
+    stub_model_configs: list[Any],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_configs[0].inference_parameters.extra_body = {"n": 4, "seed": 42}
+    stub_model_facade.model_provider.extra_body = {"n": 5, "provider": "kept"}
+    stub_model_client.acompletion = AsyncMock(return_value=_make_response("Hello!"))
+
+    await stub_model_facade.agenerate(prompt="does not matter", parser=lambda x: x)
+
+    _assert_no_multi_choice_request(
+        stub_model_client.acompletion.call_args.args[0],
+        expected_extra_body={"seed": 42, "provider": "kept"},
+    )
 
 
 @patch.object(ModelFacade, "completion", autospec=True)
@@ -233,6 +318,30 @@ def test_model_alias_property(stub_model_facade: ModelFacade, stub_model_configs
 def test_usage_stats_property(stub_model_facade: ModelFacade) -> None:
     assert stub_model_facade.usage_stats is not None
     assert hasattr(stub_model_facade.usage_stats, "model_dump")
+
+
+def test_completion_tracks_reasoning_tokens_without_changing_output_tokens(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    stub_model_client.completion.return_value = ChatCompletionResponse(
+        message=AssistantMessage(content="ok"),
+        usage=Usage(
+            input_tokens=10,
+            output_tokens=8,
+            reasoning_tokens=3,
+            reasoning_token_count_source=TokenCountSource.PROVIDER,
+        ),
+    )
+
+    stub_model_facade.completion([ChatMessage.as_user("hi")])
+
+    token_usage = stub_model_facade.usage_stats.token_usage
+    assert token_usage.input_tokens == 10
+    assert token_usage.output_tokens == 8
+    assert token_usage.reasoning_tokens == 3
+    assert token_usage.reasoning_token_count_source == TokenCountSource.PROVIDER
+    assert token_usage.total_tokens == 18
 
 
 def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:
@@ -428,6 +537,21 @@ def test_completion_with_kwargs(
     assert stub_model_client.completion.call_count == 1
 
 
+def test_completion_forwards_n_to_request(
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    expected_response = _make_response("Test response")
+    stub_model_client.completion.return_value = expected_response
+
+    stub_model_facade.completion(stub_completion_messages, n=4)
+
+    request = stub_model_client.completion.call_args.args[0]
+    assert isinstance(request, ChatCompletionRequest)
+    assert request.n == 4
+
+
 def test_generate_text_embeddings_success(
     stub_model_facade: ModelFacade,
     stub_model_client: MagicMock,
@@ -520,6 +644,71 @@ def test_generate_with_mcp_tools(
     assert captured_calls[0][1]["tools"][0]["function"]["name"] == "lookup"
     assert any(message.role == "tool" for message in captured_calls[1][0])
     assert registry_calls == [("tools", "lookup", {"query": "foo"}, None)]
+
+
+def test_generate_preserves_multimodal_mcp_tool_results_between_turns(
+    stub_model_configs: Any,
+    stub_model_client: MagicMock,
+    stub_model_provider_registry: Any,
+) -> None:
+    tool_call = ToolCall(id="call-1", name="render_chart", arguments_json="{}")
+    responses = [
+        _make_response(content=None, tool_calls=[tool_call]),
+        _make_response("final result"),
+    ]
+    multimodal_result = [
+        {"type": "text", "text": "Rendered chart:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+    ]
+    captured_calls: list[tuple[list[ChatMessage], dict[str, Any]]] = []
+
+    def process_with_multimodal_tool_result(completion_response: ChatCompletionResponse) -> list[ChatMessage]:
+        if not completion_response.message.tool_calls:
+            return [ChatMessage.as_assistant(content=completion_response.message.content or "")]
+        return [
+            ChatMessage.as_assistant(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {"name": "render_chart", "arguments": "{}"},
+                    }
+                ],
+            ),
+            ChatMessage.as_tool(content=multimodal_result, tool_call_id="call-1"),
+        ]
+
+    facade = StubMCPFacade(
+        tool_schemas=[
+            {
+                "type": "function",
+                "function": {"name": "render_chart", "description": "Render", "parameters": {"type": "object"}},
+            }
+        ],
+        process_fn=process_with_multimodal_tool_result,
+    )
+    registry = StubMCPRegistry(facade)
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> ChatCompletionResponse:
+        captured_calls.append((messages, kwargs))
+        return responses.pop(0)
+
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        model_provider_registry=stub_model_provider_registry,
+        client=stub_model_client,
+        mcp_registry=registry,
+    )
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_alias="tools")
+
+    assert result == "final result"
+    assert len(captured_calls) == 2
+    tool_messages = [message for message in captured_calls[1][0] if message.role == "tool"]
+    assert len(tool_messages) == 1
+    assert tool_messages[0].content == multimodal_result
 
 
 def test_generate_with_tools_missing_registry(

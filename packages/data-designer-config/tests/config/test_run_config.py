@@ -38,6 +38,7 @@ def test_run_config_throttle_shim_translates_to_request_admission() -> None:
                 success_window=7,
                 cooldown_seconds=1.5,
                 ceiling_overshoot=0.2,
+                rampup_seconds=30.0,
             )
         )
 
@@ -46,7 +47,7 @@ def test_run_config_throttle_shim_translates_to_request_admission() -> None:
     assert run_config.request_admission.additive_increase_step == 2
     assert run_config.request_admission.successes_until_increase == 7
     assert run_config.request_admission.cooldown_seconds == 1.5
-    assert run_config.request_admission.startup_ramp_seconds == 0.0
+    assert run_config.request_admission.startup_ramp_seconds == 30.0
 
 
 def test_run_config_throttle_shim_accepts_legacy_dict() -> None:
@@ -57,6 +58,7 @@ def test_run_config_throttle_shim_accepts_legacy_dict() -> None:
                 "additive_increase": 2,
                 "success_window": 7,
                 "cooldown_seconds": 1.5,
+                "rampup_seconds": 30.0,
             }
         )
 
@@ -65,6 +67,7 @@ def test_run_config_throttle_shim_accepts_legacy_dict() -> None:
     assert run_config.request_admission.additive_increase_step == 2
     assert run_config.request_admission.successes_until_increase == 7
     assert run_config.request_admission.cooldown_seconds == 1.5
+    assert run_config.request_admission.startup_ramp_seconds == 30.0
 
 
 def test_run_config_rejects_throttle_and_request_admission_together() -> None:
@@ -124,3 +127,13 @@ def test_deprecated_throttle_config_is_exported_from_config_package() -> None:
     namespace: dict[str, object] = {}
     exec("from data_designer.config import ThrottleConfig", namespace)
     assert namespace["ThrottleConfig"] is ThrottleConfig
+
+
+def test_throttle_config_accepts_rampup_seconds() -> None:
+    config = ThrottleConfig(rampup_seconds=30.0)
+    assert config.rampup_seconds == 30.0
+
+
+def test_throttle_config_rejects_negative_rampup_seconds() -> None:
+    with pytest.raises(ValueError, match="rampup_seconds"):
+        ThrottleConfig(rampup_seconds=-1.0)

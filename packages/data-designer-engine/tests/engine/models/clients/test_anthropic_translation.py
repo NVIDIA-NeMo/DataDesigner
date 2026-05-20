@@ -26,6 +26,7 @@ from data_designer.engine.models.clients.adapters.anthropic_translation import (
     translate_tool_result_message,
 )
 from data_designer.engine.models.clients.types import ChatCompletionRequest
+from data_designer.engine.models.usage import TokenCountSource
 from data_designer.engine.models.utils import ChatMessage
 
 MODEL = "claude-test"
@@ -237,7 +238,13 @@ def test_merge_system_parts_normalizes_supported_inputs(
     assert merge_system_parts(parts) == expected
 
 
-def test_parse_anthropic_response_maps_tool_use_and_thinking() -> None:
+def test_parse_anthropic_response_maps_tool_use_and_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+    def count_reasoning_text(text: str) -> int:
+        assert text == "Let me reason."
+        return 4
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", count_reasoning_text)
+
     response = parse_anthropic_response(
         {
             "content": [
@@ -253,6 +260,9 @@ def test_parse_anthropic_response_maps_tool_use_and_thinking() -> None:
     assert response.message.reasoning_content == "Let me reason."
     assert response.usage is not None
     assert response.usage.input_tokens == 10
+    assert response.usage.output_tokens == 5
+    assert response.usage.reasoning_tokens == 4
+    assert response.usage.reasoning_token_count_source == TokenCountSource.ESTIMATED
     assert json.loads(response.message.tool_calls[0].arguments_json) == {"query": "weather"}
 
 
@@ -485,6 +495,24 @@ def test_translate_tool_result_message_requires_tool_call_id(message: dict[str, 
                 {"type": "text", "text": "Caption"},
             ],
             id="mixed-blocks",
+        ),
+        pytest.param(
+            [
+                {"type": "text", "text": "Rendered chart:"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+            ],
+            [
+                {"type": "text", "text": "Rendered chart:"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo=",
+                    },
+                },
+            ],
+            id="mixed-blocks-with-data-uri",
         ),
     ],
 )

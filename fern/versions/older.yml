@@ -1,5 +1,0 @@
-navigation:
-  - section: Older versions
-    skip-slug: true
-    path: ./older/pages/index.mdx
-    contents: []

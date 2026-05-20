@@ -39,6 +39,8 @@ Defines the contract: sync/async chat, embeddings, image generation, `supports_*
 
 `ModelRequestExecutor` wraps each provider call with a request-admission lease and feeds success or rate-limit outcomes back to the controller. `RequestResourceResolver` owns canonical provider/model/domain identity so aliases that target the same endpoint share request capacity.
 
+When `rampup_seconds` is configured, `ThrottleManager` starts new domains at one concurrent request, climbs linearly toward the peak, and aborts to normal AIMD behavior on the first 429.
+
 ### ModelFacade
 
 The primary interface for generators. Holds a `ModelConfig`, `ModelClient`, optional `MCPRegistry`, and `ModelUsageStats`.

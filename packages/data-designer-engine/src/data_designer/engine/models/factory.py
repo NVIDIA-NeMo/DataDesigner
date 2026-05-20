@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from data_designer.engine.mcp.registry import MCPRegistry
     from data_designer.engine.models.registry import ModelRegistry
     from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
 
 def create_model_registry(
@@ -25,6 +26,7 @@ def create_model_registry(
     mcp_registry: MCPRegistry | None = None,
     client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
     run_config: RunConfig | None = None,
+    request_admission: AdaptiveRequestAdmissionController | None = None,
 ) -> ModelRegistry:
     """Factory function for creating a ModelRegistry instance.
 
@@ -43,22 +45,19 @@ def create_model_registry(
             concurrency mode.
         run_config: Optional runtime configuration. Public request-admission
             tuning is translated to the engine-internal request-admission config.
+        request_admission: Optional shared request-admission controller. When
+            omitted, a new controller is created from ``run_config``.
 
     Returns:
         A configured ModelRegistry instance.
     """
-    from data_designer.config.run_config import RunConfig
     from data_designer.engine.models.clients.factory import create_model_client
     from data_designer.engine.models.clients.retry import RetryConfig
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.registry import ModelRegistry
-    from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
-    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
-    resolved_run_config = run_config or RunConfig()
-    request_admission = AdaptiveRequestAdmissionController(
-        _request_admission_config_from_run_config(resolved_run_config, RequestAdmissionConfig)
-    )
+    if request_admission is None:
+        request_admission = create_request_admission_controller(run_config)
 
     def model_facade_factory(
         model_config: ModelConfig,
@@ -88,6 +87,20 @@ def create_model_registry(
         model_facade_factory=model_facade_factory,
         request_admission=request_admission,
         retry_config=RetryConfig(),
+    )
+
+
+def create_request_admission_controller(
+    run_config: RunConfig | None = None,
+) -> AdaptiveRequestAdmissionController:
+    """Create a request-admission controller from public runtime tuning."""
+    from data_designer.config.run_config import RunConfig
+    from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
+
+    resolved_run_config = run_config or RunConfig()
+    return AdaptiveRequestAdmissionController(
+        _request_admission_config_from_run_config(resolved_run_config, RequestAdmissionConfig)
     )
 
 

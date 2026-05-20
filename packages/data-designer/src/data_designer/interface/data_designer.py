@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
@@ -62,6 +65,7 @@ from data_designer.engine.secret_resolver import (
     SecretResolver,
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
+from data_designer.interface.composite_workflow import CompositeWorkflow
 from data_designer.interface.errors import (
     DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
@@ -74,6 +78,7 @@ from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
     from data_designer.engine.models.facade import ModelFacade
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +156,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
+        self._request_admission: AdaptiveRequestAdmissionController = self._create_request_admission_controller()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
         # Only consult the YAML's `default:` key when we are also falling back to
@@ -166,13 +172,31 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             self._model_providers = self._resolve_model_providers(model_providers)
             default_provider_name = None
         self._mcp_providers = mcp_providers or []
-        # When the YAML carries a default, ``get_default_provider_name`` already
-        # nudged the user with a ``DeprecationWarning``. Building the registry
-        # below would re-fire ``ModelProviderRegistry._warn_on_explicit_default``
-        # for the same root cause, so suppress that second warning. See PR #594
-        # review.
+        # Suppress ``ModelProviderRegistry._warn_on_explicit_default`` whenever
+        # *we* are filling ``default=`` on the user's behalf rather than the
+        # user actively opting into the deprecated registry-level default. Two
+        # such cases:
+        #   1. ``model_providers is None`` — the caller passed nothing, so we
+        #      load the YAML's ``providers:`` list and (in the multi-provider
+        #      case) ``resolve_model_provider_registry`` synthesises
+        #      ``default=providers[0].name`` to satisfy ``check_implicit_default``.
+        #      The fresh-install YAML ships three providers and no ``default:``
+        #      key, so this fires for every default ``DataDesigner()``
+        #      construction. The user has no actionable lever here, and the
+        #      warning's "Specify provider= on each ModelConfig" remediation
+        #      doesn't apply when they haven't built a ``ModelConfig`` at all.
+        #   2. ``default_provider_name is not None`` — the YAML carried a
+        #      ``default:`` key and ``get_default_provider_name`` already
+        #      emitted the YAML-level ``DeprecationWarning``. The registry
+        #      warning would fire for the same root cause, so suppress it to
+        #      avoid double-warning. See PR #594 review.
+        # Users who hand-construct a multi-provider list in Python still see
+        # the warning (they wrote the multi-provider intent themselves), and
+        # users who hand-construct ``ModelProviderRegistry(default=...)``
+        # directly always see it — those are the entry points #589 targets.
+        library_synthesised_default = model_providers is None or default_provider_name is not None
         with warnings.catch_warnings():
-            if default_provider_name is not None:
+            if library_synthesised_default:
                 warnings.filterwarnings(
                     "ignore",
                     message="ModelProviderRegistry.default is deprecated",
@@ -191,6 +215,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             InterfaceInfo object with information about the Data Designer interface.
         """
         return self._get_interface_info(self._model_providers)
+
+    @property
+    def artifact_path(self) -> Path:
+        """Directory where Data Designer writes artifacts by default."""
+        return self._artifact_path
 
     def list_mcp_tool_names(self, mcp_provider_name: str, *, timeout_sec: float = 10.0) -> list[str]:
         """Connect to a configured MCP provider and return the names of its available tools.
@@ -218,6 +247,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         num_records: int = DEFAULT_NUM_RECORDS,
         dataset_name: str = "dataset",
         resume: ResumeMode = ResumeMode.NEVER,
+        artifact_path: Path | str | None = None,
+        on_batch_complete: Callable[[Path], None] | None = None,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -249,6 +280,15 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
                 In all resume modes, in-flight partial results from the interrupted run are
                 discarded before generation continues.
+            artifact_path: Optional artifact root for this create call. Defaults
+                to the path configured on this DataDesigner instance.
+            on_batch_complete: Optional callback called with the completed batch artifact path after
+                each batch is written. Useful for incremental workflows such as uploading each batch
+                to remote storage, updating an external run monitor, or triggering downstream processing
+                before the full dataset has finished. The callback runs synchronously in the generation
+                path, so it is recommended to keep it lightweight or delegate slow work to a queue, e.g.
+                ``on_batch_complete=lambda path: queue_upload(path)``. Callback exceptions abort the run
+                and are wrapped as ``DataDesignerGenerationError``.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -261,7 +301,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         logger.info("🎨 Creating Data Designer dataset")
         self._log_jinja_rendering_engine_mode()
 
-        resource_provider = self._create_resource_provider(dataset_name, config_builder, resume=resume)
+        artifact_path = Path(artifact_path) if artifact_path is not None else self._artifact_path
+        resource_provider = self._create_resource_provider(
+            dataset_name,
+            config_builder,
+            resume=resume,
+            artifact_path=artifact_path,
+        )
 
         # ``DeprecationWarning`` is re-raised before the generic wrapper so that
         # ``warnings.warn(..., DeprecationWarning)`` calls inside the engine — most
@@ -277,7 +323,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
         try:
-            builder.build(num_records=num_records, resume=resume)
+            builder.build(num_records=num_records, on_batch_complete=on_batch_complete, resume=resume)
         except DeprecationWarning:
             raise
         except Exception as e:
@@ -338,7 +384,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             )
 
         try:
-            profiler = self._create_dataset_profiler(config_builder, resource_provider)
+            profiler_column_configs = config_builder.get_column_configs() or builder.data_designer_config.columns
+            profiler = self._create_dataset_profiler(
+                config_builder,
+                resource_provider,
+                column_configs=profiler_column_configs,
+            )
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
@@ -358,6 +409,21 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             dataset_metadata=dataset_metadata,
             task_traces=task_traces,
         )
+
+    async def acreate(
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        num_records: int = DEFAULT_NUM_RECORDS,
+        dataset_name: str = "dataset",
+        resume: ResumeMode = ResumeMode.NEVER,
+        artifact_path: Path | str | None = None,
+    ) -> DatasetCreationResults:
+        """Async wrapper for creating a dataset without blocking the caller's event loop."""
+        kwargs = {"num_records": num_records, "dataset_name": dataset_name, "resume": resume}
+        if artifact_path is not None:
+            kwargs["artifact_path"] = artifact_path
+        return await asyncio.to_thread(self.create, config_builder, **kwargs)
 
     def preview(
         self, config_builder: DataDesignerConfigBuilder, *, num_records: int = DEFAULT_NUM_RECORDS
@@ -444,6 +510,20 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             dataset_metadata=dataset_metadata,
             task_traces=builder.task_traces or None,
         )
+
+    def compose_workflow(self, *, name: str) -> CompositeWorkflow:
+        """Create an experimental composite workflow.
+
+        Workflow chaining is experimental and its API, metadata schema, and
+        artifact layout may change in future releases.
+
+        Args:
+            name: Workflow name used for the artifact directory.
+
+        Returns:
+            A composite workflow that can run named stages in sequence.
+        """
+        return CompositeWorkflow(name=name, data_designer=self)
 
     def _log_jinja_rendering_engine_mode(self) -> None:
         engine = JinjaRenderingEngine(self._run_config.jinja_rendering_engine)
@@ -533,6 +613,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             due to error-rate thresholds. Errors are still tracked for reporting.
         """
         self._run_config = run_config
+        self._request_admission = self._create_request_admission_controller()
 
     def get_models(self, model_aliases: list[str]) -> dict[str, ModelFacade]:
         """Get a dict of ModelFacade instances for custom column development.
@@ -580,29 +661,37 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def _create_dataset_profiler(
-        self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        resource_provider: ResourceProvider,
+        *,
+        column_configs: list[ColumnConfigT] | None = None,
     ) -> DataDesignerDatasetProfiler:
         return DataDesignerDatasetProfiler(
             config=DatasetProfilerConfig(
-                column_configs=config_builder.get_column_configs(),
+                column_configs=column_configs or config_builder.get_column_configs(),
                 column_profiler_configs=config_builder.get_profilers(),
             ),
             resource_provider=resource_provider,
         )
 
     def _create_resource_provider(
-        self, dataset_name: str, config_builder: DataDesignerConfigBuilder, *, resume: ResumeMode = ResumeMode.NEVER
+        self,
+        dataset_name: str,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        resume: ResumeMode = ResumeMode.NEVER,
+        artifact_path: Path | None = None,
     ) -> ResourceProvider:
-        ArtifactStorage.mkdir_if_needed(self._artifact_path)
+        artifact_path = artifact_path or self._artifact_path
+        ArtifactStorage.mkdir_if_needed(artifact_path)
 
         seed_dataset_source = None
         if (seed_config := config_builder.get_seed_config()) is not None:
             seed_dataset_source = seed_config.source
 
         return create_resource_provider(
-            artifact_storage=ArtifactStorage(
-                artifact_path=self._artifact_path, dataset_name=dataset_name, resume=resume
-            ),
+            artifact_storage=ArtifactStorage(artifact_path=artifact_path, dataset_name=dataset_name, resume=resume),
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,
             model_provider_registry=self._model_provider_registry,
@@ -613,7 +702,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
             client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
+            request_admission=self._request_admission,
         )
+
+    def _create_request_admission_controller(self) -> AdaptiveRequestAdmissionController:
+        from data_designer.engine.models.factory import create_request_admission_controller
+
+        return create_request_admission_controller(self._run_config)
 
     @staticmethod
     def _resolve_client_concurrency_mode(config_builder: DataDesignerConfigBuilder) -> ClientConcurrencyMode:

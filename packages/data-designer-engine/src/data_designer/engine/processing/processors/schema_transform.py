@@ -27,7 +27,7 @@ def _escape_value_for_json(value: Any) -> str:
     schema transform templates produce JSON. Values interpolated into
     a JSON string must be escaped - e.g. quotes and backslashes - so
     the rendered output is valid JSON. We pass this as record_str_fn
-    to also enable nested dot access ({{ col.sub.field }}) on
+    to also enable nested dot access, such as `{{ col.sub.field }}`, on
     deserialized JSON columns.
     """
     if isinstance(value, bool):

@@ -23,7 +23,7 @@ from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import JinjaRenderingEngine, RunConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
@@ -491,7 +491,8 @@ def test_init_with_string_path(stub_artifact_path, stub_model_providers):
     """Test DataDesigner accepts string paths."""
     designer = DataDesigner(artifact_path=str(stub_artifact_path), model_providers=stub_model_providers)
     assert designer is not None
-    assert isinstance(designer._artifact_path, Path)
+    assert isinstance(designer.artifact_path, Path)
+    assert designer.artifact_path == stub_artifact_path
 
 
 def test_init_with_path_object(stub_artifact_path, stub_model_providers):
@@ -654,9 +655,64 @@ def test_init_yaml_default_emits_single_deprecation_warning(
     )
 
 
+def test_init_no_user_providers_no_yaml_default_stays_quiet(
+    stub_artifact_path: Path,
+    stub_managed_assets_path: Path,
+) -> None:
+    """Pin the bare-``DataDesigner()`` happy path: when the caller passes
+    nothing and the YAML carries multiple ``providers:`` but no ``default:``
+    key, ``resolve_model_provider_registry`` synthesises
+    ``default=providers[0].name`` to satisfy ``check_implicit_default``. The
+    user did not opt into the deprecated registry-level default — the library
+    filled it in on their behalf — so ``_warn_on_explicit_default`` must stay
+    quiet. The fresh-install YAML ships exactly this shape (3 providers, no
+    ``default:``), so a regression here is what every user sees on their first
+    ``DataDesigner()`` call.
+
+    Counterpart to ``test_init_user_supplied_providers_preserve_first_wins_over_yaml_default``,
+    which pins that the warning *does* fire when the caller hand-builds a
+    multi-provider list themselves (they wrote the multi-provider intent, so
+    the deprecation nudge applies).
+    """
+    yaml_providers = [
+        ModelProvider(
+            name="yaml-first",
+            endpoint="https://yaml-first.example.com/v1",
+            api_key="yaml-first-key",
+        ),
+        ModelProvider(
+            name="yaml-second",
+            endpoint="https://yaml-second.example.com/v1",
+            api_key="yaml-second-key",
+        ),
+    ]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        with (
+            patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
+            patch.object(dd_mod, "get_default_provider_name", return_value=None),
+        ):
+            data_designer = DataDesigner(
+                artifact_path=stub_artifact_path,
+                secret_resolver=PlaintextResolver(),
+                managed_assets_path=stub_managed_assets_path,
+            )
+
+    deprecation_messages = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
+    registry_default_warnings = [m for m in deprecation_messages if "ModelProviderRegistry.default is deprecated" in m]
+    assert registry_default_warnings == [], (
+        "Library-synthesised default must not emit the registry-level deprecation; "
+        f"the user did not opt into it. Saw: {deprecation_messages}"
+    )
+    # Behavioral pin: first-wins still resolves correctly.
+    assert data_designer.model_provider_registry.get_default_provider_name() == "yaml-first"
+
+
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    original_request_admission = data_designer._request_admission
 
     # Test default values
     assert data_designer.run_config.disable_early_shutdown is False
@@ -675,6 +731,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             buffer_size=500,
             max_conversation_restarts=7,
             max_conversation_correction_steps=2,
+            request_admission=RequestAdmissionTuningConfig(successes_until_increase=7),
         )
     )
     assert data_designer.run_config.disable_early_shutdown is True
@@ -683,6 +740,8 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.buffer_size == 500
     assert data_designer.run_config.max_conversation_restarts == 7
     assert data_designer.run_config.max_conversation_correction_steps == 2
+    assert data_designer._request_admission is not original_request_admission
+    assert data_designer._request_admission.config.successes_until_increase == 7
 
     # Test updating values
     data_designer.set_run_config(
@@ -724,6 +783,48 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
         )
     )
     assert data_designer.run_config.shutdown_error_rate == 1.0
+
+
+def test_create_forwards_on_batch_complete_callback(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    def on_batch_complete(path: Path) -> None:
+        del path
+
+    with (
+        patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method,
+        patch.object(data_designer, "_create_dataset_builder") as mock_builder_method,
+        patch.object(data_designer, "_create_dataset_profiler") as mock_profiler_method,
+    ):
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.get_dataset_metadata.return_value = {}
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        mock_builder = MagicMock()
+        mock_builder.build.return_value = None
+        mock_builder.task_traces = []
+        mock_builder.artifact_storage.load_dataset_with_dropped_columns.return_value = lazy.pd.DataFrame({"col": [1]})
+        mock_builder_method.return_value = mock_builder
+
+        mock_profiler = MagicMock()
+        mock_profiler.profile_dataset.return_value = None
+        mock_profiler_method.return_value = mock_profiler
+
+        data_designer.create(stub_sampler_only_config_builder, num_records=1, on_batch_complete=on_batch_complete)
+
+    _, build_kwargs = mock_builder.build.call_args
+    assert build_kwargs["num_records"] == 1
+    assert build_kwargs["on_batch_complete"] is on_batch_complete
 
 
 def test_run_config_rejects_invalid_buffer_size() -> None:

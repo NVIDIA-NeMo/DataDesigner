@@ -120,7 +120,11 @@ def test_image_cell_generator_empty_prompt_error(stub_resource_provider):
 
     generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
 
-    with pytest.raises(UserTemplateError, match="invalid"):
+    # See https://github.com/NVIDIA-NeMo/DataDesigner/issues/629: empty renders
+    # used to surface as a generic "invalid" message; they now raise the more
+    # actionable EmptyTemplateRenderError (a UserTemplateError subclass) that
+    # names the culprit field.
+    with pytest.raises(UserTemplateError, match="empty"):
         generator.generate(data={"empty": ""})
 
 

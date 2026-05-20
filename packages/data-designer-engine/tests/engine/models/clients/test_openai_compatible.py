@@ -16,6 +16,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingRequest,
     ImageGenerationRequest,
 )
+from data_designer.engine.models.usage import TokenCountSource
 from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
 
 PROVIDER = "test-provider"
@@ -46,6 +47,7 @@ def _make_client(
 def _chat_response(
     content: str = "Hello!",
     reasoning: str | None = None,
+    reasoning_tokens: int | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": content}
@@ -55,7 +57,12 @@ def _chat_response(
         message["tool_calls"] = tool_calls
     return {
         "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "completion_tokens_details": {"reasoning_tokens": reasoning_tokens} if reasoning_tokens is not None else {},
+            "total_tokens": 15,
+        },
     }
 
 
@@ -74,7 +81,7 @@ def _image_response() -> dict[str, Any]:
 
 
 def test_completion_maps_canonical_fields() -> None:
-    response_json = _chat_response(content="Hello!", reasoning="step-by-step")
+    response_json = _chat_response(content="Hello!", reasoning="step-by-step", reasoning_tokens=3)
     client = _make_client(sync_client=make_mock_sync_client(response_json))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
@@ -85,6 +92,8 @@ def test_completion_maps_canonical_fields() -> None:
     assert result.usage is not None
     assert result.usage.input_tokens == 10
     assert result.usage.output_tokens == 5
+    assert result.usage.reasoning_tokens == 3
+    assert result.usage.reasoning_token_count_source == TokenCountSource.PROVIDER
 
 
 def test_completion_with_tool_calls() -> None:
@@ -106,6 +115,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": "Hi"}],
+        n=4,
         temperature=0.7,
         extra_body={"seed": 42},
         extra_headers={"X-Trace": "1"},
@@ -116,6 +126,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     assert "/chat/completions" in call_args.args[0]
     payload = call_args.kwargs["json"]
     assert payload["model"] == MODEL
+    assert payload["n"] == 4
     assert payload["temperature"] == 0.7
     assert payload["seed"] == 42
     assert "timeout" not in payload
@@ -285,6 +296,25 @@ def test_completion_forwards_base64_image_url_dict_unchanged() -> None:
     payload = sync_mock.post.call_args.kwargs["json"]
     content = payload["messages"][0]["content"]
     assert content[0] == image_block
+
+
+def test_completion_forwards_multimodal_tool_result_content_unchanged() -> None:
+    """OpenAI-compatible VLM backends receive canonical multimodal tool content."""
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    content = [
+        {"type": "text", "text": "Rendered page:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}},
+    ]
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "tool", "tool_call_id": "call-1", "content": content}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["messages"][0]["content"] == content
 
 
 # --- Auth headers ---

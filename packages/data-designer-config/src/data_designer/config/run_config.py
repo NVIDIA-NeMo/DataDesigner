@@ -99,6 +99,11 @@ class ThrottleConfig(ConfigBase):
         ge=0.0,
         description="Deprecated compatibility field; not forwarded to request admission.",
     )
+    rampup_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=("Deprecated alias for RequestAdmissionTuningConfig.startup_ramp_seconds."),
+    )
 
     def to_request_admission_tuning(self) -> RequestAdmissionTuningConfig:
         """Translate legacy throttle tuning into the request-admission DTO."""
@@ -107,6 +112,7 @@ class ThrottleConfig(ConfigBase):
             additive_increase_step=self.additive_increase,
             successes_until_increase=self.success_window,
             cooldown_seconds=self.cooldown_seconds,
+            startup_ramp_seconds=self.rampup_seconds,
         )
 
 

@@ -4,11 +4,8 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from numbers import Number
 from typing import TYPE_CHECKING, Any
-
-import tiktoken
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import (
@@ -25,6 +22,7 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
     RecordBasedPromptRenderer,
     create_response_recipe,
 )
+from data_designer.engine.utils.token_counting import count_text_tokens
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -36,12 +34,6 @@ WARNING_PREFIX = "⚠️ Error during column profile calculation: "
 TEXT_FIELD_AVG_SPACE_COUNT_THRESHOLD = 0.1
 
 logger = logging.getLogger(__name__)
-
-
-@lru_cache(maxsize=1)
-def _get_tokenizer() -> tiktoken.Encoding:
-    """Lazily initialize tokenizer to avoid import-time side effects."""
-    return tiktoken.get_encoding("cl100k_base")
 
 
 def calculate_column_distribution(
@@ -106,7 +98,6 @@ def calculate_input_token_stats(
     column_config: LLMTextColumnConfig, df: pd.DataFrame
 ) -> dict[str, float | MissingValue]:
     try:
-        tokenizer = _get_tokenizer()
         num_tokens = []
         num_samples = min(MAX_PROMPT_SAMPLE_SIZE, len(df))
         renderer = RecordBasedPromptRenderer(response_recipe=create_response_recipe(column_config))
@@ -118,7 +109,7 @@ def calculate_input_token_stats(
                 prompt_template=column_config.prompt, record=record, prompt_type=PromptType.USER_PROMPT
             )
             concatenated_prompt = str(system_prompt + "\n\n" + prompt)
-            num_tokens.append(len(tokenizer.encode(concatenated_prompt, disallowed_special=())))
+            num_tokens.append(count_text_tokens(concatenated_prompt))
     except Exception as e:
         logger.warning(f"{WARNING_PREFIX} failed to calculate input token stats for column {column_config.name!r}: {e}")
         return {
@@ -137,10 +128,7 @@ def calculate_output_token_stats(
     column_config: LLMTextColumnConfig, df: pd.DataFrame
 ) -> dict[str, float | MissingValue]:
     try:
-        tokenizer = _get_tokenizer()
-        tokens_per_record = df[column_config.name].apply(
-            lambda value: len(tokenizer.encode(str(value), disallowed_special=()))
-        )
+        tokens_per_record = df[column_config.name].apply(lambda value: count_text_tokens(str(value)))
         return {
             "output_tokens_mean": tokens_per_record.mean(),
             "output_tokens_median": tokens_per_record.median(),

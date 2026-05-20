@@ -111,15 +111,16 @@ concurrent_requests = min(
 
 `max_parallel_requests` sets the **ceiling**. The actual limit (`current_request_limit`) is managed at runtime by adaptive request admission that reacts to rate-limit signals from the inference server:
 
+- **During optional startup ramp**: when `startup_ramp_seconds` is greater than 0, a new request resource starts at one concurrent request and increases linearly toward `max_parallel_requests` over that duration.
 - **On the first 429 in a burst**: the limit is reduced by a configurable factor (default: 25% reduction) and a cooldown is applied. Further 429s from already in-flight requests in the same burst do not reduce the limit again — they release their permits and hold the limit steady.
 - **After consecutive successes**: the limit increases by 1 (by default) until it reaches the ceiling or a stabilized rate-limit threshold.
 
 This means Data Designer automatically finds the right concurrency level for your server without manual tuning.
 
 !!! note "Engine paths"
-    Adaptive request admission is fully active on the default **async engine**. The legacy **sync engine** is available for one transitional release via `DATA_DESIGNER_ASYNC_ENGINE=0`; on that path 429s are first retried at the HTTP transport layer and AIMD only engages as a fallback. See [Async engine](#async-engine) below.
+    Request admission wraps model requests on both sync and async paths. When request admission is active, provider 429 responses propagate to the AIMD controller instead of being hidden by HTTP transport retries. See [Async engine](#async-engine) below.
 
-**Example**: With `buffer_size=100` and `max_parallel_requests=32`, Data Designer starts sending up to 32 requests in parallel. If the server returns 429s, concurrency drops automatically (e.g., to 24, then 18) and recovers once the server catches up.
+**Example**: With `buffer_size=100` and `max_parallel_requests=32`, Data Designer can send up to 32 requests in parallel. If `startup_ramp_seconds=30`, it starts at one request and climbs linearly toward 32 over 30 seconds. If the server returns 429s, startup ramp stops, concurrency drops automatically (e.g., to 24, then 18), and normal AIMD recovery takes over once the server catches up.
 
 ---
 
@@ -200,10 +201,41 @@ designer.set_run_config(run_config)
 
 ### Adaptive Request Admission
 
-Data Designer uses AIMD (Additive Increase / Multiplicative Decrease) request admission to automatically adjust concurrency per provider/model/domain based on rate-limit feedback from the inference server. This is an internal runtime controller, not a public `RunConfig` knob. Set `max_parallel_requests` as the user-facing ceiling and inspect `AsyncCapacityPlan`/logs to understand the effective runtime limits.
+Data Designer uses AIMD (Additive Increase / Multiplicative Decrease) request admission to automatically adjust concurrency per provider/model/domain based on rate-limit feedback from the inference server. For most workloads, set `max_parallel_requests` as the user-facing ceiling and inspect `AsyncCapacityPlan`/logs to understand the effective runtime limits. Advanced AIMD tuning is available through `RequestAdmissionTuningConfig`.
+
+!!! note "Engine paths"
+    Request admission wraps model requests on both sync and async paths. When request admission is active, provider 429 responses propagate to the AIMD controller instead of being hidden by HTTP transport retries.
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+run_config = dd.RunConfig(
+    request_admission=dd.RequestAdmissionTuningConfig(
+        multiplicative_decrease_factor=0.75,  # Multiply limit by this on a 429
+        additive_increase_step=1,             # Slots added after each success window
+        successes_until_increase=25,          # Successful releases before increasing
+        cooldown_seconds=2.0,                 # Fallback pause when no Retry-After header is present
+        startup_ramp_seconds=0.0,             # Optional startup ramp duration; 0 disables it
+    ),
+)
+
+designer = DataDesigner()
+designer.set_run_config(run_config)
+```
+
+| Parameter | Default | Effect |
+|-----------|---------|--------|
+| `multiplicative_decrease_factor` | 0.75 | How aggressively to cut concurrency on a 429. Lower = more aggressive. |
+| `additive_increase_step` | 1 | Slots added per recovery step. Higher = faster recovery, but riskier. |
+| `successes_until_increase` | 25 | Successful releases required before each increase step. |
+| `cooldown_seconds` | 2.0 | Pause duration after a 429 when the server does not send `Retry-After`. |
+| `startup_ramp_seconds` | 0.0 | Optional startup ramp duration. When greater than 0, resources start at one concurrent request and linearly climb to the configured ceiling unless a 429 aborts the ramp. |
+
+`RunConfig.throttle` and `ThrottleConfig` remain as deprecated compatibility shims. Existing `reduce_factor`, `additive_increase`, `success_window`, `cooldown_seconds`, and `rampup_seconds` values are translated to `RequestAdmissionTuningConfig`; `ceiling_overshoot` is accepted for compatibility but is no longer forwarded because request admission does not expose that knob.
 
 !!! tip "How it works in practice"
-    When a model endpoint returns HTTP 429, the controller reduces the concurrency limit for that model and pauses briefly. After enough consecutive successes, it begins ramping back up. If the server rate-limits again, the controller records that level as a ceiling and stabilizes just below it, with a small overshoot band to detect when the server can handle more load.
+    When a model endpoint returns HTTP 429, the controller reduces the concurrency limit for that request resource and pauses briefly. After enough consecutive successes, it begins ramping back up. If the server rate-limits again, the controller records that level as a ceiling and stabilizes at a lower sustainable limit.
 
     You can observe this in the logs — look for messages like `concurrency reduced from X → Y` and `concurrency increased from X → Y`.
 
