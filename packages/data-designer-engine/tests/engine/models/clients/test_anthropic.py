@@ -401,11 +401,12 @@ def test_completion_excludes_openai_specific_params() -> None:
         frequency_penalty=0.5,
         presence_penalty=0.5,
         seed=42,
+        n=4,
     )
     client.completion(request)
 
     payload = sync_mock.post.call_args.kwargs["json"]
-    for field in ("response_format", "frequency_penalty", "presence_penalty", "seed"):
+    for field in ("response_format", "frequency_penalty", "presence_penalty", "seed", "n"):
         assert field not in payload, f"{field!r} should be excluded from Anthropic payload"
 
 

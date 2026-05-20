@@ -115,6 +115,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": "Hi"}],
+        n=4,
         temperature=0.7,
         extra_body={"seed": 42},
         extra_headers={"X-Trace": "1"},
@@ -125,6 +126,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     assert "/chat/completions" in call_args.args[0]
     payload = call_args.kwargs["json"]
     assert payload["model"] == MODEL
+    assert payload["n"] == 4
     assert payload["temperature"] == 0.7
     assert payload["seed"] == 42
     assert "timeout" not in payload
