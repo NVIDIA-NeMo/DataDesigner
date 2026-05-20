@@ -21,12 +21,13 @@ The final repository layout is specified in [Module ownership](module-ownership.
 | Contract | V1 status | Owner |
 | --- | --- | --- |
 | `SchedulingMetadata` | public plugin-facing DTO | `data-designer-config` |
+| `RequestAdmissionTuningConfig` | public advanced `RunConfig.request_admission` DTO for supported AIMD tuning only | `data-designer-config` |
 | `TaskAdmissionConfig` | engine-internal config and benchmark injection surface; not a public `RunConfig` knob in V1 | `data-designer-engine` |
 | `RequestAdmissionConfig` | engine-internal config and benchmark injection surface in V1 | `data-designer-engine` |
-| `RunConfig.request_admission` | reserved future public spelling if evidence justifies a user-facing request-admission knob | not introduced by this epic unless a later issue explicitly changes the public API |
+| `RunConfig.request_admission` | public advanced request-admission tuning surface backed by `RequestAdmissionTuningConfig`; does not expose internal controller APIs | `data-designer-config` |
 | `AsyncCapacityPlan` | diagnostic/reporting DTO, emitted to explain a run | `data-designer-engine` |
 
-Public knobs are not added by the task-admission or request-admission implementation slices. Benchmarks may inject capacity values through harness-only configuration so policy evidence can be produced without committing to public API.
+Public request-admission tuning is limited to the supported fields on `RequestAdmissionTuningConfig`: multiplicative decrease factor, additive increase step, successes before increase, fallback cooldown, and startup ramp seconds. Benchmarks may still inject lower-level capacity values through harness-only configuration without committing those values to public API.
 
 ## Metadata Contracts
 
@@ -347,7 +348,7 @@ It has no mutation or admission methods.
 
 Snapshots are immutable and internally consistent for their capture point. Domain snapshots include `captured_at`, monotonic `sequence`, resource, effective max, current limit, in-flight count, active lease count, waiters, blocked-until timing, cooldown remaining, rate-limit ceiling, consecutive rate limits, last outcome summary, and leak diagnostic counters. Global provider/model snapshots include aggregate static cap, aggregate in-flight count across domains, aggregate active lease count, aliases contributing to the cap, and per-domain limit summaries.
 
-`RequestAdmissionConfig` is the durable engine-internal request-admission tuning/config vocabulary for V1. It includes request resources, per-resource `initial_limit`, optional `max_limit_clamp`, configured cooldown, `multiplicative_decrease_factor`, `additive_increase_step`, `increase_after_successes`, and default queue-wait timeout. Legacy request-control config names are not durable names.
+`RequestAdmissionConfig` is the durable engine-internal request-admission tuning/config vocabulary for V1. It includes request resources, per-resource `initial_limit`, optional `max_limit_clamp`, configured cooldown, `multiplicative_decrease_factor`, `additive_increase_step`, `increase_after_successes`, `startup_ramp_seconds`, and default queue-wait timeout. Legacy request-control config names are not durable names; the public `RequestAdmissionTuningConfig` may accept old throttle-era spelling as input aliases for migration, but stores and documents scheduler-era names.
 
 ## Telemetry And Correlation Contracts
 
@@ -478,6 +479,7 @@ RequestAdmissionConfigSnapshot:
   multiplicative_decrease_factor: float
   additive_increase_step: int
   increase_after_successes: int
+  startup_ramp_seconds: float
   default_queue_wait_timeout_seconds: float | None
 
 AsyncCapacityPlan:

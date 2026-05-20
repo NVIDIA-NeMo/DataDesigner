@@ -17,4 +17,5 @@ class RequestAdmissionConfig:
     multiplicative_decrease_factor: float = 0.75
     additive_increase_step: int = 1
     increase_after_successes: int = 25
+    startup_ramp_seconds: float = 0.0
     default_queue_wait_timeout_seconds: float | None = None

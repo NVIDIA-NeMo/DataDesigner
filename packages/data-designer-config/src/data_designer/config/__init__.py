@@ -58,7 +58,11 @@ if TYPE_CHECKING:
         ProcessorType,
         SchemaTransformProcessorConfig,
     )
-    from data_designer.config.run_config import JinjaRenderingEngine, RunConfig  # noqa: F401
+    from data_designer.config.run_config import (  # noqa: F401
+        JinjaRenderingEngine,
+        RequestAdmissionTuningConfig,
+        RunConfig,
+    )
     from data_designer.config.sampler_constraints import (  # noqa: F401
         ColumnInequalityConstraint,
         ConstraintType,
@@ -177,6 +181,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SchemaTransformProcessorConfig": (_MOD_PROCESSORS, "SchemaTransformProcessorConfig"),
     # run_config
     "JinjaRenderingEngine": (f"{_MOD_BASE}.run_config", "JinjaRenderingEngine"),
+    "RequestAdmissionTuningConfig": (f"{_MOD_BASE}.run_config", "RequestAdmissionTuningConfig"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     # scheduling metadata
     "SchedulingMetadata": (f"{_MOD_BASE}.scheduling", "SchedulingMetadata"),

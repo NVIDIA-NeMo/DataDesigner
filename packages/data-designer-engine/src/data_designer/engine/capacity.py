@@ -55,6 +55,7 @@ class RequestAdmissionConfigSnapshot:
     multiplicative_decrease_factor: float
     additive_increase_step: int
     increase_after_successes: int
+    startup_ramp_seconds: float
     default_queue_wait_timeout_seconds: float | None
 
     @classmethod
@@ -68,6 +69,7 @@ class RequestAdmissionConfigSnapshot:
             multiplicative_decrease_factor=config.multiplicative_decrease_factor,
             additive_increase_step=config.additive_increase_step,
             increase_after_successes=config.increase_after_successes,
+            startup_ramp_seconds=config.startup_ramp_seconds,
             default_queue_wait_timeout_seconds=config.default_queue_wait_timeout_seconds,
         )
 

@@ -39,7 +39,7 @@ The durable V1 implementation name is `AdaptiveRequestAdmissionController`.
 
 The durable model-call boundary name is `ModelRequestExecutor`.
 
-The durable internal config vocabulary is `RequestAdmissionConfig`. V1 does not introduce a public `RunConfig.request_admission` knob; that spelling is reserved for a later public surface if benchmark evidence justifies one.
+The durable internal config vocabulary is `RequestAdmissionConfig`. The public `RunConfig.request_admission` surface uses `RequestAdmissionTuningConfig`, a constrained advanced DTO for supported AIMD tuning only. Public config is translated into engine-internal `RequestAdmissionConfig` at the engine boundary; users do not receive controller, queue, lease, pressure snapshot, per-resource initial-limit, max-clamp, or queue-timeout mutation APIs.
 
 Do not keep production aliases, shims, subclasses, adapters, exports, docs paths, or durable tests for the replaced request-control vocabulary. [Migration and cleanup](migration-and-cleanup.md#request-admission-cleanup) lists the exact search terms.
 
@@ -121,7 +121,8 @@ V1 AIMD contract:
 - `effective_max = min(provider_model_static_cap, request_config.max_limit_clamp_for_resource_if_present)`
 - instantaneous aggregate availability is enforced separately by `provider_model_aggregate_in_flight < provider_model_static_cap`
 - `initial_limit` is clamped to `[1, effective_max]`
-- `current_limit` starts at `initial_limit`
+- `current_limit` starts at `initial_limit`, unless `startup_ramp_seconds > 0`, in which case it starts at `1` and ramps linearly to `initial_limit`
+- a provider rate-limit during startup ramp aborts the ramp and switches the resource to normal AIMD recovery
 - provider rate limits apply multiplicative decrease and set `blocked_until_monotonic`
 - success outside cooldown contributes to additive recovery
 - `request_limit_increased`, `request_soft_ceiling_recovered`, and `request_fully_recovered` events are emitted from state transitions, not inferred later by sinks

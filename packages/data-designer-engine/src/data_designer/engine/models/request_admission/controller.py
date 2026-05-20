@@ -37,6 +37,7 @@ from data_designer.engine.observability import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MIN_LIMIT: int = 1
 RequestDenyReason = Literal[
     "no_capacity",
     "cooldown",
@@ -505,6 +506,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         if provider_model not in self._global_caps:
             return RequestAdmissionDenied(item=item, reason="hard_policy_denial", diagnostics={"unregistered": True})
         state = self._get_or_create_state(resource)
+        self._apply_startup_ramp_locked(state, resource, now)
         if now < state.blocked_until:
             return RequestAdmissionDenied(
                 item=item,
@@ -571,6 +573,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
     ) -> None:
         effective_max = self._effective_max_for_resource(resource)
         if outcome.kind == "rate_limited":
+            state.startup_ramp_active = False
             prev_limit = state.current_limit
             should_decrease = admitted_adaptive_limit <= prev_limit
             state.consecutive_rate_limits += 1
@@ -596,6 +599,11 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
                         )
                     )
             return
+        if state.startup_ramp_active:
+            self._apply_startup_ramp_locked(state, resource, now)
+            if outcome.kind == "success":
+                state.success_streak = 0
+                return
         if outcome.kind == "success" and now >= state.blocked_until:
             prev_limit = state.current_limit
             state.consecutive_rate_limits = 0
@@ -641,20 +649,59 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
     def _get_or_create_state(self, resource: RequestResourceKey) -> AdaptiveRequestLimitState:
         state = self._domains.get(resource)
         if state is None:
-            effective_max = self._effective_max_for_resource(resource)
-            initial = self._config.initial_limits.get(resource, effective_max)
-            state = AdaptiveRequestLimitState(current_limit=max(1, min(initial, effective_max)))
+            initial = self._initial_limit_for_resource(resource)
+            ramp_active = self._config.startup_ramp_seconds > 0.0 and initial > DEFAULT_MIN_LIMIT
+            state = AdaptiveRequestLimitState(
+                current_limit=DEFAULT_MIN_LIMIT if ramp_active else initial,
+                startup_ramp_started_at=time.monotonic(),
+                startup_ramp_active=ramp_active,
+            )
             self._domains[resource] = state
         return state
 
+    def _initial_limit_for_resource(self, resource: RequestResourceKey) -> int:
+        effective_max = self._effective_max_for_resource(resource)
+        initial = self._config.initial_limits.get(resource, effective_max)
+        return max(DEFAULT_MIN_LIMIT, min(initial, effective_max))
+
     def _effective_max_for_resource(self, resource: RequestResourceKey) -> int:
         provider_model_cap = self._global_caps.get(resource.provider_model_key)
-        static_cap = provider_model_cap.effective_max if provider_model_cap is not None else 1
+        static_cap = provider_model_cap.effective_max if provider_model_cap is not None else DEFAULT_MIN_LIMIT
         clamp = self._config.max_limit_clamps.get(resource)
-        return max(1, min(static_cap, clamp if clamp is not None else static_cap))
+        return max(DEFAULT_MIN_LIMIT, min(static_cap, clamp if clamp is not None else static_cap))
+
+    def _apply_startup_ramp_locked(
+        self,
+        state: AdaptiveRequestLimitState,
+        resource: RequestResourceKey,
+        now: float,
+    ) -> None:
+        if not state.startup_ramp_active:
+            return
+        target_limit = self._initial_limit_for_resource(resource)
+        if self._config.startup_ramp_seconds <= 0.0 or target_limit <= DEFAULT_MIN_LIMIT:
+            changed = state.current_limit != target_limit or state.startup_ramp_active
+            state.current_limit = min(state.current_limit, target_limit)
+            state.startup_ramp_active = False
+            if changed:
+                self._sequence += 1
+            return
+
+        elapsed = max(0.0, now - state.startup_ramp_started_at)
+        previous_limit = state.current_limit
+        if elapsed >= self._config.startup_ramp_seconds:
+            state.current_limit = target_limit
+            state.startup_ramp_active = False
+        else:
+            fraction = elapsed / self._config.startup_ramp_seconds
+            ramp_slots = math.floor((target_limit - DEFAULT_MIN_LIMIT) * fraction)
+            state.current_limit = min(target_limit, DEFAULT_MIN_LIMIT + ramp_slots)
+        if state.current_limit != previous_limit or not state.startup_ramp_active:
+            self._sequence += 1
 
     def _snapshot_locked(self, resource: RequestResourceKey, now: float) -> RequestPressureSnapshot:
         state = self._get_or_create_state(resource)
+        self._apply_startup_ramp_locked(state, resource, now)
         blocked_until = state.blocked_until if state.blocked_until > now else None
         return RequestPressureSnapshot(
             captured_at=now,

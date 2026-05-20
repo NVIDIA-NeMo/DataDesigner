@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from data_designer.config.run_config import RunConfig
     from data_designer.engine.mcp.registry import MCPRegistry
     from data_designer.engine.models.registry import ModelRegistry
+    from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 
 
 def create_model_registry(
@@ -40,8 +41,8 @@ def create_model_registry(
         client_concurrency_mode: ``"sync"`` (default) or ``"async"``.  Forwarded
             to native HTTP adapters so each client is constrained to a single
             concurrency mode.
-        run_config: Optional runtime configuration. Request admission uses
-            engine-internal defaults in V1; no public run-config knob is exposed.
+        run_config: Optional runtime configuration. Public request-admission
+            tuning is translated to the engine-internal request-admission config.
 
     Returns:
         A configured ModelRegistry instance.
@@ -51,10 +52,13 @@ def create_model_registry(
     from data_designer.engine.models.clients.retry import RetryConfig
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.registry import ModelRegistry
+    from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
     from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
-    _ = run_config or RunConfig()
-    request_admission = AdaptiveRequestAdmissionController()
+    resolved_run_config = run_config or RunConfig()
+    request_admission = AdaptiveRequestAdmissionController(
+        _request_admission_config_from_run_config(resolved_run_config, RequestAdmissionConfig)
+    )
 
     def model_facade_factory(
         model_config: ModelConfig,
@@ -84,4 +88,20 @@ def create_model_registry(
         model_facade_factory=model_facade_factory,
         request_admission=request_admission,
         retry_config=RetryConfig(),
+    )
+
+
+def _request_admission_config_from_run_config(
+    run_config: RunConfig,
+    config_cls: type[RequestAdmissionConfig],
+) -> RequestAdmissionConfig:
+    tuning = run_config.request_admission
+    if tuning is None:
+        return config_cls()
+    return config_cls(
+        cooldown_seconds=tuning.cooldown_seconds,
+        multiplicative_decrease_factor=tuning.multiplicative_decrease_factor,
+        additive_increase_step=tuning.additive_increase_step,
+        increase_after_successes=tuning.increase_after_successes,
+        startup_ramp_seconds=tuning.startup_ramp_seconds,
     )

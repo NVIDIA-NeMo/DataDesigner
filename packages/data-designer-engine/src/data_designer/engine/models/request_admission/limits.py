@@ -17,3 +17,5 @@ class AdaptiveRequestLimitState:
     consecutive_rate_limits: int = 0
     active_lease_count: int = 0
     last_outcome: str | None = None
+    startup_ramp_started_at: float = 0.0
+    startup_ramp_active: bool = False

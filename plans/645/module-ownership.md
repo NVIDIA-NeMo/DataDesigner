@@ -195,7 +195,7 @@ packages/data-designer-engine/src/data_designer/engine/
 | Engine maintainers | scheduler/request admission modules, DTOs, protocols, policies, snapshots, events, capacity diagnostics | config-layer reverse imports, compatibility aliases, duplicate old/new module paths |
 | Tests and benchmarks | local fakes, deterministic model clients, event sinks, benchmark override config | production `engine.testing` helpers, test-module imports from benchmark code, benchmark-module imports from unit tests |
 
-`TaskAdmissionConfig` and `RequestAdmissionConfig` are engine-internal in V1. They may appear inside capacity and benchmark artifacts as explanatory snapshots, but they are not public `RunConfig` knobs unless a later design explicitly promotes them.
+`TaskAdmissionConfig` and `RequestAdmissionConfig` are engine-internal in V1. They may appear inside capacity and benchmark artifacts as explanatory snapshots, but they are not public `RunConfig` knobs. Public request-admission tuning is exposed only through `RequestAdmissionTuningConfig` on `RunConfig.request_admission` and is translated into the engine-internal config at the engine boundary.
 
 ## Tests And Benchmarks
 

@@ -54,7 +54,7 @@ Source precedence is per-field, not global:
 | row-group concurrency | existing dataset-builder/runtime setting if present, then documented default |
 | task admission limits | benchmark override for benchmark runs, then engine default |
 | provider/model static cap | canonical model/provider metadata; request-admission config may lower but not raise it |
-| request-domain initial/adaptive settings | benchmark override or engine default, then clamped under provider/model static cap |
+| request-domain initial/adaptive settings | public `RunConfig.request_admission` tuning where supported, benchmark override for non-public harness values, then engine default, all clamped under provider/model static cap |
 | transport pool | adapter/client config, then documented default |
 
 If a value is missing, the capacity plan records the missing source and fallback used. If no safe fallback exists, construction fails with a typed configuration/metadata error before work is scheduled.
@@ -114,4 +114,4 @@ Required per-layer maxima include row groups in flight, queued tasks by group/re
 
 ## Public Knob Rule
 
-Do not add a new public capacity knob until benchmark evidence shows a specific need and the docs explain its layer. Prefer clear defaults, internal configs, and diagnostics first.
+Do not add new public capacity knobs beyond the documented model `max_parallel_requests`, `buffer_size`, and advanced `RunConfig.request_admission` tuning fields until benchmark evidence shows a specific need and the docs explain the layer. Prefer clear defaults, internal configs, and diagnostics first.

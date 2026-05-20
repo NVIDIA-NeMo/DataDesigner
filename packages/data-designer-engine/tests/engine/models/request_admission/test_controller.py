@@ -213,6 +213,69 @@ def test_request_admission_additive_recovery_after_successes() -> None:
     assert controller.pressure.snapshot(item.resource).current_limit == 2  # type: ignore[union-attr]
 
 
+def test_request_admission_startup_ramp_starts_at_one_and_progresses_to_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 100.0
+    monkeypatch.setattr("data_designer.engine.models.request_admission.controller.time.monotonic", lambda: now)
+    controller = _controller(cap=4, config=RequestAdmissionConfig(startup_ramp_seconds=10.0))
+    item = _item()
+
+    first = controller.try_acquire(item)
+    assert isinstance(first, RequestAdmissionLease)
+    second = controller.try_acquire(item)
+    assert isinstance(second, RequestAdmissionDenied)
+    assert second.reason == "no_capacity"
+    assert controller.pressure.snapshot(item.resource).current_limit == 1  # type: ignore[union-attr]
+    controller.release(first, RequestReleaseOutcome(kind="success"))
+
+    now = 105.0
+    halfway_leases = [controller.try_acquire(item) for _ in range(2)]
+    assert all(isinstance(lease, RequestAdmissionLease) for lease in halfway_leases)
+    denied = controller.try_acquire(item)
+    assert isinstance(denied, RequestAdmissionDenied)
+    assert denied.reason == "no_capacity"
+    assert controller.pressure.snapshot(item.resource).current_limit == 2  # type: ignore[union-attr]
+    for lease in halfway_leases:
+        assert isinstance(lease, RequestAdmissionLease)
+        controller.release(lease, RequestReleaseOutcome(kind="success"))
+
+    now = 110.0
+    full_ramp_leases = [controller.try_acquire(item) for _ in range(4)]
+    assert all(isinstance(lease, RequestAdmissionLease) for lease in full_ramp_leases)
+    assert controller.pressure.snapshot(item.resource).current_limit == 4  # type: ignore[union-attr]
+    for lease in full_ramp_leases:
+        assert isinstance(lease, RequestAdmissionLease)
+        controller.release(lease, RequestReleaseOutcome(kind="success"))
+
+
+def test_request_admission_rate_limit_aborts_startup_ramp(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = 100.0
+    monkeypatch.setattr("data_designer.engine.models.request_admission.controller.time.monotonic", lambda: now)
+    controller = _controller(
+        cap=4,
+        config=RequestAdmissionConfig(
+            cooldown_seconds=0.0,
+            multiplicative_decrease_factor=0.5,
+            startup_ramp_seconds=10.0,
+        ),
+    )
+    item = _item()
+    lease = controller.try_acquire(item)
+    assert isinstance(lease, RequestAdmissionLease)
+
+    controller.release(lease, RequestReleaseOutcome(kind="rate_limited"))
+    now = 110.0
+
+    assert controller.pressure.snapshot(item.resource).current_limit == 1  # type: ignore[union-attr]
+    next_lease = controller.try_acquire(item)
+    assert isinstance(next_lease, RequestAdmissionLease)
+    denied = controller.try_acquire(item)
+    assert isinstance(denied, RequestAdmissionDenied)
+    assert denied.reason == "no_capacity"
+    controller.release(next_lease, RequestReleaseOutcome(kind="success"))
+
+
 def test_request_admission_blocking_timeout_raises_typed_error() -> None:
     controller = _controller(cap=1)
     first = _item()

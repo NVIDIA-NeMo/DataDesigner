@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
@@ -17,6 +17,67 @@ class JinjaRenderingEngine(StrEnum):
 
     NATIVE = "native"
     SECURE = "secure"
+
+
+class RequestAdmissionTuningConfig(ConfigBase):
+    """Advanced request-admission AIMD tuning for model API calls.
+
+    Most workloads should tune model capacity with ``max_parallel_requests`` on
+    inference parameters. These fields adjust the adaptive recovery behavior
+    below that cap and are intended for provider/runtime support cases.
+    """
+
+    _LEGACY_FIELD_NAMES: ClassVar[dict[str, str]] = {
+        "reduce_factor": "multiplicative_decrease_factor",
+        "additive_increase": "additive_increase_step",
+        "success_window": "increase_after_successes",
+        "rampup_seconds": "startup_ramp_seconds",
+    }
+
+    multiplicative_decrease_factor: float = Field(
+        default=0.75,
+        gt=0.0,
+        lt=1.0,
+        description="Factor applied to the adaptive concurrency limit after a provider rate-limit signal.",
+    )
+    additive_increase_step: int = Field(
+        default=1,
+        ge=1,
+        description="Slots added to the adaptive concurrency limit after each successful recovery window.",
+    )
+    increase_after_successes: int = Field(
+        default=25,
+        ge=1,
+        description="Successful releases required before additive recovery increases the adaptive limit.",
+    )
+    cooldown_seconds: float = Field(
+        default=2.0,
+        gt=0.0,
+        description="Fallback cooldown after a rate-limit signal when the provider omits Retry-After.",
+    )
+    startup_ramp_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Startup ramp duration. When greater than zero, each request resource starts at one "
+            "concurrent request and linearly ramps to its configured cap unless a rate-limit aborts the ramp."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_field_names(cls, data: Any) -> Any:
+        """Accept old throttle-era names inside the new request-admission DTO."""
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        for old_name, new_name in cls._LEGACY_FIELD_NAMES.items():
+            if old_name not in normalized:
+                continue
+            if new_name in normalized:
+                raise ValueError(f"Specify either {old_name!r} or {new_name!r} for request admission tuning, not both.")
+            normalized[new_name] = normalized.pop(old_name)
+        return normalized
 
 
 class RunConfig(ConfigBase):
@@ -55,10 +116,13 @@ class RunConfig(ConfigBase):
             fewer Data Designer-specific restrictions. ``secure`` uses Data Designer's
             hardened sandbox with additional AST, filter, and output guards.
             Default is ``secure``.
+        request_admission: Advanced AIMD request-admission tuning for provider/model calls.
+            Most users should leave this unset and tune ``max_parallel_requests`` instead.
 
     Notes:
-        Request admission is engine-internal in V1 and is not exposed as a
-        public run-config knob.
+        Request-admission controller internals remain engine-owned. This field
+        exposes only the supported tuning DTO and does not expose controller
+        mutation APIs, leases, queues, or pressure snapshots.
     """
 
     disable_early_shutdown: bool = False
@@ -78,14 +142,15 @@ class RunConfig(ConfigBase):
             "`native` uses Jinja2's built-in sandbox; `secure` uses Data Designer's hardened sandbox."
         ),
     )
+    request_admission: RequestAdmissionTuningConfig | None = None
 
     @model_validator(mode="before")
     @classmethod
     def reject_removed_throttle_config(cls, data: Any) -> Any:
         if isinstance(data, dict) and "throttle" in data:
             raise ValueError(
-                "RunConfig.throttle was removed. Request admission is now managed internally by the async "
-                "scheduling engine; remove the throttle field from your run config."
+                "RunConfig.throttle was removed. Use RunConfig.request_admission with "
+                "RequestAdmissionTuningConfig for supported advanced AIMD tuning."
             )
         return data
 

@@ -19,13 +19,18 @@ from data_designer.engine.models.resources import ProviderModelKey, ProviderMode
 
 def test_request_admission_config_snapshot_records_resources() -> None:
     resource = RequestResourceKey("nvidia", "nemotron", RequestDomain.CHAT)
-    config = RequestAdmissionConfig(initial_limits={resource: 2}, max_limit_clamps={resource: 4})
+    config = RequestAdmissionConfig(
+        initial_limits={resource: 2},
+        max_limit_clamps={resource: 4},
+        startup_ramp_seconds=30.0,
+    )
 
     snapshot = RequestAdmissionConfigSnapshot.from_config(config)
 
     assert snapshot.resources == (resource,)
     assert snapshot.initial_limits[resource] == 2
     assert snapshot.max_limit_clamps[resource] == 4
+    assert snapshot.startup_ramp_seconds == 30.0
 
 
 def test_async_capacity_plan_records_configured_runtime_and_maxima() -> None:

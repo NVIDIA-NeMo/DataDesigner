@@ -116,7 +116,7 @@ Current maintainer architecture docs should use durable internal names when they
 - `RequestAdmissionConfig`
 - `RuntimeCorrelationProvider`
 
-User/operator docs should expose public run config fields, `AsyncCapacityPlan`, benchmark artifacts, telemetry views, and high-level layer names. They must not present `TaskAdmissionConfig`, `RequestAdmissionConfig`, policies, leases, queues, or controller mutation APIs as public user knobs. Plugin-facing docs should describe metadata only, then link to architecture docs for maintainers/operators.
+User/operator docs should expose public run config fields, including `RequestAdmissionTuningConfig`, `AsyncCapacityPlan`, benchmark artifacts, telemetry views, and high-level layer names. They must not present `TaskAdmissionConfig`, `RequestAdmissionConfig`, policies, leases, queues, pressure snapshots, or controller mutation APIs as public user knobs. Plugin-facing docs should describe metadata only, then link to architecture docs for maintainers/operators.
 
 Current architecture docs, diagrams, generated assets, and plan files must be checked as part of final cleanup. Existing historical dev notes may retain old names only when the text clearly says the name is historical and no longer current API.
 
