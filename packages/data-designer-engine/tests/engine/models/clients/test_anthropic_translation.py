@@ -496,6 +496,24 @@ def test_translate_tool_result_message_requires_tool_call_id(message: dict[str, 
             ],
             id="mixed-blocks",
         ),
+        pytest.param(
+            [
+                {"type": "text", "text": "Rendered chart:"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+            ],
+            [
+                {"type": "text", "text": "Rendered chart:"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo=",
+                    },
+                },
+            ],
+            id="mixed-blocks-with-data-uri",
+        ),
     ],
 )
 def test_translate_tool_result_content_normalizes_supported_inputs(

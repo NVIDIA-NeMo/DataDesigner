@@ -298,6 +298,25 @@ def test_completion_forwards_base64_image_url_dict_unchanged() -> None:
     assert content[0] == image_block
 
 
+def test_completion_forwards_multimodal_tool_result_content_unchanged() -> None:
+    """OpenAI-compatible VLM backends receive canonical multimodal tool content."""
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    content = [
+        {"type": "text", "text": "Rendered page:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}},
+    ]
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "tool", "tool_call_id": "call-1", "content": content}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["messages"][0]["content"] == content
+
+
 # --- Auth headers ---
 
 
