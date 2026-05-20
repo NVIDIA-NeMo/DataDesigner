@@ -333,7 +333,7 @@ V1 AIMD semantics:
 - `initial_limit` is clamped to `[1, effective_max]`
 - `current_limit` starts at `initial_limit`
 - on `rate_limited`, `current_limit = max(1, floor(current_limit * multiplicative_decrease_factor))`, `blocked_until_monotonic` is set from provider `retry_after_seconds` when supplied or the configured cooldown otherwise, and rate-limit counters increment
-- on success outside cooldown, successful releases accumulate; after `increase_after_successes` successes, `current_limit = min(effective_max, current_limit + additive_increase_step)`
+- on success outside cooldown, successful releases accumulate; after `successes_until_increase` successes, `current_limit = min(effective_max, current_limit + additive_increase_step)`
 - `request_soft_ceiling_recovered` fires when `current_limit` rises above the last rate-limit ceiling
 - `request_fully_recovered` fires when `current_limit == effective_max` and cooldown has cleared
 - all timing uses a monotonic clock
@@ -352,7 +352,7 @@ It has no mutation or admission methods.
 
 Snapshots are immutable and internally consistent for their capture point. Domain snapshots include `captured_at`, monotonic `sequence`, resource, effective max, current limit, in-flight count, active lease count, waiters, blocked-until timing, cooldown remaining, rate-limit ceiling, consecutive rate limits, last outcome summary, and leak diagnostic counters. Global provider/model snapshots include aggregate static cap, aggregate in-flight count across domains, aggregate active lease count, aliases contributing to the cap, and per-domain limit summaries.
 
-`RequestAdmissionConfig` is the durable engine-internal request-admission tuning/config vocabulary for V1. It includes request resources, per-resource `initial_limit`, optional `max_limit_clamp`, configured cooldown, `multiplicative_decrease_factor`, `additive_increase_step`, `increase_after_successes`, `startup_ramp_seconds`, and default queue-wait timeout. Legacy request-control config names are not durable names; the public `RequestAdmissionTuningConfig` may accept old throttle-era spelling as input aliases for migration, and `RunConfig.throttle` may translate a deprecated `ThrottleConfig` into `RequestAdmissionTuningConfig`, but both paths store and document scheduler-era names.
+`RequestAdmissionConfig` is the durable engine-internal request-admission tuning/config vocabulary for V1. It includes request resources, per-resource `initial_limit`, optional `max_limit_clamp`, configured cooldown, `multiplicative_decrease_factor`, `additive_increase_step`, `successes_until_increase`, `startup_ramp_seconds`, and default queue-wait timeout. Legacy request-control config names are not durable names. `RunConfig.throttle` may translate a deprecated `ThrottleConfig` into `RequestAdmissionTuningConfig`, but the new request-admission DTOs store and document scheduler-era names.
 
 ## Telemetry And Correlation Contracts
 
@@ -490,7 +490,7 @@ RequestAdmissionConfigSnapshot:
   cooldown_seconds: float
   multiplicative_decrease_factor: float
   additive_increase_step: int
-  increase_after_successes: int
+  successes_until_increase: int
   startup_ramp_seconds: float
   default_queue_wait_timeout_seconds: float | None
 

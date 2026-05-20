@@ -608,7 +608,7 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
             prev_limit = state.current_limit
             state.consecutive_rate_limits = 0
             state.success_streak += 1
-            if state.success_streak >= self._config.increase_after_successes:
+            if state.success_streak >= self._config.successes_until_increase:
                 state.current_limit = min(effective_max, state.current_limit + self._config.additive_increase_step)
                 state.success_streak = 0
                 if state.current_limit != prev_limit:

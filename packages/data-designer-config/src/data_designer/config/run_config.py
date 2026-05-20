@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
@@ -34,13 +34,6 @@ class RequestAdmissionTuningConfig(ConfigBase):
     below that cap and are intended for provider/runtime support cases.
     """
 
-    _LEGACY_FIELD_NAMES: ClassVar[dict[str, str]] = {
-        "reduce_factor": "multiplicative_decrease_factor",
-        "additive_increase": "additive_increase_step",
-        "success_window": "increase_after_successes",
-        "rampup_seconds": "startup_ramp_seconds",
-    }
-
     multiplicative_decrease_factor: float = Field(
         default=0.75,
         gt=0.0,
@@ -52,7 +45,7 @@ class RequestAdmissionTuningConfig(ConfigBase):
         ge=1,
         description="Slots added to the adaptive concurrency limit after each successful recovery window.",
     )
-    increase_after_successes: int = Field(
+    successes_until_increase: int = Field(
         default=25,
         ge=1,
         description="Successful releases required before additive recovery increases the adaptive limit.",
@@ -70,21 +63,6 @@ class RequestAdmissionTuningConfig(ConfigBase):
             "concurrent request and linearly ramps to its configured cap unless a rate-limit aborts the ramp."
         ),
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_field_names(cls, data: Any) -> Any:
-        """Accept old throttle-era names inside the new request-admission DTO."""
-        if not isinstance(data, dict):
-            return data
-        normalized = dict(data)
-        for old_name, new_name in cls._LEGACY_FIELD_NAMES.items():
-            if old_name not in normalized:
-                continue
-            if new_name in normalized:
-                raise ValueError(f"Specify either {old_name!r} or {new_name!r} for request admission tuning, not both.")
-            normalized[new_name] = normalized.pop(old_name)
-        return normalized
 
 
 class ThrottleConfig(ConfigBase):
@@ -109,7 +87,7 @@ class ThrottleConfig(ConfigBase):
     success_window: int = Field(
         default=25,
         ge=1,
-        description="Deprecated alias for RequestAdmissionTuningConfig.increase_after_successes.",
+        description="Deprecated alias for RequestAdmissionTuningConfig.successes_until_increase.",
     )
     cooldown_seconds: float = Field(
         default=2.0,
@@ -127,7 +105,7 @@ class ThrottleConfig(ConfigBase):
         return RequestAdmissionTuningConfig(
             multiplicative_decrease_factor=self.reduce_factor,
             additive_increase_step=self.additive_increase,
-            increase_after_successes=self.success_window,
+            successes_until_increase=self.success_window,
             cooldown_seconds=self.cooldown_seconds,
         )
 

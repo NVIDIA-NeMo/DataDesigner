@@ -462,7 +462,7 @@ package "Request config" {
     +cooldown_seconds
     +multiplicative_decrease_factor
     +additive_increase_step
-    +increase_after_successes
+    +successes_until_increase
     +startup_ramp_seconds
     +default_queue_wait_timeout
   }
@@ -584,7 +584,7 @@ package "Capacity planning (issue 654)" {
     +cooldown_seconds
     +multiplicative_decrease_factor
     +additive_increase_step
-    +increase_after_successes
+    +successes_until_increase
     +startup_ramp_seconds
     +default_queue_wait_timeout
   }

@@ -44,7 +44,7 @@ def test_run_config_throttle_shim_translates_to_request_admission() -> None:
     assert run_config.request_admission is not None
     assert run_config.request_admission.multiplicative_decrease_factor == 0.5
     assert run_config.request_admission.additive_increase_step == 2
-    assert run_config.request_admission.increase_after_successes == 7
+    assert run_config.request_admission.successes_until_increase == 7
     assert run_config.request_admission.cooldown_seconds == 1.5
     assert run_config.request_admission.startup_ramp_seconds == 0.0
 
@@ -63,7 +63,7 @@ def test_run_config_throttle_shim_accepts_legacy_dict() -> None:
     assert run_config.request_admission is not None
     assert run_config.request_admission.multiplicative_decrease_factor == 0.5
     assert run_config.request_admission.additive_increase_step == 2
-    assert run_config.request_admission.increase_after_successes == 7
+    assert run_config.request_admission.successes_until_increase == 7
     assert run_config.request_admission.cooldown_seconds == 1.5
 
 
@@ -76,37 +76,21 @@ def test_request_admission_tuning_config_accepts_canonical_fields() -> None:
     config = RequestAdmissionTuningConfig(
         multiplicative_decrease_factor=0.5,
         additive_increase_step=2,
-        increase_after_successes=7,
+        successes_until_increase=7,
         cooldown_seconds=1.5,
         startup_ramp_seconds=30.0,
     )
 
     assert config.multiplicative_decrease_factor == 0.5
     assert config.additive_increase_step == 2
-    assert config.increase_after_successes == 7
+    assert config.successes_until_increase == 7
     assert config.cooldown_seconds == 1.5
     assert config.startup_ramp_seconds == 30.0
 
 
-def test_request_admission_tuning_config_accepts_throttle_era_field_names() -> None:
-    config = RequestAdmissionTuningConfig(
-        reduce_factor=0.5,
-        additive_increase=2,
-        success_window=7,
-        cooldown_seconds=1.5,
-        rampup_seconds=30.0,
-    )
-
-    assert config.multiplicative_decrease_factor == 0.5
-    assert config.additive_increase_step == 2
-    assert config.increase_after_successes == 7
-    assert config.cooldown_seconds == 1.5
-    assert config.startup_ramp_seconds == 30.0
-
-
-def test_request_admission_tuning_config_rejects_duplicate_legacy_and_canonical_fields() -> None:
-    with pytest.raises(ValidationError, match="Specify either 'reduce_factor' or 'multiplicative_decrease_factor'"):
-        RequestAdmissionTuningConfig(reduce_factor=0.5, multiplicative_decrease_factor=0.75)
+def test_request_admission_tuning_config_rejects_throttle_era_field_names() -> None:
+    with pytest.raises(ValidationError, match="success_window"):
+        RequestAdmissionTuningConfig(success_window=7)
 
 
 def test_run_config_accepts_request_admission_tuning() -> None:
@@ -116,12 +100,18 @@ def test_run_config_accepts_request_admission_tuning() -> None:
     assert run_config.request_admission.startup_ramp_seconds == 10.0
 
 
-def test_run_config_accepts_request_admission_tuning_dict_with_throttle_era_names() -> None:
-    run_config = RunConfig(request_admission={"reduce_factor": 0.5, "success_window": 7, "rampup_seconds": 10.0})
+def test_run_config_accepts_request_admission_tuning_dict() -> None:
+    run_config = RunConfig(
+        request_admission={
+            "multiplicative_decrease_factor": 0.5,
+            "successes_until_increase": 7,
+            "startup_ramp_seconds": 10.0,
+        }
+    )
 
     assert run_config.request_admission is not None
     assert run_config.request_admission.multiplicative_decrease_factor == 0.5
-    assert run_config.request_admission.increase_after_successes == 7
+    assert run_config.request_admission.successes_until_increase == 7
     assert run_config.request_admission.startup_ramp_seconds == 10.0
 
 

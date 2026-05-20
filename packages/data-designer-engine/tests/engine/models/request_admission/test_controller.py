@@ -201,7 +201,7 @@ def test_request_admission_additive_recovery_after_successes() -> None:
         cap=3,
         config=RequestAdmissionConfig(
             initial_limits={item.resource: 1},
-            increase_after_successes=1,
+            successes_until_increase=1,
             additive_increase_step=1,
         ),
     )

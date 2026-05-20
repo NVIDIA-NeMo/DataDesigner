@@ -102,6 +102,6 @@ def _request_admission_config_from_run_config(
         cooldown_seconds=tuning.cooldown_seconds,
         multiplicative_decrease_factor=tuning.multiplicative_decrease_factor,
         additive_increase_step=tuning.additive_increase_step,
-        increase_after_successes=tuning.increase_after_successes,
+        successes_until_increase=tuning.successes_until_increase,
         startup_ramp_seconds=tuning.startup_ramp_seconds,
     )

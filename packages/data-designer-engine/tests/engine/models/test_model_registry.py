@@ -68,7 +68,7 @@ def test_create_model_registry_maps_request_admission_tuning_config(
             request_admission=RequestAdmissionTuningConfig(
                 multiplicative_decrease_factor=0.5,
                 additive_increase_step=2,
-                increase_after_successes=7,
+                successes_until_increase=7,
                 cooldown_seconds=1.5,
                 startup_ramp_seconds=30.0,
             )
@@ -79,7 +79,7 @@ def test_create_model_registry_maps_request_admission_tuning_config(
     request_config = model_registry.request_admission.config
     assert request_config.multiplicative_decrease_factor == 0.5
     assert request_config.additive_increase_step == 2
-    assert request_config.increase_after_successes == 7
+    assert request_config.successes_until_increase == 7
     assert request_config.cooldown_seconds == 1.5
     assert request_config.startup_ramp_seconds == 30.0
 
