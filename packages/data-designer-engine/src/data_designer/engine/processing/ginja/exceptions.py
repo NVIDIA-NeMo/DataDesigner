@@ -16,6 +16,20 @@ class UserTemplateUnsupportedFiltersError(UserTemplateError):
     """Specific exception for the case of unsupported filters."""
 
 
+class EmptyTemplateRenderError(UserTemplateError):
+    """Specific exception for empty-render and undefined-access failures.
+
+    Raised when a template renders to empty text or references a field
+    that is missing/None/empty in the row's record. Carries an
+    actionable, row-level diagnostic message that names the offending
+    field(s) and suggests fixes.
+
+    Distinct from ``UserTemplateError`` so ``sanitize_user_exceptions``
+    can preserve the curated message instead of collapsing it to the
+    generic "User provided prompt generation template is invalid."
+    """
+
+
 class RecordContentsError(Exception):
     """Exception for cases involving the record providing template context."""
 
