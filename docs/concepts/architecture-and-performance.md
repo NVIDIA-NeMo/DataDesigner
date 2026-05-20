@@ -111,6 +111,7 @@ concurrent_requests = min(
 
 `max_parallel_requests` sets the **ceiling**. The actual limit (`current_throttle_limit`) is managed at runtime by an AIMD (Additive Increase / Multiplicative Decrease) controller that reacts to rate-limit signals from the inference server:
 
+- **During optional startup ramp**: when `rampup_seconds` is greater than 0, a new throttle domain starts at one concurrent request and increases linearly toward `max_parallel_requests` over that duration.
 - **On the first 429 in a burst**: the limit is reduced by a configurable factor (default: 25% reduction) and a cooldown is applied. Further 429s from already in-flight requests in the same burst do not reduce the limit again — they release their permits and hold the limit steady.
 - **After consecutive successes**: the limit increases by 1 (by default) until it reaches the ceiling or a stabilized rate-limit threshold.
 
@@ -119,7 +120,7 @@ This means Data Designer automatically finds the right concurrency level for you
 !!! note "Engine paths"
     AIMD adaptive concurrency is fully active on the default **async engine**. The legacy **sync engine** is available for one transitional release via `DATA_DESIGNER_ASYNC_ENGINE=0`; on that path 429s are first retried at the HTTP transport layer and AIMD only engages as a fallback. See [Async engine](#async-engine) below.
 
-**Example**: With `buffer_size=100` and `max_parallel_requests=32`, Data Designer starts sending up to 32 requests in parallel. If the server returns 429s, concurrency drops automatically (e.g., to 24, then 18) and recovers once the server catches up.
+**Example**: With `buffer_size=100` and `max_parallel_requests=32`, Data Designer can send up to 32 requests in parallel. If `rampup_seconds=30`, it starts at one request and climbs linearly toward 32 over 30 seconds. If the server returns 429s, startup ramp stops, concurrency drops automatically (e.g., to 24, then 18), and normal AIMD recovery takes over once the server catches up.
 
 ---
 
@@ -216,6 +217,7 @@ run_config = dd.RunConfig(
         success_window=25,        # Consecutive successes before increasing (default: 25)
         cooldown_seconds=2.0,     # Pause after a 429 when no Retry-After header (default: 2.0)
         ceiling_overshoot=0.10,   # Probe 10% above observed server limit (default: 0.10)
+        rampup_seconds=0.0,       # Optional startup ramp duration; 0 disables it (default: 0.0)
     ),
 )
 
@@ -230,6 +232,7 @@ designer.set_run_config(run_config)
 | `success_window` | 25 | Consecutive successes required before each increase step. |
 | `cooldown_seconds` | 2.0 | Pause duration after a 429 (used when the server doesn't send `Retry-After`). |
 | `ceiling_overshoot` | 0.10 | Fraction above the observed rate-limit ceiling the controller is allowed to probe. |
+| `rampup_seconds` | 0.0 | Optional startup ramp duration. When greater than 0, domains start at one concurrent request and linearly climb to the configured ceiling unless a 429 aborts the ramp. |
 
 !!! tip "How it works in practice"
     When a model endpoint returns HTTP 429, the controller reduces the concurrency limit for that model and pauses briefly. After enough consecutive successes, it begins ramping back up. If the server rate-limits again, the controller records that level as a ceiling and stabilizes just below it, with a small overshoot band to detect when the server can handle more load.

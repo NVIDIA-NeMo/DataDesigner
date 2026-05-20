@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import replace
 from typing import Any
 
 from data_designer.config.utils.image_helpers import (
@@ -23,6 +24,8 @@ from data_designer.engine.models.clients.types import (
     ToolCall,
     Usage,
 )
+from data_designer.engine.models.usage import TokenCountSource
+from data_designer.engine.utils.token_counting import count_text_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,7 @@ def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
         images=images,
     )
     usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
+    usage = fill_reasoning_token_count_from_content(usage, assistant_message.reasoning_content)
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
@@ -59,6 +63,7 @@ async def aparse_chat_completion_response(response: Any) -> ChatCompletionRespon
         images=images,
     )
     usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
+    usage = fill_reasoning_token_count_from_content(usage, assistant_message.reasoning_content)
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
@@ -260,6 +265,7 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     input_tokens = get_value_from(raw_usage, "prompt_tokens")
     output_tokens = get_value_from(raw_usage, "completion_tokens")
     total_tokens = get_value_from(raw_usage, "total_tokens")
+    reasoning_token_count = extract_reasoning_token_count(raw_usage)
 
     if input_tokens is None:
         input_tokens = get_value_from(raw_usage, "input_tokens")
@@ -269,6 +275,7 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     input_tokens = coerce_to_int_or_none(input_tokens)
     output_tokens = coerce_to_int_or_none(output_tokens)
     total_tokens = coerce_to_int_or_none(total_tokens)
+    reasoning_token_count_source = TokenCountSource.PROVIDER if reasoning_token_count is not None else None
 
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
         total_tokens = input_tokens + output_tokens
@@ -280,14 +287,57 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
 
     generated_images = coerce_to_int_or_none(generated_images)
 
-    if input_tokens is None and output_tokens is None and total_tokens is None and generated_images is None:
+    if (
+        input_tokens is None
+        and output_tokens is None
+        and total_tokens is None
+        and reasoning_token_count is None
+        and generated_images is None
+    ):
         return None
 
     return Usage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
+        reasoning_tokens=reasoning_token_count,
+        reasoning_token_count_source=reasoning_token_count_source,
         generated_images=generated_images,
+    )
+
+
+def extract_reasoning_token_count(raw_usage: Any) -> int | None:
+    if raw_usage is None:
+        return None
+
+    top_level = get_value_from(raw_usage, "reasoning_tokens")
+    if top_level is not None:
+        return coerce_to_int_or_none(top_level)
+
+    for details_key in ("completion_tokens_details", "output_tokens_details"):
+        details = get_value_from(raw_usage, details_key)
+        reasoning_token_count = get_value_from(details, "reasoning_tokens")
+        if reasoning_token_count is not None:
+            return coerce_to_int_or_none(reasoning_token_count)
+
+    return None
+
+
+def fill_reasoning_token_count_from_content(usage: Usage | None, reasoning_content: str | None) -> Usage | None:
+    if usage is None:
+        return None
+    if usage.reasoning_tokens is not None or not reasoning_content:
+        return usage
+
+    try:
+        reasoning_token_count = count_text_tokens(reasoning_content)
+    except Exception:
+        logger.debug("Failed to estimate reasoning token count", exc_info=True)
+        return usage
+    return replace(
+        usage,
+        reasoning_tokens=reasoning_token_count,
+        reasoning_token_count_source=TokenCountSource.ESTIMATED,
     )
 
 

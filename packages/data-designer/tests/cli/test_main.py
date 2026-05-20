@@ -32,6 +32,17 @@ def test_main_bootstraps_before_running_app(mock_bootstrap: Mock, mock_app: Mock
 
 @patch("data_designer.cli.main.app")
 @patch("data_designer.cli.main.ensure_cli_default_model_settings")
+def test_main_bootstraps_for_plugin_commands(mock_bootstrap: Mock, mock_app: Mock) -> None:
+    """The plugin command still runs through CLI default setup before Typer dispatch."""
+    with patch("sys.argv", ["data-designer", "plugin", "list"]):
+        main()
+
+    mock_bootstrap.assert_called_once_with()
+    mock_app.assert_called_once_with()
+
+
+@patch("data_designer.cli.main.app")
+@patch("data_designer.cli.main.ensure_cli_default_model_settings")
 def test_main_skips_bootstrap_for_version(mock_bootstrap: Mock, mock_app: Mock) -> None:
     """The CLI entrypoint avoids default setup for the fast version path."""
     with patch("sys.argv", ["data-designer", "--version"]):
@@ -167,3 +178,81 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
         resume=ResumeMode.NEVER,
         output_format=None,
     )
+
+
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_app_dispatches_lazy_plugin_list_command(mock_controller_cls: Mock) -> None:
+    """The plugin group lazily resolves command callbacks without loading a catalog."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    result = runner.invoke(
+        app,
+        ["plugin", "--catalog", "local", "list", "--refresh", "--include-incompatible"],
+    )
+
+    assert result.exit_code == 0
+    mock_controller.run_list.assert_called_once_with(
+        catalog_alias="local",
+        refresh=True,
+        include_incompatible=True,
+    )
+
+
+@patch("data_designer.cli.commands.plugin.PluginCatalogController")
+def test_app_dispatches_lazy_plugin_catalog_list_command(mock_controller_cls: Mock) -> None:
+    """Nested plugin catalog commands resolve through the lazy command group."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    result = runner.invoke(app, ["plugin", "catalog", "list"])
+
+    assert result.exit_code == 0
+    mock_controller.run_catalog_list.assert_called_once_with()
+
+
+def test_app_help_keeps_config_and_plugin_commands_reachable() -> None:
+    config_result = runner.invoke(app, ["config", "--help"])
+    plugin_result = runner.invoke(app, ["plugin", "--help"])
+
+    assert config_result.exit_code == 0
+    assert "providers" in config_result.output
+    assert "models" in config_result.output
+    assert plugin_result.exit_code == 0
+    assert "list" in plugin_result.output
+    assert "install" in plugin_result.output
+    assert "uninstall" in plugin_result.output
+    assert "catalog" in plugin_result.output
+    assert "install strategy" in plugin_result.output
+    assert "installed plugin packages" in plugin_result.output
+    assert "runtime plugins and their packages" not in plugin_result.output
+
+
+def test_no_args_help_exits_successfully_for_lazy_groups() -> None:
+    root_result = runner.invoke(app, [])
+    plugin_result = runner.invoke(app, ["plugin"])
+    plugin_catalog_result = runner.invoke(app, ["plugin", "catalog"])
+
+    assert root_result.exit_code == 0
+    assert "Data Designer CLI" in root_result.output
+    assert "plugin" in root_result.output
+    assert plugin_result.exit_code == 0
+    assert "Discover, install, and uninstall" in plugin_result.output
+    assert "catalog" in plugin_result.output
+    assert plugin_catalog_result.exit_code == 0
+    assert "Manage plugin catalog aliases" in plugin_catalog_result.output
+    assert "add" in plugin_catalog_result.output
+
+
+def test_app_does_not_expose_legacy_plugins_command() -> None:
+    result = runner.invoke(app, ["plugins", "--help"])
+
+    assert result.exit_code != 0
+    assert "No such command" in result.output
+
+
+def test_plugin_does_not_expose_legacy_catalogs_command() -> None:
+    result = runner.invoke(app, ["plugin", "catalogs", "--help"])
+
+    assert result.exit_code != 0
+    assert "No such command" in result.output

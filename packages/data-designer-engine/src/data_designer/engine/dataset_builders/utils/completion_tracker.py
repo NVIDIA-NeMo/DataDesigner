@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
@@ -11,6 +12,18 @@ from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Tas
 
 if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
+
+
+@dataclass(frozen=True)
+class FrontierDelta:
+    """Tasks added to or removed from the ready frontier by a tracker mutation."""
+
+    added: tuple[Task, ...] = ()
+    removed: tuple[Task, ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        return not self.added and not self.removed
 
 
 class CompletionTracker:
@@ -42,24 +55,34 @@ class CompletionTracker:
         tracker._row_group_sizes = dict(row_groups)
         return tracker
 
-    def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> None:
+    def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> FrontierDelta:
         self._validate_row_group(row_group)
         self._validate_strategy(column, GenerationStrategy.CELL_BY_CELL, "mark_cell_complete")
         self._completed[row_group][column].add(row_index)
+        removed: list[Task] = []
+        added: list[Task] = []
         if self._graph is not None:
-            self._frontier.discard(Task(column=column, row_group=row_group, row_index=row_index, task_type="cell"))
-            self._enqueue_downstream(column, row_group, row_index=row_index)
+            task = Task(column=column, row_group=row_group, row_index=row_index, task_type="cell")
+            if self._discard_frontier_task(task):
+                removed.append(task)
+            added.extend(self._enqueue_downstream(column, row_group, row_index=row_index))
+        return self._record_delta(added=added, removed=removed)
 
-    def mark_row_range_complete(self, column: str, row_group: int, row_group_size: int) -> None:
+    def mark_row_range_complete(self, column: str, row_group: int, row_group_size: int) -> FrontierDelta:
         expected = self._validate_row_group(row_group)
         self._validate_strategy(column, GenerationStrategy.FULL_COLUMN, "mark_row_range_complete")
         if expected is not None and row_group_size != expected:
             raise ValueError(f"Row-group size mismatch for rg={row_group}: got {row_group_size}, expected {expected}")
         self._completed[row_group][column] = set(range(row_group_size))
         self._batch_complete[row_group].add(column)
+        removed: list[Task] = []
+        added: list[Task] = []
         if self._graph is not None:
-            self._frontier.discard(Task(column=column, row_group=row_group, row_index=None, task_type="batch"))
-            self._enqueue_downstream(column, row_group, row_index=None)
+            task = Task(column=column, row_group=row_group, row_index=None, task_type="batch")
+            if self._discard_frontier_task(task):
+                removed.append(task)
+            added.extend(self._enqueue_downstream(column, row_group, row_index=None))
+        return self._record_delta(added=added, removed=removed)
 
     def is_complete(self, ref: SliceRef) -> bool:
         return ref.row_index in self._completed.get(ref.row_group, {}).get(ref.column, set())
@@ -89,15 +112,20 @@ class CompletionTracker:
         dropped = self._dropped.get(row_group_index, set())
         return all(ri in completed or ri in dropped for ri in range(rg_size))
 
-    def drop_row(self, row_group: int, row_index: int) -> None:
+    def drop_row(self, row_group: int, row_index: int) -> FrontierDelta:
         self._validate_row_group(row_group)
         self._dropped[row_group].add(row_index)
+        removed: list[Task] = []
+        added: list[Task] = []
         if self._graph is not None:
             # Remove cell tasks for this row from the frontier
             for col in self._graph.columns:
-                self._frontier.discard(Task(column=col, row_group=row_group, row_index=row_index, task_type="cell"))
+                task = Task(column=col, row_group=row_group, row_index=row_index, task_type="cell")
+                if self._discard_frontier_task(task):
+                    removed.append(task)
             # Dropping a row may unblock batch downstream tasks
-            self._reevaluate_batch_tasks(row_group)
+            added.extend(self._reevaluate_batch_tasks(row_group))
+        return self._record_delta(added=added, removed=removed)
 
     def is_dropped(self, row_group: int, row_index: int) -> bool:
         return row_index in self._dropped.get(row_group, set())
@@ -129,6 +157,10 @@ class CompletionTracker:
             t for t in self._frontier if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
         ]
 
+    def is_frontier_task(self, task: Task) -> bool:
+        """Return whether *task* is still in the ready frontier."""
+        return task in self._frontier
+
     def seed_frontier(self) -> None:
         """Populate the frontier with root tasks (columns with no upstream deps).
 
@@ -147,10 +179,26 @@ class CompletionTracker:
                 else:
                     self._frontier.add(Task(column=col, row_group=rg_id, row_index=None, task_type="batch"))
 
-    def _enqueue_downstream(self, column: str, row_group: int, row_index: int | None) -> None:
+    def _record_delta(self, *, added: list[Task], removed: list[Task]) -> FrontierDelta:
+        return FrontierDelta(added=tuple(added), removed=tuple(removed))
+
+    def _add_frontier_task(self, task: Task) -> bool:
+        if task in self._frontier:
+            return False
+        self._frontier.add(task)
+        return True
+
+    def _discard_frontier_task(self, task: Task) -> bool:
+        if task not in self._frontier:
+            return False
+        self._frontier.remove(task)
+        return True
+
+    def _enqueue_downstream(self, column: str, row_group: int, row_index: int | None) -> list[Task]:
         """Add newly-ready downstream tasks to the frontier."""
         if self._graph is None:
             raise RuntimeError("This method requires a graph to be set.")
+        added: list[Task] = []
         rg_completed = self._completed.get(row_group, {})
         rg_dropped = self._dropped.get(row_group, set())
         rg_batch_complete = self._batch_complete.get(row_group, set())
@@ -175,7 +223,8 @@ class CompletionTracker:
                         and all(row_index in s for s in cell_up_completed)
                     ):
                         task = Task(column=down, row_group=row_group, row_index=row_index, task_type="cell")
-                        self._frontier.add(task)
+                        if self._add_frontier_task(task):
+                            added.append(task)
                 else:
                     # Batch completion: check all non-dropped, non-complete rows
                     down_completed = rg_completed.get(down, set())
@@ -184,19 +233,23 @@ class CompletionTracker:
                             continue
                         if all(ri in s for s in cell_up_completed):
                             task = Task(column=down, row_group=row_group, row_index=ri, task_type="cell")
-                            self._frontier.add(task)
+                            if self._add_frontier_task(task):
+                                added.append(task)
             else:
                 # FULL_COLUMN downstream: ready when all cell upstreams are fully complete
                 if down not in rg_batch_complete and self._are_cell_ups_complete(
                     cell_ups, rg_completed, rg_size, rg_dropped
                 ):
                     task = Task(column=down, row_group=row_group, row_index=None, task_type="batch")
-                    self._frontier.add(task)
+                    if self._add_frontier_task(task):
+                        added.append(task)
+        return added
 
-    def _reevaluate_batch_tasks(self, row_group: int) -> None:
+    def _reevaluate_batch_tasks(self, row_group: int) -> list[Task]:
         """Check if any batch tasks became ready after a row was dropped."""
         if self._graph is None:
             raise RuntimeError("This method requires a graph to be set.")
+        added: list[Task] = []
         rg_completed = self._completed.get(row_group, {})
         rg_dropped = self._dropped.get(row_group, set())
         rg_batch_complete = self._batch_complete.get(row_group, set())
@@ -212,7 +265,9 @@ class CompletionTracker:
                 continue
             if self._are_cell_ups_complete(cell_ups, rg_completed, rg_size, rg_dropped):
                 task = Task(column=col, row_group=row_group, row_index=None, task_type="batch")
-                self._frontier.add(task)
+                if self._add_frontier_task(task):
+                    added.append(task)
+        return added
 
     def _are_cell_ups_complete(
         self,

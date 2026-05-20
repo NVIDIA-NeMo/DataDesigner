@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar, Protocol
 
+from data_designer.engine.models.usage import TokenCountSource
+
 
 class HttpResponse(Protocol):
     """Structural type for HTTP response objects (httpx, requests, etc.)."""
@@ -21,7 +23,15 @@ class Usage:
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    reasoning_token_count_source: TokenCountSource | None = None
     generated_images: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.reasoning_tokens is None and self.reasoning_token_count_source is not None:
+            raise ValueError("reasoning_token_count_source requires reasoning_tokens")
+        if self.reasoning_tokens is not None and self.reasoning_token_count_source is None:
+            raise ValueError("reasoning_tokens requires reasoning_token_count_source")
 
 
 @dataclass

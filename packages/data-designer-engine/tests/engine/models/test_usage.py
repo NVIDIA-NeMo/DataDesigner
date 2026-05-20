@@ -1,10 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import pytest
+
 from data_designer.engine.models.usage import (
     ImageUsageStats,
     ModelUsageStats,
     RequestUsageStats,
+    TokenCountSource,
     TokenUsageStats,
     ToolUsageStats,
 )
@@ -14,14 +17,59 @@ def test_token_usage_stats() -> None:
     token_usage_stats = TokenUsageStats()
     assert token_usage_stats.input_tokens == 0
     assert token_usage_stats.output_tokens == 0
+    assert token_usage_stats.reasoning_tokens is None
+    assert token_usage_stats.reasoning_token_count_source is None
     assert token_usage_stats.total_tokens == 0
     assert token_usage_stats.has_usage is False
 
-    token_usage_stats.extend(input_tokens=10, output_tokens=20)
+    token_usage_stats.extend(
+        input_tokens=10,
+        output_tokens=20,
+        reasoning_tokens=5,
+        reasoning_token_count_source=TokenCountSource.PROVIDER,
+    )
     assert token_usage_stats.input_tokens == 10
     assert token_usage_stats.output_tokens == 20
+    assert token_usage_stats.reasoning_tokens == 5
+    assert token_usage_stats.reasoning_token_count_source == TokenCountSource.PROVIDER
     assert token_usage_stats.total_tokens == 30
     assert token_usage_stats.has_usage is True
+
+
+def test_token_usage_stats_reasoning_source_is_required() -> None:
+    with pytest.raises(ValueError, match="reasoning_tokens requires reasoning_token_count_source"):
+        TokenUsageStats(reasoning_tokens=1)
+
+    with pytest.raises(ValueError, match="reasoning_token_count_source requires reasoning_tokens"):
+        TokenUsageStats(reasoning_token_count_source=TokenCountSource.ESTIMATED)
+
+
+def test_token_usage_stats_uses_estimated_source_when_any_count_is_estimated() -> None:
+    token_usage_stats = TokenUsageStats()
+
+    token_usage_stats.extend(
+        input_tokens=10,
+        output_tokens=20,
+        reasoning_tokens=5,
+        reasoning_token_count_source=TokenCountSource.PROVIDER,
+    )
+    token_usage_stats.extend(
+        input_tokens=3,
+        output_tokens=4,
+        reasoning_tokens=2,
+        reasoning_token_count_source=TokenCountSource.PROVIDER,
+    )
+    assert token_usage_stats.reasoning_tokens == 7
+    assert token_usage_stats.reasoning_token_count_source == TokenCountSource.PROVIDER
+
+    token_usage_stats.extend(
+        input_tokens=1,
+        output_tokens=1,
+        reasoning_tokens=8,
+        reasoning_token_count_source=TokenCountSource.ESTIMATED,
+    )
+    assert token_usage_stats.reasoning_tokens == 15
+    assert token_usage_stats.reasoning_token_count_source == TokenCountSource.ESTIMATED
 
 
 def test_request_usage_stats() -> None:
@@ -157,25 +205,43 @@ def test_model_usage_stats() -> None:
 
     # tool_usage and image_usage are excluded when has_usage is False
     assert model_usage_stats.get_usage_stats(total_time_elapsed=10) == {
-        "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "token_usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": None,
+            "reasoning_token_count_source": None,
+            "total_tokens": 0,
+        },
         "request_usage": {"successful_requests": 0, "failed_requests": 0, "total_requests": 0},
         "tokens_per_second": 0,
         "requests_per_minute": 0,
     }
 
     model_usage_stats.extend(
-        token_usage=TokenUsageStats(input_tokens=10, output_tokens=20),
+        token_usage=TokenUsageStats(
+            input_tokens=10,
+            output_tokens=20,
+            reasoning_tokens=7,
+            reasoning_token_count_source=TokenCountSource.PROVIDER,
+        ),
         request_usage=RequestUsageStats(successful_requests=2, failed_requests=1),
     )
     assert model_usage_stats.token_usage.input_tokens == 10
     assert model_usage_stats.token_usage.output_tokens == 20
+    assert model_usage_stats.token_usage.reasoning_tokens == 7
     assert model_usage_stats.request_usage.successful_requests == 2
     assert model_usage_stats.request_usage.failed_requests == 1
     assert model_usage_stats.has_usage is True
 
     # tool_usage and image_usage are excluded when has_usage is False
     assert model_usage_stats.get_usage_stats(total_time_elapsed=2) == {
-        "token_usage": {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
+        "token_usage": {
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "reasoning_tokens": 7,
+            "reasoning_token_count_source": "provider",
+            "total_tokens": 30,
+        },
         "request_usage": {"successful_requests": 2, "failed_requests": 1, "total_requests": 3},
         "tokens_per_second": 15,
         "requests_per_minute": 90,
