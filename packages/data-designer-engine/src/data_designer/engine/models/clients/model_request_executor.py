@@ -198,11 +198,10 @@ class ModelRequestExecutor(ModelClient):
                 "model_request_completed", item=item, lease=lease, diagnostics={"outcome": "provider_timeout"}
             )
             raise
-        except BaseException:
-            self._request_admission.release(lease, RequestReleaseOutcome(kind="unexpected_exception"))
-            self._emit_model_event(
-                "model_request_completed", item=item, lease=lease, diagnostics={"outcome": "unexpected_exception"}
-            )
+        except BaseException as exc:
+            outcome = "local_cancelled" if isinstance(exc, KeyboardInterrupt) else "unexpected_exception"
+            self._request_admission.release(lease, RequestReleaseOutcome(kind=outcome))
+            self._emit_model_event("model_request_completed", item=item, lease=lease, diagnostics={"outcome": outcome})
             raise
         else:
             self._request_admission.release(lease, RequestReleaseOutcome(kind="success"))

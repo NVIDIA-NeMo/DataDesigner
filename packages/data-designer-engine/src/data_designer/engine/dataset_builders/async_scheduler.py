@@ -916,10 +916,10 @@ class AsyncTaskScheduler:
             return "no_llm_wait_resource"
         llm_available = task_view.resources_available.get("llm_wait", 0)
         queued_llm = queue_view.queued_peer_demand_by_resource.get("llm_wait", 0)
-        if llm_available <= queued_llm and queue_view.queued_total > 0:
-            return "queued_llm_demand"
         if llm_available <= 0:
             return "llm_wait_saturated"
+        if llm_available <= queued_llm and queue_view.queued_total > 0:
+            return "queued_llm_demand"
         return None
 
     def _next_unadmitted_row_group_size(self) -> int | None:

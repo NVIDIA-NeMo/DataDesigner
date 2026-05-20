@@ -2902,6 +2902,45 @@ def test_scheduler_adaptive_row_group_row_guard_blocks_extra_large_groups() -> N
     assert scheduler._row_group_row_guard_allows(9_000)
 
 
+def test_scheduler_adaptive_row_group_block_reason_prefers_llm_saturation() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1), (1, 1)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "model_col": SlowLLMBoundCellGenerator(
+                config=_expr_config("model_col"),
+                resource_provider=provider,
+                delay=0.0,
+            ),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        adaptive_row_group_admission=True,
+        num_records=2,
+        buffer_size=1,
+    )
+    scheduler._fair_queue = SimpleNamespace(
+        view=lambda: SimpleNamespace(queued_total=1, queued_peer_demand_by_resource={})
+    )
+    scheduler._task_admission = SimpleNamespace(
+        view=lambda: SimpleNamespace(resource_limits={"llm_wait": 1}, resources_available={"llm_wait": 0})
+    )
+
+    assert scheduler._adaptive_row_group_block_reason() == "llm_wait_saturated"
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_raises_when_ready_frontier_blocked_without_in_flight() -> None:
     provider = _mock_provider()

@@ -266,6 +266,28 @@ async def test_model_request_executor_releases_async_cancellation() -> None:
     assert snapshot.last_outcome == "local_cancelled"
 
 
+@pytest.mark.asyncio(loop_scope="session")
+async def test_model_request_executor_classifies_async_keyboard_interrupt_as_cancelled() -> None:
+    class _InterruptingClient(_Client):
+        async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+            raise KeyboardInterrupt
+
+    sink = InMemoryAdmissionEventSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    executor = ModelRequestExecutor(_InterruptingClient(), controller, "nvidia", "nemotron", event_sink=sink)
+
+    with pytest.raises(KeyboardInterrupt):
+        await executor.acompletion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    snapshot = controller.pressure.snapshot(next(iter(controller.pressure.snapshots())))
+    assert snapshot is not None
+    assert snapshot.active_lease_count == 0
+    assert snapshot.last_outcome == "local_cancelled"
+    completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
+    assert completed[-1].diagnostics["outcome"] == "local_cancelled"
+
+
 def test_model_request_executor_maps_image_chat_domain() -> None:
     executor, controller, _client = _executor()
 
