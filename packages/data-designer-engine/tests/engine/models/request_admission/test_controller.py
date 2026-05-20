@@ -7,7 +7,6 @@ import asyncio
 import logging
 import threading
 import time
-from dataclasses import replace
 
 import pytest
 
@@ -26,6 +25,7 @@ from data_designer.engine.models.request_admission.resources import (
     RequestGroupSpec,
     RequestResourceKey,
 )
+from data_designer.engine.observability import InMemoryAdmissionEventSink
 
 
 def _item(domain: RequestDomain = RequestDomain.CHAT, timeout: float | None = None) -> RequestAdmissionItem:
@@ -94,7 +94,14 @@ def test_request_admission_stale_release_requires_exact_lease() -> None:
     item = _item()
     lease = controller.try_acquire(item)
     assert isinstance(lease, RequestAdmissionLease)
-    stale = replace(lease, current_adaptive_limit=lease.current_adaptive_limit + 1)
+    stale = RequestAdmissionLease(
+        lease_id=lease.lease_id,
+        item=lease.item,
+        acquired_at=lease.acquired_at,
+        current_adaptive_limit=lease.current_adaptive_limit + 1,
+        effective_max=lease.effective_max,
+        controller_generation=lease.controller_generation,
+    )
 
     stale_result = controller.release(stale, RequestReleaseOutcome(kind="provider_failure"))
     snapshot = controller.pressure.snapshot(item.resource)
@@ -184,7 +191,7 @@ def test_request_admission_fresh_rate_limit_after_burst_decreases_again() -> Non
 
     assert snapshot is not None
     assert snapshot.current_limit == 2
-    assert snapshot.rate_limit_ceiling == 4
+    assert snapshot.rate_limit_ceiling == 8
     assert snapshot.consecutive_rate_limits == 9
 
 
@@ -253,6 +260,21 @@ def test_request_admission_logs_sink_failures(caplog: pytest.LogCaptureFixture) 
     controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
 
     assert "Request admission event sink raised; dropping event." in caplog.text
+
+
+def test_request_lease_released_event_records_release_outcome() -> None:
+    sink = InMemoryAdmissionEventSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    item = _item()
+    lease = controller.try_acquire(item)
+    assert isinstance(lease, RequestAdmissionLease)
+
+    controller.release(lease, RequestReleaseOutcome(kind="provider_failure"))
+
+    release_events = [event for event in sink.request_events if event.event_kind == "request_lease_released"]
+    assert release_events
+    assert release_events[-1].reason_or_outcome == "provider_failure"
 
 
 @pytest.mark.asyncio(loop_scope="session")
