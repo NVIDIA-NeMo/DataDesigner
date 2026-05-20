@@ -538,12 +538,16 @@ def _is_image_url_block(item: Any) -> bool:
 
 
 def _has_base64_image_payload(item: Any) -> bool:
-    if _get_content_field(item, "b64_json", "base64") is not None:
-        return True
-    return (
-        _get_content_field(item, "data") is not None
-        and _get_content_field(item, "mimeType", "mime_type", "media_type") is not None
-    )
+    data = _get_content_field(item, "data", "b64_json", "base64")
+    if not isinstance(data, str) or not data:
+        return False
+
+    mime_type = _get_content_field(item, "mimeType", "mime_type", "media_type")
+    if isinstance(mime_type, str) and mime_type:
+        return _is_image_mime_type(mime_type)
+
+    data_uri_mime_type = _extract_data_uri_mime_type(data)
+    return data_uri_mime_type is not None and _is_image_mime_type(data_uri_mime_type)
 
 
 def _coerce_image_url_block(block: dict[str, Any]) -> dict[str, Any]:
@@ -574,6 +578,8 @@ def _build_image_url_block(item: Any) -> dict[str, Any]:
 
 def _coerce_image_mime_type(data: str, mime_type: Any) -> str:
     if isinstance(mime_type, str) and mime_type:
+        if not _is_image_mime_type(mime_type):
+            raise MCPToolError(f"MCP image content must use an image MIME type, got {mime_type!r}.")
         return mime_type
 
     data_uri_mime_type = _extract_mime_type_from_data_uri(data)
@@ -594,13 +600,23 @@ def _coerce_base64_image_data(data: str) -> str:
 
 
 def _extract_mime_type_from_data_uri(data: str) -> str | None:
+    mime_type = _extract_data_uri_mime_type(data)
+    if mime_type is None:
+        return None
+    if not _is_image_mime_type(mime_type):
+        raise MCPToolError(f"MCP image content data URI must use an image MIME type, got {mime_type!r}.")
+    return mime_type
+
+
+def _extract_data_uri_mime_type(data: str) -> str | None:
     match = _DATA_URI_MIME_TYPE_RE.match(data)
     if match is None:
         return None
-    mime_type = match.group("mime_type")
-    if not mime_type.startswith("image/"):
-        raise MCPToolError(f"MCP image content data URI must use an image MIME type, got {mime_type!r}.")
-    return mime_type
+    return match.group("mime_type")
+
+
+def _is_image_mime_type(mime_type: str) -> bool:
+    return mime_type.lower().startswith("image/")
 
 
 def _get_content_field(item: Any, *names: str, default: Any = None) -> Any:

@@ -216,7 +216,7 @@ def test_coerce_content_b64_json_dict_to_image_url_data_uri() -> None:
     """Explicit base64 image payloads are normalized to image_url data URIs."""
 
     class FakeResult:
-        content = [{"b64_json": "iVBORw0KGgo="}]
+        content = [{"b64_json": "iVBORw0KGgo=", "mime_type": "image/png"}]
 
     assert mcp_io._coerce_tool_result_content(FakeResult()) == [
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
@@ -232,6 +232,29 @@ def test_coerce_content_base64_payload_dict_with_media_type() -> None:
     assert mcp_io._coerce_tool_result_content(FakeResult()) == [
         {"type": "image_url", "image_url": {"url": "data:image/webp;base64,abc123"}}
     ]
+
+
+def test_coerce_content_non_image_resource_payload_falls_back_to_json() -> None:
+    """Non-image structured payloads are not misrouted into image blocks."""
+
+    class FakeResult:
+        content = {"type": "resource", "data": "eyJrZXkiOiAidmFsdWUifQ==", "mimeType": "application/json"}
+
+    assert (
+        mcp_io._coerce_tool_result_content(FakeResult())
+        == '{"type": "resource", "data": "eyJrZXkiOiAidmFsdWUifQ==", "mimeType": "application/json"}'
+    )
+
+
+def test_coerce_content_non_image_base64_payload_falls_back_to_json_text() -> None:
+    """Generic base64 payloads require image MIME metadata to become image blocks."""
+
+    class FakeResult:
+        content = [{"base64": "JVBERi0xLjQ=", "media_type": "application/pdf"}]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == (
+        '{"base64": "JVBERi0xLjQ=", "media_type": "application/pdf"}'
+    )
 
 
 def test_coerce_content_image_data_uri_strips_existing_prefix() -> None:
@@ -331,6 +354,16 @@ def test_coerce_content_image_without_mime_type_fails_clearly() -> None:
         content = [{"type": "image", "data": "abc123"}]
 
     with pytest.raises(MCPToolError, match="missing a MIME type"):
+        mcp_io._coerce_tool_result_content(FakeResult())
+
+
+def test_coerce_content_image_with_non_image_mime_type_fails_clearly() -> None:
+    """Explicit MCP image content must not produce non-image image_url data URIs."""
+
+    class FakeResult:
+        content = [{"type": "image", "data": "eyJrZXkiOiAidmFsdWUifQ==", "mimeType": "application/json"}]
+
+    with pytest.raises(MCPToolError, match="image MIME type"):
         mcp_io._coerce_tool_result_content(FakeResult())
 
 
