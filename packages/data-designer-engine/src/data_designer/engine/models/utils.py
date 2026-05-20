@@ -78,7 +78,7 @@ class ChatMessage:
         return cls(role="system", content=content)
 
     @classmethod
-    def as_tool(cls, content: str, tool_call_id: str) -> ChatMessage:
+    def as_tool(cls, content: str | list[dict[str, Any]], tool_call_id: str) -> ChatMessage:
         """Create a tool response message."""
         return cls(role="tool", content=content, tool_call_id=tool_call_id)
 

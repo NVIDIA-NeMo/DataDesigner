@@ -34,6 +34,11 @@ Scoped to one `ToolConfig`. Provides the interface that `ModelFacade` uses:
 - **`process_completion_response`** — extracts tool calls from a completion, executes them in parallel via `MCPIOService`, returns `ChatMessage` list with results
 - **`refuse_completion_response`** — handles tool-call turn limits (prevents infinite tool loops)
 
+Tool result messages may contain either text or ordered multimodal content blocks. MCP image results, and generic
+base64 payloads with `image/*` MIME metadata or image data URI prefixes, are preserved as canonical `image_url` data
+URI blocks and translated by provider adapters at the API boundary. Models need VLM-capable provider support to
+interpret those image results semantically.
+
 ### MCPRegistry
 
 Maps `tool_alias` → `ToolConfig`. Lazy `MCPFacade` construction mirrors `ModelRegistry`. Provides health checks for configured tools.

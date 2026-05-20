@@ -50,7 +50,7 @@ class MCPToolDefinition:
 class MCPToolResult:
     """Result from executing an MCP tool call."""
 
-    content: str
+    content: str | list[dict[str, Any]]
     is_error: bool = False
 
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from data_designer.engine.models.clients.parsing import (
+    aparse_chat_completion_response,
     extract_reasoning_content,
     extract_tool_calls,
     extract_usage,
@@ -13,13 +14,78 @@ from data_designer.engine.models.clients.parsing import (
     parse_chat_completion_response,
 )
 from data_designer.engine.models.clients.types import (
+    AssistantMessage,
     ChatCompletionRequest,
+    ChatCompletionResponse,
     EmbeddingRequest,
     ImageGenerationRequest,
     TransportKwargs,
     Usage,
 )
 from data_designer.engine.models.usage import TokenCountSource
+
+# --- ChatCompletionResponse compatibility ---
+
+
+def test_chat_completion_response_exposes_choices_for_single_message() -> None:
+    message = AssistantMessage(content="ok")
+    response = ChatCompletionResponse(message=message)
+
+    assert response.message is message
+    assert response.choices[0].message is message
+    assert response.messages == [message]
+
+
+def test_parse_chat_completion_response_preserves_all_choices() -> None:
+    response = parse_chat_completion_response(
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "first"},
+                    "finish_reason": "stop",
+                },
+                {
+                    "index": 1,
+                    "message": {"role": "assistant", "content": "second"},
+                    "finish_reason": "length",
+                },
+            ],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
+        }
+    )
+
+    assert response.message.content == "first"
+    assert [choice.message.content for choice in response.choices] == ["first", "second"]
+    assert [choice.index for choice in response.choices] == [0, 1]
+    assert [choice.finish_reason for choice in response.choices] == ["stop", "length"]
+    assert [message.content for message in response.messages] == ["first", "second"]
+
+
+@pytest.mark.asyncio
+async def test_aparse_chat_completion_response_preserves_all_choices() -> None:
+    response = await aparse_chat_completion_response(
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "first"},
+                    "finish_reason": "stop",
+                },
+                {
+                    "index": 1,
+                    "message": {"role": "assistant", "content": "second"},
+                    "finish_reason": "length",
+                },
+            ],
+        }
+    )
+
+    assert response.message.content == "first"
+    assert [choice.message.content for choice in response.choices] == ["first", "second"]
+    assert [choice.index for choice in response.choices] == [0, 1]
+    assert [choice.finish_reason for choice in response.choices] == ["stop", "length"]
+
 
 # --- TransportKwargs.from_request: extra_body flattening (default) ---
 
@@ -37,6 +103,13 @@ def test_extra_body_keys_are_flattened_into_body() -> None:
     assert transport.body["reasoning_effort"] == "high"
     assert transport.body["seed"] == 42
     assert "extra_body" not in transport.body
+
+
+def test_chat_completion_request_n_is_forwarded_into_body() -> None:
+    request = ChatCompletionRequest(model="m", messages=[], n=4)
+    transport = TransportKwargs.from_request(request)
+
+    assert transport.body["n"] == 4
 
 
 def test_extra_body_none_produces_no_extra_keys() -> None:
