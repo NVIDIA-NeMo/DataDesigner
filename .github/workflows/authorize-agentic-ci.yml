@@ -42,7 +42,8 @@ jobs:
               ;;
             *)
               gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-                -f body="Only maintainers with write access can authorize Agentic CI checks." >/dev/null
+                -f body="Only maintainers with write access can authorize Agentic CI checks." >/dev/null || \
+                echo "::warning::Unable to post permission failure comment."
               exit 1
               ;;
           esac
@@ -91,13 +92,17 @@ jobs:
         run: |
           comment() {
             gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-              -f body="$1" >/dev/null
+              -f body="$1" >/dev/null || \
+              echo "::warning::Unable to post authorization failure comment."
           }
 
           comment_file() {
-            jq -n --rawfile body "$1" '{body: $body}' > /tmp/agentic-ci-auth-comment.json
+            tmp=$(mktemp)
+            trap 'rm -f "$tmp"' RETURN
+            jq -n --rawfile body "$1" '{body: $body}' > "$tmp"
             gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-              --input /tmp/agentic-ci-auth-comment.json >/dev/null
+              --input "$tmp" >/dev/null || \
+              echo "::warning::Unable to post authorization failure comment."
           }
 
           if [ "$STATE" != "open" ]; then
