@@ -17,6 +17,15 @@ def test_run_config_accepts_native_renderer() -> None:
     assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.NATIVE
 
 
+def test_run_config_preserves_dropped_columns_by_default() -> None:
+    assert RunConfig().preserve_dropped_columns is True
+
+
+def test_run_config_accepts_disabled_dropped_column_preservation() -> None:
+    run_config = RunConfig(preserve_dropped_columns=False)
+    assert run_config.preserve_dropped_columns is False
+
+
 def test_throttle_config_accepts_rampup_seconds() -> None:
     config = ThrottleConfig(rampup_seconds=30.0)
     assert config.rampup_seconds == 30.0
