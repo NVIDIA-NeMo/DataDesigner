@@ -213,4 +213,4 @@ Tests mirror target module ownership:
 | capacity diagnostics | `packages/data-designer-engine/tests/engine/test_capacity.py` |
 | runtime observability | `packages/data-designer-engine/tests/engine/test_observability.py` |
 
-Test fakes live under tests near their consumers. Benchmark fakes and reusable scenarios used for branch validation are scratch artifacts, not committed target architecture. Production `data_designer.engine.testing` helpers are not part of the target architecture.
+Test fakes live under tests near their consumers. Benchmark fakes and reusable scenarios live under `scripts/benchmarks/async_scheduling/`, with `scripts/benchmarks/benchmark_async_scheduling.py` as the runnable entrypoint. Production `data_designer.engine.testing` helpers are not part of the target architecture.
