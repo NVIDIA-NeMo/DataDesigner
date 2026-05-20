@@ -227,10 +227,10 @@ def test_coerce_content_base64_payload_dict_with_media_type() -> None:
     """Explicit media_type payloads do not need image format detection."""
 
     class FakeResult:
-        content = [{"base64": "abc123", "media_type": "image/webp"}]
+        content = [{"base64": "YWJjMTIz", "media_type": "image/webp"}]
 
     assert mcp_io._coerce_tool_result_content(FakeResult()) == [
-        {"type": "image_url", "image_url": {"url": "data:image/webp;base64,abc123"}}
+        {"type": "image_url", "image_url": {"url": "data:image/webp;base64,YWJjMTIz"}}
     ]
 
 
@@ -278,6 +278,17 @@ def test_coerce_content_preserves_canonical_image_url_block() -> None:
     assert mcp_io._coerce_tool_result_content(FakeResult()) == [{"type": "text", "text": "before"}, image_block]
 
 
+def test_coerce_content_normalizes_image_url_string_shorthand() -> None:
+    """Common shorthand image_url strings are normalized to canonical blocks."""
+
+    class FakeResult:
+        content = [{"type": "image_url", "image_url": "data:image/png;base64,iVBORw0KGgo="}]
+
+    assert mcp_io._coerce_tool_result_content(FakeResult()) == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+    ]
+
+
 def test_coerce_content_normalizes_image_url_raw_base64() -> None:
     """Non-canonical image_url blocks with raw base64 are normalized to data URIs."""
 
@@ -287,6 +298,35 @@ def test_coerce_content_normalizes_image_url_raw_base64() -> None:
     assert mcp_io._coerce_tool_result_content(FakeResult()) == [
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
     ]
+
+
+@pytest.mark.parametrize(
+    "image_url",
+    [
+        pytest.param(None, id="missing"),
+        pytest.param(123, id="non-dict"),
+        pytest.param({}, id="missing-url"),
+        pytest.param({"url": 123}, id="non-string-url"),
+    ],
+)
+def test_coerce_content_rejects_malformed_image_url_blocks(image_url: object) -> None:
+    """MCP coercion enforces canonical image_url block shape."""
+
+    class FakeResult:
+        content = [{"type": "image_url", "image_url": image_url}]
+
+    with pytest.raises(MCPToolError, match="image_url block"):
+        mcp_io._coerce_tool_result_content(FakeResult())
+
+
+def test_coerce_content_rejects_image_url_invalid_base64_data_uri() -> None:
+    """Canonical data URI image_url blocks still need valid base64 payloads."""
+
+    class FakeResult:
+        content = [{"type": "image_url", "image_url": {"url": "data:image/png;base64,not-base64!!!"}}]
+
+    with pytest.raises(MCPToolError, match="invalid base64"):
+        mcp_io._coerce_tool_result_content(FakeResult())
 
 
 def test_coerce_content_bare_image_object() -> None:
@@ -307,7 +347,7 @@ def test_coerce_content_mixed_text_image_preserves_order() -> None:
 
     class ImageItem:
         type = "image"
-        data = "abc123"
+        data = "YWJjMTIz"
         mimeType = "image/jpeg"
 
     class TextItem:
@@ -319,14 +359,14 @@ def test_coerce_content_mixed_text_image_preserves_order() -> None:
             {"type": "text", "text": "before"},
             ImageItem(),
             TextItem(),
-            {"type": "image", "data": "def456", "mime_type": "image/webp"},
+            {"type": "image", "data": "ZGVmNDU2", "mime_type": "image/webp"},
         ]
 
     assert mcp_io._coerce_tool_result_content(FakeResult()) == [
         {"type": "text", "text": "before"},
-        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,abc123"}},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,YWJjMTIz"}},
         {"type": "text", "text": "after"},
-        {"type": "image_url", "image_url": {"url": "data:image/webp;base64,def456"}},
+        {"type": "image_url", "image_url": {"url": "data:image/webp;base64,ZGVmNDU2"}},
     ]
 
 
@@ -336,13 +376,13 @@ def test_coerce_content_real_mcp_text_and_image_objects() -> None:
     class FakeResult:
         content = [
             TextContent(type="text", text="before"),
-            ImageContent(type="image", data="abc123", mimeType="image/png"),
+            ImageContent(type="image", data="YWJjMTIz", mimeType="image/png"),
             TextContent(type="text", text="after"),
         ]
 
     assert mcp_io._coerce_tool_result_content(FakeResult()) == [
         {"type": "text", "text": "before"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,YWJjMTIz"}},
         {"type": "text", "text": "after"},
     ]
 
@@ -354,6 +394,16 @@ def test_coerce_content_image_without_mime_type_fails_clearly() -> None:
         content = [{"type": "image", "data": "abc123"}]
 
     with pytest.raises(MCPToolError, match="missing a MIME type"):
+        mcp_io._coerce_tool_result_content(FakeResult())
+
+
+def test_coerce_content_image_with_invalid_base64_fails_clearly() -> None:
+    """Explicit MCP image content must contain valid base64 data."""
+
+    class FakeResult:
+        content = [{"type": "image", "data": "not-base64!!!", "mimeType": "image/png"}]
+
+    with pytest.raises(MCPToolError, match="invalid base64"):
         mcp_io._coerce_tool_result_content(FakeResult())
 
 

@@ -552,12 +552,20 @@ def _has_base64_image_payload(item: Any) -> bool:
 
 def _coerce_image_url_block(block: dict[str, Any]) -> dict[str, Any]:
     image_url = block.get("image_url")
-    if not isinstance(image_url, dict):
-        return block
+    if isinstance(image_url, str):
+        image_url = {"url": image_url}
+    elif not isinstance(image_url, dict):
+        raise MCPToolError("MCP image_url block must contain an image_url dict or string.")
 
     url = image_url.get("url")
-    if not isinstance(url, str) or url.startswith(("data:image/", "http://", "https://")):
-        return block
+    if not isinstance(url, str) or not url:
+        raise MCPToolError("MCP image_url block must contain a non-empty string URL.")
+    if url.startswith(("http://", "https://")):
+        return {"type": "image_url", "image_url": image_url}
+    if url.startswith("data:"):
+        _extract_mime_type_from_data_uri(url)
+        _coerce_base64_image_data(url)
+        return {"type": "image_url", "image_url": image_url}
 
     return _build_image_url_block({"base64": url})
 
@@ -594,7 +602,9 @@ def _coerce_image_mime_type(data: str, mime_type: Any) -> str:
 
 def _coerce_base64_image_data(data: str) -> str:
     try:
-        return extract_base64_from_data_uri(data)
+        base64_data = extract_base64_from_data_uri(data)
+        decode_base64_image(base64_data)
+        return base64_data
     except ValueError as exc:
         raise MCPToolError("MCP image content has invalid base64 data.") from exc
 
