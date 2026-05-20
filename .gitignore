@@ -88,6 +88,10 @@ venv.bak/
 # Generated benchmark/report output
 /artifacts/
 /reports/
+/scripts/benchmarks/benchmark_async_scheduling.py
+/scripts/benchmarks/export_async_scheduling_perfetto.py
+/scripts/benchmarks/generate_async_scheduling_idle_report.py
+/scripts/benchmarks/run_async_scheduling_idle_regression.py
 
 docs/notebooks/
 docs/notebook_source/*.ipynb
