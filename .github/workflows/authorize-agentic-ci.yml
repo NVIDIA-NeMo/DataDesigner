@@ -41,8 +41,8 @@ jobs:
             admin|maintain|write)
               ;;
             *)
-              gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
-                "Only maintainers with write access can authorize Agentic CI checks."
+              gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+                -f body="Only maintainers with write access can authorize Agentic CI checks." >/dev/null
               exit 1
               ;;
           esac
@@ -89,21 +89,29 @@ jobs:
           STATE: ${{ steps.pr.outputs.state }}
           TRUSTED: ${{ steps.pr.outputs.trusted }}
         run: |
+          comment() {
+            gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -f body="$1" >/dev/null
+          }
+
+          comment_file() {
+            jq -n --rawfile body "$1" '{body: $body}' > /tmp/agentic-ci-auth-comment.json
+            gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              --input /tmp/agentic-ci-auth-comment.json >/dev/null
+          }
+
           if [ "$STATE" != "open" ]; then
-            gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
-              "Agentic CI checks were not authorized because this PR is not open."
+            comment "Agentic CI checks were not authorized because this PR is not open."
             exit 1
           fi
 
           if [ "$TRUSTED" != "true" ]; then
-            gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
-              "Agentic CI checks were not authorized because this PR does not match the trusted Agentic CI metadata."
+            comment "Agentic CI checks were not authorized because this PR does not match the trusted Agentic CI metadata."
             exit 1
           fi
 
           if [ -z "$COMMENT_ID" ]; then
-            gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
-              "Agentic CI checks were not authorized because the authorization comment ID was missing."
+            comment "Agentic CI checks were not authorized because the authorization comment ID was missing."
             exit 1
           fi
 
@@ -122,8 +130,7 @@ jobs:
             sleep 2
           done
           if [ "$COMMENT_FOUND" != "true" ]; then
-            gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
-              "Agentic CI checks were not authorized because the authorization comment was not found in the PR timeline."
+            comment "Agentic CI checks were not authorized because the authorization comment was not found in the PR timeline."
             exit 1
           fi
 
@@ -143,7 +150,7 @@ jobs:
               echo
               echo "Please review the latest commit and comment \`/authorize-agentic-ci\` again."
             } > /tmp/agentic-ci-auth-stale.md
-            gh issue comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/agentic-ci-auth-stale.md
+            comment_file /tmp/agentic-ci-auth-stale.md
             exit 1
           fi
 
@@ -155,7 +162,7 @@ jobs:
               echo
               printf '%s\n' "$BLOCKED" | sed 's/^/- `/' | sed 's/$/`/'
             } > /tmp/agentic-ci-auth-failed.md
-            gh issue comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/agentic-ci-auth-failed.md
+            comment_file /tmp/agentic-ci-auth-failed.md
             exit 1
           fi
 
@@ -175,5 +182,6 @@ jobs:
             -f pr_number="$PR_NUMBER" \
             -f expected_head_sha="$HEAD_SHA"
 
-          gh issue comment "$PR_NUMBER" --repo "$REPO" --body \
-            "Authorized Agentic CI checks for \`${HEAD_SHA}\`. Launched CI and authorization checks."
+          gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -f body="Authorized Agentic CI checks for \`${HEAD_SHA}\`. Launched CI and authorization checks." >/dev/null || \
+            echo "::warning::Unable to post authorization confirmation comment."
