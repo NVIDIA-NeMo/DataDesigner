@@ -86,3 +86,5 @@ def test_removed_throttle_config_export_has_migration_message() -> None:
         getattr(dd, "ThrottleConfig")
     with pytest.raises(ImportError, match="ThrottleConfig was removed.*RequestAdmissionTuningConfig"):
         exec("from data_designer.config import ThrottleConfig", {})
+    with pytest.raises(ImportError, match="ThrottleConfig was removed.*RequestAdmissionTuningConfig"):
+        exec("from data_designer.config.run_config import ThrottleConfig", {})

@@ -368,17 +368,25 @@ Snapshots are immutable and internally consistent for their capture point. Domai
 
 `RuntimeCorrelationProvider` owns set/reset/current behavior, likely through context variables. It must not require request admission protocols to import scheduler types.
 
-Scheduler/request events capture primitive correlation values when event DTOs are constructed. Event sinks must not rely on reading mutable ambient context later, because deferred emission could attach the wrong task context.
+Scheduler/request events capture correlation values when event DTOs are constructed and normalize correlation, keys, snapshots, and diagnostics to JSON-compatible values. Event sinks must not rely on reading mutable ambient context later, because deferred emission could attach the wrong task context.
 
 Canonical scheduler `event_kind` values are snake_case and versioned as part of the benchmark artifact schema:
 
 ```text
+scheduler_job_started
+scheduler_job_completed
+scheduler_health_snapshot
 dependency_ready
 ready_enqueued
+row_group_admitted
+row_group_admission_blocked
+row_group_admission_target_changed
+row_group_checkpointed
 selected
 queue_empty
 admission_blocked
 group_capped
+request_pressure_advisory_skipped
 task_lease_acquired
 admission_denied
 worker_spawned
@@ -399,14 +407,14 @@ release_diagnostic
 - `event_kind`
 - `captured_at_monotonic`
 - monotonic `sequence`
-- captured `RuntimeCorrelation | None`
+- captured correlation as JSON-compatible values
 - task id
 - task execution id when a worker execution exists
 - task lease id when available
 - scheduler resource key when applicable
 - decision reason or release result when applicable
-- optional scheduler snapshot
-- sanitized diagnostics
+- optional JSON-compatible scheduler snapshot
+- JSON-compatible diagnostics
 
 Canonical request `event_kind` values are snake_case and versioned as part of the benchmark artifact schema:
 
@@ -437,14 +445,14 @@ request_release_diagnostic
 - `event_kind`
 - `captured_at_monotonic`
 - monotonic `sequence`
-- captured `RuntimeCorrelation | None`
+- captured correlation as JSON-compatible values
 - request attempt id when the event belongs to one concrete model-call attempt
 - request lease id when available
-- canonical `RequestResourceKey` when the event is resource-specific
-- request group key when the event is queue/admission specific
+- canonical request resource as JSON-compatible values when the event is resource-specific
+- request group key as JSON-compatible values when the event is queue/admission specific
 - denial reason or release outcome when applicable
-- optional request pressure snapshot
-- sanitized diagnostics
+- optional JSON-compatible request pressure snapshot
+- JSON-compatible diagnostics
 
 Lease ids, task ids, request attempt ids, and raw model ids are trace/artifact fields only; they are not metric labels. Metric exporters use bounded labels such as `metric_model_label`, model family, or allowlisted model label. The OTel bridge must reject raw model ids as metric labels.
 

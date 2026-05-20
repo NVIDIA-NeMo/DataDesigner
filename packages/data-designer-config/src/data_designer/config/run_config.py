@@ -19,6 +19,14 @@ class JinjaRenderingEngine(StrEnum):
     SECURE = "secure"
 
 
+_REMOVED_EXPORTS: dict[str, str] = {
+    "ThrottleConfig": (
+        "ThrottleConfig was removed. Use RunConfig.request_admission with "
+        "RequestAdmissionTuningConfig for supported advanced request-admission tuning."
+    ),
+}
+
+
 class RequestAdmissionTuningConfig(ConfigBase):
     """Advanced request-admission AIMD tuning for model API calls.
 
@@ -160,3 +168,9 @@ class RunConfig(ConfigBase):
         if self.disable_early_shutdown:
             self.shutdown_error_rate = 1.0
         return self
+
+
+def __getattr__(name: str) -> object:
+    if name in _REMOVED_EXPORTS:
+        raise ImportError(_REMOVED_EXPORTS[name])
+    raise AttributeError(f"module 'data_designer.config.run_config' has no attribute {name!r}")

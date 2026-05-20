@@ -111,7 +111,7 @@ Task admission controls when ready dataset work may become a running worker. Req
 
 The split is required because arbitrary custom Python can make zero, one, or many model calls dynamically. A task's metadata may help group and schedule the task, but it is not a promise of exact request count and must not reserve every future model call up front.
 
-Task admission may later consume request pressure snapshots as read-only policy input. It must not pre-acquire request permits, emulate AIMD, or wrap provider/model/domain request admission.
+Task admission may consume request pressure snapshots as read-only policy input. The current branch includes a narrow request-pressure advisory selection path that can prefer an eligible, unpressured peer over a request-pressured candidate. It must not pre-acquire request permits, emulate AIMD, mutate request admission, or wrap provider/model/domain request admission. Broader provider/resource-aware scheduling remains #651 scope.
 
 In V1, a task waiting inside request admission keeps its scheduler task lease until the task reaches a terminal outcome. This makes request wait visible without adding yield/reacquire complexity to the lease boundary. The cross-provider optimization target, where tasks blocked on one cooled-down provider do not occupy every scheduler slot while another provider has ready work, belongs to #651's provider/resource-aware task policy or an explicit later yield/reacquire design.
 
