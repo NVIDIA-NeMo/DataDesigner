@@ -8,11 +8,11 @@ authors:
 
 Picture this: you're generating a million-record dataset. Thirty two concurrent requests per model, three models in the pipeline, two providers. Everything hums along for the first ten minutes — then one provider starts returning 429s, your retry logic kicks in, and suddenly you're in a feedback loop where retries *cause* more 429s. The run stalls. You restart with lower concurrency, waste throughput for hours, and wonder if there's a better way.
 
-There is. This post is about the native model client layer we built with adaptive request admission (a system that discovers provider capacity at runtime) replacing our dependency on LiteLLM along the way.
+There is. This post is about the native model client layer we built with adaptive throttling (a system that discovers provider capacity at runtime) replacing our dependency on LiteLLM along the way.
 
 <!-- more -->
 
-![From chaotic request flow to calibrated concurrency via adaptive request admission](assets/owning-the-model-stack/native-model-client-hero.png)
+![From chaotic request flow to calibrated concurrency via adaptive throttling](assets/owning-the-model-stack/native-model-client-hero.png)
 
 ## **Why We Made the Move**
 
@@ -38,9 +38,9 @@ From top to bottom:
 
 1. **ModelFacade**: orchestrates correction loops, MCP tool-calling, and usage tracking. This is the public API. Column generators talk to this layer, and it was untouched during the migration. If you've written a Data Designer pipeline, nothing about your code changes.
 
-2. **ModelRequestExecutor**: the request execution layer. It maps every outbound model call to a provider/model/domain request resource, acquires a request-admission lease before provider execution, releases it on every terminal path, and feeds the outcome (success, 429, or error) back to request admission.
+2. **ThrottledModelClient**: the new layer. It's a decorator around `HttpModelClient` — same `ModelClient` protocol, but every outbound call is wrapped with a throttle permit: acquire a concurrency slot before the call, release it after, and feed the outcome (success, 429, or error) back to `ThrottleManager`. This is where adaptive throttling lives.
 
-3. **AdaptiveRequestAdmissionController**: the Additive Increase / Multiplicative Decrease (AIMD) controller used by `ModelRequestExecutor`. A single shared controller is created at pipeline startup and shared across all model clients. It owns the mutable request-admission state — per-domain AIMD counters, global caps, cascade dampening, and cooldown timers.
+3. **ThrottleManager**: the Additive Increase / Multiplicative Decrease (AIMD) controller that `ThrottledModelClient` delegates to. A single instance is created at pipeline startup and shared across all model clients. It owns all the mutable concurrency state — per-domain AIMD counters, global caps, cascade dampening, and cooldown timers.
 
 4. **HttpModelClient**: an abstract base class that defines the interface for all provider adapters. It owns the shared `httpx` transport lifecycle — connection pooling, timeouts, and transport-level retries for transient failures (502, 503, 504). Boring but important.
 
@@ -50,7 +50,7 @@ From top to bottom:
 
 The boundary between `ModelFacade` and the client layer is defined by canonical types. `ChatCompletionRequest`, `ChatCompletionResponse`, `EmbeddingRequest`, `EmbeddingResponse`, `ImageGenerationRequest`, `ImageGenerationResponse`, and `ProviderError`. These are plain dataclasses. No provider SDK objects cross this line. A `ModelClient` protocol defines the contract that all adapters implement, and that's the only interface the rest of the system sees.
 
-## **Adaptive Request Admission: The Centerpiece**
+## **Adaptive Throttling: The Centerpiece**
 
 With this client stack in place, we had the foundation to build something that wasn't possible before. Adaptive concurrency control. Let's start with the problem.
 
@@ -95,23 +95,23 @@ Here's a subtlety that bit us during testing. When the system is running at capa
 
 Real pipelines aren't simple. A single provider+model combination might serve chat completions, embeddings, and image generation, potentially on different rate-limit budgets. And multiple [model aliases](../../concepts/models/model-configs.md) in your pipeline might point to the same underlying provider and model (say, one alias for generation and another for judging, both hitting the same NVIDIA endpoint).
 
-Request admission handles this with two-level keying:
+The throttle manager handles this with two-level keying:
 
 <div style="text-align: center;" markdown>
 
-![Two-level request-resource keying: global cap per provider+model, independent domain states for chat, embedding, image](assets/owning-the-model-stack/request-keying.png){ style="max-width:75%; height:auto" }
+![Two-level throttle keying: global cap per provider+model, independent domain states for chat, embedding, image](assets/owning-the-model-stack/throttle-keying.png){ style="max-width:75%; height:auto" }
 
 </div>
 
 - **Global cap**: keyed by `(provider_name, model_id)`. When multiple model aliases target the same provider and model, the effective max is `min()` of their configured `max_parallel_requests`. This enforces the most conservative limit for shared upstream capacity, because the provider doesn't care what you *call* the model, it sees the same API key.
 
-- **Domain state**: keyed by `(provider_name, model_id, request_domain)`. Each domain (`chat`, `embedding`, `image`, `healthcheck`) maintains its own AIMD state: `current_limit`, `in_flight`, `blocked_until`, `success_streak`, and `rate_limit_ceiling`. Domains float independently but are always capped by the global max.
+- **Domain state**: keyed by `(provider_name, model_id, throttle_domain)`. Each domain (`chat`, `embedding`, `image`, `healthcheck`) maintains its own AIMD state: `current_limit`, `in_flight`, `blocked_until`, `success_streak`, and `rate_limit_ceiling`. Domains float independently but are always capped by the global max.
 
 The practical effect is that a burst of 429s on the chat route doesn't starve embedding requests, and vice versa. Each route adapts to its own capacity independently while respecting the shared upstream limit.
 
 ## **The Retry Boundary**
 
-There's a design choice here that isn't obvious until you think about it, and getting it wrong would break the entire adaptive request-admission system.
+There's a design choice here that isn't obvious until you think about it, and getting it wrong would break the entire throttling system.
 
 The transport layer (via `httpx` with `RetryTransport`) handles transient server failures like 502, 503, 504, and connection errors. These are hiccups. The server is temporarily broken. Retry with exponential backoff and jitter, and move on.
 
@@ -119,25 +119,37 @@ But **429 is explicitly excluded from transport retries**.
 
 <div style="text-align: center;" markdown>
 
-![Retry boundary: 502/503/504 retried at transport, 429 passed through to ModelRequestExecutor for AIMD feedback](assets/owning-the-model-stack/retry-boundary.png){ style="max-width:75%; height:auto" }
+![Retry boundary: 502/503/504 retried at transport, 429 passed through to ThrottledModelClient for AIMD feedback](assets/owning-the-model-stack/retry-boundary.png){ style="max-width:75%; height:auto" }
 
 </div>
 
-Why? Because if the retry layer swallows 429s, request admission never learns the provider is overloaded. The whole AIMD feedback loop depends on seeing raw rate-limit signals. A 429 must bubble up to `ModelRequestExecutor` so it can release the request lease as rate-limited, cut the concurrency limit, apply the cooldown, and record the ceiling. The next attempt then re-enters the request-admission path before making another HTTP call.
+Why? Because if the retry layer swallows 429s, the throttle manager never learns the provider is overloaded. The whole AIMD feedback loop depends on seeing raw rate-limit signals. A 429 must bubble up to `ThrottledModelClient` so it can call `release_rate_limited()`, cut the concurrency limit, apply the cooldown, and record the ceiling. The next attempt then re-enters the throttle acquire path, waiting for a permit, before making another HTTP call.
 
-The split is clean and worth remembering. Transport retries handle *server problems*. Request admission handles *capacity problems*. The provider is working fine, you're just sending too many requests. Conflating the two is how you get retry storms.
+The split is clean and worth remembering. Transport retries handle *server problems*. Throttle adaptation handles *capacity problems*. The provider is working fine, you're just sending too many requests. Conflating the two is how you get retry storms.
 
-One caveat: this boundary behaves differently depending on the execution mode. In async mode (currently experimental, enabled with `DATA_DESIGNER_ASYNC_ENGINE=1`), 429s bypass transport retries entirely and flow straight to `ModelRequestExecutor` for AIMD feedback — this is the full adaptive loop described above. In sync mode, 429s are retried at the transport layer since there's no salvage queue to re-attempt failed rows. AIMD is still wired up but only fires if all transport retries are exhausted. This is temporary — once the async engine graduates from experimental, it will become the default path and the sync codepath will be retired. See [Async All the Way Down](async-all-the-way-down.md) for the full story on the async engine.
+One caveat: this boundary behaves differently depending on the execution mode. In async mode (currently experimental, enabled with `DATA_DESIGNER_ASYNC_ENGINE=1`), 429s bypass transport retries entirely and flow straight to `ThrottledModelClient` for AIMD feedback — this is the full adaptive loop described above. In sync mode, 429s are retried at the transport layer since there's no salvage queue to re-attempt failed rows. AIMD is still wired up but only fires if all transport retries are exhausted. This is temporary — once the async engine graduates from experimental, it will become the default path and the sync codepath will be retired. See [Async All the Way Down](async-all-the-way-down.md) for the full story on the async engine.
 
 ## **Configuration**
 
-Adaptive request admission is designed to work well out of the box. The defaults are conservative and handle most workloads without tuning. The primary user-facing knob is still `max_parallel_requests` on your model's inference parameters, which sets the hard upper bound for concurrency. AIMD floats below it.
+The throttle system is designed to work well out of the box. The defaults are conservative and handle most workloads without tuning. The primary user-facing knob is still `max_parallel_requests` on your model's inference parameters, which sets the hard upper bound for concurrency. AIMD floats below it.
+
+For workloads where you want to fine-tune the adaptation behavior, `ThrottleConfig` is available on `RunConfig`:
 
 ```python
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 data_designer = DataDesigner()
+data_designer.set_run_config(
+    dd.RunConfig(
+        throttle=dd.ThrottleConfig(
+            reduce_factor=0.75,
+            success_window=25,
+            cooldown_seconds=2.0,
+            ceiling_overshoot=0.10,
+        )
+    )
+)
 config_builder = dd.DataDesignerConfigBuilder(
     model_configs=[
         dd.ModelConfig(
@@ -159,11 +171,21 @@ create_result = data_designer.create(
 )
 ```
 
-Most users will never need more than `max_parallel_requests`. The system adapts automatically, and capacity diagnostics are exposed through runtime logs and `AsyncCapacityPlan` rather than public controller tuning knobs.
+| Parameter | Default | What it does |
+|---|---|---|
+| `reduce_factor` | 0.75 | Multiplicative decrease on 429 (0.75 = reduce by 25%) |
+| `additive_increase` | 1 | How much to increase the limit after a success window |
+| `success_window` | 25 | Consecutive successes before additive increase |
+| `cooldown_seconds` | 2.0 | Default cooldown when no `Retry-After` header |
+| `ceiling_overshoot` | 0.10 | How far above the observed ceiling to probe (10%) |
+
+In practice, the parameter most worth adjusting is `success_window`. A smaller window (say, 10) makes the system more aggressive about reclaiming throughput after a pullback, useful when you know the provider's capacity fluctuates quickly. A larger window (say, 50) makes it more conservative, better for providers with strict, stable rate limits where you'd rather not probe at all.
+
+Most users will never need to touch any of these. The system adapts automatically.
 
 ## **What It Looks Like in the Logs**
 
-Request admission logs every state transition at `INFO` level, so the adaptation story is visible in your terminal as the run progresses.
+`ThrottleManager` logs every state transition at `INFO` level, so the adaptation story is visible in your terminal as the run progresses.
 
 ```
 # When the system hits a 429 and cuts concurrency:
@@ -186,9 +208,9 @@ Reading these lines in sequence tells you exactly what happened: where the syste
 
 ## **Where This Leaves Us**
 
-This shipped in Data Designer v0.5.4. If you're using Data Designer today, nothing changes in your pipeline code. `ModelFacade` is the same API it's always been. What changes is what happens underneath. The system now discovers provider capacity at runtime, isolates request state per route, and separates retry logic from rate-limit adaptation. Adaptive request admission is enabled by default for all providers. You don't opt in or configure anything; it just starts learning. If you want to see this fully in action, turn on async mode — see [Async All the Way Down](async-all-the-way-down.md) for details.
+This shipped in Data Designer v0.5.4. If you're using Data Designer today, nothing changes in your pipeline code. `ModelFacade` is the same API it's always been. What changes is what happens underneath. The system now discovers provider capacity at runtime, isolates throttle state per route, and separates retry logic from rate-limit adaptation. Adaptive throttling is enabled by default for all providers. You don't opt in or configure anything; it just starts learning. If you want to see this fully in action, turn on async mode — see [Async All the Way Down](async-all-the-way-down.md) for details.
 
-For most workloads, the defaults are all you need. Set `max_parallel_requests` to a generous upper bound and let AIMD find the right level. If you're running against a stack that returns 429s, the system adapts to the available capacity without public controller tuning.
+For most workloads, the defaults are all you need. Set `max_parallel_requests` to a generous upper bound and let AIMD find the right level. If you're running against a stack that returns 429s, the system adapts to the available capacity without any tuning. If you want finer control, `ThrottleConfig` is there — but the goal is that you spend your time designing datasets, not tuning concurrency knobs.
 
 Key Resources:
 

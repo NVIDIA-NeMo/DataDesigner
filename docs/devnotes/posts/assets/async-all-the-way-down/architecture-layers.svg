@@ -39,21 +39,21 @@
   <rect x="80" y="180" width="640" height="28" rx="8" fill="#76B900" opacity="0.1"/>
   <text x="400" y="200" text-anchor="middle" fill="#8FD619" font-size="13" font-weight="bold">Row-Group Admission &amp; Buffer Management</text>
   <text x="100" y="225" fill="#CCC" font-size="11">Memory-bounded execution with streaming checkpoints</text>
-  <text x="100" y="243" fill="#999" font-size="10">&#x2022; Admission-gated row groups</text>
+  <text x="100" y="243" fill="#999" font-size="10">&#x2022; Semaphore-gated row-group admission</text>
   <text x="100" y="258" fill="#999" font-size="10">&#x2022; Per-group buffer with cell-level writes</text>
   <text x="460" y="243" fill="#999" font-size="10">&#x2022; Checkpoint-to-parquet on completion</text>
-  <text x="460" y="258" fill="#999" font-size="10">&#x2022; Task admission caps in-flight work</text>
+  <text x="460" y="258" fill="#999" font-size="10">&#x2022; Submission semaphore caps in-flight tasks</text>
 
   <!-- Arrow -->
   <polygon points="395,292 400,302 405,292" fill="#76B900" opacity="0.7"/>
 
-  <!-- Layer 3: Request Admission / AIMD -->
+  <!-- Layer 3: ThrottleManager / AIMD -->
   <rect x="80" y="305" width="640" height="95" rx="8" fill="url(#darkGrad)" stroke="#76B900" stroke-width="1" stroke-opacity="0.4"/>
   <rect x="80" y="305" width="640" height="28" rx="8" fill="#76B900" opacity="0.07"/>
-  <text x="400" y="325" text-anchor="middle" fill="#5A8F00" font-size="13" font-weight="bold">Request Admission (AIMD Adaptive Concurrency)</text>
-  <text x="100" y="350" fill="#CCC" font-size="11">Provider/model/domain rate-limit adaptation</text>
+  <text x="400" y="325" text-anchor="middle" fill="#5A8F00" font-size="13" font-weight="bold">ThrottleManager (AIMD Adaptive Concurrency)</text>
+  <text x="100" y="350" fill="#CCC" font-size="11">Per-model, per-provider rate-limit adaptation</text>
   <text x="100" y="368" fill="#999" font-size="10">&#x2022; Additive increase on success streaks</text>
   <text x="100" y="383" fill="#999" font-size="10">&#x2022; Multiplicative decrease on 429s</text>
-  <text x="460" y="368" fill="#999" font-size="10">&#x2022; Independent request resources</text>
+  <text x="460" y="368" fill="#999" font-size="10">&#x2022; Independent pools per (provider, model)</text>
   <text x="460" y="383" fill="#999" font-size="10">&#x2022; Global cap across model aliases</text>
 </svg>
