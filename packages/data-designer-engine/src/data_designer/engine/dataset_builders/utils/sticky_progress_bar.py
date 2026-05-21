@@ -33,7 +33,7 @@ _CURVE_COLORS = [
     asciichartpy.cyan,
     asciichartpy.green,
 ]
-_DEFAULT_PANEL_HEIGHT = 20
+_DEFAULT_PANEL_HEIGHT = 22
 _MIN_PANEL_HEIGHT = 9
 _MIN_TERMINAL_WIDTH = 30
 _MIN_REDRAW_INTERVAL_SECONDS = 0.75
@@ -412,7 +412,7 @@ class StickyProgressBar:
 
         body_capacity = max(1, panel_height - 4)
         max_legend_capacity = max(1, body_capacity - 3)
-        desired_legend_capacity = 8 if self._model_usage and panel_height >= 13 else 5
+        desired_legend_capacity = 9 if self._model_usage and panel_height >= 13 else 5
         legend_capacity = min(max_legend_capacity, desired_legend_capacity)
         chart_line_count = max(3, body_capacity - legend_capacity)
         legend_capacity = max(1, body_capacity - chart_line_count)
@@ -482,7 +482,7 @@ class StickyProgressBar:
         if not model_usage or capacity < 6:
             lines = self._format_column_table_lines(bars, now, capacity, inner_width)
         else:
-            model_capacity = min(len(model_usage) + 1, 3)
+            model_capacity = min(len(model_usage) + 1, 4)
             gap_capacity = 1 if capacity - model_capacity >= 3 else 0
             column_capacity = max(1, capacity - model_capacity - gap_capacity)
             lines = self._format_column_table_lines(bars, now, column_capacity, inner_width)
