@@ -79,7 +79,9 @@ class ScenarioResult:
     wall_time_seconds: float
     model_wait_slot_utilization_ratio: float
     model_wait_idle_slot_seconds: float
-    model_resource_zero_inflight_idle_seconds: float
+    generation_column_idle_seconds: dict[str, float]
+    total_generation_column_idle_seconds: float
+    max_generation_column_idle_seconds: float
     hot_dispatch_count_before_peer_ready: int
     peer_first_wait_seconds: float
     peer_wait_mean_seconds: float
@@ -220,6 +222,7 @@ def run_scenario(config: ScenarioConfig, policy: PolicyName) -> ScenarioResult:
     total_busy_seconds = sum(task.duration for task in tasks)
     wall_time = max((record.completed_at for record in records), default=0.0)
     model_wait_idle_slot_seconds = max(0.0, wall_time * config.capacity - total_busy_seconds)
+    generation_column_idle_seconds = _generation_column_idle_seconds(records, wall_time)
     peer_records = [record for record in records if record.group_name == "peer"]
     peer_waits = [record.wait_seconds for record in peer_records]
     hot_before_peer = sum(
@@ -233,7 +236,9 @@ def run_scenario(config: ScenarioConfig, policy: PolicyName) -> ScenarioResult:
         wall_time_seconds=wall_time,
         model_wait_slot_utilization_ratio=total_busy_seconds / (wall_time * config.capacity) if wall_time else 0.0,
         model_wait_idle_slot_seconds=model_wait_idle_slot_seconds,
-        model_resource_zero_inflight_idle_seconds=_zero_inflight_idle_seconds(records, wall_time),
+        generation_column_idle_seconds=generation_column_idle_seconds,
+        total_generation_column_idle_seconds=sum(generation_column_idle_seconds.values()),
+        max_generation_column_idle_seconds=max(generation_column_idle_seconds.values(), default=0.0),
         hot_dispatch_count_before_peer_ready=hot_before_peer,
         peer_first_wait_seconds=peer_waits[0] if peer_waits else 0.0,
         peer_wait_mean_seconds=sum(peer_waits) / len(peer_waits) if peer_waits else 0.0,
@@ -322,8 +327,15 @@ def _compare_results(scenario: ScenarioName, results: list[ScenarioResult]) -> d
         "model_wait_idle_slot_delta_seconds": (
             bounded.model_wait_idle_slot_seconds - strict.model_wait_idle_slot_seconds
         ),
-        "model_resource_zero_inflight_idle_delta_seconds": (
-            bounded.model_resource_zero_inflight_idle_seconds - strict.model_resource_zero_inflight_idle_seconds
+        "total_generation_column_idle_delta_seconds": (
+            bounded.total_generation_column_idle_seconds - strict.total_generation_column_idle_seconds
+        ),
+        "max_generation_column_idle_delta_seconds": (
+            bounded.max_generation_column_idle_seconds - strict.max_generation_column_idle_seconds
+        ),
+        "generation_column_idle_delta_seconds": _idle_delta_seconds(
+            strict.generation_column_idle_seconds,
+            bounded.generation_column_idle_seconds,
         ),
         "strict_hot_dispatch_before_peer_ready": strict.hot_dispatch_count_before_peer_ready,
         "bounded_hot_dispatch_before_peer_ready": bounded.hot_dispatch_count_before_peer_ready,
@@ -344,9 +356,16 @@ def _reduction_ratio(strict_value: float, bounded_value: float) -> float:
     return (strict_value - bounded_value) / strict_value
 
 
-def _zero_inflight_idle_seconds(records: list[TaskRecord], wall_time: float) -> float:
+def _generation_column_idle_seconds(records: list[TaskRecord], wall_time: float) -> dict[str, float]:
+    group_names = sorted({record.group_name for record in records})
+    return {group_name: _zero_inflight_idle_seconds(records, wall_time, group_name) for group_name in group_names}
+
+
+def _zero_inflight_idle_seconds(records: list[TaskRecord], wall_time: float, group_name: str) -> float:
     events: dict[float, int] = {}
     for record in records:
+        if record.group_name != group_name:
+            continue
         events[record.dispatch_at] = events.get(record.dispatch_at, 0) + 1
         events[record.completed_at] = events.get(record.completed_at, 0) - 1
 
@@ -361,6 +380,21 @@ def _zero_inflight_idle_seconds(records: list[TaskRecord], wall_time: float) -> 
     if active == 0:
         idle_seconds += wall_time - last_time
     return idle_seconds
+
+
+def _idle_delta_seconds(strict: dict[str, float], bounded: dict[str, float]) -> dict[str, float]:
+    return {key: bounded.get(key, 0.0) - strict.get(key, 0.0) for key in sorted(strict.keys() | bounded.keys())}
+
+
+def _format_idle_seconds(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    items = []
+    for key in sorted(value):
+        item = value[key]
+        if isinstance(item, int | float):
+            items.append(f"{key}={item:.3f}")
+    return ", ".join(items)
 
 
 def _git_sha() -> str:
@@ -380,37 +414,40 @@ def _markdown_report(report: BenchmarkReport) -> str:
         "",
         "## Scenario Results",
         "",
-        "Utilization is model-wait slot utilization: time spent waiting on model responses divided by "
-        "`wall_time * model_resource_capacity`. Idle slot-seconds is the complementary model-wait capacity "
-        "with no in-flight request occupying that slot. Zero-inflight idle time is the interval where the "
-        "benchmark model resource had no in-flight request at all.",
+        "Generation-column idle is the amount of workflow wall time where that column has no in-flight "
+        "generation task. This is the benchmark proxy for endpoint/GPU time with no tokens being generated "
+        "for that model resource.",
         "",
-        "| Scenario | Policy | Tasks | Wall time (s) | Model wait slot utilization | Model wait idle slot-s | Zero-inflight idle (s) | Hot dispatches before peer ready | Peer wait p95 (s) | Peer first wait (s) |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Scenario | Policy | Tasks | Wall time (s) | Generation-column idle (s) | Total column idle (s) | Max column idle (s) | Hot dispatches before peer ready | Peer wait p95 (s) | Peer first wait (s) |",
+        "| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for scenario in report.scenarios:
         lines.append(
-            "| {scenario} | {policy} | {task_count} | {wall_time_seconds:.3f} | "
-            "{model_wait_slot_utilization_ratio:.3f} | "
-            "{model_wait_idle_slot_seconds:.3f} | {model_resource_zero_inflight_idle_seconds:.3f} | "
+            "| {scenario} | {policy} | {task_count} | {wall_time_seconds:.3f} | {idle_by_column} | "
+            "{total_generation_column_idle_seconds:.3f} | {max_generation_column_idle_seconds:.3f} | "
             "{hot_dispatch_count_before_peer_ready} | {peer_wait_p95_seconds:.3f} | "
-            "{peer_first_wait_seconds:.3f} |".format(**scenario)
+            "{peer_first_wait_seconds:.3f} |".format(
+                idle_by_column=_format_idle_seconds(scenario.get("generation_column_idle_seconds")),
+                **scenario,
+            )
         )
     lines.extend(
         [
             "",
             "## Comparisons",
             "",
-            "| Scenario | Peer p95 wait reduction | Peer first wait delta (s) | Wall time delta (s) | Model wait utilization delta | Model wait idle slot-s delta | Zero-inflight idle delta (s) |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Scenario | Peer p95 wait reduction | Peer first wait delta (s) | Wall time delta (s) | Total column idle delta (s) | Max column idle delta (s) | Column idle delta (s) |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for comparison in report.comparisons:
         lines.append(
             "| {scenario} | {peer_p95_wait_reduction_ratio:.1%} | {peer_first_wait_delta_seconds:.3f} | "
-            "{wall_time_delta_seconds:.3f} | {model_wait_slot_utilization_delta:.3f} | "
-            "{model_wait_idle_slot_delta_seconds:.3f} | "
-            "{model_resource_zero_inflight_idle_delta_seconds:.3f} |".format(**comparison)
+            "{wall_time_delta_seconds:.3f} | {total_generation_column_idle_delta_seconds:.3f} | "
+            "{max_generation_column_idle_delta_seconds:.3f} | {idle_delta} |".format(
+                idle_delta=_format_idle_seconds(comparison.get("generation_column_idle_delta_seconds")),
+                **comparison,
+            )
         )
     lines.append("")
     return "\n".join(lines)
