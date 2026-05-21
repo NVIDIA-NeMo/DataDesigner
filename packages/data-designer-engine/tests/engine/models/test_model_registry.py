@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
+from data_designer.config.run_config import RequestAdmissionTuningConfig, RunConfig
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
@@ -52,6 +53,35 @@ def test_create_model_registry(
         model_provider_registry=stub_model_provider_registry,
     )
     assert isinstance(model_registry, ModelRegistry)
+
+
+def test_create_model_registry_maps_request_admission_tuning_config(
+    stub_model_configs: list[ModelConfig],
+    stub_secrets_resolver: object,
+    stub_model_provider_registry: object,
+) -> None:
+    model_registry = create_model_registry(
+        model_configs=stub_model_configs,
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        run_config=RunConfig(
+            request_admission=RequestAdmissionTuningConfig(
+                multiplicative_decrease_factor=0.5,
+                additive_increase_step=2,
+                successes_until_increase=7,
+                cooldown_seconds=1.5,
+                startup_ramp_seconds=30.0,
+            )
+        ),
+    )
+
+    assert model_registry.request_admission is not None
+    request_config = model_registry.request_admission.config
+    assert request_config.multiplicative_decrease_factor == 0.5
+    assert request_config.additive_increase_step == 2
+    assert request_config.successes_until_increase == 7
+    assert request_config.cooldown_seconds == 1.5
+    assert request_config.startup_ramp_seconds == 30.0
 
 
 def test_public_props(stub_model_configs, stub_model_registry):

@@ -20,7 +20,7 @@ from data_designer.integrations.huggingface.client import HuggingFaceHubClient
 if TYPE_CHECKING:
     import pandas as pd
 
-    from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
+    from data_designer.engine.dataset_builders.scheduling.task_model import TaskTrace
 
 ExportFormat = Literal["jsonl", "csv", "parquet"]
 SUPPORTED_EXPORT_FORMATS: tuple[str, ...] = get_args(ExportFormat)

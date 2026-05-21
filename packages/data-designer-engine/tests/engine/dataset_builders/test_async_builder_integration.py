@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import math
 import warnings
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
 import pytest
 
+import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
@@ -24,7 +26,7 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
+from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -187,6 +189,39 @@ async def test_build_async_end_to_end() -> None:
     all_cols = ["seed", "cell_out", "expr_out"]
     assert tracker.is_row_group_complete(0, 2, all_cols)
     assert tracker.is_row_group_complete(1, 2, all_cols)
+
+
+def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class _SpyScheduler:
+        def __init__(self, **kwargs: object) -> None:
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(builder_mod, "AsyncTaskScheduler", _SpyScheduler)
+    request_admission = object()
+    model_registry = MagicMock()
+    model_registry.get_aggregate_max_parallel_requests.return_value = 2
+    model_registry.request_admission = request_admission
+    provider = SimpleNamespace(
+        model_registry=model_registry,
+        run_config=SimpleNamespace(progress_interval=5.0, progress_bar=False),
+    )
+    processor_runner = MagicMock()
+    processor_runner.has_processors_for.return_value = False
+    config = SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})
+    builder = SimpleNamespace(
+        _column_configs=[config],
+        _processor_runner=processor_runner,
+        artifact_storage=MagicMock(),
+        _resource_provider=provider,
+    )
+    generator = MockSeed(config=_expr_config("seed"), resource_provider=provider)
+
+    DatasetBuilder._prepare_async_run(builder, [generator], num_records=1, buffer_size=1)
+
+    assert captured_kwargs["request_pressure_provider"] is request_admission
+    assert captured_kwargs["request_pressure_advisory"] is True
 
 
 # -- Test that existing sync path is unaffected --------------------------------

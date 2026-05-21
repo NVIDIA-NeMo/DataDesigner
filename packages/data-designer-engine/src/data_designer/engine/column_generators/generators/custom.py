@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
+from data_designer.config.scheduling import SchedulingMetadata
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
@@ -105,7 +106,7 @@ class _AsyncBridgedModelFacade:
         except concurrent.futures.TimeoutError as exc:
             future.cancel()
             # Demoted to debug: the raised ModelTimeoutError already surfaces
-            # the timeout at the scheduler with full context, and the throttled
+            # the timeout at the scheduler with full context, and the request-admission
             # degraded-provider WARN is the user-facing signal under sustained
             # bridge timeouts. Per-event WARN was noise on top of those.
             logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
@@ -137,10 +138,18 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
     The models dict provides direct access to ModelFacade instances keyed by alias.
     """
 
-    @property
-    def is_llm_bound(self) -> bool:
-        """Custom generators with model_aliases make LLM calls and need the handoff."""
-        return bool(self.config.model_aliases)
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        """Return custom-model metadata when the custom column declares model aliases."""
+        if not self.config.model_aliases:
+            return SchedulingMetadata.local()
+        identity = "-".join(sorted(str(alias) for alias in self.config.model_aliases))
+        return SchedulingMetadata.custom_model(
+            "custom_column",
+            identity or self.config.name,
+            "v1",
+            weight=max(1, len(self.config.model_aliases)),
+            diagnostics={"aliases": tuple(sorted(str(alias) for alias in self.config.model_aliases))},
+        )
 
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""

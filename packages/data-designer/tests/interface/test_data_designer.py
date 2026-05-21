@@ -23,7 +23,7 @@ from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import JinjaRenderingEngine, RunConfig, ThrottleConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
@@ -712,7 +712,7 @@ def test_init_no_user_providers_no_yaml_default_stays_quiet(
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
-    original_throttle_manager = data_designer._throttle_manager
+    original_request_admission = data_designer._request_admission
 
     # Test default values
     assert data_designer.run_config.disable_early_shutdown is False
@@ -731,7 +731,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             buffer_size=500,
             max_conversation_restarts=7,
             max_conversation_correction_steps=2,
-            throttle=ThrottleConfig(success_window=7),
+            request_admission=RequestAdmissionTuningConfig(successes_until_increase=7),
         )
     )
     assert data_designer.run_config.disable_early_shutdown is True
@@ -740,8 +740,8 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.buffer_size == 500
     assert data_designer.run_config.max_conversation_restarts == 7
     assert data_designer.run_config.max_conversation_correction_steps == 2
-    assert data_designer._throttle_manager is not original_throttle_manager
-    assert data_designer._throttle_manager._success_window == 7
+    assert data_designer._request_admission is not original_request_admission
+    assert data_designer._request_admission.config.successes_until_increase == 7
 
     # Test updating values
     data_designer.set_run_config(

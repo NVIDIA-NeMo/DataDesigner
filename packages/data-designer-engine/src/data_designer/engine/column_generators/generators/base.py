@@ -6,18 +6,21 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import functools
+import hashlib
 import logging
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Coroutine, TypeVar, overload
 
 from data_designer.config.column_configs import GenerationStrategy
+from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 _T = TypeVar("_T")
 
 # Preserved deliberately. Two other 300s deadlines were retired in the
-# async-default flip (PR #592): the throttle queue-wait and the
+# async-default flip (PR #592): the request-admission queue wait and the
 # ``_AsyncBridgedModelFacade`` bridge in ``custom.py`` — both have
 # ``ModelFacade`` context and could derive a per-call deadline from
 # ``inference_parameters.timeout``. This generic ``ColumnGenerator.generate()``
@@ -25,6 +28,20 @@ _T = TypeVar("_T")
 # now. Wiring a per-call timeout through to ``_run_coroutine_sync`` is
 # tracked as a structural follow-up.
 SYNC_BRIDGE_TIMEOUT = 300
+
+
+@dataclass
+class _EndpointBucket:
+    aliases: list[str] = field(default_factory=list)
+    caps: list[int] = field(default_factory=list)
+
+
+def _scheduling_generation_kind(generation_type: object) -> str:
+    value = getattr(generation_type, "value", generation_type)
+    if value == "chat-completion":
+        return "chat"
+    return str(value)
+
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -65,10 +82,14 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
     def can_generate_from_scratch(self) -> bool:
         return False
 
-    @property
-    def is_llm_bound(self) -> bool:
-        """Whether this generator makes model/API calls during generation."""
-        return False
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        """Return static scheduler metadata for this generator.
+
+        Generators that do not declare model-backed behavior use the documented
+        local default. Model-aware base classes override this with provider/model
+        resource identity derived from registered model aliases.
+        """
+        return SchedulingMetadata.local()
 
     @property
     def is_order_dependent(self) -> bool:
@@ -144,10 +165,6 @@ class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
 
 class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
     @property
-    def is_llm_bound(self) -> bool:
-        return True
-
-    @property
     def model_registry(self) -> ModelRegistry:
         return self.resource_provider.model_registry
 
@@ -160,6 +177,90 @@ class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
     def get_model_provider_name(self, model_alias: str) -> str:
         provider = self.model_registry.get_model_provider(model_alias=model_alias)
         return provider.name
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        aliases = self._get_scheduling_model_aliases()
+        if not aliases:
+            raise SchedulingMetadataError(
+                code="missing_model_alias",
+                message=f"{type(self).__name__} has no model aliases for scheduling metadata.",
+                fallback=SchedulingMetadata.local(),
+                diagnostics={"generator_type": type(self).__name__},
+            )
+
+        endpoints: dict[tuple[str, str, str], _EndpointBucket] = {}
+        for alias in aliases:
+            try:
+                model_config = self.get_model_config(model_alias=alias)
+                provider_name = self.get_model_provider_name(model_alias=alias)
+            except Exception as exc:
+                raise SchedulingMetadataError(
+                    code="alias_resolution_failed",
+                    message=f"Could not resolve model alias {alias!r} for scheduling metadata.",
+                    diagnostics={"alias": alias, "generator_type": type(self).__name__},
+                ) from exc
+
+            endpoint = (
+                provider_name,
+                str(model_config.model),
+                _scheduling_generation_kind(model_config.generation_type),
+            )
+            max_parallel = getattr(model_config.inference_parameters, "max_parallel_requests", 1)
+            cap = max_parallel if isinstance(max_parallel, int) and max_parallel > 0 else 1
+            bucket = endpoints.setdefault(endpoint, _EndpointBucket())
+            bucket.aliases.append(alias)
+            bucket.caps.append(cap)
+
+        if len(endpoints) != 1:
+            raw_caps = tuple(cap for bucket in endpoints.values() for cap in bucket.caps)
+            return SchedulingMetadata.custom_model(
+                _scheduling_plugin_namespace(type(self)),
+                _scheduling_alias_set_resource_name(aliases),
+                "v1",
+                weight=max(1, sum(raw_caps)),
+                diagnostics={
+                    "aliases": tuple(sorted(aliases)),
+                    "endpoints": tuple(sorted(str(endpoint) for endpoint in endpoints)),
+                    "fallback_reason": "multi_endpoint_alias_set",
+                    "raw_caps": raw_caps,
+                },
+            )
+
+        endpoint, bucket = next(iter(endpoints.items()))
+        provider_name, model_id, generation_kind = endpoint
+        effective_cap = max(1, min(bucket.caps))
+        return SchedulingMetadata.model(
+            provider_name,
+            model_id,
+            generation_kind,
+            weight=effective_cap,
+            diagnostics={
+                "aliases": tuple(bucket.aliases),
+                "raw_caps": tuple(bucket.caps),
+                "merge_rule": "min_same_endpoint",
+            },
+        )
+
+    def _get_scheduling_model_aliases(self) -> list[str]:
+        get_aliases = getattr(self.config, "get_model_aliases", None)
+        if callable(get_aliases):
+            aliases = get_aliases()
+        else:
+            aliases = []
+            if (alias := getattr(self.config, "model_alias", None)) is not None:
+                aliases.append(alias)
+            aliases.extend(getattr(self.config, "model_aliases", []) or [])
+        return list(dict.fromkeys(str(alias) for alias in aliases if alias))
+
+
+def _scheduling_plugin_namespace(generator_type: type[object]) -> str:
+    return f"{generator_type.__module__}.{generator_type.__qualname__}"
+
+
+def _scheduling_alias_set_resource_name(aliases: list[str]) -> str:
+    alias_key = "\0".join(sorted(aliases)).encode()
+    digest = hashlib.sha1(alias_key).hexdigest()[:16]
+    return f"alias-set-{digest}"
 
 
 class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], ABC):
