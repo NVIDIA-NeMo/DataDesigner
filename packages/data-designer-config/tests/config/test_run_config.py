@@ -24,6 +24,15 @@ def test_run_config_accepts_native_renderer() -> None:
     assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.NATIVE
 
 
+def test_run_config_preserves_dropped_columns_by_default() -> None:
+    assert RunConfig().preserve_dropped_columns is True
+
+
+def test_run_config_accepts_disabled_dropped_column_preservation() -> None:
+    run_config = RunConfig(preserve_dropped_columns=False)
+    assert run_config.preserve_dropped_columns is False
+
+
 def test_run_config_throttle_shim_rejects_unknown_legacy_fields() -> None:
     with pytest.raises(ValidationError, match="max_concurrent_requests"):
         RunConfig(throttle={"max_concurrent_requests": 1})
