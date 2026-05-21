@@ -17,6 +17,7 @@ import pytest
 from data_designer.engine.dataset_builders.utils.async_progress_reporter import AsyncProgressReporter
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.sticky_progress_bar import (
+    _CHART_LINE_COUNT,
     _MAX_RATE_SAMPLES,
     _RATE_SAMPLE_INTERVAL_SECONDS,
     StickyProgressBar,
@@ -58,6 +59,11 @@ def _last_panel_lines(output: str) -> list[str]:
     panel_start = clean.rfind("╭")
     assert panel_start >= 0
     return clean[panel_start:].splitlines()
+
+
+def _chart_lines(panel_lines: list[str]) -> list[str]:
+    separator_index = next(index for index, line in enumerate(panel_lines) if "├" in line)
+    return panel_lines[2:separator_index]
 
 
 def test_no_output_when_not_tty() -> None:
@@ -141,6 +147,34 @@ def test_model_usage_rates_render_in_separate_table(tty_stream: FakeTTY) -> None
         assert "6.0" in panel
         assert "10.0" in panel
         assert "2.5" in panel
+
+
+def test_many_columns_and_models_do_not_shrink_chart(tty_stream: FakeTTY) -> None:
+    with StickyProgressBar(stream=tty_stream) as bar:
+        for index in range(8):
+            bar.add_bar(f"col_{index}", f"column_{index}", 100)
+        bar.update_many(
+            {f"col_{index}": (index + 1, index + 1, 0, 0) for index in range(8)},
+            force=True,
+        )
+        for index in range(8):
+            bar.record_model_usage(
+                model_alias=f"model_{index}",
+                model_name=f"provider/model-{index}",
+                input_tokens=100 + index,
+                output_tokens=10 + index,
+                force=True,
+            )
+
+        panel_lines = _last_panel_lines(tty_stream.getvalue())
+        panel = "\n".join(panel_lines)
+        assert len(_chart_lines(panel_lines)) == _CHART_LINE_COUNT
+        assert len(panel_lines) > 22
+        assert "more column(s)" not in panel
+        assert "more model(s)" not in panel
+        for index in range(8):
+            assert f"column_{index}" in panel
+            assert f"model_{index}" in panel
 
 
 def test_control_sequences_are_removed_from_labels(tty_stream: FakeTTY) -> None:

@@ -42,6 +42,8 @@ _RATE_SMOOTHING_WINDOW = 3
 _MAX_RATE_SAMPLES = 7200
 _RATE_FORMAT = "{:6.1f} "
 _Y_AXIS_RESERVED = 12
+_CHART_LINE_COUNT = 9
+_MIN_CHART_LINE_COUNT = 3
 _MIN_LEGEND_LABEL_WIDTH = 8
 _MIN_MODEL_ALIAS_WIDTH = 10
 _MIN_MODEL_NAME_WIDTH = 10
@@ -411,18 +413,15 @@ class StickyProgressBar:
         inner_width = panel_width - 2
 
         body_capacity = max(1, panel_height - 4)
-        max_legend_capacity = max(1, body_capacity - 3)
-        desired_legend_capacity = 9 if self._model_usage and panel_height >= 13 else 5
-        legend_capacity = min(max_legend_capacity, desired_legend_capacity)
-        chart_line_count = max(3, body_capacity - legend_capacity)
-        legend_capacity = max(1, body_capacity - chart_line_count)
+        chart_line_count = min(_CHART_LINE_COUNT, max(_MIN_CHART_LINE_COUNT, body_capacity - 1))
+        minimum_legend_capacity = max(1, body_capacity - chart_line_count)
         chart_height = chart_line_count - 1
 
         now = time.perf_counter()
         bars = list(self._bars.values())
         model_usage = list(self._model_usage.values())
         chart_lines = self._format_chart_lines(bars, inner_width, chart_height)
-        legend_lines = self._format_legend_lines(bars, model_usage, now, legend_capacity, inner_width)
+        legend_lines = self._format_legend_lines(bars, model_usage, now, minimum_legend_capacity, inner_width)
 
         lines = [
             self._border("╭", "─", "╮", panel_width),
@@ -473,37 +472,25 @@ class StickyProgressBar:
         bars: list[_BarState],
         model_usage: list[_ModelUsageState],
         now: float,
-        capacity: int,
+        minimum_capacity: int,
         inner_width: int,
     ) -> list[str]:
-        if capacity <= 0:
-            return []
-
-        if not model_usage or capacity < 6:
-            lines = self._format_column_table_lines(bars, now, capacity, inner_width)
-        else:
-            model_capacity = min(len(model_usage) + 1, 4)
-            gap_capacity = 1 if capacity - model_capacity >= 3 else 0
-            column_capacity = max(1, capacity - model_capacity - gap_capacity)
-            lines = self._format_column_table_lines(bars, now, column_capacity, inner_width)
-            if gap_capacity:
-                lines.append("")
-            lines.extend(self._format_model_table_lines(model_usage, now, model_capacity, inner_width))
-
-        while len(lines) < capacity:
+        lines = self._format_column_table_lines(bars, now, inner_width)
+        if model_usage:
             lines.append("")
-        return lines[:capacity]
+            lines.extend(self._format_model_table_lines(model_usage, now, inner_width))
+
+        while len(lines) < minimum_capacity:
+            lines.append("")
+        return lines
 
     def _format_column_table_lines(
         self,
         bars: list[_BarState],
         now: float,
-        capacity: int,
         inner_width: int,
     ) -> list[str]:
         lines: list[str] = []
-        if capacity <= 0:
-            return lines
 
         include_status = any(bar.failed or bar.skipped for bar in bars)
         label_width, done_width, rate_width, status_width, progress_width = self._column_table_widths(
@@ -529,12 +516,7 @@ class StickyProgressBar:
             )
         )
 
-        row_capacity = max(0, capacity - 1)
-        visible_bars = bars[:row_capacity]
-        if len(bars) > row_capacity and row_capacity > 0:
-            visible_bars = bars[: max(0, row_capacity - 1)]
-
-        for index, bar in enumerate(visible_bars):
+        for index, bar in enumerate(bars):
             color = _CURVE_COLORS[index % len(_CURVE_COLORS)]
             lines.append(
                 self._format_legend_table_line(
@@ -553,10 +535,7 @@ class StickyProgressBar:
                 )
             )
 
-        if len(bars) > row_capacity and row_capacity > 0:
-            lines.append(f"{_MUTED}... {len(bars) - len(visible_bars)} more column(s){_RESET}")
-
-        return lines[:capacity]
+        return lines
 
     def _column_table_widths(
         self,
@@ -601,12 +580,9 @@ class StickyProgressBar:
         self,
         model_usage: list[_ModelUsageState],
         now: float,
-        capacity: int,
         inner_width: int,
     ) -> list[str]:
         lines: list[str] = []
-        if capacity <= 0:
-            return lines
 
         alias_width, model_width, rpm_width, input_width, output_width = self._model_table_widths(
             model_usage,
@@ -629,12 +605,7 @@ class StickyProgressBar:
             )
         )
 
-        row_capacity = max(0, capacity - 1)
-        visible_usage = model_usage[:row_capacity]
-        if len(model_usage) > row_capacity and row_capacity > 0:
-            visible_usage = model_usage[: max(0, row_capacity - 1)]
-
-        for state in visible_usage:
+        for state in model_usage:
             lines.append(
                 self._format_model_table_line(
                     model_alias=state.model_alias,
@@ -651,10 +622,7 @@ class StickyProgressBar:
                 )
             )
 
-        if len(model_usage) > row_capacity and row_capacity > 0:
-            lines.append(f"{_MUTED}... {len(model_usage) - len(visible_usage)} more model(s){_RESET}")
-
-        return lines[:capacity]
+        return lines
 
     def _model_table_widths(
         self,
