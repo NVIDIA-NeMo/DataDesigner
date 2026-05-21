@@ -23,6 +23,7 @@ _MUTED = "\033[2;38;5;245m"
 _FAILED = "\033[31m"
 _OK = "\033[32m"
 _TRACK = "\033[38;5;238m"
+_FEEDBACK_MARKER = "\033[1;38;5;196m◆\033[0m"
 _CURVE_COLORS = [
     asciichartpy.lightcyan,
     asciichartpy.lightgreen,
@@ -40,6 +41,7 @@ _MIN_REDRAW_INTERVAL_SECONDS = 0.75
 _RATE_SAMPLE_INTERVAL_SECONDS = 2.0
 _RATE_SMOOTHING_WINDOW = 3
 _MAX_RATE_SAMPLES = 7200
+_MAX_FEEDBACK_MARKERS = 512
 _RATE_FORMAT = "{:6.1f} "
 _Y_AXIS_RESERVED = 12
 _CHART_LINE_COUNT = 9
@@ -136,6 +138,46 @@ def _fit_series(series: Sequence[float], point_count: int) -> list[float]:
     return _expand_series(series, point_count)
 
 
+def _visible_index_of_any(text: str, chars: str) -> int | None:
+    visible_index = 0
+    index = 0
+    while index < len(text):
+        if match := _ANSI_RE.match(text, index):
+            index = match.end()
+            continue
+        if text[index] in chars:
+            return visible_index
+        visible_index += 1
+        index += 1
+    return None
+
+
+def _replace_visible_char(text: str, visible_index: int, replacement: str) -> str:
+    output: list[str] = []
+    current_visible_index = 0
+    index = 0
+    replaced = False
+    while index < len(text):
+        if match := _ANSI_RE.match(text, index):
+            output.append(match.group())
+            index = match.end()
+            continue
+
+        if current_visible_index == visible_index:
+            output.append(replacement)
+            replaced = True
+        else:
+            output.append(text[index])
+
+        current_visible_index += 1
+        index += 1
+
+    if not replaced and visible_index >= current_visible_index:
+        output.append(" " * (visible_index - current_visible_index))
+        output.append(replacement)
+    return "".join(output)
+
+
 @dataclass
 class _BarState:
     label: str
@@ -211,6 +253,13 @@ class _ModelUsageState:
         return self.output_tokens / elapsed if elapsed > 0 else 0.0
 
 
+@dataclass(frozen=True)
+class _FeedbackMarker:
+    elapsed: float
+    value: float
+    event_kind: str
+
+
 class StickyProgressBar:
     """ANSI throughput chart panel that sticks to the bottom of the terminal.
 
@@ -234,6 +283,7 @@ class StickyProgressBar:
         self._is_tty = hasattr(self._stream, "isatty") and self._stream.isatty()
         self._bars: dict[str, _BarState] = {}
         self._model_usage: dict[str, _ModelUsageState] = {}
+        self._feedback_markers: list[_FeedbackMarker] = []
         self._lock = Lock()
         self._drawn_lines = 0
         self._active = False
@@ -342,6 +392,21 @@ class StickyProgressBar:
             if self._active:
                 self._redraw_if_due(now, force=force)
 
+    def record_feedback_signal(self, *, event_kind: str, force: bool = False) -> None:
+        with self._lock:
+            now = time.perf_counter()
+            self._feedback_markers.append(
+                _FeedbackMarker(
+                    elapsed=max(now - self._start_time, 0.0),
+                    value=max((bar.latest_rate for bar in self._bars.values()), default=0.0),
+                    event_kind=_sanitize_label(event_kind),
+                )
+            )
+            if len(self._feedback_markers) > _MAX_FEEDBACK_MARKERS:
+                del self._feedback_markers[: len(self._feedback_markers) - _MAX_FEEDBACK_MARKERS]
+            if self._active:
+                self._redraw_if_due(now, force=force)
+
     def remove_bar(self, key: str) -> None:
         with self._lock:
             self._bars.pop(key, None)
@@ -420,7 +485,7 @@ class StickyProgressBar:
         now = time.perf_counter()
         bars = list(self._bars.values())
         model_usage = list(self._model_usage.values())
-        chart_lines = self._format_chart_lines(bars, inner_width, chart_height)
+        chart_lines = self._format_chart_lines(bars, inner_width, chart_height, now)
         legend_lines = self._format_legend_lines(bars, model_usage, now, minimum_legend_capacity, inner_width)
 
         lines = [
@@ -448,16 +513,23 @@ class StickyProgressBar:
             f"now {latest_rate:6.1f}{skipped_text} | {_RESET}{failed_text}"
         )
 
-    def _format_chart_lines(self, bars: list[_BarState], inner_width: int, chart_height: int) -> list[str]:
+    def _format_chart_lines(
+        self,
+        bars: list[_BarState],
+        inner_width: int,
+        chart_height: int,
+        now: float,
+    ) -> list[str]:
         max_points = max(2, inner_width - _Y_AXIS_RESERVED)
         series = [_fit_series(_smooth_series(bar.rates), max_points) for bar in bars]
         max_rate = max((max(points) for points in series if points), default=0.0)
+        chart_max = max(1.0, max_rate)
         chart = asciichartpy.plot(
             series,
             {
                 "height": chart_height,
                 "min": 0.0,
-                "max": max(1.0, max_rate),
+                "max": chart_max,
                 "format": _RATE_FORMAT,
                 "colors": [_CURVE_COLORS[i % len(_CURVE_COLORS)] for i in range(len(series))],
             },
@@ -465,7 +537,43 @@ class StickyProgressBar:
         lines = chart.splitlines()
         while len(lines) < chart_height + 1:
             lines.append("")
-        return lines[: chart_height + 1]
+        return self._overlay_feedback_markers(
+            lines[: chart_height + 1],
+            current_elapsed=max(now - self._start_time, 0.001),
+            chart_max=chart_max,
+            point_count=max_points,
+            chart_height=chart_height,
+        )
+
+    def _overlay_feedback_markers(
+        self,
+        lines: list[str],
+        *,
+        current_elapsed: float,
+        chart_max: float,
+        point_count: int,
+        chart_height: int,
+    ) -> list[str]:
+        if not self._feedback_markers or not lines:
+            return lines
+
+        marked_lines = list(lines)
+        plot_column_count = max(1, point_count - 1)
+        for marker in self._feedback_markers:
+            marker_elapsed = min(max(marker.elapsed, 0.0), current_elapsed)
+            x_index = int(round(marker_elapsed / current_elapsed * (plot_column_count - 1)))
+            y_value = min(max(marker.value, 0.0), chart_max)
+            row_index = int(round((chart_max - y_value) / chart_max * chart_height))
+            row_index = min(max(row_index, 0), len(marked_lines) - 1)
+            axis_index = _visible_index_of_any(marked_lines[row_index], "┼┤")
+            if axis_index is None:
+                continue
+            marked_lines[row_index] = _replace_visible_char(
+                marked_lines[row_index],
+                axis_index + 1 + x_index,
+                _FEEDBACK_MARKER,
+            )
+        return marked_lines
 
     def _format_legend_lines(
         self,

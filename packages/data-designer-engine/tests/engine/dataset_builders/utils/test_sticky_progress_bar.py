@@ -25,6 +25,7 @@ from data_designer.engine.dataset_builders.utils.sticky_progress_bar import (
     _fit_series,
 )
 from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
+from data_designer.engine.observability import RequestAdmissionEvent, emit_request_admission_event
 
 CURSOR_UP_CLEAR = "\033[A\033[2K"
 HIDE_CURSOR = "\033[?25l"
@@ -56,7 +57,8 @@ def _clean(text: str) -> str:
 
 def _last_panel_lines(output: str) -> list[str]:
     clean = _clean(output)
-    panel_start = clean.rfind("╭")
+    panel_start = clean.rfind("\n╭")
+    panel_start = panel_start + 1 if panel_start >= 0 else clean.rfind("╭")
     assert panel_start >= 0
     return clean[panel_start:].splitlines()
 
@@ -64,6 +66,10 @@ def _last_panel_lines(output: str) -> list[str]:
 def _chart_lines(panel_lines: list[str]) -> list[str]:
     separator_index = next(index for index, line in enumerate(panel_lines) if "├" in line)
     return panel_lines[2:separator_index]
+
+
+def _marker_positions(panel_lines: list[str]) -> list[tuple[int, int]]:
+    return [(row_index, line.index("◆")) for row_index, line in enumerate(_chart_lines(panel_lines)) if "◆" in line]
 
 
 def test_no_output_when_not_tty() -> None:
@@ -175,6 +181,26 @@ def test_many_columns_and_models_do_not_shrink_chart(tty_stream: FakeTTY) -> Non
         for index in range(8):
             assert f"column_{index}" in panel
             assert f"model_{index}" in panel
+
+
+def test_feedback_marker_reprojects_as_elapsed_time_grows(tty_stream: FakeTTY) -> None:
+    with StickyProgressBar(stream=tty_stream) as bar:
+        bar.add_bar("a", "column_a", 100)
+        state = bar._bars["a"]  # noqa: SLF001
+        state.rates = [0.0, 10.0, 20.0]
+        state.latest_rate = 12.0
+        bar._start_time = time.perf_counter() - 10.0  # noqa: SLF001
+
+        bar.record_feedback_signal(event_kind="request_rate_limited", force=True)
+        before_positions = _marker_positions(_last_panel_lines(tty_stream.getvalue()))
+        assert before_positions
+
+        bar._start_time = time.perf_counter() - 100.0  # noqa: SLF001
+        bar.update("a", completed=20, success=20, force=True)
+        after_positions = _marker_positions(_last_panel_lines(tty_stream.getvalue()))
+
+        assert after_positions
+        assert after_positions[0][1] < before_positions[0][1]
 
 
 def test_control_sequences_are_removed_from_labels(tty_stream: FakeTTY) -> None:
@@ -355,3 +381,27 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
             assert bar.drawn_lines == 22
     finally:
         root_logger.removeHandler(handler)
+
+
+def test_reporter_records_feedback_markers_from_request_events(tty_stream: FakeTTY) -> None:
+    trackers = {"col_a": ProgressTracker(total_records=100, label="column 'a'", quiet=True)}
+
+    with StickyProgressBar(stream=tty_stream) as bar:
+        reporter = AsyncProgressReporter(trackers, report_interval=0.1, progress_bar=bar)
+        try:
+            emit_request_admission_event(
+                RequestAdmissionEvent.capture("request_rate_limited", sequence=1),
+            )
+            assert len(bar._feedback_markers) == 1  # noqa: SLF001
+
+            emit_request_admission_event(
+                RequestAdmissionEvent.capture("request_wait_started", sequence=2),
+            )
+            assert len(bar._feedback_markers) == 1  # noqa: SLF001
+        finally:
+            reporter.close()
+
+        emit_request_admission_event(
+            RequestAdmissionEvent.capture("request_rate_limited", sequence=3),
+        )
+        assert len(bar._feedback_markers) == 1  # noqa: SLF001

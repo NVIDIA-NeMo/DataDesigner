@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
+from data_designer.engine.observability import RequestAdmissionEvent, subscribe_request_admission_events
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REPORT_INTERVAL = 5.0
 DEFAULT_TTY_REPORT_INTERVAL = 0.75
+FEEDBACK_MARKER_EVENTS = frozenset({"request_rate_limited", "request_limit_decreased"})
 
 
 class AsyncProgressReporter:
@@ -43,10 +45,14 @@ class AsyncProgressReporter:
         self._last_reported_total: int = -1
         self._bar = progress_bar
         self._unsubscribe_token_usage: Callable[[], None] | None = None
+        self._unsubscribe_request_admission_events: Callable[[], None] | None = None
         if self._bar is not None:
             for col, tracker in trackers.items():
                 self._bar.add_bar(col, col, tracker.total_records)
             self._unsubscribe_token_usage = subscribe_token_usage(self._record_token_usage)
+            self._unsubscribe_request_admission_events = subscribe_request_admission_events(
+                self._record_request_admission_event
+            )
 
     def log_start(self, num_row_groups: int) -> None:
         cols = ", ".join(self._trackers)
@@ -101,6 +107,9 @@ class AsyncProgressReporter:
         if self._unsubscribe_token_usage is not None:
             self._unsubscribe_token_usage()
             self._unsubscribe_token_usage = None
+        if self._unsubscribe_request_admission_events is not None:
+            self._unsubscribe_request_admission_events()
+            self._unsubscribe_request_admission_events = None
 
     def _maybe_report(self) -> None:
         now = time.perf_counter()
@@ -131,6 +140,10 @@ class AsyncProgressReporter:
                 input_tokens=event.input_tokens,
                 output_tokens=event.output_tokens,
             )
+
+    def _record_request_admission_event(self, event: RequestAdmissionEvent) -> None:
+        if self._bar is not None and event.event_kind in FEEDBACK_MARKER_EVENTS:
+            self._bar.record_feedback_signal(event_kind=event.event_kind)
 
     def _emit(self) -> None:
         current_total = sum(tracker.get_snapshot(0.0)[0] for tracker in self._trackers.values())
