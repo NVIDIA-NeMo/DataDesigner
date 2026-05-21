@@ -106,6 +106,9 @@ def test_bounded_borrow_policy_defaults_to_ceil_strict_share_rounding() -> None:
     config = BoundedBorrowTaskAdmissionPolicyConfig()
 
     assert config.strict_share_rounding == "ceil"
+    assert config.default_borrow_ceiling is None
+    assert config.dynamic_borrow_reserve_fraction == 0.125
+    assert config.dynamic_borrow_max_reserved_slots == 8
 
 
 def test_bounded_borrow_policy_denies_existing_debt_under_peer_pressure() -> None:

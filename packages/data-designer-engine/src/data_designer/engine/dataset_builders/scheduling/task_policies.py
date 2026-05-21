@@ -29,7 +29,8 @@ TaskAdmissionDenyReason = Literal[
     "shutdown",
     "policy_denial",
 ]
-DEFAULT_BOUNDED_BORROW_CEILING = 1
+DEFAULT_DYNAMIC_BORROW_RESERVE_FRACTION = 0.125
+DEFAULT_DYNAMIC_BORROW_MAX_RESERVED_SLOTS = 8
 
 
 @dataclass(frozen=True)
@@ -38,19 +39,28 @@ class BoundedBorrowTaskAdmissionPolicyConfig:
 
     Borrow debt is tracked by task group and scheduler resource. Any completed
     lease in the same group repays debt for the released resources; repayment is
-    not tied to the specific lease that originally borrowed.
+    not tied to the specific lease that originally borrowed. When no explicit
+    borrow ceiling is configured, the policy reserves one slot per eight
+    resource slots, capped at eight reserved slots, and lets solo groups borrow
+    up to the remaining capacity.
     """
 
     borrow_ceiling_by_group_resource: Mapping[tuple[TaskGroupKey, SchedulerResourceKey], int] = field(
         default_factory=dict
     )
-    default_borrow_ceiling: int = DEFAULT_BOUNDED_BORROW_CEILING
+    default_borrow_ceiling: int | None = None
+    dynamic_borrow_reserve_fraction: float = DEFAULT_DYNAMIC_BORROW_RESERVE_FRACTION
+    dynamic_borrow_max_reserved_slots: int = DEFAULT_DYNAMIC_BORROW_MAX_RESERVED_SLOTS
     strict_share_rounding: Literal["floor", "ceil"] = "ceil"
     repay_on_withheld_peer_pressure: bool = True
 
     def __post_init__(self) -> None:
-        if self.default_borrow_ceiling < 0:
+        if self.default_borrow_ceiling is not None and self.default_borrow_ceiling < 0:
             raise ValueError("default_borrow_ceiling must be non-negative.")
+        if not 0 <= self.dynamic_borrow_reserve_fraction <= 1:
+            raise ValueError("dynamic_borrow_reserve_fraction must be between 0 and 1.")
+        if self.dynamic_borrow_max_reserved_slots <= 0:
+            raise ValueError("dynamic_borrow_max_reserved_slots must be positive.")
         for key, ceiling in self.borrow_ceiling_by_group_resource.items():
             if ceiling < 0:
                 raise ValueError(f"Borrow ceiling for {key!r} must be non-negative.")
@@ -142,7 +152,7 @@ class BoundedBorrowTaskAdmissionPolicy(StrictFairTaskAdmissionPolicy):
 
         pressure_resources = _queued_peer_pressure_resources(item, queue_view, admission_view)
         borrow_resources: list[tuple[SchedulerResourceKey, int]] = []
-        diagnostics_by_resource: dict[SchedulerResourceKey, dict[str, int]] = {}
+        diagnostics_by_resource: dict[SchedulerResourceKey, dict[str, int | str]] = {}
         for resource, amount in item.resource_request.amounts.items():
             admitted = admission_view.leased_resources_by_group.get(item.group.key, {}).get(resource, 0)
             strict_share = _strict_share(item, resource, queue_view, admission_view, self._config.strict_share_rounding)
@@ -181,11 +191,12 @@ class BoundedBorrowTaskAdmissionPolicy(StrictFairTaskAdmissionPolicy):
                 continue
 
             new_debt = projected - strict_share
-            ceiling = self._config.borrow_ceiling_by_group_resource.get(
+            ceiling, ceiling_diagnostics = self._borrow_ceiling(
                 debt_key,
-                self._config.default_borrow_ceiling,
+                resource_limit=admission_view.resource_limits.get(resource, 0),
+                strict_share=strict_share,
             )
-            diagnostics_by_resource[resource]["ceiling"] = ceiling
+            diagnostics_by_resource[resource].update(ceiling_diagnostics)
             if debt + new_debt > ceiling:
                 return TaskAdmissionPolicyDecision(
                     allowed=False,
@@ -227,6 +238,36 @@ class BoundedBorrowTaskAdmissionPolicy(StrictFairTaskAdmissionPolicy):
         return PolicyStateDelta(
             debt_changes={(lease.item.group.key, resource): -amount for resource, amount in lease.resources.items()}
         )
+
+    def _borrow_ceiling(
+        self,
+        debt_key: tuple[TaskGroupKey, SchedulerResourceKey],
+        *,
+        resource_limit: int,
+        strict_share: int,
+    ) -> tuple[int, dict[str, int | str]]:
+        explicit_ceiling = self._config.borrow_ceiling_by_group_resource.get(debt_key)
+        if explicit_ceiling is not None:
+            return explicit_ceiling, {"ceiling": explicit_ceiling, "ceiling_source": "group_resource"}
+        if self._config.default_borrow_ceiling is not None:
+            return self._config.default_borrow_ceiling, {
+                "ceiling": self._config.default_borrow_ceiling,
+                "ceiling_source": "default",
+            }
+        reserved_slots = _dynamic_reserved_slots(
+            resource_limit,
+            reserve_fraction=self._config.dynamic_borrow_reserve_fraction,
+            max_reserved_slots=self._config.dynamic_borrow_max_reserved_slots,
+        )
+        target_solo_cap = max(0, resource_limit - reserved_slots)
+        borrow_slots = max(0, target_solo_cap - strict_share)
+        ceiling = _triangular_number(borrow_slots)
+        return ceiling, {
+            "ceiling": ceiling,
+            "ceiling_source": "dynamic",
+            "reserved_slots": reserved_slots,
+            "borrow_slots": borrow_slots,
+        }
 
 
 def _queued_peer_pressure_resources(
@@ -273,6 +314,14 @@ def _strict_share(
     if item.group.admitted_limit is not None:
         strict_share = min(strict_share, item.group.admitted_limit)
     return min(resource_limit, strict_share)
+
+
+def _dynamic_reserved_slots(resource_limit: int, *, reserve_fraction: float, max_reserved_slots: int) -> int:
+    return min(max_reserved_slots, max(1, math.ceil(resource_limit * reserve_fraction)))
+
+
+def _triangular_number(value: int) -> int:
+    return value * (value + 1) // 2
 
 
 def _competing_group_specs(

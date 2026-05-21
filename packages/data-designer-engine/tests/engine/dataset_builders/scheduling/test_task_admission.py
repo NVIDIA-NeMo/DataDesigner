@@ -256,6 +256,30 @@ def test_bounded_borrow_prevents_solo_heavy_group_from_consuming_all_typed_capac
     assert controller.view().policy_debt_by_group_resource[(group.key, "llm_wait")] == 1
 
 
+def test_bounded_borrow_dynamic_ceiling_reserves_capacity() -> None:
+    group = TaskGroupSpec(TaskGroupKey(kind="model", identity=("provider", "hot")), weight=4.0, admitted_limit=8)
+    controller = TaskAdmissionController(
+        TaskAdmissionConfig(
+            submission_capacity=8,
+            resource_limits={"llm_wait": 8},
+            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(),
+        )
+    )
+    items = [_item("hot", row, group=group, resources={"submission": 1, "llm_wait": 1}) for row in range(8)]
+    for index in range(7):
+        decision = controller.try_acquire(items[index], _queue_view(*items[index:]))
+        assert isinstance(decision, TaskAdmissionLease)
+
+    denied = controller.try_acquire(items[7], _queue_view(items[7]))
+
+    assert isinstance(denied, TaskAdmissionDenied)
+    assert denied.reason == "borrow_debt"
+    assert denied.diagnostics["ceiling"] == 6
+    assert denied.diagnostics["strict_share"] == 4
+    assert controller.view().resources_available["llm_wait"] == 1
+    assert controller.view().policy_debt_by_group_resource[(group.key, "llm_wait")] == 6
+
+
 def test_bounded_borrow_debt_blocks_under_peer_pressure_and_releases() -> None:
     group = TaskGroupSpec(TaskGroupKey(kind="model", identity=("provider", "model")), admitted_limit=1)
     controller = TaskAdmissionController(

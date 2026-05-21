@@ -67,7 +67,7 @@ class ScenarioConfig:
     peer_duration: float
     hot_weight: float
     peer_weight: float
-    borrow_ceiling: int
+    borrow_ceiling: int | None
 
 
 @dataclass(frozen=True)
@@ -122,7 +122,7 @@ def main() -> None:
             peer_duration=0.05,
             hot_weight=4.0,
             peer_weight=1.0,
-            borrow_ceiling=1,
+            borrow_ceiling=None,
         ),
         ScenarioConfig(
             name="neutral_ready_at_start",
@@ -135,7 +135,7 @@ def main() -> None:
             peer_duration=0.1,
             hot_weight=1.0,
             peer_weight=1.0,
-            borrow_ceiling=1,
+            borrow_ceiling=None,
         ),
     )
 
@@ -285,11 +285,13 @@ def _tasks_for_group(
 
 
 def _controller(config: ScenarioConfig, policy: PolicyName) -> TaskAdmissionController:
-    bounded_borrow = (
-        BoundedBorrowTaskAdmissionPolicyConfig(default_borrow_ceiling=config.borrow_ceiling)
-        if policy == "bounded"
-        else None
-    )
+    bounded_borrow = None
+    if policy == "bounded":
+        bounded_borrow = (
+            BoundedBorrowTaskAdmissionPolicyConfig(default_borrow_ceiling=config.borrow_ceiling)
+            if config.borrow_ceiling is not None
+            else BoundedBorrowTaskAdmissionPolicyConfig()
+        )
     return TaskAdmissionController(
         TaskAdmissionConfig(
             submission_capacity=config.capacity,
