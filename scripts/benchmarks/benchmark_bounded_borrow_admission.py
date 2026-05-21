@@ -77,7 +77,9 @@ class ScenarioResult:
     capacity: int
     task_count: int
     wall_time_seconds: float
-    utilization_ratio: float
+    model_wait_slot_utilization_ratio: float
+    model_wait_idle_slot_seconds: float
+    model_resource_zero_inflight_idle_seconds: float
     hot_dispatch_count_before_peer_ready: int
     peer_first_wait_seconds: float
     peer_wait_mean_seconds: float
@@ -217,6 +219,7 @@ def run_scenario(config: ScenarioConfig, policy: PolicyName) -> ScenarioResult:
 
     total_busy_seconds = sum(task.duration for task in tasks)
     wall_time = max((record.completed_at for record in records), default=0.0)
+    model_wait_idle_slot_seconds = max(0.0, wall_time * config.capacity - total_busy_seconds)
     peer_records = [record for record in records if record.group_name == "peer"]
     peer_waits = [record.wait_seconds for record in peer_records]
     hot_before_peer = sum(
@@ -228,7 +231,9 @@ def run_scenario(config: ScenarioConfig, policy: PolicyName) -> ScenarioResult:
         capacity=config.capacity,
         task_count=len(tasks),
         wall_time_seconds=wall_time,
-        utilization_ratio=total_busy_seconds / (wall_time * config.capacity) if wall_time else 0.0,
+        model_wait_slot_utilization_ratio=total_busy_seconds / (wall_time * config.capacity) if wall_time else 0.0,
+        model_wait_idle_slot_seconds=model_wait_idle_slot_seconds,
+        model_resource_zero_inflight_idle_seconds=_zero_inflight_idle_seconds(records, wall_time),
         hot_dispatch_count_before_peer_ready=hot_before_peer,
         peer_first_wait_seconds=peer_waits[0] if peer_waits else 0.0,
         peer_wait_mean_seconds=sum(peer_waits) / len(peer_waits) if peer_waits else 0.0,
@@ -311,7 +316,15 @@ def _compare_results(scenario: ScenarioName, results: list[ScenarioResult]) -> d
         "peer_p95_wait_reduction_ratio": _reduction_ratio(strict.peer_wait_p95_seconds, bounded.peer_wait_p95_seconds),
         "peer_first_wait_delta_seconds": bounded.peer_first_wait_seconds - strict.peer_first_wait_seconds,
         "wall_time_delta_seconds": bounded.wall_time_seconds - strict.wall_time_seconds,
-        "utilization_delta": bounded.utilization_ratio - strict.utilization_ratio,
+        "model_wait_slot_utilization_delta": (
+            bounded.model_wait_slot_utilization_ratio - strict.model_wait_slot_utilization_ratio
+        ),
+        "model_wait_idle_slot_delta_seconds": (
+            bounded.model_wait_idle_slot_seconds - strict.model_wait_idle_slot_seconds
+        ),
+        "model_resource_zero_inflight_idle_delta_seconds": (
+            bounded.model_resource_zero_inflight_idle_seconds - strict.model_resource_zero_inflight_idle_seconds
+        ),
         "strict_hot_dispatch_before_peer_ready": strict.hot_dispatch_count_before_peer_ready,
         "bounded_hot_dispatch_before_peer_ready": bounded.hot_dispatch_count_before_peer_ready,
     }
@@ -331,6 +344,25 @@ def _reduction_ratio(strict_value: float, bounded_value: float) -> float:
     return (strict_value - bounded_value) / strict_value
 
 
+def _zero_inflight_idle_seconds(records: list[TaskRecord], wall_time: float) -> float:
+    events: dict[float, int] = {}
+    for record in records:
+        events[record.dispatch_at] = events.get(record.dispatch_at, 0) + 1
+        events[record.completed_at] = events.get(record.completed_at, 0) - 1
+
+    idle_seconds = 0.0
+    active = 0
+    last_time = 0.0
+    for event_time in sorted(events):
+        if active == 0:
+            idle_seconds += event_time - last_time
+        active += events[event_time]
+        last_time = event_time
+    if active == 0:
+        idle_seconds += wall_time - last_time
+    return idle_seconds
+
+
 def _git_sha() -> str:
     try:
         return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -348,12 +380,19 @@ def _markdown_report(report: BenchmarkReport) -> str:
         "",
         "## Scenario Results",
         "",
-        "| Scenario | Policy | Tasks | Wall time (s) | Utilization | Hot dispatches before peer ready | Peer wait p95 (s) | Peer first wait (s) |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "Utilization is model-wait slot utilization: time spent waiting on model responses divided by "
+        "`wall_time * model_resource_capacity`. Idle slot-seconds is the complementary model-wait capacity "
+        "with no in-flight request occupying that slot. Zero-inflight idle time is the interval where the "
+        "benchmark model resource had no in-flight request at all.",
+        "",
+        "| Scenario | Policy | Tasks | Wall time (s) | Model wait slot utilization | Model wait idle slot-s | Zero-inflight idle (s) | Hot dispatches before peer ready | Peer wait p95 (s) | Peer first wait (s) |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for scenario in report.scenarios:
         lines.append(
-            "| {scenario} | {policy} | {task_count} | {wall_time_seconds:.3f} | {utilization_ratio:.3f} | "
+            "| {scenario} | {policy} | {task_count} | {wall_time_seconds:.3f} | "
+            "{model_wait_slot_utilization_ratio:.3f} | "
+            "{model_wait_idle_slot_seconds:.3f} | {model_resource_zero_inflight_idle_seconds:.3f} | "
             "{hot_dispatch_count_before_peer_ready} | {peer_wait_p95_seconds:.3f} | "
             "{peer_first_wait_seconds:.3f} |".format(**scenario)
         )
@@ -362,14 +401,16 @@ def _markdown_report(report: BenchmarkReport) -> str:
             "",
             "## Comparisons",
             "",
-            "| Scenario | Peer p95 wait reduction | Peer first wait delta (s) | Wall time delta (s) | Utilization delta |",
-            "| --- | ---: | ---: | ---: | ---: |",
+            "| Scenario | Peer p95 wait reduction | Peer first wait delta (s) | Wall time delta (s) | Model wait utilization delta | Model wait idle slot-s delta | Zero-inflight idle delta (s) |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for comparison in report.comparisons:
         lines.append(
             "| {scenario} | {peer_p95_wait_reduction_ratio:.1%} | {peer_first_wait_delta_seconds:.3f} | "
-            "{wall_time_delta_seconds:.3f} | {utilization_delta:.3f} |".format(**comparison)
+            "{wall_time_delta_seconds:.3f} | {model_wait_slot_utilization_delta:.3f} | "
+            "{model_wait_idle_slot_delta_seconds:.3f} | "
+            "{model_resource_zero_inflight_idle_delta_seconds:.3f} |".format(**comparison)
         )
     lines.append("")
     return "\n".join(lines)
