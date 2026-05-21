@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import functools
 import json
@@ -101,6 +102,23 @@ _CLIENT_VERSION: str = get_library_version()
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
     return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+
+def _await_async_scheduler_result(future: concurrent.futures.Future[Any], scheduler: Any) -> None:
+    try:
+        future.result()
+    except KeyboardInterrupt:
+        request_cancel = getattr(scheduler, "request_cancel", None)
+        if callable(request_cancel):
+            request_cancel()
+        future.cancel()
+        try:
+            future.result()
+        except concurrent.futures.CancelledError:
+            pass
+        except Exception:
+            logger.debug("Async scheduler raised while cancelling after KeyboardInterrupt", exc_info=True)
+        raise
 
 
 class _ConfigCompatibility(StrEnum):
@@ -626,7 +644,7 @@ class DatasetBuilder:
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            future.result()
+            _await_async_scheduler_result(future, scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown
@@ -901,7 +919,7 @@ class DatasetBuilder:
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            future.result()
+            _await_async_scheduler_result(future, scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown

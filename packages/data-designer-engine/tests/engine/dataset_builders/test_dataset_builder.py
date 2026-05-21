@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
@@ -718,6 +719,29 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
     assert result.empty
     buffer_manager.get_dataframe.assert_not_called()
     buffer_manager.free_row_group.assert_not_called()
+
+
+def test_await_async_scheduler_result_cancels_scheduler_on_keyboard_interrupt() -> None:
+    class MockFuture:
+        def __init__(self) -> None:
+            self.result_calls = 0
+            self.cancel = Mock()
+
+        def result(self) -> None:
+            self.result_calls += 1
+            if self.result_calls == 1:
+                raise KeyboardInterrupt
+            raise concurrent.futures.CancelledError
+
+    scheduler = Mock()
+    future = MockFuture()
+
+    with pytest.raises(KeyboardInterrupt):
+        builder_mod._await_async_scheduler_result(future, scheduler)
+
+    scheduler.request_cancel.assert_called_once_with()
+    future.cancel.assert_called_once_with()
+    assert future.result_calls == 2
 
 
 def test_reset_run_state_clears_per_run_signals(stub_resource_provider, stub_test_config_builder) -> None:

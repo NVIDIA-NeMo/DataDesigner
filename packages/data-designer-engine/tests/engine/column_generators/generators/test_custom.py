@@ -26,6 +26,7 @@ from data_designer.engine.column_generators.generators.custom import (
     _compute_bridge_timeout,
 )
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
+from data_designer.engine.context import current_generation_column, current_run_cancel_event
 from data_designer.engine.models.clients.errors import SyncClientUnavailableError
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -568,6 +569,63 @@ def test_async_bridge_falls_back_to_agenerate_on_sync_client_error() -> None:
     finally:
         engine_loop.call_soon_threadsafe(engine_loop.stop)
         engine_thread.join(timeout=5)
+
+
+def test_async_bridge_preserves_generation_column_context() -> None:
+    """Bridged sync custom generators should still attribute model usage to their column."""
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError(
+        "Sync methods are not available on an async-mode HttpModelClient."
+    )
+    facade.request_timeout = 60.0
+
+    async def fake_agenerate(*args: Any, **kwargs: Any) -> tuple:
+        assert current_generation_column.get() == "intent_label"
+        return ("async_result", list(args), kwargs)
+
+    facade.agenerate = fake_agenerate
+    proxy = _AsyncBridgedModelFacade(facade)
+
+    engine_loop = asyncio.new_event_loop()
+    engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
+    engine_thread.start()
+    column_token = current_generation_column.set("intent_label")
+
+    try:
+        with patch(
+            "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+            return_value=engine_loop,
+        ):
+            result = proxy.generate("hello", parser=str)
+    finally:
+        current_generation_column.reset(column_token)
+        engine_loop.call_soon_threadsafe(engine_loop.stop)
+        engine_thread.join(timeout=5)
+
+    assert result == ("async_result", ["hello"], {"parser": str})
+
+
+def test_async_bridge_obeys_run_cancellation_before_scheduling() -> None:
+    """Cancelled runs should not schedule new async model calls from worker threads."""
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError(
+        "Sync methods are not available on an async-mode HttpModelClient."
+    )
+    facade.request_timeout = 60.0
+    facade.agenerate = Mock()
+    proxy = _AsyncBridgedModelFacade(facade)
+
+    cancel_event = threading.Event()
+    cancel_event.set()
+    cancel_token = current_run_cancel_event.set(cancel_event)
+
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            proxy.generate("hello", parser=str)
+    finally:
+        current_run_cancel_event.reset(cancel_token)
+
+    facade.agenerate.assert_not_called()
 
 
 def test_async_bridge_non_client_mode_errors_propagate() -> None:

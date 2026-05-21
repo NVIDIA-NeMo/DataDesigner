@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from collections.abc import Iterator
 from unittest.mock import patch
 
@@ -22,6 +23,7 @@ from data_designer.engine.dataset_builders.utils.sticky_progress_bar import (
     _BarState,
     _fit_series,
 )
+from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
 
 CURSOR_UP_CLEAR = "\033[A\033[2K"
 HIDE_CURSOR = "\033[?25l"
@@ -58,6 +60,10 @@ def _last_panel_lines(output: str) -> list[str]:
     return clean[panel_start:].splitlines()
 
 
+def _pipe_positions(line: str) -> list[int]:
+    return [index for index, char in enumerate(line) if char == "|"]
+
+
 def test_no_output_when_not_tty() -> None:
     stream = io.StringIO()
     with StickyProgressBar(stream=stream) as bar:
@@ -91,13 +97,33 @@ def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
         bar.update_many({"a": (10, 10, 0, 0), "b": (20, 20, 0, 0)}, force=True)
 
         assert bar.drawn_lines == 16
-        panel = "\n".join(_last_panel_lines(tty_stream.getvalue()))
+        panel_lines = _last_panel_lines(tty_stream.getvalue())
+        panel = "\n".join(panel_lines)
         assert "Throughput" in panel
         assert "rec/s" in panel
-        assert "column 'a': 10/100" in panel
-        assert "column 'b': 20/100" in panel
+        assert "column 'a'" in panel
+        assert "10/100" in panel
+        assert "column 'b'" in panel
+        assert "20/100" in panel
+        header = next(line for line in panel_lines if "in tok/s" in line)
+        row = next(line for line in panel_lines if "column 'a'" in line)
+        assert _pipe_positions(header) == _pipe_positions(row)
         assert "╭" in panel
         assert "╰" in panel
+
+
+def test_token_usage_rates_render_in_legend_table(tty_stream: FakeTTY) -> None:
+    with StickyProgressBar(stream=tty_stream) as bar:
+        bar.add_bar("a", "column 'a'", 100)
+        bar.update("a", completed=10, success=10, force=True)
+        bar._bars["a"].start_time = time.perf_counter() - 10.0  # noqa: SLF001
+        bar.record_token_usage("a", input_tokens=100, output_tokens=25, force=True)
+
+        panel = "\n".join(_last_panel_lines(tty_stream.getvalue()))
+        assert "in tok/s" in panel
+        assert "out tok/s" in panel
+        assert "10.0" in panel
+        assert "2.5" in panel
 
 
 def test_control_sequences_are_removed_from_labels(tty_stream: FakeTTY) -> None:
@@ -247,6 +273,17 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
         with bar:
             reporter = AsyncProgressReporter(trackers, report_interval=0.1, progress_bar=bar)
             reporter.log_start(num_row_groups=1)
+            emit_token_usage_event(
+                TokenUsageEvent(
+                    model_alias="test",
+                    model_name="test-model",
+                    input_tokens=120,
+                    output_tokens=30,
+                    column="col_a",
+                )
+            )
+            assert bar._bars["col_a"].input_tokens == 120  # noqa: SLF001
+            assert bar._bars["col_a"].output_tokens == 30  # noqa: SLF001
 
             snapshot = tty_stream.getvalue()
             reporter.record_success("col_a")

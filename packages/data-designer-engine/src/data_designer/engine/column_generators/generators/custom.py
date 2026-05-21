@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import inspect
 import logging
 from typing import TYPE_CHECKING, Any
@@ -86,6 +87,11 @@ class _AsyncBridgedModelFacade:
                 "Use 'await model.agenerate()' in async custom columns."
             )
 
+        from data_designer.engine.context import (
+            current_generation_column,
+            current_run_cancel_event,
+            is_run_cancellation_requested,
+        )
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
 
         # Honor a per-call ``timeout=`` override (passed straight through to the
@@ -99,10 +105,41 @@ class _AsyncBridgedModelFacade:
         conversation_restarts = int(kwargs.get("max_conversation_restarts", 0) or 0)
         bridge_timeout = _compute_bridge_timeout(per_request_timeout, correction_steps, conversation_restarts)
 
+        if is_run_cancellation_requested():
+            raise asyncio.CancelledError
+
+        column = current_generation_column.get()
+        cancel_event = current_run_cancel_event.get()
+
+        async def agenerate_with_bridge_context() -> tuple[Any, list]:
+            column_token = current_generation_column.set(column)
+            cancel_token = current_run_cancel_event.set(cancel_event)
+            try:
+                if is_run_cancellation_requested():
+                    raise asyncio.CancelledError
+                return await facade.agenerate(*args, **kwargs)
+            finally:
+                # Cross-thread cancellation can close the coroutine from a
+                # different context after it has started. The task context is
+                # being discarded either way, so avoid an unraisable reset error.
+                with contextlib.suppress(ValueError):
+                    current_run_cancel_event.reset(cancel_token)
+                with contextlib.suppress(ValueError):
+                    current_generation_column.reset(column_token)
+
         loop = ensure_async_engine_loop()
-        future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
+        coro = agenerate_with_bridge_context()
+        try:
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError as exc:
+            coro.close()
+            if is_run_cancellation_requested() or "interpreter shutdown" in str(exc):
+                raise asyncio.CancelledError from exc
+            raise
         try:
             return future.result(timeout=bridge_timeout)
+        except concurrent.futures.CancelledError as exc:
+            raise asyncio.CancelledError from exc
         except concurrent.futures.TimeoutError as exc:
             future.cancel()
             # Demoted to debug: the raised ModelTimeoutError already surfaces

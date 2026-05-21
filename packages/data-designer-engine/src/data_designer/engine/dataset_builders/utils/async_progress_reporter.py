@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
+from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
@@ -40,9 +42,11 @@ class AsyncProgressReporter:
         self._last_bar_report_time: float = self._start_time
         self._last_reported_total: int = -1
         self._bar = progress_bar
+        self._unsubscribe_token_usage: Callable[[], None] | None = None
         if self._bar is not None:
             for col, tracker in trackers.items():
                 self._bar.add_bar(col, f"column '{col}'", tracker.total_records)
+            self._unsubscribe_token_usage = subscribe_token_usage(self._record_token_usage)
 
     def log_start(self, num_row_groups: int) -> None:
         cols = ", ".join(self._trackers)
@@ -71,24 +75,32 @@ class AsyncProgressReporter:
             self._maybe_report()
 
     def log_final(self) -> None:
-        if self._bar is not None and self._bar.is_active:
-            self._update_bar(force=True)
-        else:
-            self._emit()
-        elapsed = time.perf_counter() - self._start_time
-        snapshots = [tracker.get_snapshot(elapsed) for tracker in self._trackers.values()]
-        total_ok = sum(snapshot[2] for snapshot in snapshots)
-        total_fail = sum(snapshot[3] for snapshot in snapshots)
-        total_skipped = sum(snapshot[4] for snapshot in snapshots)
-        skipped_suffix = f", {total_skipped} skipped" if total_skipped else ""
-        logger.info(
-            "✅ Async generation complete [%.1fs]: %d ok, %d failed%s across %d column(s)",
-            elapsed,
-            total_ok,
-            total_fail,
-            skipped_suffix,
-            len(self._trackers),
-        )
+        try:
+            if self._bar is not None and self._bar.is_active:
+                self._update_bar(force=True)
+            else:
+                self._emit()
+            elapsed = time.perf_counter() - self._start_time
+            snapshots = [tracker.get_snapshot(elapsed) for tracker in self._trackers.values()]
+            total_ok = sum(snapshot[2] for snapshot in snapshots)
+            total_fail = sum(snapshot[3] for snapshot in snapshots)
+            total_skipped = sum(snapshot[4] for snapshot in snapshots)
+            skipped_suffix = f", {total_skipped} skipped" if total_skipped else ""
+            logger.info(
+                "✅ Async generation complete [%.1fs]: %d ok, %d failed%s across %d column(s)",
+                elapsed,
+                total_ok,
+                total_fail,
+                skipped_suffix,
+                len(self._trackers),
+            )
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if self._unsubscribe_token_usage is not None:
+            self._unsubscribe_token_usage()
+            self._unsubscribe_token_usage = None
 
     def _maybe_report(self) -> None:
         now = time.perf_counter()
@@ -110,6 +122,19 @@ class AsyncProgressReporter:
             completed, _total, success, failed, skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
             updates[col] = (completed, success, failed, skipped)
         self._bar.update_many(updates, force=force)
+
+    def _record_token_usage(self, event: TokenUsageEvent) -> None:
+        column = event.column
+        if column is None and event.correlation is not None:
+            column = event.correlation.task_column
+        if column is None or column not in self._trackers:
+            return
+        if self._bar is not None:
+            self._bar.record_token_usage(
+                column,
+                input_tokens=event.input_tokens,
+                output_tokens=event.output_tokens,
+            )
 
     def _emit(self) -> None:
         current_total = sum(tracker.get_snapshot(0.0)[0] for tracker in self._trackers.values())

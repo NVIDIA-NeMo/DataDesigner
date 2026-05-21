@@ -41,6 +41,10 @@ _RATE_SMOOTHING_WINDOW = 3
 _MAX_RATE_SAMPLES = 7200
 _RATE_FORMAT = "{:6.1f} "
 _Y_AXIS_RESERVED = 12
+_MIN_LEGEND_LABEL_WIDTH = 8
+_RATE_COLUMN_WIDTH = 5
+_INPUT_TOKEN_RATE_WIDTH = 8
+_OUTPUT_TOKEN_RATE_WIDTH = 9
 
 
 _ProgressUpdate = tuple[int, int, int, int]
@@ -63,6 +67,11 @@ def _color(text: str, color: str) -> str:
 
 def _sanitize_label(label: str) -> str:
     return _CONTROL_RE.sub("", _ANSI_RE.sub("", label))
+
+
+def _fit_plain(text: str, width: int) -> str:
+    clean = _sanitize_label(text)
+    return clean[:width].ljust(width)
 
 
 def _average(values: Sequence[float]) -> float:
@@ -130,6 +139,8 @@ class _BarState:
     last_completed: int = 0
     latest_rate: float = 0.0
     rates: list[float] = field(default_factory=lambda: [0.0])
+    input_tokens: int = 0
+    output_tokens: int = 0
 
     def record_update(
         self,
@@ -159,9 +170,21 @@ class _BarState:
             self.last_completed = bounded_completed
             self.last_sample_time = now
 
+    def record_token_usage(self, *, input_tokens: int, output_tokens: int) -> None:
+        self.input_tokens += max(0, input_tokens)
+        self.output_tokens += max(0, output_tokens)
+
     def average_rate(self, now: float) -> float:
         elapsed = max(now - self.start_time, 0.001)
         return self.completed / elapsed if elapsed > 0 else 0.0
+
+    def input_token_rate(self, now: float) -> float:
+        elapsed = max(now - self.start_time, 0.001)
+        return self.input_tokens / elapsed if elapsed > 0 else 0.0
+
+    def output_token_rate(self, now: float) -> float:
+        elapsed = max(now - self.start_time, 0.001)
+        return self.output_tokens / elapsed if elapsed > 0 else 0.0
 
 
 class StickyProgressBar:
@@ -267,6 +290,21 @@ class StickyProgressBar:
             if self._active:
                 self._redraw_if_due(now, force=force)
 
+    def record_token_usage(
+        self,
+        key: str,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        force: bool = False,
+    ) -> None:
+        with self._lock:
+            if bar := self._bars.get(key):
+                now = time.perf_counter()
+                bar.record_token_usage(input_tokens=input_tokens, output_tokens=output_tokens)
+                if self._active:
+                    self._redraw_if_due(now, force=force)
+
     def remove_bar(self, key: str) -> None:
         with self._lock:
             self._bars.pop(key, None)
@@ -337,7 +375,7 @@ class StickyProgressBar:
         panel_height = min(self._panel_height, max(_MIN_PANEL_HEIGHT, terminal_size.lines - 1))
         inner_width = panel_width - 2
 
-        legend_capacity = 4 if panel_height >= 13 else max(1, panel_height - 9)
+        legend_capacity = 5 if panel_height >= 13 else max(1, panel_height - 9)
         chart_line_count = max(3, panel_height - 4 - legend_capacity)
         chart_height = chart_line_count - 1
 
@@ -392,27 +430,144 @@ class StickyProgressBar:
 
     def _format_legend_lines(self, bars: list[_BarState], now: float, capacity: int) -> list[str]:
         lines: list[str] = []
-        visible_bars = bars
-        if len(bars) > capacity:
-            visible_bars = bars[: max(0, capacity - 1)]
+        if capacity <= 0:
+            return lines
+
+        include_status = any(bar.failed or bar.skipped for bar in bars)
+        label_width, done_width, rate_width, input_width, output_width, status_width = self._legend_column_widths(
+            bars,
+            now,
+            include_status=include_status,
+        )
+        lines.append(
+            self._format_legend_table_line(
+                marker="",
+                label="column",
+                done="done",
+                now_value="now",
+                avg_value="avg",
+                input_token_rate="in tok/s",
+                output_token_rate="out tok/s",
+                status="status" if include_status else None,
+                label_width=label_width,
+                done_width=done_width,
+                rate_width=rate_width,
+                input_width=input_width,
+                output_width=output_width,
+                status_width=status_width,
+            )
+        )
+
+        row_capacity = max(0, capacity - 1)
+        visible_bars = bars[:row_capacity]
+        if len(bars) > row_capacity and row_capacity > 0:
+            visible_bars = bars[: max(0, row_capacity - 1)]
 
         for index, bar in enumerate(visible_bars):
             color = _CURVE_COLORS[index % len(_CURVE_COLORS)]
-            pct = (bar.completed / bar.total * 100) if bar.total > 0 else 100.0
-            failed = f" | {_color(str(bar.failed) + ' failed', _FAILED)}" if bar.failed else ""
-            skipped = f" | {bar.skipped} skipped" if bar.skipped else ""
             lines.append(
-                f"{_color('●', color)} {bar.label}: {bar.completed}/{bar.total} "
-                f"({pct:3.0f}%) | now {bar.latest_rate:5.1f} rec/s | "
-                f"avg {bar.average_rate(now):5.1f}{failed}{skipped}"
+                self._format_legend_table_line(
+                    marker=_color("●", color),
+                    label=bar.label,
+                    done=self._format_done(bar),
+                    now_value=f"{bar.latest_rate:.1f}",
+                    avg_value=f"{bar.average_rate(now):.1f}",
+                    input_token_rate=f"{bar.input_token_rate(now):.1f}",
+                    output_token_rate=f"{bar.output_token_rate(now):.1f}",
+                    status=self._format_status(bar) if include_status else None,
+                    label_width=label_width,
+                    done_width=done_width,
+                    rate_width=rate_width,
+                    input_width=input_width,
+                    output_width=output_width,
+                    status_width=status_width,
+                )
             )
 
-        if len(bars) > capacity:
+        if len(bars) > row_capacity and row_capacity > 0:
             lines.append(f"{_MUTED}... {len(bars) - len(visible_bars)} more column(s){_RESET}")
 
         while len(lines) < capacity:
             lines.append("")
         return lines[:capacity]
+
+    def _legend_column_widths(
+        self,
+        bars: list[_BarState],
+        now: float,
+        *,
+        include_status: bool,
+    ) -> tuple[int, int, int, int, int, int]:
+        terminal_size = shutil.get_terminal_size()
+        inner_width = max(2, terminal_size.columns - 3)
+        done_width = max(len("done"), *(len(self._format_done(bar)) for bar in bars))
+        rate_width = max(
+            len("now"),
+            _RATE_COLUMN_WIDTH,
+            *(len(f"{value:.1f}") for bar in bars for value in (bar.latest_rate, bar.average_rate(now))),
+        )
+        input_width = max(
+            len("in tok/s"),
+            _INPUT_TOKEN_RATE_WIDTH,
+            *(len(f"{bar.input_token_rate(now):.1f}") for bar in bars),
+        )
+        output_width = max(
+            len("out tok/s"),
+            _OUTPUT_TOKEN_RATE_WIDTH,
+            *(len(f"{bar.output_token_rate(now):.1f}") for bar in bars),
+        )
+        status_width = 0
+        if include_status:
+            status_width = max(len("status"), *(len(self._format_status(bar)) for bar in bars))
+
+        separator_count = 5 + int(include_status)
+        fixed_width = (
+            2 + (separator_count * 3) + done_width + (rate_width * 2) + input_width + output_width + status_width
+        )
+        available_label_width = max(_MIN_LEGEND_LABEL_WIDTH, inner_width - fixed_width)
+        content_label_width = max(len("column"), *(len(_sanitize_label(bar.label)) for bar in bars))
+        label_width = min(max(_MIN_LEGEND_LABEL_WIDTH, content_label_width), available_label_width)
+        return label_width, done_width, rate_width, input_width, output_width, status_width
+
+    def _format_legend_table_line(
+        self,
+        *,
+        marker: str,
+        label: str,
+        done: str,
+        now_value: str,
+        avg_value: str,
+        input_token_rate: str,
+        output_token_rate: str,
+        status: str | None,
+        label_width: int,
+        done_width: int,
+        rate_width: int,
+        input_width: int,
+        output_width: int,
+        status_width: int,
+    ) -> str:
+        marker_text = f"{marker} " if marker else "  "
+        line = (
+            f"{marker_text}{_fit_plain(label, label_width)} | {done:>{done_width}} | "
+            f"{now_value:>{rate_width}} | {avg_value:>{rate_width}} | "
+            f"{input_token_rate:>{input_width}} | {output_token_rate:>{output_width}}"
+        )
+        if status is not None:
+            line = f"{line} | {status:>{status_width}}"
+        return line
+
+    def _format_done(self, bar: _BarState) -> str:
+        pct = (bar.completed / bar.total * 100) if bar.total > 0 else 100.0
+        return f"{bar.completed}/{bar.total} {pct:3.0f}%"
+
+    def _format_status(self, bar: _BarState) -> str:
+        parts: list[str] = []
+        if bar.failed:
+            parts.append(f"{bar.failed} failed")
+        if bar.skipped:
+            parts.append(f"{bar.skipped} skipped")
+        return ", ".join(parts) if parts else "ok"
 
     def _panel_line(self, text: str, inner_width: int) -> str:
         return f"{_BORDER}│{_RESET}{_fit_ansi(text, inner_width)}{_BORDER}│{_RESET}"
