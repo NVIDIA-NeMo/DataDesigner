@@ -97,6 +97,8 @@ def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
         panel = "\n".join(panel_lines)
         assert "Throughput" in panel
         assert "rec/s" in panel
+        assert "now rec/s" in panel
+        assert "avg rec/s" in panel
         assert "column 'a'" in panel
         assert "10/100" in panel
         assert "column 'b'" in panel

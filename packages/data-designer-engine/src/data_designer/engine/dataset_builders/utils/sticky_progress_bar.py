@@ -46,6 +46,8 @@ _RATE_COLUMN_WIDTH = 5
 _INPUT_TOKEN_RATE_WIDTH = 8
 _OUTPUT_TOKEN_RATE_WIDTH = 9
 _LEGEND_COLUMN_GAP = 2
+_NOW_RATE_HEADER = "now rec/s"
+_AVG_RATE_HEADER = "avg rec/s"
 
 
 _ProgressUpdate = tuple[int, int, int, int]
@@ -445,8 +447,8 @@ class StickyProgressBar:
                 marker="",
                 label="column",
                 done="done",
-                now_value="now",
-                avg_value="avg",
+                now_value=_NOW_RATE_HEADER,
+                avg_value=_AVG_RATE_HEADER,
                 input_token_rate="in tok/s",
                 output_token_rate="out tok/s",
                 status="status" if include_status else None,
@@ -503,7 +505,8 @@ class StickyProgressBar:
         inner_width = max(2, terminal_size.columns - 3)
         done_width = max(len("done"), *(len(self._format_done(bar)) for bar in bars))
         rate_width = max(
-            len("now"),
+            len(_NOW_RATE_HEADER),
+            len(_AVG_RATE_HEADER),
             _RATE_COLUMN_WIDTH,
             *(len(f"{value:.1f}") for bar in bars for value in (bar.latest_rate, bar.average_rate(now))),
         )
