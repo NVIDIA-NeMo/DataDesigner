@@ -558,6 +558,15 @@ def _validate_distinct_output_processors(
     config_builder: DataDesignerConfigBuilder,
     output_processors: list[ProcessorConfig],
 ) -> None:
+    seen: set[str] = set()
+    duplicate_within: set[str] = set()
+    for processor in output_processors:
+        if processor.name in seen:
+            duplicate_within.add(processor.name)
+        seen.add(processor.name)
+    if duplicate_within:
+        names = ", ".join(sorted(duplicate_within))
+        raise DataDesignerWorkflowError(f"Output processor names must be distinct within output_processors: {names}.")
     stage_processor_names = {processor.name for processor in config_builder.get_processor_configs()}
     duplicate_names = stage_processor_names.intersection(processor.name for processor in output_processors)
     if duplicate_names:

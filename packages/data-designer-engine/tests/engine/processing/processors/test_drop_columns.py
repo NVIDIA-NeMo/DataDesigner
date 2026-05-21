@@ -9,6 +9,7 @@ import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.run_config import RunConfig
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.storage.artifact_storage import BatchStage
 
@@ -24,6 +25,7 @@ def stub_processor(stub_processor_config):
     mock_resource_provider.artifact_storage = Mock()
     mock_resource_provider.artifact_storage.create_batch_file_path = Mock()
     mock_resource_provider.artifact_storage.create_batch_file_path.return_value.name = "dropped.parquet"
+    mock_resource_provider.run_config = RunConfig()
     processor = DropColumnsProcessor(
         config=stub_processor_config,
         resource_provider=mock_resource_provider,
@@ -180,4 +182,16 @@ def test_process_after_batch_preview_mode_does_not_save(stub_processor, stub_sam
     assert "col3" in result.columns
 
     # But no file should be written
+    stub_processor.artifact_storage.write_parquet_file.assert_not_called()
+
+
+def test_process_after_batch_does_not_save_when_preservation_disabled(stub_processor, stub_sample_dataframe):
+    stub_processor.config.column_names = ["col1", "col2"]
+    stub_processor.resource_provider.run_config = RunConfig(preserve_dropped_columns=False)
+
+    result = stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=0)
+
+    assert "col1" not in result.columns
+    assert "col2" not in result.columns
+    assert "col3" in result.columns
     stub_processor.artifact_storage.write_parquet_file.assert_not_called()

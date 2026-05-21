@@ -97,6 +97,7 @@ if DATA_DESIGNER_ASYNC_ENGINE:
 
 
 _CLIENT_VERSION: str = get_library_version()
+PRESERVE_DROPPED_COLUMNS_METADATA_KEY = "preserve_dropped_columns"
 
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
@@ -272,7 +273,8 @@ class DatasetBuilder:
             compat = self._check_resume_config_compatibility()
             if resume == ResumeMode.ALWAYS and compat == _ConfigCompatibility.INCOMPATIBLE:
                 raise DatasetGenerationError(
-                    "🛑 Cannot resume: the current config does not match the config used in the interrupted run. "
+                    "🛑 Cannot resume: the current config or dropped-column artifact policy does not match the "
+                    "config used in the interrupted run. "
                     "Use resume=ResumeMode.IF_POSSIBLE to start fresh automatically, or "
                     "resume=ResumeMode.NEVER to force a new run."
                 )
@@ -374,7 +376,12 @@ class DatasetBuilder:
 
     def _set_metadata_defaults(self) -> None:
         """Attach config identity fields to every metadata write in this build."""
-        self.artifact_storage.set_metadata_defaults(self._data_designer_config.fingerprint())
+        self.artifact_storage.set_metadata_defaults(
+            {
+                **self._data_designer_config.fingerprint(),
+                PRESERVE_DROPPED_COLUMNS_METADATA_KEY: self._resource_provider.run_config.preserve_dropped_columns,
+            }
+        )
 
     def _has_allow_resize_columns(self) -> bool:
         return any(getattr(config, "allow_resize", False) for config in self.single_column_configs)
@@ -502,6 +509,14 @@ class DatasetBuilder:
                 f"🛑 Cannot resume: buffer_size={buffer_size} does not match the original run's "
                 f"buffer_size={meta_buffer_size}. Use the same buffer_size as the interrupted run, "
                 "or start a new run without resume=ResumeMode.ALWAYS."
+            )
+
+        if not self._dropped_column_artifact_policy_matches(metadata):
+            raise DatasetGenerationError(
+                "🛑 Cannot resume: preserve_dropped_columns="
+                f"{self._resource_provider.run_config.preserve_dropped_columns} does not match the original "
+                "run's dropped-column artifact policy. Start a fresh run with resume=ResumeMode.NEVER, or "
+                "use resume=ResumeMode.IF_POSSIBLE to start fresh automatically when the policy differs."
             )
 
         return _ResumeState(
@@ -751,6 +766,9 @@ class DatasetBuilder:
                 )
                 return _ConfigCompatibility.INCOMPATIBLE
 
+            if not self._dropped_column_artifact_policy_matches(metadata):
+                return _ConfigCompatibility.INCOMPATIBLE
+
             stored_hash = metadata.get("config_hash")
             stored_version = metadata.get("config_hash_version")
             if stored_hash is not None:
@@ -789,6 +807,24 @@ class DatasetBuilder:
                 config_path,
             )
             return _ConfigCompatibility.COMPATIBLE
+
+    def _dropped_column_artifact_policy_matches(self, metadata: dict[str, Any]) -> bool:
+        """Return whether stored dropped-column artifact behavior matches this run.
+
+        Metadata written before this RunConfig option existed implicitly used the
+        historical behavior, which preserved dropped-column artifacts.
+        """
+        stored = metadata.get(PRESERVE_DROPPED_COLUMNS_METADATA_KEY, True)
+        current = self._resource_provider.run_config.preserve_dropped_columns
+        if stored != current:
+            logger.warning(
+                "⚠️ preserve_dropped_columns changed from %s to %s; treating the existing dataset as "
+                "incompatible for resume because dropped-column parquet artifacts would be inconsistent.",
+                stored,
+                current,
+            )
+            return False
+        return True
 
     def _build_async(
         self,

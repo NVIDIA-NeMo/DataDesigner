@@ -147,6 +147,9 @@ class RunConfig(ConfigBase):
             Default is False.
         progress_interval: How often (in seconds) the async progress reporter emits a
             consolidated log block. Must be > 0. Default is 5.0.
+        preserve_dropped_columns: If True, write columns removed by drop processors to
+            separate dropped-column parquet files. Set to False to omit those artifacts
+            while still removing dropped columns from the final dataset. Default is True.
         jinja_rendering_engine: Template renderer used for engine-side Jinja evaluation.
             ``native`` uses Jinja2's built-in sandbox with the standard filter set and
             fewer Data Designer-specific restrictions. ``secure`` uses Data Designer's
@@ -171,6 +174,12 @@ class RunConfig(ConfigBase):
     async_trace: bool = False
     progress_bar: bool = False
     progress_interval: float = Field(default=5.0, gt=0.0)
+    preserve_dropped_columns: bool = Field(
+        default=True,
+        description=(
+            "Whether columns removed by drop processors are preserved in separate dropped-column parquet files."
+        ),
+    )
     jinja_rendering_engine: JinjaRenderingEngine = Field(
         default=JinjaRenderingEngine.SECURE,
         description=(
