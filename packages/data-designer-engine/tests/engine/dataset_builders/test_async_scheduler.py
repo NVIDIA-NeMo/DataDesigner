@@ -857,8 +857,8 @@ async def test_scheduler_stateful_generator_serializes() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_bounded_submission() -> None:
-    """Submitted task count respects max_submitted_tasks."""
+async def test_scheduler_bounded_in_flight_tasks() -> None:
+    """In-flight task count respects max_in_flight_tasks."""
     provider = _mock_provider()
 
     # Use a pipeline with many cells and low submission limit
@@ -884,7 +884,7 @@ async def test_scheduler_bounded_submission() -> None:
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=2,
+        max_in_flight_tasks=2,
     )
     await scheduler.run()
 
@@ -1822,14 +1822,14 @@ async def test_scheduler_llm_bound_one_way_handoff() -> None:
     row_groups = [(0, 3)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
 
-    max_submitted = 2
+    max_in_flight = 2
     max_llm_wait = 2
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=max_submitted,
+        max_in_flight_tasks=max_in_flight,
         max_model_task_admission=max_llm_wait,
     )
     await scheduler.run()
@@ -1837,7 +1837,7 @@ async def test_scheduler_llm_bound_one_way_handoff() -> None:
     assert tracker.is_row_group_complete(0, 3, ["seed", "llm_col"])
 
     snapshot = scheduler.task_admission_snapshot()
-    assert snapshot.resources_available["submission"] == max_submitted
+    assert snapshot.resources_available["submission"] == max_in_flight
     assert snapshot.resources_available["llm_wait"] == max_llm_wait
 
 
@@ -1886,7 +1886,7 @@ async def test_scheduler_non_llm_holds_submission_slot() -> None:
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=2,
+        max_in_flight_tasks=2,
         max_model_task_admission=max_llm_wait,
     )
     await scheduler.run()
@@ -1899,7 +1899,7 @@ async def test_scheduler_non_llm_holds_submission_slot() -> None:
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_deadlock_regression() -> None:
-    """max_submitted_tasks=1, max_model_task_admission=1, two ready LLM tasks completes without deadlock."""
+    """max_in_flight_tasks=1, max_model_task_admission=1, two ready LLM tasks completes without deadlock."""
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
@@ -1923,7 +1923,7 @@ async def test_scheduler_deadlock_regression() -> None:
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=1,
+        max_in_flight_tasks=1,
         max_model_task_admission=1,
     )
 
@@ -2398,7 +2398,7 @@ async def test_scheduler_llm_bound_429_retried_in_salvage() -> None:
     storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
     buffer_mgr = RowGroupBufferManager(storage)
 
-    max_submitted = 4
+    max_in_flight = 4
     max_llm_wait = 2
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -2406,7 +2406,7 @@ async def test_scheduler_llm_bound_429_retried_in_salvage() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        max_submitted_tasks=max_submitted,
+        max_in_flight_tasks=max_in_flight,
         max_model_task_admission=max_llm_wait,
     )
     await scheduler.run()
@@ -2414,7 +2414,7 @@ async def test_scheduler_llm_bound_429_retried_in_salvage() -> None:
     assert tracker.is_row_group_complete(0, num_records, ["seed", "llm_col"])
 
     snapshot = scheduler.task_admission_snapshot()
-    assert snapshot.resources_available["submission"] == max_submitted
+    assert snapshot.resources_available["submission"] == max_in_flight
     assert snapshot.resources_available["llm_wait"] == max_llm_wait
 
 
@@ -2460,7 +2460,7 @@ async def test_scheduler_cancellation_releases_task_admission_leases() -> None:
     row_groups = [(0, 2)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
 
-    max_submitted = 4
+    max_in_flight = 4
     max_llm_wait = 2
     sink = InMemoryAdmissionEventSink()
     scheduler = AsyncTaskScheduler(
@@ -2468,7 +2468,7 @@ async def test_scheduler_cancellation_releases_task_admission_leases() -> None:
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=max_submitted,
+        max_in_flight_tasks=max_in_flight,
         max_model_task_admission=max_llm_wait,
         scheduler_event_sink=sink,
     )
@@ -2481,7 +2481,7 @@ async def test_scheduler_cancellation_releases_task_admission_leases() -> None:
         await run_task
 
     snapshot = scheduler.task_admission_snapshot()
-    assert snapshot.resources_available["submission"] == max_submitted
+    assert snapshot.resources_available["submission"] == max_in_flight
     assert snapshot.resources_available["llm_wait"] == max_llm_wait
     assert "cancelled" in [event.event_kind for event in sink.scheduler_events]
     assert all(event.snapshot is not None for event in sink.scheduler_events)
@@ -2703,7 +2703,7 @@ async def test_scheduler_fair_admission_across_ready_columns() -> None:
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=4,
+        max_in_flight_tasks=4,
         trace=True,
     )
 
@@ -2777,7 +2777,7 @@ async def test_scheduler_fair_admission_across_ready_columns_and_row_groups() ->
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=8,
+        max_in_flight_tasks=8,
         max_concurrent_row_groups=2,
         trace=True,
     )
@@ -2825,7 +2825,7 @@ async def test_scheduler_fair_llm_group_cap_preserves_peer_admission() -> None:
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=4,
+        max_in_flight_tasks=4,
         max_model_task_admission=4,
         trace=True,
     )
@@ -2896,7 +2896,7 @@ async def test_scheduler_downstream_interleaves_with_upstream() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_manager,
-        max_submitted_tasks=4,
+        max_in_flight_tasks=4,
         trace=True,
     )
     await asyncio.wait_for(scheduler.run(), timeout=10.0)
@@ -2944,7 +2944,7 @@ async def test_scheduler_capacity_plan_observes_buffer_backpressure() -> None:
         tracker=tracker,
         row_groups=row_groups,
         max_concurrent_row_groups=2,
-        max_submitted_tasks=2,
+        max_in_flight_tasks=2,
         trace=True,
         num_records=12,
         buffer_size=3,
@@ -3042,7 +3042,7 @@ async def test_scheduler_emits_job_health_and_row_group_telemetry() -> None:
         tracker=tracker,
         row_groups=row_groups,
         max_concurrent_row_groups=1,
-        max_submitted_tasks=2,
+        max_in_flight_tasks=2,
         max_model_task_admission=1,
         scheduler_event_sink=sink,
         num_records=2,
@@ -3108,7 +3108,7 @@ async def test_scheduler_adaptive_row_group_admission_expands_target_for_horizon
         tracker=tracker,
         row_groups=row_groups,
         max_concurrent_row_groups=4,
-        max_submitted_tasks=4,
+        max_in_flight_tasks=4,
         max_model_task_admission=4,
         adaptive_row_group_admission=True,
         adaptive_row_group_initial_target=1,
@@ -3206,6 +3206,17 @@ def test_scheduler_adaptive_row_group_block_reason_prefers_llm_saturation() -> N
     )
 
     assert scheduler._adaptive_row_group_block_reason() == "llm_wait_saturated"
+
+
+def test_scheduler_adaptive_row_group_queue_guard_uses_in_flight_task_cap() -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=2, buffer_size=1)
+    scheduler._max_in_flight_tasks = 2
+    scheduler._max_model_task_admission = 100
+    scheduler._fair_queue = SimpleNamespace(
+        view=lambda: SimpleNamespace(queued_total=8, queued_peer_demand_by_resource={})
+    )
+
+    assert scheduler._adaptive_row_group_block_reason() == "queued_task_guardrail"
 
 
 @pytest.mark.asyncio(loop_scope="session")

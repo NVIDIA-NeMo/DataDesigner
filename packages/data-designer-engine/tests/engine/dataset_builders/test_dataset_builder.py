@@ -44,9 +44,8 @@ def _force_sync_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin tests in this file to the legacy sync engine.
 
     These tests use Mock-based stub resource providers that don't satisfy the
-    contracts expected by the async task-queue scheduler (e.g. the registry's
-    ``get_aggregate_max_parallel_requests()`` returns a Mock instead of an int).
-    They cover sync-engine behavior; the async path has dedicated coverage in
+    contracts expected by the async task-queue scheduler. They cover sync-engine
+    behavior; the async path has dedicated coverage in
     ``test_async_builder_integration.py`` and ``test_async_scheduler.py``.
     """
     monkeypatch.setattr(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", False)
@@ -421,6 +420,7 @@ def test_dataset_builder_validate_column_configs(
 
 def test_run_config_default_non_inference_max_parallel_workers() -> None:
     run_config = RunConfig()
+    assert run_config.max_in_flight_tasks == 1024
     assert run_config.non_inference_max_parallel_workers == 4
 
 

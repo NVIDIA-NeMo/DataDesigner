@@ -201,11 +201,13 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
     monkeypatch.setattr(builder_mod, "AsyncTaskScheduler", _SpyScheduler)
     request_admission = object()
     model_registry = MagicMock()
-    model_registry.get_aggregate_max_parallel_requests.return_value = 2
+    model_registry.get_aggregate_max_parallel_requests.side_effect = AssertionError(
+        "model task admission should follow max_in_flight_tasks directly"
+    )
     model_registry.request_admission = request_admission
     provider = SimpleNamespace(
         model_registry=model_registry,
-        run_config=SimpleNamespace(progress_interval=5.0, progress_bar=False),
+        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, progress_bar=False),
     )
     processor_runner = MagicMock()
     processor_runner.has_processors_for.return_value = False
@@ -222,6 +224,8 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
 
     assert captured_kwargs["request_pressure_provider"] is request_admission
     assert captured_kwargs["request_pressure_advisory"] is True
+    assert captured_kwargs["max_in_flight_tasks"] == 64
+    assert captured_kwargs["max_model_task_admission"] == 64
 
 
 # -- Test that existing sync path is unaffected --------------------------------
