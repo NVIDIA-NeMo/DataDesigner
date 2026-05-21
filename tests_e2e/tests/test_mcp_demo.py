@@ -101,25 +101,25 @@ def test_mcp_server_tool_usage_with_nvidia_text(tmp_path: Path) -> None:
         assert tool_call_messages
 
         tool_calls: list[dict[str, object]] = []
-        tool_call_indices: dict[str, int] = {}
+        tool_call_positions: dict[str, tuple[int, int]] = {}
         for msg_index, msg in enumerate(trace):
             if not isinstance(msg, dict):
                 continue
             if msg.get("role") != "assistant":
                 continue
-            for tool_call in msg.get("tool_calls") or []:
+            for tool_call_index, tool_call in enumerate(msg.get("tool_calls") or []):
                 if not isinstance(tool_call, dict):
                     continue
                 tool_calls.append(tool_call)
                 function = tool_call.get("function") or {}
                 if isinstance(function, dict):
                     name = function.get("name")
-                    if isinstance(name, str) and name not in tool_call_indices:
-                        tool_call_indices[name] = msg_index
+                    if isinstance(name, str) and name not in tool_call_positions:
+                        tool_call_positions[name] = (msg_index, tool_call_index)
 
-        assert tool_call_indices.get("get_fact") is not None
-        assert tool_call_indices.get("add_numbers") is not None
-        assert tool_call_indices["get_fact"] < tool_call_indices["add_numbers"]
+        assert tool_call_positions.get("get_fact") is not None
+        assert tool_call_positions.get("add_numbers") is not None
+        assert tool_call_positions["get_fact"] < tool_call_positions["add_numbers"]
 
         def _tool_call_to_name_args(tool_call: dict[str, object]) -> tuple[str | None, dict[str, object]]:
             function = tool_call.get("function")

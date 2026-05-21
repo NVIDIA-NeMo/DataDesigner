@@ -30,7 +30,7 @@ Users declare what their data should look like through config objects (columns, 
 | `DataDesigner` | `data-designer` | Public API — `create()`, `preview()`, `validate()` |
 | `DataDesignerConfigBuilder` | `data-designer-config` | Fluent builder for dataset configs |
 | `DatasetBuilder` | `data-designer-engine` | Orchestrates generation (sync or async) |
-| `ModelFacade` / `ModelRegistry` | `data-designer-engine` | LLM client abstraction with retry, throttle, usage tracking |
+| `ModelFacade` / `ModelRegistry` | `data-designer-engine` | LLM client abstraction with retry, request admission, usage tracking |
 | `MCPFacade` / `MCPRegistry` | `data-designer-engine` | Tool execution via Model Context Protocol |
 | `ColumnGeneratorRegistry` | `data-designer-engine` | Maps column types to generator implementations |
 | `PluginRegistry` | `data-designer-config` | Discovers and registers entry-point plugins |
@@ -44,7 +44,7 @@ Users declare what their data should look like through config objects (columns, 
 
 3. **Generation** — `DatasetBuilder` instantiates column generators from the registry, then executes one of two paths:
    - **Sequential** (default): batch loop over columns in topological order. Each generator produces its column via `CELL_BY_CELL` (threaded fan-out) or `FULL_COLUMN` strategy.
-   - **Async** (`DATA_DESIGNER_ASYNC_ENGINE=1`): builds an `ExecutionGraph`, partitions rows into groups, and dispatches tasks via `AsyncTaskScheduler` with semaphore-based concurrency, salvage rounds, and per-row-group checkpointing.
+   - **Async** (`DATA_DESIGNER_ASYNC_ENGINE=1`): builds an `ExecutionGraph`, partitions rows into groups, and dispatches tasks via `AsyncTaskScheduler` with `FairTaskQueue` selection, `TaskAdmissionController` scheduler-resource leases, salvage rounds, and per-row-group checkpointing.
 
 4. **Post-processing** — `ProcessorRunner` applies transformations (pre-batch, post-batch, after-generation). Profilers analyze the generated dataset.
 
@@ -61,7 +61,7 @@ Users declare what their data should look like through config objects (columns, 
 
 - [Config Layer](config.md) — builder API, column types, model configs, plugin system
 - [Engine Layer](engine.md) — compilation, generators, registries
-- [Models](models.md) — model facade, adapters, retry/throttle
+- [Models](models.md) — model facade, adapters, retry, request admission
 - [Dataset Builders](dataset-builders.md) — sync/async orchestration, DAG, batching
 - [MCP](mcp.md) — tool execution, session pooling
 - [Sampling](sampling.md) — statistical generators, person/entity data

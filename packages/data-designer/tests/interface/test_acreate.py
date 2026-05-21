@@ -119,7 +119,7 @@ async def test_acreate_does_not_serialize_create_calls(
     assert data_designer.create.call_count == 2
 
 
-def test_data_designer_reuses_throttle_manager_across_create_calls(
+def test_data_designer_reuses_request_admission_across_create_calls(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_model_configs: list[ModelConfig],
@@ -133,7 +133,8 @@ def test_data_designer_reuses_throttle_manager_across_create_calls(
 
     assert left_provider.model_registry is not None
     assert right_provider.model_registry is not None
-    assert left_provider.model_registry.throttle_manager is right_provider.model_registry.throttle_manager
+    assert left_provider.model_registry.request_admission is right_provider.model_registry.request_admission
+    assert left_provider.model_registry.request_admission is data_designer._request_admission
 
 
 @pytest.mark.asyncio

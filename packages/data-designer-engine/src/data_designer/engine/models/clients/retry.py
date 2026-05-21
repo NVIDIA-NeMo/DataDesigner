@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 429 must not be retried at the transport layer so that rate-limit signals
-# propagate to ThrottledModelClient for AIMD backoff.
+# 429 must not be retried at the transport layer so rate-limit signals
+# propagate to ModelRequestExecutor and request admission for AIMD backoff.
 _RESERVED_STATUS_CODES: frozenset[int] = frozenset({429})
 
 
@@ -25,7 +25,7 @@ class RetryConfig:
 
     Retries non-rate-limit transient failures (``502``, ``503``, ``504``) and
     connection/transport errors.  ``429`` is intentionally excluded so that
-    rate-limit signals reach the ``ThrottledModelClient`` wrapper for AIMD
+    rate-limit signals reach the ``ModelRequestExecutor`` boundary for AIMD
     backoff.  If a caller includes ``429`` in ``retryable_status_codes``,
     ``create_retry_transport`` will strip it and log a warning.
     """
@@ -52,10 +52,8 @@ def create_retry_transport(
         config: Retry policy.  Uses ``RetryConfig()`` defaults when ``None``.
         strip_rate_limit_codes: When ``True`` (default, used by the async engine),
             status codes in ``_RESERVED_STATUS_CODES`` (currently ``{429}``) are
-            stripped so that rate-limit responses reach the ``ThrottledModelClient``
-            AIMD feedback loop.  When ``False`` (used by the sync engine, which has
-            no salvage queue), 429 is kept in the retry list so the transport layer
-            retries it transparently.
+            stripped so that rate-limit responses reach the request-admission
+            AIMD feedback loop.
         transport: Optional pre-configured transport to pass directly to
             ``RetryTransport``.  Pass ``httpx.HTTPTransport`` for sync clients or
             ``httpx.AsyncHTTPTransport`` for async clients — typically with a custom
@@ -70,7 +68,7 @@ def create_retry_transport(
         if reserved_overlap:
             logger.warning(
                 "Stripping reserved status codes %s from retryable_status_codes; "
-                "these must reach ThrottledModelClient for AIMD backoff.",
+                "these must reach ModelRequestExecutor/request admission for AIMD backoff.",
                 sorted(reserved_overlap),
             )
             status_codes = status_codes - _RESERVED_STATUS_CODES
