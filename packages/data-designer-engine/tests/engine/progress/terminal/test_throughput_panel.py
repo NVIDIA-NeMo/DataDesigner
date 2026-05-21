@@ -14,18 +14,22 @@ from unittest.mock import patch
 
 import pytest
 
-from data_designer.engine.dataset_builders.utils.async_progress_reporter import AsyncProgressReporter
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
-from data_designer.engine.dataset_builders.utils.sticky_progress_bar import (
+from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
+from data_designer.engine.observability import (
+    RequestAdmissionEvent,
+    RuntimeCorrelation,
+    emit_request_admission_event,
+)
+from data_designer.engine.progress.reporter import AsyncProgressReporter
+from data_designer.engine.progress.terminal.throughput_panel import (
     _CHART_LINE_COUNT,
     _MAX_RATE_SAMPLES,
     _RATE_SAMPLE_INTERVAL_SECONDS,
-    StickyProgressBar,
+    TerminalThroughputPanel,
     _BarState,
     _fit_series,
 )
-from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
-from data_designer.engine.observability import RequestAdmissionEvent, emit_request_admission_event
+from data_designer.engine.progress.tracker import ProgressTracker
 
 CURSOR_UP_CLEAR = "\033[A\033[2K"
 HIDE_CURSOR = "\033[?25l"
@@ -34,7 +38,7 @@ _ALL_ANSI_RE = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 
 
 class FakeTTY(io.StringIO):
-    """StringIO that reports itself as a TTY so StickyProgressBar activates."""
+    """StringIO that reports itself as a TTY so TerminalThroughputPanel activates."""
 
     def isatty(self) -> bool:
         return True
@@ -53,6 +57,18 @@ def fixed_terminal_size() -> Iterator[None]:
 
 def _clean(text: str) -> str:
     return _ALL_ANSI_RE.sub("", text).replace("\r", "")
+
+
+def _correlation(run_id: str) -> RuntimeCorrelation:
+    return RuntimeCorrelation(
+        run_id=run_id,
+        row_group=0,
+        task_column="col_a",
+        task_type="cell",
+        scheduling_group_kind="model",
+        scheduling_group_identity_hash="hash",
+        task_execution_id="task-exec",
+    )
 
 
 def _last_panel_lines(output: str) -> list[str]:
@@ -74,14 +90,14 @@ def _marker_positions(panel_lines: list[str]) -> list[tuple[int, int]]:
 
 def test_no_output_when_not_tty() -> None:
     stream = io.StringIO()
-    with StickyProgressBar(stream=stream) as bar:
+    with TerminalThroughputPanel(stream=stream) as bar:
         bar.add_bar("a", "col_a", 10)
         bar.update("a", completed=5, success=5)
     assert stream.getvalue() == ""
 
 
 def test_hides_and_shows_cursor(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream):
+    with TerminalThroughputPanel(stream=tty_stream):
         pass
     output = tty_stream.getvalue()
     assert output.startswith(HIDE_CURSOR)
@@ -90,7 +106,7 @@ def test_hides_and_shows_cursor(tty_stream: FakeTTY) -> None:
 
 def test_tiny_terminal_falls_back_to_no_panel(tty_stream: FakeTTY) -> None:
     with patch.object(shutil, "get_terminal_size", return_value=os.terminal_size((20, 24))):
-        with StickyProgressBar(stream=tty_stream) as bar:
+        with TerminalThroughputPanel(stream=tty_stream) as bar:
             assert bar.is_active is False
             bar.add_bar("a", "col_a", 10)
             bar.update("a", completed=5, success=5, force=True)
@@ -99,7 +115,7 @@ def test_tiny_terminal_falls_back_to_no_panel(tty_stream: FakeTTY) -> None:
 
 
 def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "column 'a'", 100)
         bar.add_bar("b", "column 'b'", 100)
         bar.update_many({"a": (10, 10, 0, 0), "b": (20, 20, 0, 0)}, force=True)
@@ -130,7 +146,7 @@ def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
 
 
 def test_model_usage_rates_render_in_separate_table(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "column 'a'", 100)
         bar.update("a", completed=10, success=10, force=True)
         bar._start_time = time.perf_counter() - 10.0  # noqa: SLF001
@@ -156,7 +172,7 @@ def test_model_usage_rates_render_in_separate_table(tty_stream: FakeTTY) -> None
 
 
 def test_many_columns_and_models_do_not_shrink_chart(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         for index in range(8):
             bar.add_bar(f"col_{index}", f"column_{index}", 100)
         bar.update_many(
@@ -184,7 +200,7 @@ def test_many_columns_and_models_do_not_shrink_chart(tty_stream: FakeTTY) -> Non
 
 
 def test_feedback_marker_reprojects_as_elapsed_time_grows(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "column_a", 100)
         state = bar._bars["a"]  # noqa: SLF001
         state.rates = [0.0, 10.0, 20.0]
@@ -204,7 +220,7 @@ def test_feedback_marker_reprojects_as_elapsed_time_grows(tty_stream: FakeTTY) -
 
 
 def test_control_sequences_are_removed_from_labels(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "col\x1b[31m_a\nsuffix", 100)
         bar.update("a", completed=10, success=10, force=True)
 
@@ -238,7 +254,7 @@ def test_sparse_rate_samples_span_chart_width() -> None:
 
 
 def test_frequent_updates_are_redraw_throttled(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "col_a", 100)
         bar.add_bar("b", "col_b", 100)
         bar.update_many({"a": (1, 1, 0, 0), "b": (2, 2, 0, 0)}, force=True)
@@ -261,7 +277,7 @@ def test_log_interleaving_preserves_panel_height(tty_stream: FakeTTY) -> None:
     root_logger.addHandler(handler)
 
     try:
-        with StickyProgressBar(stream=tty_stream) as bar:
+        with TerminalThroughputPanel(stream=tty_stream) as bar:
             bar.add_bar("x", "col_x", 100)
             bar.add_bar("y", "col_y", 100)
 
@@ -280,7 +296,7 @@ def test_log_interleaving_preserves_panel_height(tty_stream: FakeTTY) -> None:
 def test_narrow_terminal_keeps_panel_within_width(tty_stream: FakeTTY) -> None:
     narrow = os.terminal_size((36, 24))
     with patch.object(shutil, "get_terminal_size", return_value=narrow):
-        with StickyProgressBar(stream=tty_stream) as bar:
+        with TerminalThroughputPanel(stream=tty_stream) as bar:
             bar.add_bar("a", "column 'verification_1'", 300)
             bar.update("a", completed=50, success=50, force=True)
 
@@ -290,7 +306,7 @@ def test_narrow_terminal_keeps_panel_within_width(tty_stream: FakeTTY) -> None:
 
 
 def test_update_many_single_redraw(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "col_a", 100)
         bar.add_bar("b", "col_b", 100)
         before = tty_stream.getvalue()
@@ -307,7 +323,7 @@ def test_update_many_single_redraw(tty_stream: FakeTTY) -> None:
 
 
 def test_update_many_includes_failures_and_skips(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "col_a", 100)
         bar.update_many({"a": (10, 7, 2, 1), "unknown": (5, 5, 0, 0)}, force=True)
 
@@ -319,7 +335,7 @@ def test_update_many_includes_failures_and_skips(tty_stream: FakeTTY) -> None:
 
 
 def test_remove_bar_redraws_panel(tty_stream: FakeTTY) -> None:
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "col_a", 100)
         bar.add_bar("b", "col_b", 100)
 
@@ -340,7 +356,7 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
     root_logger.addHandler(handler)
 
     try:
-        bar = StickyProgressBar(stream=tty_stream)
+        bar = TerminalThroughputPanel(stream=tty_stream)
         trackers = {
             "col_a": ProgressTracker(total_records=100, label="column 'a'", quiet=True),
             "col_b": ProgressTracker(total_records=100, label="column 'b'", quiet=True),
@@ -386,7 +402,7 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
 def test_reporter_records_feedback_markers_from_request_events(tty_stream: FakeTTY) -> None:
     trackers = {"col_a": ProgressTracker(total_records=100, label="column 'a'", quiet=True)}
 
-    with StickyProgressBar(stream=tty_stream) as bar:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
         reporter = AsyncProgressReporter(trackers, report_interval=0.1, progress_bar=bar)
         try:
             emit_request_admission_event(
@@ -405,3 +421,53 @@ def test_reporter_records_feedback_markers_from_request_events(tty_stream: FakeT
             RequestAdmissionEvent.capture("request_rate_limited", sequence=3),
         )
         assert len(bar._feedback_markers) == 1  # noqa: SLF001
+
+
+def test_reporter_filters_global_events_by_run_id(tty_stream: FakeTTY) -> None:
+    trackers = {"col_a": ProgressTracker(total_records=100, label="column 'a'", quiet=True)}
+
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
+        reporter = AsyncProgressReporter(trackers, report_interval=0.1, progress_bar=bar, run_id="run-a")
+        try:
+            emit_token_usage_event(
+                TokenUsageEvent(
+                    model_alias="other",
+                    model_name="other-model",
+                    input_tokens=100,
+                    output_tokens=10,
+                    correlation=_correlation("run-b"),
+                )
+            )
+            emit_token_usage_event(
+                TokenUsageEvent(
+                    model_alias="uncorrelated",
+                    model_name="uncorrelated-model",
+                    input_tokens=100,
+                    output_tokens=10,
+                )
+            )
+            assert not bar._model_usage  # noqa: SLF001
+
+            emit_token_usage_event(
+                TokenUsageEvent(
+                    model_alias="owned",
+                    model_name="owned-model",
+                    input_tokens=120,
+                    output_tokens=30,
+                    correlation=_correlation("run-a"),
+                )
+            )
+            assert set(bar._model_usage) == {"owned"}  # noqa: SLF001
+
+            emit_request_admission_event(
+                RequestAdmissionEvent.capture("request_rate_limited", sequence=1, correlation=_correlation("run-b"))
+            )
+            emit_request_admission_event(RequestAdmissionEvent.capture("request_rate_limited", sequence=2))
+            assert not bar._feedback_markers  # noqa: SLF001
+
+            emit_request_admission_event(
+                RequestAdmissionEvent.capture("request_rate_limited", sequence=3, correlation=_correlation("run-a"))
+            )
+            assert len(bar._feedback_markers) == 1  # noqa: SLF001
+        finally:
+            reporter.close()

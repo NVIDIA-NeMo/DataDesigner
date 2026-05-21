@@ -260,17 +260,17 @@ class _FeedbackMarker:
     event_kind: str
 
 
-class StickyProgressBar:
+class TerminalThroughputPanel:
     """ANSI throughput chart panel that sticks to the bottom of the terminal.
 
     Log messages (via standard ``logging``) are rendered above the panel
     automatically. The panel redraws in-place after each update, tracks one
-    records-per-second curve per active generation column, and keeps a bounded
-    height so it does not take over the terminal.
+    records-per-second curve per active generation column, and gives the chart
+    a stable height while the column and model tables grow to fit their rows.
 
     Usage::
 
-        with StickyProgressBar() as bar:
+        with TerminalThroughputPanel() as bar:
             bar.add_bar("col_a", "column 'a'", total=100)
             for i in range(100):
                 bar.update("col_a", completed=i + 1, success=i + 1)
@@ -302,7 +302,7 @@ class StickyProgressBar:
 
     # -- context manager --
 
-    def __enter__(self) -> StickyProgressBar:
+    def __enter__(self) -> TerminalThroughputPanel:
         if self._is_tty and shutil.get_terminal_size().columns >= _MIN_TERMINAL_WIDTH:
             self._active = True
             self._start_time = time.perf_counter()

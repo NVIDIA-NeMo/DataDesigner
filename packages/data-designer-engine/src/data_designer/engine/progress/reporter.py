@@ -8,13 +8,13 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
 from data_designer.engine.observability import RequestAdmissionEvent, subscribe_request_admission_events
+from data_designer.engine.progress.tracker import ProgressTracker
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
-    from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
+    from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,12 @@ class AsyncProgressReporter:
         trackers: dict[str, ProgressTracker],
         *,
         report_interval: float = DEFAULT_REPORT_INTERVAL,
-        progress_bar: StickyProgressBar | None = None,
+        progress_bar: TerminalThroughputPanel | None = None,
+        run_id: str | None = None,
     ) -> None:
         self._trackers = trackers
         self._report_interval = report_interval
+        self._run_id = run_id
         self._start_time = time.perf_counter()
         self._last_report_time: float = self._start_time
         self._last_bar_report_time: float = self._start_time
@@ -133,7 +135,7 @@ class AsyncProgressReporter:
         self._bar.update_many(updates, force=force)
 
     def _record_token_usage(self, event: TokenUsageEvent) -> None:
-        if self._bar is not None:
+        if self._bar is not None and self._matches_run(event.correlation):
             self._bar.record_model_usage(
                 model_alias=event.model_alias,
                 model_name=event.model_name,
@@ -142,8 +144,21 @@ class AsyncProgressReporter:
             )
 
     def _record_request_admission_event(self, event: RequestAdmissionEvent) -> None:
-        if self._bar is not None and event.event_kind in FEEDBACK_MARKER_EVENTS:
+        if (
+            self._bar is not None
+            and event.event_kind in FEEDBACK_MARKER_EVENTS
+            and self._matches_run(event.captured_correlation)
+        ):
             self._bar.record_feedback_signal(event_kind=event.event_kind)
+
+    def _matches_run(self, correlation: object) -> bool:
+        if self._run_id is None:
+            return True
+        if correlation is None:
+            return False
+        if isinstance(correlation, dict):
+            return correlation.get("run_id") == self._run_id
+        return getattr(correlation, "run_id", None) == self._run_id
 
     def _emit(self) -> None:
         current_total = sum(tracker.get_snapshot(0.0)[0] for tracker in self._trackers.values())

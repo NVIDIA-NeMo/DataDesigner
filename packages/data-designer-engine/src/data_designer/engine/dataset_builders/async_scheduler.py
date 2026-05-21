@@ -45,17 +45,11 @@ from data_designer.engine.dataset_builders.scheduling.task_admission import (
     TaskAdmissionLease,
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
-from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
-    DEFAULT_REPORT_INTERVAL,
-    AsyncProgressReporter,
-)
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
     strip_skip_metadata_from_records,
 )
-from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, GenerationValidationFailureError
@@ -68,6 +62,12 @@ from data_designer.engine.observability import (
     SchedulerAdmissionEventSink,
     runtime_correlation_provider,
 )
+from data_designer.engine.progress.reporter import (
+    DEFAULT_REPORT_INTERVAL,
+    AsyncProgressReporter,
+)
+from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel
+from data_designer.engine.progress.tracker import ProgressTracker
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGenerator
@@ -311,7 +311,7 @@ class AsyncTaskScheduler:
         self._seed_cols: tuple[str, ...] = tuple(c for c in graph.columns if not graph.get_upstream_columns(c))
 
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
-        self._progress_bar = StickyProgressBar() if progress_bar else None
+        self._progress_bar = TerminalThroughputPanel() if progress_bar else None
         self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
 
     def _setup_async_progress_reporter(
@@ -342,6 +342,7 @@ class AsyncTaskScheduler:
             trackers,
             report_interval=interval,
             progress_bar=self._progress_bar,
+            run_id=self._run_id,
         )
 
     @property

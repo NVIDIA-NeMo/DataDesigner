@@ -43,7 +43,6 @@ from data_designer.engine.dataset_builders.utils.config_compiler import compile_
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
@@ -52,10 +51,11 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
     restore_skip_metadata,
     strip_skip_metadata_from_records,
 )
-from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
+from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel
+from data_designer.engine.progress.tracker import ProgressTracker
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import (
@@ -1349,7 +1349,7 @@ class DatasetBuilder:
         self,
         generator: ColumnGeneratorWithModelRegistry,
         max_workers: int,
-        progress_bar: StickyProgressBar | None = None,
+        progress_bar: TerminalThroughputPanel | None = None,
     ) -> tuple[ProgressTracker, dict[str, Any]]:
         if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
@@ -1417,7 +1417,7 @@ class DatasetBuilder:
     def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-        bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        bar = TerminalThroughputPanel() if self._resource_provider.run_config.progress_bar else None
         can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
@@ -1441,7 +1441,7 @@ class DatasetBuilder:
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-        bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        bar = TerminalThroughputPanel() if self._resource_provider.run_config.progress_bar else None
         can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
