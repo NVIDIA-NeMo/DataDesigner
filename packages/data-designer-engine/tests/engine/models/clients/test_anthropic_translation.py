@@ -7,6 +7,8 @@ import json
 
 import pytest
 
+from data_designer.config.models import Modality
+from data_designer.config.utils.media_helpers import get_media_base64_context, get_media_url_context
 from data_designer.engine.mcp.registry import MCPToolDefinition
 from data_designer.engine.models.clients.adapters.anthropic_translation import (
     UnsupportedAnthropicMediaBlockError,
@@ -68,7 +70,7 @@ def test_build_anthropic_payload_preserves_multimodal_system_content() -> None:
 
     assert payload["system"] == [
         {"type": "text", "text": "Describe this image."},
-        {"type": "image", "source": {"type": "url", "url": "https://example.com/reference.png"}},
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/reference.png"),
     ]
 
 
@@ -169,14 +171,14 @@ def test_translate_request_messages_merges_parallel_tool_results() -> None:
             ],
             [
                 {"type": "text", "text": "Rule 1"},
-                {"type": "image", "source": {"type": "url", "url": "https://example.com/reference.png"}},
+                get_media_url_context(Modality.IMAGE.value, "https://example.com/reference.png"),
                 {"type": "text", "text": "Rule 2"},
             ],
             id="mixed-text-and-image-returns-blocks",
         ),
         pytest.param(
             [{"type": "image_url", "image_url": {"url": "https://example.com/reference.png"}}],
-            [{"type": "image", "source": {"type": "url", "url": "https://example.com/reference.png"}}],
+            [get_media_url_context(Modality.IMAGE.value, "https://example.com/reference.png")],
             id="image-only-returns-blocks",
         ),
         pytest.param(
@@ -212,13 +214,13 @@ def test_extract_system_content_normalizes_supported_inputs(
                 "Text preamble",
                 [
                     {"type": "text", "text": "Rule 1"},
-                    {"type": "image", "source": {"type": "url", "url": "https://example.com/img.png"}},
+                    get_media_url_context(Modality.IMAGE.value, "https://example.com/img.png"),
                 ],
             ],
             [
                 {"type": "text", "text": "Text preamble"},
                 {"type": "text", "text": "Rule 1"},
-                {"type": "image", "source": {"type": "url", "url": "https://example.com/img.png"}},
+                get_media_url_context(Modality.IMAGE.value, "https://example.com/img.png"),
             ],
             id="mixed-string-and-blocks",
         ),
@@ -337,7 +339,7 @@ def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -
     )
 
     assert blocks == [
-        {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.png"}},
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/cat.png"),
         {"type": "text", "text": "Caption"},
         {"type": "custom_block", "value": "kept"},
     ]
@@ -346,13 +348,13 @@ def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -
 def test_translate_content_blocks_converts_canonical_images() -> None:
     blocks = translate_content_blocks(
         [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}},
+            get_media_base64_context(Modality.IMAGE.value, "image/png", "iVBOR..."),
             {"type": "text", "text": "Caption"},
         ]
     )
 
     assert blocks == [
-        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}},
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "iVBOR..."),
         {"type": "text", "text": "Caption"},
     ]
 
@@ -392,12 +394,12 @@ def test_translate_content_blocks_rejects_malformed_image_url_block() -> None:
     [
         pytest.param(
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}},
-            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}},
+            get_media_base64_context(Modality.IMAGE.value, "image/png", "iVBOR..."),
             id="data-uri-dict",
         ),
         pytest.param(
             {"type": "image_url", "image_url": {"url": "https://example.com/cat.png"}},
-            {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.png"}},
+            get_media_url_context(Modality.IMAGE.value, "https://example.com/cat.png"),
             id="remote-url-dict",
         ),
     ],
@@ -526,7 +528,7 @@ def test_translate_tool_result_message_requires_tool_call_id(message: dict[str, 
                 {"type": "text", "text": "Caption"},
             ],
             [
-                {"type": "image", "source": {"type": "url", "url": "https://example.com/chart.png"}},
+                get_media_url_context(Modality.IMAGE.value, "https://example.com/chart.png"),
                 {"type": "text", "text": "Caption"},
             ],
             id="mixed-blocks",
@@ -538,14 +540,7 @@ def test_translate_tool_result_message_requires_tool_call_id(message: dict[str, 
             ],
             [
                 {"type": "text", "text": "Rendered chart:"},
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": "iVBORw0KGgo=",
-                    },
-                },
+                get_media_base64_context(Modality.IMAGE.value, "image/png", "iVBORw0KGgo="),
             ],
             id="mixed-blocks-with-data-uri",
         ),

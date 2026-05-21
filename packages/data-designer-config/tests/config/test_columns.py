@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from typing import Literal
 
 import pytest
@@ -157,14 +159,25 @@ def test_image_column_config_required_columns_includes_multi_modal_context():
         multi_modal_context=[
             ImageContext(column_name="reference_image"),
             AudioContext(column_name="reference_audio", data_type=ModalityDataType.URL),
+            VideoContext(column_name="reference_video", data_type=ModalityDataType.URL),
         ],
     )
-    assert set(config.required_columns) == {"style", "reference_image", "reference_audio"}
+    assert set(config.required_columns) == {"style", "reference_image", "reference_audio", "reference_video"}
 
 
-def test_multi_modal_context_round_trips_discriminated_union() -> None:
-    config = LLMTextColumnConfig(
-        name="test_llm_text",
+@pytest.mark.parametrize(
+    "config_cls,name",
+    [
+        (LLMTextColumnConfig, "test_llm_text"),
+        (ImageColumnConfig, "test_image"),
+    ],
+)
+def test_multi_modal_context_round_trips_discriminated_union(
+    config_cls: type[LLMTextColumnConfig] | type[ImageColumnConfig],
+    name: str,
+) -> None:
+    config = config_cls(
+        name=name,
         prompt="Describe the context",
         model_alias=stub_model_alias,
         multi_modal_context=[
@@ -174,12 +187,35 @@ def test_multi_modal_context_round_trips_discriminated_union() -> None:
         ],
     )
 
-    round_tripped = LLMTextColumnConfig(**config.model_dump())
+    round_tripped = config_cls(**config.model_dump())
 
     assert round_tripped.multi_modal_context is not None
     assert isinstance(round_tripped.multi_modal_context[0], ImageContext)
     assert isinstance(round_tripped.multi_modal_context[1], AudioContext)
     assert isinstance(round_tripped.multi_modal_context[2], VideoContext)
+
+
+@pytest.mark.parametrize(
+    "config_cls,name",
+    [
+        (LLMTextColumnConfig, "test_llm_text"),
+        (ImageColumnConfig, "test_image"),
+    ],
+)
+def test_column_config_accepts_legacy_image_context_dict(
+    config_cls: type[LLMTextColumnConfig] | type[ImageColumnConfig],
+    name: str,
+) -> None:
+    config = config_cls(
+        name=name,
+        prompt="Describe the image",
+        model_alias=stub_model_alias,
+        multi_modal_context=[{"column_name": "image_url", "data_type": "url"}],
+    )
+
+    assert config.multi_modal_context is not None
+    assert isinstance(config.multi_modal_context[0], ImageContext)
+    assert config.multi_modal_context[0].column_name == "image_url"
 
 
 def test_llm_text_column_config_with_trace_serialization() -> None:

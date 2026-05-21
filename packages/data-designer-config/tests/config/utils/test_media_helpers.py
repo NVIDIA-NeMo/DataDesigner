@@ -11,6 +11,9 @@ from data_designer.config.utils.media_helpers import (
     VideoFormat,
     audio_format_from_mime_type,
     audio_mime_type,
+    get_media_base64_context,
+    get_media_context,
+    get_media_url_context,
     is_audio_path,
     is_audio_url,
     is_media_url,
@@ -21,6 +24,21 @@ from data_designer.config.utils.media_helpers import (
     video_format_from_mime_type,
     video_mime_type,
 )
+
+
+def test_media_context_builders() -> None:
+    assert get_media_context("image", {"type": "url", "url": "https://example.com/image.png"}) == {
+        "type": "image",
+        "source": {"type": "url", "url": "https://example.com/image.png"},
+    }
+    assert get_media_url_context("audio", "https://example.com/audio.mp3") == {
+        "type": "audio",
+        "source": {"type": "url", "url": "https://example.com/audio.mp3"},
+    }
+    assert get_media_base64_context("video", "video/mp4", "abc123") == {
+        "type": "video",
+        "source": {"type": "base64", "media_type": "video/mp4", "data": "abc123"},
+    }
 
 
 def test_normalize_media_context_values() -> None:

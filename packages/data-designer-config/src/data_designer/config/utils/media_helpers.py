@@ -56,6 +56,21 @@ _VIDEO_MIME_TYPE_TO_FORMAT: dict[str, VideoFormat] = {
 }
 
 
+def get_media_context(modality: str, source: dict[str, Any]) -> dict[str, Any]:
+    """Build a canonical media context block."""
+    return {"type": modality, "source": source}
+
+
+def get_media_url_context(modality: str, url: Any) -> dict[str, Any]:
+    """Build a canonical URL media context block."""
+    return get_media_context(modality, {"type": "url", "url": url})
+
+
+def get_media_base64_context(modality: str, media_type: str, data: Any) -> dict[str, Any]:
+    """Build a canonical base64 media context block."""
+    return get_media_context(modality, {"type": "base64", "media_type": media_type, "data": data})
+
+
 def normalize_media_context_values(raw_value: Any) -> list[Any]:
     """Normalize scalar, JSON-list, list, and array-like media values."""
     if isinstance(raw_value, str):

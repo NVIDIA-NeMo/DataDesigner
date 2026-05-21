@@ -5,9 +5,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from data_designer.config.utils.media_helpers import audio_format_from_mime_type
 from data_designer.engine.models.clients.adapters.http_model_client import (
     HttpModelClient,
 )
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.parsing import (
     aextract_images_from_chat_response,
     aextract_images_from_image_response,
@@ -164,44 +166,34 @@ def translate_openai_compatible_messages(
     for message in messages:
         translated = dict(message)
         if "content" in translated:
-            translated["content"] = translate_openai_compatible_content_blocks(
-                translated["content"],
-                provider_name=provider_name,
-                model_name=model_name,
-            )
+            try:
+                translated["content"] = translate_openai_compatible_content_blocks(translated["content"])
+            except ValueError as exc:
+                raise ProviderError(
+                    kind=ProviderErrorKind.BAD_REQUEST,
+                    message=str(exc),
+                    provider_name=provider_name,
+                    model_name=model_name,
+                    cause=exc,
+                ) from exc
         translated_messages.append(translated)
     return translated_messages
 
 
-def translate_openai_compatible_content_blocks(
-    content: Any,
-    *,
-    provider_name: str,
-    model_name: str,
-) -> Any:
+def translate_openai_compatible_content_blocks(content: Any) -> Any:
     if not isinstance(content, list):
         return content
 
-    return [
-        translate_openai_compatible_content_block(
-            block,
-            provider_name=provider_name,
-            model_name=model_name,
-        )
-        for block in content
-    ]
+    return [translate_openai_compatible_content_block(block) for block in content]
 
 
-def translate_openai_compatible_content_block(
-    block: Any,
-    *,
-    provider_name: str,
-    model_name: str,
-) -> Any:
+def translate_openai_compatible_content_block(block: Any) -> Any:
     if not isinstance(block, dict):
         return block
 
     block_type = block.get("type")
+    if not isinstance(block_type, str):
+        return block
     if block_type in {"image_url", "input_audio", "text"}:
         return block
     if block_type == "image":
@@ -233,11 +225,14 @@ def _translate_canonical_audio_block(block: dict[str, Any]) -> dict[str, Any]:
     if source_type == "url":
         return {"type": "audio_url", "audio_url": {"url": source.get("url", "")}}
     if source_type == "base64":
+        media_type = source.get("media_type")
         data = source.get("data")
-        audio_format = source.get("format")
-        if not isinstance(data, str) or not isinstance(audio_format, str):
-            raise ValueError(f"Canonical audio base64 source must include data and format, got: {source!r}")
-        return {"type": "input_audio", "input_audio": {"data": data, "format": audio_format}}
+        if not isinstance(media_type, str) or not isinstance(data, str):
+            raise ValueError(f"Canonical audio base64 source must include media_type and data, got: {source!r}")
+        audio_format = audio_format_from_mime_type(media_type)
+        if audio_format is None:
+            raise ValueError(f"Unsupported canonical audio media type {media_type!r}")
+        return {"type": "input_audio", "input_audio": {"data": data, "format": audio_format.value}}
     raise ValueError(f"Unsupported canonical audio source type {source_type!r}")
 
 

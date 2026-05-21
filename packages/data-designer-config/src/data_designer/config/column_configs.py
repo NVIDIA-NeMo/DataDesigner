@@ -180,6 +180,17 @@ class LLMTextColumnConfig(SingleColumnConfig):
     )
     column_type: Literal["llm-text"] = "llm-text"
 
+    @field_validator("multi_modal_context", mode="before")
+    @classmethod
+    def inject_legacy_image_context_modality(cls, value: Any) -> Any:
+        """Preserve legacy image-context dicts that predate the modality discriminator."""
+        if not isinstance(value, list):
+            return value
+        return [
+            {"modality": "image", **item} if isinstance(item, dict) and _is_legacy_image_context_dict(item) else item
+            for item in value
+        ]
+
     @staticmethod
     def get_column_emoji() -> str:
         return "📝"
@@ -597,8 +608,8 @@ class ImageColumnConfig(SingleColumnConfig):
             Must be a valid Jinja2 template.
         model_alias (required): The model to use for image generation.
         multi_modal_context: Optional list of multimodal contexts for generation.
-            Enables autoregressive multi-modal models to generate images based on media inputs.
-            Only works with autoregressive models that support image-to-image generation.
+            Enables autoregressive multimodal models to generate images based on image, audio, or video inputs.
+            Ignored by diffusion image-generation routes, which do not consume multimodal context.
 
     Inherited Attributes:
         name (required): Unique name of the column to be generated.
@@ -613,6 +624,17 @@ class ImageColumnConfig(SingleColumnConfig):
         default=None, description="Optional list of multimodal context inputs for image generation"
     )
     column_type: Literal["image"] = "image"
+
+    @field_validator("multi_modal_context", mode="before")
+    @classmethod
+    def inject_legacy_image_context_modality(cls, value: Any) -> Any:
+        """Preserve legacy image-context dicts that predate the modality discriminator."""
+        if not isinstance(value, list):
+            return value
+        return [
+            {"modality": "image", **item} if isinstance(item, dict) and _is_legacy_image_context_dict(item) else item
+            for item in value
+        ]
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -731,3 +753,7 @@ class CustomColumnConfig(SingleColumnConfig):
                 f"Expected a function decorated with @custom_column_generator."
             )
         return self
+
+
+def _is_legacy_image_context_dict(value: dict[str, Any]) -> bool:
+    return "modality" not in value

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -36,6 +35,8 @@ from data_designer.config.utils.media_helpers import (
     VideoFormat,
     audio_format_from_mime_type,
     audio_mime_type,
+    get_media_base64_context,
+    get_media_url_context,
     is_audio_path,
     is_media_url,
     is_video_path,
@@ -111,46 +112,19 @@ class ImageContext(ModalityContext):
         Returns:
             A list of image contexts.
         """
-        raw_value = record[self.column_name]
+        return [
+            self._build_context(value, base_path=base_path)
+            for value in normalize_media_context_values(record[self.column_name])
+        ]
 
-        # Normalize to list of strings
-        if isinstance(raw_value, str):
-            # Try to parse as JSON first
-            try:
-                parsed_value = json.loads(raw_value)
-                if isinstance(parsed_value, list):
-                    context_values = parsed_value
-                else:
-                    context_values = [raw_value]
-            except (json.JSONDecodeError, TypeError):
-                context_values = [raw_value]
-        elif isinstance(raw_value, list):
-            context_values = raw_value
-        elif hasattr(raw_value, "__iter__") and not isinstance(raw_value, (str, bytes, dict)):
-            # Handle array-like objects (numpy arrays, pandas Series, etc.)
-            context_values = list(raw_value)
-        else:
-            context_values = [raw_value]
+    def _build_context(self, context_value: Any, *, base_path: str | None) -> dict[str, Any]:
+        if self.data_type == ModalityDataType.URL:
+            return get_media_url_context(Modality.IMAGE.value, context_value)
+        if self.data_type == ModalityDataType.BASE64:
+            return self._format_base64_context(context_value)
+        return self._auto_resolve_context_value(context_value, base_path)
 
-        # Build context list
-        contexts = []
-        for context_value in context_values:
-            context = dict(type="image_url")
-            if self.data_type is not None:
-                if self.data_type == ModalityDataType.URL:
-                    context["image_url"] = {"url": context_value}
-                else:
-                    context["image_url"] = {
-                        "url": f"data:image/{self.image_format.value};base64,{context_value}",
-                    }
-            else:
-                # Auto-detect: resolve file paths, pass through URLs, assume base64 otherwise
-                context["image_url"] = self._auto_resolve_context_value(context_value, base_path)
-            contexts.append(context)
-
-        return contexts
-
-    def _auto_resolve_context_value(self, context_value: str, base_path: str | None) -> dict[str, str]:
+    def _auto_resolve_context_value(self, context_value: Any, base_path: str | None) -> dict[str, Any]:
         """Auto-detect the format of a context value and resolve it.
 
         Resolution rules:
@@ -164,22 +138,27 @@ class ImageContext(ModalityContext):
                 return self._format_base64_context(base64_data)
 
         if is_image_url(context_value):
-            return {"url": context_value}
+            return get_media_url_context(Modality.IMAGE.value, context_value)
 
         return self._format_base64_context(context_value)
 
-    def _format_base64_context(self, base64_data: str) -> dict[str, str]:
-        """Format base64 image data as an image_url context dict.
+    def _format_base64_context(self, base64_data: str) -> dict[str, Any]:
+        """Format base64 image data as a canonical image source dict.
 
         Uses self.image_format if set, otherwise detects from the image bytes.
         """
+        parsed = parse_base64_data_uri(base64_data)
+        if parsed is not None:
+            media_type, data = parsed
+            if not media_type.startswith("image/"):
+                raise ValueError(f"Unsupported image media type {media_type!r}")
+            return get_media_base64_context(Modality.IMAGE.value, media_type, data)
+
         image_format = self.image_format
         if image_format is None:
             image_bytes = decode_base64_image(base64_data)
             image_format = detect_image_format(image_bytes)
-        return {
-            "url": f"data:image/{image_format.value};base64,{base64_data}",
-        }
+        return get_media_base64_context(Modality.IMAGE.value, f"image/{image_format.value}", base64_data)
 
     @model_validator(mode="after")
     def _validate_image_format(self) -> Self:
@@ -200,28 +179,20 @@ class AudioContext(ModalityContext):
 
     def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
         """Get the contexts for the audio modality."""
-        del base_path
         return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
 
     def _build_context(self, context_value: Any) -> dict[str, Any]:
-        if self.data_type == ModalityDataType.URL or (self.data_type is None and is_media_url(context_value)):
-            source: dict[str, Any] = {"type": "url", "url": context_value}
-            if self.audio_format is not None:
-                source["format"] = self.audio_format.value
-            return {"type": "audio", "source": source}
+        if self.data_type == ModalityDataType.URL:
+            self._validate_url_context_value(context_value)
+            return get_media_url_context(Modality.AUDIO.value, context_value)
 
-        media_type, data, audio_format = self._resolve_base64_parts(context_value)
-        return {
-            "type": "audio",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": data,
-                "format": audio_format.value,
-            },
-        }
+        if self.data_type is None and is_media_url(context_value):
+            return get_media_url_context(Modality.AUDIO.value, context_value)
 
-    def _resolve_base64_parts(self, context_value: Any) -> tuple[str, Any, AudioFormat]:
+        media_type, data = self._resolve_base64_parts(context_value)
+        return get_media_base64_context(Modality.AUDIO.value, media_type, data)
+
+    def _resolve_base64_parts(self, context_value: Any) -> tuple[str, Any]:
         parsed = parse_base64_data_uri(context_value)
         if parsed is not None:
             media_type, data = parsed
@@ -233,14 +204,20 @@ class AudioContext(ModalityContext):
                 raise ValueError(
                     f"audio_format {audio_format.value!r} does not match data URI media type {media_type!r}"
                 )
-            return media_type, data, audio_format
+            return media_type, data
 
         if is_audio_path(context_value):
             raise ValueError("Local audio paths are not supported; provide an audio URL or base64 audio data")
 
         if self.audio_format is None:
             raise ValueError("audio_format is required for base64 audio context values")
-        return audio_mime_type(self.audio_format), context_value, self.audio_format
+        return audio_mime_type(self.audio_format), context_value
+
+    def _validate_url_context_value(self, context_value: Any) -> None:
+        if is_audio_path(context_value):
+            raise ValueError("Local audio paths are not supported; provide an audio URL or base64 audio data")
+        if not is_media_url(context_value):
+            raise ValueError("audio URL context values must be HTTP(S) URLs")
 
     @model_validator(mode="after")
     def _validate_audio_format(self) -> Self:
@@ -261,15 +238,18 @@ class VideoContext(ModalityContext):
 
     def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
         """Get the contexts for the video modality."""
-        del base_path
         return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
 
     def _build_context(self, context_value: Any) -> dict[str, Any]:
-        if self.data_type == ModalityDataType.URL or (self.data_type is None and is_media_url(context_value)):
-            return {"type": "video", "source": {"type": "url", "url": context_value}}
+        if self.data_type == ModalityDataType.URL:
+            self._validate_url_context_value(context_value)
+            return get_media_url_context(Modality.VIDEO.value, context_value)
+
+        if self.data_type is None and is_media_url(context_value):
+            return get_media_url_context(Modality.VIDEO.value, context_value)
 
         media_type, data = self._resolve_base64_parts(context_value)
-        return {"type": "video", "source": {"type": "base64", "media_type": media_type, "data": data}}
+        return get_media_base64_context(Modality.VIDEO.value, media_type, data)
 
     def _resolve_base64_parts(self, context_value: Any) -> tuple[str, Any]:
         parsed = parse_base64_data_uri(context_value)
@@ -290,6 +270,12 @@ class VideoContext(ModalityContext):
         if self.video_format is None:
             raise ValueError("video_format is required for base64 video context values")
         return video_mime_type(self.video_format), context_value
+
+    def _validate_url_context_value(self, context_value: Any) -> None:
+        if is_video_path(context_value):
+            raise ValueError("Local video paths are not supported; provide a video URL or base64 video data")
+        if not is_media_url(context_value):
+            raise ValueError("video URL context values must be HTTP(S) URLs")
 
     @model_validator(mode="after")
     def _validate_video_format(self) -> Self:

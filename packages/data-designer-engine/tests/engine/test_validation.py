@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from unittest.mock import Mock, patch
 
 import pytest
@@ -248,7 +250,7 @@ def test_validate_column_config_with_multi_modal_context():
     assert len(violations) == 0
 
 
-def test_validate_column_config_with_audio_multi_modal_context():
+def test_validate_column_config_with_audio_multi_modal_context() -> None:
     column = LLMTextColumnConfig(
         name="audio_description",
         prompt="Describe the audio.",

@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from data_designer.config.models import Modality
+from data_designer.config.utils.media_helpers import get_media_base64_context, get_media_url_context
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
@@ -321,7 +323,7 @@ def test_completion_translates_canonical_image_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
-    image_block = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR..."}}
+    image_block = get_media_base64_context(Modality.IMAGE.value, "image/png", "iVBOR...")
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": [image_block, {"type": "text", "text": "What is this?"}]}],
@@ -337,10 +339,7 @@ def test_completion_translates_base64_audio_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
-    audio_block = {
-        "type": "audio",
-        "source": {"type": "base64", "media_type": "audio/mpeg", "data": "abc123", "format": "mp3"},
-    }
+    audio_block = get_media_base64_context(Modality.AUDIO.value, "audio/mpeg", "abc123")
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
@@ -352,11 +351,31 @@ def test_completion_translates_base64_audio_blocks() -> None:
     assert content[0] == {"type": "input_audio", "input_audio": {"data": "abc123", "format": "mp3"}}
 
 
+def test_completion_rejects_unsupported_canonical_audio_media_type() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = get_media_base64_context(Modality.AUDIO.value, "audio/flac", "abc123")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.BAD_REQUEST
+    assert exc_info.value.provider_name == PROVIDER
+    assert exc_info.value.model_name == MODEL
+    assert "audio/flac" in exc_info.value.message
+    sync_mock.post.assert_not_called()
+
+
 def test_completion_translates_audio_url_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
-    audio_block = {"type": "audio", "source": {"type": "url", "url": "https://example.com/download?id=123"}}
+    audio_block = get_media_url_context(Modality.AUDIO.value, "https://example.com/download?id=123")
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
@@ -372,7 +391,7 @@ def test_completion_translates_video_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
-    video_block = {"type": "video", "source": {"type": "url", "url": "https://example.com/download?id=123"}}
+    video_block = get_media_url_context(Modality.VIDEO.value, "https://example.com/download?id=123")
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
@@ -388,7 +407,7 @@ def test_completion_translates_base64_video_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
-    video_block = {"type": "video", "source": {"type": "base64", "media_type": "video/mp4", "data": "abc123"}}
+    video_block = get_media_base64_context(Modality.VIDEO.value, "video/mp4", "abc123")
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
