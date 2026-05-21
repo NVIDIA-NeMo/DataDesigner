@@ -270,6 +270,10 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
         with bar:
             reporter = AsyncProgressReporter(trackers, report_interval=0.1, progress_bar=bar)
             reporter.log_start(num_row_groups=1)
+            panel = "\n".join(_last_panel_lines(tty_stream.getvalue()))
+            assert "col_a" in panel
+            assert "column 'a'" not in panel
+
             emit_token_usage_event(
                 TokenUsageEvent(
                     model_alias="test",

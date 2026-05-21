@@ -45,7 +45,7 @@ class AsyncProgressReporter:
         self._unsubscribe_token_usage: Callable[[], None] | None = None
         if self._bar is not None:
             for col, tracker in trackers.items():
-                self._bar.add_bar(col, f"column '{col}'", tracker.total_records)
+                self._bar.add_bar(col, col, tracker.total_records)
             self._unsubscribe_token_usage = subscribe_token_usage(self._record_token_usage)
 
     def log_start(self, num_row_groups: int) -> None:
