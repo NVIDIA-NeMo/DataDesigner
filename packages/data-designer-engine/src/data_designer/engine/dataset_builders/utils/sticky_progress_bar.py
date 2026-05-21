@@ -12,17 +12,66 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import TextIO
 
-BAR_FILLED = "█"
-BAR_EMPTY = "░"
-_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+import asciichartpy
+
+_ANSI_RE = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
+_RESET = "\033[0m"
+_BORDER = "\033[38;5;39m"
+_TITLE = "\033[1;38;5;81m"
+_MUTED = "\033[2;38;5;245m"
+_FAILED = "\033[31m"
+_OK = "\033[32m"
+_CURVE_COLORS = [
+    asciichartpy.lightcyan,
+    asciichartpy.lightgreen,
+    asciichartpy.lightmagenta,
+    asciichartpy.lightyellow,
+    asciichartpy.lightblue,
+    asciichartpy.lightred,
+    asciichartpy.cyan,
+    asciichartpy.green,
+]
+_DEFAULT_PANEL_HEIGHT = 16
+_MIN_PANEL_HEIGHT = 9
+_MIN_SAMPLE_INTERVAL_SECONDS = 0.25
 
 
-def _compute_stats_width(total: int) -> int:
-    """Compute the fixed width of the stats portion based on total records."""
-    total_w = len(str(total))
-    # " 100% | xxx/xxx |  9999.9 rec/s | eta 999s | xxx failed"
-    sample = f" 100% | {'9' * total_w}/{total} | 9999.9 rec/s | eta 999s | {'9' * total_w} failed"
-    return len(sample)
+ProgressUpdate = tuple[int, int, int] | tuple[int, int, int, int]
+
+
+def _visible_len(text: str) -> int:
+    return len(_ANSI_RE.sub("", text))
+
+
+def _fit_ansi(text: str, width: int) -> str:
+    visible = _visible_len(text)
+    if visible > width:
+        return _ANSI_RE.sub("", text)[:width]
+    return text + (" " * (width - visible))
+
+
+def _color(text: str, color: str) -> str:
+    return f"{color}{text}{_RESET}"
+
+
+def _average(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _compress_series(series: list[float], max_points: int) -> list[float]:
+    if max_points <= 0:
+        return []
+    if len(series) <= max_points:
+        return series or [0.0]
+
+    compressed: list[float] = []
+    count = len(series)
+    for bucket_index in range(max_points):
+        start = int(bucket_index * count / max_points)
+        end = int((bucket_index + 1) * count / max_points)
+        bucket = series[start : max(end, start + 1)]
+        compressed.append(_average(bucket))
+    return compressed
 
 
 @dataclass
@@ -32,18 +81,51 @@ class _BarState:
     completed: int = 0
     success: int = 0
     failed: int = 0
+    skipped: int = 0
     start_time: float = field(default_factory=time.perf_counter)
-    stats_width: int = 0
+    last_sample_time: float = field(default_factory=time.perf_counter)
+    last_completed: int = 0
+    latest_rate: float = 0.0
+    rates: list[float] = field(default_factory=lambda: [0.0])
 
-    def __post_init__(self) -> None:
-        self.stats_width = _compute_stats_width(self.total)
+    def record_update(
+        self,
+        *,
+        completed: int,
+        success: int,
+        failed: int,
+        skipped: int,
+        now: float,
+    ) -> None:
+        bounded_completed = min(max(completed, 0), self.total) if self.total > 0 else max(completed, 0)
+        elapsed = now - self.last_sample_time
+        self.completed = bounded_completed
+        self.success = success
+        self.failed = failed
+        self.skipped = skipped
+
+        should_sample = elapsed >= _MIN_SAMPLE_INTERVAL_SECONDS or bounded_completed >= self.total
+        if should_sample:
+            delta_completed = max(0, bounded_completed - self.last_completed)
+            sample_elapsed = max(elapsed, _MIN_SAMPLE_INTERVAL_SECONDS)
+            rate = delta_completed / sample_elapsed
+            self.latest_rate = rate
+            self.rates.append(rate)
+            self.last_completed = bounded_completed
+            self.last_sample_time = now
+
+    def average_rate(self, now: float) -> float:
+        elapsed = max(now - self.start_time, _MIN_SAMPLE_INTERVAL_SECONDS)
+        return self.completed / elapsed if elapsed > 0 else 0.0
 
 
 class StickyProgressBar:
-    """ANSI progress bar that sticks to the bottom of the terminal.
+    """ANSI throughput chart panel that sticks to the bottom of the terminal.
 
-    Log messages (via standard ``logging``) are rendered above the bar
-    automatically. The bar redraws in-place after each update.
+    Log messages (via standard ``logging``) are rendered above the panel
+    automatically. The panel redraws in-place after each update, tracks one
+    records-per-second curve per active generation column, and keeps a bounded
+    height so it does not take over the terminal.
 
     Usage::
 
@@ -51,12 +133,11 @@ class StickyProgressBar:
             bar.add_bar("col_a", "column 'a'", total=100)
             for i in range(100):
                 bar.update("col_a", completed=i + 1, success=i + 1)
-            bar.remove_bar("col_a")
 
     Falls back to a no-op on non-TTY streams (CI, pipes, notebooks).
     """
 
-    def __init__(self, stream: TextIO | None = None) -> None:
+    def __init__(self, stream: TextIO | None = None, *, panel_height: int = _DEFAULT_PANEL_HEIGHT) -> None:
         self._stream = stream or sys.stderr
         self._is_tty = hasattr(self._stream, "isatty") and self._stream.isatty()
         self._bars: dict[str, _BarState] = {}
@@ -64,6 +145,8 @@ class StickyProgressBar:
         self._drawn_lines = 0
         self._active = False
         self._wrapped_handlers: list[tuple[logging.StreamHandler, object]] = []
+        self._panel_height = max(_MIN_PANEL_HEIGHT, panel_height)
+        self._start_time = time.perf_counter()
 
     @property
     def is_active(self) -> bool:
@@ -78,17 +161,17 @@ class StickyProgressBar:
     def __enter__(self) -> StickyProgressBar:
         if self._is_tty:
             self._active = True
+            self._start_time = time.perf_counter()
             self._wrap_handlers()
             self._write("\033[?25l")  # hide cursor
         return self
 
     def __exit__(self, *args: object) -> None:
         if self._active:
-            with self._lock:
-                self._clear_bars()
             self._write("\033[?25h")  # show cursor
             self._unwrap_handlers()
             self._active = False
+            self._drawn_lines = 0
 
     # -- public API --
 
@@ -105,22 +188,34 @@ class StickyProgressBar:
         completed: int,
         success: int = 0,
         failed: int = 0,
+        skipped: int = 0,
     ) -> None:
         with self._lock:
             if bar := self._bars.get(key):
-                bar.completed = completed
-                bar.success = success
-                bar.failed = failed
+                bar.record_update(
+                    completed=completed,
+                    success=success,
+                    failed=failed,
+                    skipped=skipped,
+                    now=time.perf_counter(),
+                )
                 if self._active:
                     self._redraw()
 
-    def update_many(self, updates: dict[str, tuple[int, int, int]]) -> None:
+    def update_many(self, updates: dict[str, ProgressUpdate]) -> None:
         with self._lock:
-            for key, (completed, success, failed) in updates.items():
+            now = time.perf_counter()
+            for key, update in updates.items():
                 if bar := self._bars.get(key):
-                    bar.completed = completed
-                    bar.success = success
-                    bar.failed = failed
+                    completed, success, failed = update[:3]
+                    skipped = update[3] if len(update) > 3 else bar.skipped
+                    bar.record_update(
+                        completed=completed,
+                        success=success,
+                        failed=failed,
+                        skipped=skipped,
+                        now=now,
+                    )
             if self._active:
                 self._redraw()
 
@@ -162,7 +257,7 @@ class StickyProgressBar:
     # -- drawing --
 
     def _clear_bars(self) -> None:
-        """Clear drawn bar lines from the terminal. Caller must hold the lock."""
+        """Clear drawn panel lines from the terminal. Caller must hold the lock."""
         if self._drawn_lines > 0:
             for _ in range(self._drawn_lines):
                 self._write("\033[A\033[2K")
@@ -170,44 +265,103 @@ class StickyProgressBar:
             self._drawn_lines = 0
 
     def _redraw(self) -> None:
-        """Redraw all bars. Caller must hold the lock."""
+        """Redraw the chart panel. Caller must hold the lock."""
         self._clear_bars()
         if not self._bars:
             return
-        width = shutil.get_terminal_size().columns
-        max_label = max(len(b.label) for b in self._bars.values())
-        for bar in self._bars.values():
-            line = self._format_bar(bar, width, max_label)
+        lines = self._format_panel()
+        for line in lines:
             self._write(line + "\n")
-            visible = len(_ANSI_RE.sub("", line))
-            if width > 0 and visible > width:
-                self._drawn_lines += (visible + width - 1) // width
-            else:
-                self._drawn_lines += 1
+        self._drawn_lines = len(lines)
 
-    def _format_bar(self, bar: _BarState, width: int, label_width: int) -> str:
-        completed = min(bar.completed, bar.total)
-        pct = (completed / bar.total * 100) if bar.total > 0 else 100.0
-        elapsed = time.perf_counter() - bar.start_time
-        rate = min(bar.completed / elapsed if elapsed > 0 else 0.0, 9999.9)
-        remaining = max(0, bar.total - completed)
-        eta = f"{min(remaining / rate, 999):.0f}s" if rate > 0 else "?"
+    def _format_panel(self) -> list[str]:
+        terminal_size = shutil.get_terminal_size()
+        panel_width = max(4, terminal_size.columns - 1)
+        panel_height = min(self._panel_height, max(_MIN_PANEL_HEIGHT, terminal_size.lines - 1))
+        inner_width = panel_width - 2
 
-        label = bar.label.ljust(label_width)
-        total_w = len(str(bar.total))
-        count_str = f"{completed:>{total_w}}/{bar.total}"
-        stats = f" {pct:3.0f}% | {count_str} | {rate:6.1f} rec/s | eta {eta:>4s} | {bar.failed:>{total_w}} failed"
-        stats = stats.ljust(bar.stats_width)
+        legend_capacity = 4 if panel_height >= 13 else max(1, panel_height - 9)
+        chart_line_count = max(3, panel_height - 4 - legend_capacity)
+        chart_height = chart_line_count - 1
 
-        bar_width = width - len(label) - bar.stats_width - 4
-        if bar_width < 1:
-            return f"  {label} {stats}"[: max(0, width - 1)]
+        now = time.perf_counter()
+        bars = list(self._bars.values())
+        chart_lines = self._format_chart_lines(bars, inner_width, chart_height)
+        legend_lines = self._format_legend_lines(bars, now, legend_capacity)
 
-        filled = int(bar_width * pct / 100)
-        empty = bar_width - filled
+        lines = [
+            self._border("╭", "─", "╮", panel_width),
+            self._panel_line(self._format_header(bars, now), inner_width),
+        ]
+        lines.extend(self._panel_line(line, inner_width) for line in chart_lines)
+        lines.append(self._border("├", "─", "┤", panel_width))
+        lines.extend(self._panel_line(line, inner_width) for line in legend_lines)
+        lines.append(self._border("╰", "─", "╯", panel_width))
+        return lines
 
-        colored_bar = f"\033[32m{BAR_FILLED * filled}\033[90m{BAR_EMPTY * empty}\033[0m"
-        return f"  {label} {colored_bar}{stats}"
+    def _format_header(self, bars: list[_BarState], now: float) -> str:
+        elapsed = max(now - self._start_time, 0.0)
+        completed = sum(bar.completed for bar in bars)
+        total = sum(bar.total for bar in bars)
+        latest_rate = sum(bar.latest_rate for bar in bars)
+        failed = sum(bar.failed for bar in bars)
+        skipped = sum(bar.skipped for bar in bars)
+        failed_text = _color(f"{failed} failed", _FAILED) if failed else _color("0 failed", _OK)
+        skipped_text = f" | {skipped} skipped" if skipped else ""
+        return (
+            f"{_TITLE}Throughput{_RESET} "
+            f"{_MUTED}rec/s | {elapsed:5.1f}s | {completed}/{total} | "
+            f"now {latest_rate:6.1f}{skipped_text} | {_RESET}{failed_text}"
+        )
+
+    def _format_chart_lines(self, bars: list[_BarState], inner_width: int, chart_height: int) -> list[str]:
+        max_points = max(2, inner_width - 12)
+        series = [_compress_series(bar.rates, max_points) for bar in bars]
+        max_rate = max((max(points) for points in series if points), default=0.0)
+        chart = asciichartpy.plot(
+            series,
+            {
+                "height": chart_height,
+                "min": 0.0,
+                "max": max(1.0, max_rate),
+                "format": "{:6.1f} ",
+                "colors": [_CURVE_COLORS[i % len(_CURVE_COLORS)] for i in range(len(series))],
+            },
+        )
+        lines = chart.splitlines()
+        while len(lines) < chart_height + 1:
+            lines.append("")
+        return lines[: chart_height + 1]
+
+    def _format_legend_lines(self, bars: list[_BarState], now: float, capacity: int) -> list[str]:
+        lines: list[str] = []
+        visible_bars = bars
+        if len(bars) > capacity:
+            visible_bars = bars[: max(0, capacity - 1)]
+
+        for index, bar in enumerate(visible_bars):
+            color = _CURVE_COLORS[index % len(_CURVE_COLORS)]
+            pct = (bar.completed / bar.total * 100) if bar.total > 0 else 100.0
+            failed = f" | {_color(str(bar.failed) + ' failed', _FAILED)}" if bar.failed else ""
+            skipped = f" | {bar.skipped} skipped" if bar.skipped else ""
+            lines.append(
+                f"{_color('●', color)} {bar.label}: {bar.completed}/{bar.total} "
+                f"({pct:3.0f}%) | now {bar.latest_rate:5.1f} rec/s | "
+                f"avg {bar.average_rate(now):5.1f}{failed}{skipped}"
+            )
+
+        if len(bars) > capacity:
+            lines.append(f"{_MUTED}... {len(bars) - len(visible_bars)} more column(s){_RESET}")
+
+        while len(lines) < capacity:
+            lines.append("")
+        return lines[:capacity]
+
+    def _panel_line(self, text: str, inner_width: int) -> str:
+        return f"{_BORDER}│{_RESET}{_fit_ansi(text, inner_width)}{_BORDER}│{_RESET}"
+
+    def _border(self, left: str, fill: str, right: str, width: int) -> str:
+        return f"{_BORDER}{left}{fill * (width - 2)}{right}{_RESET}"
 
     def _write(self, text: str) -> None:
         self._stream.write(text)

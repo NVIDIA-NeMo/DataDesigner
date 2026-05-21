@@ -19,6 +19,10 @@ def test_run_config_defaults_to_secure_jinja_renderer() -> None:
     assert JinjaRenderingEngine(RunConfig().jinja_rendering_engine) == JinjaRenderingEngine.SECURE
 
 
+def test_run_config_defaults_to_progress_bar_enabled() -> None:
+    assert RunConfig().progress_bar is True
+
+
 def test_run_config_accepts_native_renderer() -> None:
     run_config = RunConfig(jinja_rendering_engine=JinjaRenderingEngine.NATIVE)
     assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.NATIVE

@@ -142,9 +142,9 @@ class RunConfig(ConfigBase):
             Default is 0.
         async_trace: If True, collect per-task tracing data when using the async engine
             (DATA_DESIGNER_ASYNC_ENGINE=1). Has no effect on the sync path. Default is False.
-        progress_bar: If True, display sticky ANSI progress bars instead of periodic log lines
-            during generation. Requires a TTY; falls back to log lines in non-TTY environments.
-            Default is False.
+        progress_bar: If True, display a sticky ANSI throughput chart panel instead of periodic
+            log lines during generation. Requires a TTY; falls back to log lines in non-TTY
+            environments. Default is True.
         progress_interval: How often (in seconds) the async progress reporter emits a
             consolidated log block. Must be > 0. Default is 5.0.
         jinja_rendering_engine: Template renderer used for engine-side Jinja evaluation.
@@ -169,7 +169,7 @@ class RunConfig(ConfigBase):
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
     async_trace: bool = False
-    progress_bar: bool = False
+    progress_bar: bool = True
     progress_interval: float = Field(default=5.0, gt=0.0)
     jinja_rendering_engine: JinjaRenderingEngine = Field(
         default=JinjaRenderingEngine.SECURE,

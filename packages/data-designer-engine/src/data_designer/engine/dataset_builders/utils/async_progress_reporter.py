@@ -70,8 +70,7 @@ class AsyncProgressReporter:
 
     def log_final(self) -> None:
         if self._bar is not None and self._bar.is_active:
-            for col in self._trackers:
-                self._bar.remove_bar(col)
+            self._update_bar()
         else:
             self._emit()
         elapsed = time.perf_counter() - self._start_time
@@ -101,10 +100,10 @@ class AsyncProgressReporter:
 
     def _update_bar(self) -> None:
         elapsed = time.perf_counter() - self._start_time
-        updates: dict[str, tuple[int, int, int]] = {}
+        updates: dict[str, tuple[int, int, int, int]] = {}
         for col, tracker in self._trackers.items():
-            completed, _total, success, failed, _skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
-            updates[col] = (completed, success, failed)
+            completed, _total, success, failed, skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
+            updates[col] = (completed, success, failed, skipped)
         self._bar.update_many(updates)
 
     def _emit(self) -> None:

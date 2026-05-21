@@ -103,8 +103,15 @@ class ProgressTracker:
     def log_final(self) -> None:
         """Log final progress summary."""
         with self.lock:
-            if self._bar is not None:
-                self._bar.remove_bar(self._bar_key)
+            if self._bar is not None and self._bar.is_active:
+                self._bar.update(
+                    self._bar_key,
+                    completed=self.completed,
+                    success=self.success,
+                    failed=self.failed,
+                    skipped=self.skipped,
+                )
+                return
             if self.completed > 0:
                 self._log_progress_unlocked()
 
@@ -143,6 +150,7 @@ class ProgressTracker:
                 completed=self.completed,
                 success=self.success,
                 failed=self.failed,
+                skipped=self.skipped,
             )
             return
 
