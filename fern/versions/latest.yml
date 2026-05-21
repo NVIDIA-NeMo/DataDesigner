@@ -35,6 +35,8 @@ navigation:
         path: ./latest/pages/concepts/validators.mdx
       - page: Processors
         path: ./latest/pages/concepts/processors.mdx
+      - page: Workflow Chaining
+        path: ./latest/pages/concepts/workflow-chaining.mdx
       - page: Person Sampling
         path: ./latest/pages/concepts/person_sampling.mdx
       - page: Traces
@@ -143,6 +145,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Retriever SDG Toolkit
+        path: ./latest/pages/devnotes/posts/retriever-sdg-toolkit.mdx
       - page: Have It Your Way
         path: ./latest/pages/devnotes/posts/have-it-your-way.mdx
       - page: VLM Long Document Understanding

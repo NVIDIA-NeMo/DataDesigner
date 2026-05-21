@@ -21,3 +21,15 @@ def test_prompt_to_messages() -> None:
         ChatMessage.as_system(stub_system_prompt),
         ChatMessage.as_user([mult_modal_context, {"type": "text", "text": "hello"}]),
     ]
+
+
+def test_chat_message_as_tool_accepts_multimodal_content() -> None:
+    content = [
+        {"type": "text", "text": "Rendered chart:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+    ]
+
+    message = ChatMessage.as_tool(content=content, tool_call_id="call-1")
+
+    assert message.content == content
+    assert message.to_dict()["content"] == content

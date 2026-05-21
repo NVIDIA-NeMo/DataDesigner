@@ -115,6 +115,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": "Hi"}],
+        n=4,
         temperature=0.7,
         extra_body={"seed": 42},
         extra_headers={"X-Trace": "1"},
@@ -125,6 +126,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     assert "/chat/completions" in call_args.args[0]
     payload = call_args.kwargs["json"]
     assert payload["model"] == MODEL
+    assert payload["n"] == 4
     assert payload["temperature"] == 0.7
     assert payload["seed"] == 42
     assert "timeout" not in payload
@@ -294,6 +296,25 @@ def test_completion_forwards_base64_image_url_dict_unchanged() -> None:
     payload = sync_mock.post.call_args.kwargs["json"]
     content = payload["messages"][0]["content"]
     assert content[0] == image_block
+
+
+def test_completion_forwards_multimodal_tool_result_content_unchanged() -> None:
+    """OpenAI-compatible VLM backends receive canonical multimodal tool content."""
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    content = [
+        {"type": "text", "text": "Rendered page:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}},
+    ]
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "tool", "tool_call_id": "call-1", "content": content}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["messages"][0]["content"] == content
 
 
 # --- Auth headers ---

@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
-from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task
+from data_designer.engine.dataset_builders.scheduling.resources import stable_task_id
+from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task
 
 if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -147,14 +148,32 @@ class CompletionTracker:
                     return False
         return True
 
-    def get_ready_tasks(self, dispatched: set[Task], admitted_rgs: set[int] | None = None) -> list[Task]:
-        """Return all currently dispatchable tasks from the frontier.
+    def ready_frontier(self) -> tuple[Task, ...]:
+        """Return dependency-ready tasks not yet acknowledged as enqueued."""
+        return tuple(self._frontier)
 
-        Excludes already-dispatched/in-flight tasks and tasks for row groups
-        not yet admitted (if ``admitted_rgs`` is provided).
-        """
+    def mark_enqueued(self, task_ids: set[str] | list[str] | tuple[str, ...]) -> None:
+        """Acknowledge tasks accepted by the ready queue."""
+        wanted = set(task_ids)
+        self._frontier = {task for task in self._frontier if stable_task_id(task) not in wanted}
+
+    def mark_complete(self, task: Task) -> None:
+        """Compatibility hook for scheduler terminal accounting."""
+
+    def add_ready_tasks(self, tasks: list[Task] | tuple[Task, ...]) -> FrontierDelta:
+        """Add ready tasks to the frontier idempotently."""
+        added: list[Task] = []
+        for task in tasks:
+            if self._add_frontier_task(task):
+                added.append(task)
+        return self._record_delta(added=added, removed=[])
+
+    def get_ready_tasks(self, dispatched: set[Task], admitted_rgs: set[int] | None = None) -> list[Task]:
+        """Return all currently dispatchable tasks from the frontier."""
         return [
-            t for t in self._frontier if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
+            t
+            for t in self.ready_frontier()
+            if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
         ]
 
     def is_frontier_task(self, task: Task) -> bool:
@@ -171,13 +190,36 @@ class CompletionTracker:
         if self._graph is None:
             raise RuntimeError("This method requires a graph to be set.")
         for col in self._graph.get_root_columns():
-            strategy = self._graph.get_strategy(col)
             for rg_id, rg_size in self._row_group_sizes.items():
-                if strategy == GenerationStrategy.CELL_BY_CELL:
-                    for ri in range(rg_size):
-                        self._frontier.add(Task(column=col, row_group=rg_id, row_index=ri, task_type="cell"))
-                else:
-                    self._frontier.add(Task(column=col, row_group=rg_id, row_index=None, task_type="batch"))
+                self.add_root_tasks(rg_id, rg_size, columns=(col,))
+
+    def add_root_tasks(
+        self,
+        row_group: int,
+        row_group_size: int,
+        *,
+        columns: tuple[str, ...] | None = None,
+    ) -> FrontierDelta:
+        """Add root/from-scratch tasks for one admitted row group."""
+        if self._graph is None:
+            raise RuntimeError("This method requires a graph to be set.")
+        expected = self._validate_row_group(row_group)
+        if expected is not None and expected != row_group_size:
+            raise ValueError(f"Row-group size mismatch for rg={row_group}: got {row_group_size}, expected {expected}")
+        root_columns = columns or tuple(self._graph.get_root_columns())
+        added: list[Task] = []
+        for col in root_columns:
+            strategy = self._graph.get_strategy(col)
+            if strategy == GenerationStrategy.CELL_BY_CELL:
+                for ri in range(row_group_size):
+                    task = Task(column=col, row_group=row_group, row_index=ri, task_type="cell")
+                    if self._add_frontier_task(task):
+                        added.append(task)
+            else:
+                task = Task(column=col, row_group=row_group, row_index=None, task_type="from_scratch")
+                if self._add_frontier_task(task):
+                    added.append(task)
+        return self._record_delta(added=added, removed=[])
 
     def _record_delta(self, *, added: list[Task], removed: list[Task]) -> FrontierDelta:
         return FrontierDelta(added=tuple(added), removed=tuple(removed))
@@ -204,7 +246,7 @@ class CompletionTracker:
         rg_batch_complete = self._batch_complete.get(row_group, set())
         rg_size = self._row_group_sizes[row_group]
 
-        for down in self._graph.get_downstream_columns(column):
+        for down in sorted(self._graph.get_downstream_columns(column)):
             batch_ups, cell_ups = self._graph.split_upstream_by_strategy(down)
 
             if any(up not in rg_batch_complete for up in batch_ups):

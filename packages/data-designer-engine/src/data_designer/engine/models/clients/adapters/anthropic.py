@@ -31,8 +31,8 @@ class AnthropicClient(HttpModelClient):
     """Native HTTP adapter for the Anthropic Messages API.
 
     Uses ``httpx`` with ``httpx_retries.RetryTransport`` for resilient HTTP
-    calls.  Concurrency / throttle policy is an orchestration concern and
-    is not managed here — see ``ThrottleManager`` and ``AsyncTaskScheduler``.
+    calls. Concurrency and request-admission policy are orchestration concerns
+    and are not managed here.
     """
 
     _ROUTE_MESSAGES = "/messages"
@@ -44,6 +44,7 @@ class AnthropicClient(HttpModelClient):
             "stop",
             "max_tokens",
             "tools",
+            "n",
             "response_format",
             "frequency_penalty",
             "presence_penalty",
