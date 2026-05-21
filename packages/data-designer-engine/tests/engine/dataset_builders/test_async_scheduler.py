@@ -1840,6 +1840,24 @@ async def test_scheduler_llm_bound_one_way_handoff() -> None:
     assert snapshot.resources_available["llm_wait"] == max_llm_wait
 
 
+def test_scheduler_default_task_admission_uses_bounded_borrow_policy() -> None:
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+    )
+
+    assert scheduler._task_admission_config.bounded_borrow is not None
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_non_llm_holds_submission_slot() -> None:
     """Non-LLM generators hold the submission slot for the entire execution (no handoff)."""

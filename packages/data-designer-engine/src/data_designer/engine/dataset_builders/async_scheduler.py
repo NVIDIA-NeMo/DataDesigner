@@ -44,6 +44,7 @@ from data_designer.engine.dataset_builders.scheduling.task_admission import (
     TaskAdmissionLease,
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
+from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
@@ -185,6 +186,7 @@ class AsyncTaskScheduler:
         admission_config = task_admission_config or TaskAdmissionConfig(
             submission_capacity=max_submitted_tasks,
             resource_limits={"llm_wait": max_model_task_admission, "local": max_submitted_tasks},
+            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(),
         )
         self._task_admission = TaskAdmissionController(admission_config)
         self._task_admission_config = admission_config
