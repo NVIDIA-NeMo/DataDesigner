@@ -22,6 +22,7 @@ _TITLE = "\033[1;38;5;81m"
 _MUTED = "\033[2;38;5;245m"
 _FAILED = "\033[31m"
 _OK = "\033[32m"
+_TRACK = "\033[38;5;238m"
 _CURVE_COLORS = [
     asciichartpy.lightcyan,
     asciichartpy.lightgreen,
@@ -46,6 +47,8 @@ _RATE_COLUMN_WIDTH = 5
 _INPUT_TOKEN_RATE_WIDTH = 8
 _OUTPUT_TOKEN_RATE_WIDTH = 9
 _LEGEND_COLUMN_GAP = 2
+_MIN_PROGRESS_BAR_WIDTH = 6
+_PROGRESS_BAR_CHAR = "━"
 _NOW_RATE_HEADER = "now rec/s"
 _AVG_RATE_HEADER = "avg rec/s"
 
@@ -385,7 +388,7 @@ class StickyProgressBar:
         now = time.perf_counter()
         bars = list(self._bars.values())
         chart_lines = self._format_chart_lines(bars, inner_width, chart_height)
-        legend_lines = self._format_legend_lines(bars, now, legend_capacity)
+        legend_lines = self._format_legend_lines(bars, now, legend_capacity, inner_width)
 
         lines = [
             self._border("╭", "─", "╮", panel_width),
@@ -431,16 +434,25 @@ class StickyProgressBar:
             lines.append("")
         return lines[: chart_height + 1]
 
-    def _format_legend_lines(self, bars: list[_BarState], now: float, capacity: int) -> list[str]:
+    def _format_legend_lines(
+        self,
+        bars: list[_BarState],
+        now: float,
+        capacity: int,
+        inner_width: int,
+    ) -> list[str]:
         lines: list[str] = []
         if capacity <= 0:
             return lines
 
         include_status = any(bar.failed or bar.skipped for bar in bars)
-        label_width, done_width, rate_width, input_width, output_width, status_width = self._legend_column_widths(
-            bars,
-            now,
-            include_status=include_status,
+        label_width, done_width, rate_width, input_width, output_width, status_width, progress_width = (
+            self._legend_column_widths(
+                bars,
+                now,
+                include_status=include_status,
+                inner_width=inner_width,
+            )
         )
         lines.append(
             self._format_legend_table_line(
@@ -458,6 +470,8 @@ class StickyProgressBar:
                 input_width=input_width,
                 output_width=output_width,
                 status_width=status_width,
+                progress_bar="",
+                progress_width=progress_width,
             )
         )
 
@@ -484,6 +498,8 @@ class StickyProgressBar:
                     input_width=input_width,
                     output_width=output_width,
                     status_width=status_width,
+                    progress_bar=self._format_progress_bar(bar, progress_width, color),
+                    progress_width=progress_width,
                 )
             )
 
@@ -500,9 +516,8 @@ class StickyProgressBar:
         now: float,
         *,
         include_status: bool,
-    ) -> tuple[int, int, int, int, int, int]:
-        terminal_size = shutil.get_terminal_size()
-        inner_width = max(2, terminal_size.columns - 3)
+        inner_width: int,
+    ) -> tuple[int, int, int, int, int, int, int]:
         done_width = max(len("done"), *(len(self._format_done(bar)) for bar in bars))
         rate_width = max(
             len(_NOW_RATE_HEADER),
@@ -524,8 +539,8 @@ class StickyProgressBar:
         if include_status:
             status_width = max(len("status"), *(len(self._format_status(bar)) for bar in bars))
 
-        separator_count = 5 + int(include_status)
-        fixed_width = (
+        separator_count = 6 + int(include_status)
+        fixed_width_without_label_or_progress = (
             2
             + (separator_count * _LEGEND_COLUMN_GAP)
             + done_width
@@ -534,10 +549,36 @@ class StickyProgressBar:
             + output_width
             + status_width
         )
-        available_label_width = max(_MIN_LEGEND_LABEL_WIDTH, inner_width - fixed_width)
         content_label_width = max(len("column"), *(len(_sanitize_label(bar.label)) for bar in bars))
-        label_width = min(max(_MIN_LEGEND_LABEL_WIDTH, content_label_width), available_label_width)
-        return label_width, done_width, rate_width, input_width, output_width, status_width
+        desired_label_width = max(_MIN_LEGEND_LABEL_WIDTH, content_label_width)
+        available_width = inner_width - fixed_width_without_label_or_progress
+
+        if available_width >= desired_label_width + _MIN_PROGRESS_BAR_WIDTH:
+            label_width = desired_label_width
+            progress_width = available_width - label_width
+        elif available_width >= _MIN_LEGEND_LABEL_WIDTH + _MIN_PROGRESS_BAR_WIDTH:
+            progress_width = _MIN_PROGRESS_BAR_WIDTH
+            label_width = available_width - progress_width
+        else:
+            label_width = max(_MIN_LEGEND_LABEL_WIDTH, min(desired_label_width, max(0, available_width)))
+            progress_width = max(0, available_width - label_width)
+
+        return label_width, done_width, rate_width, input_width, output_width, status_width, progress_width
+
+    def _format_progress_bar(self, bar: _BarState, width: int, color: str) -> str:
+        if width <= 0:
+            return ""
+
+        if bar.total <= 0:
+            fraction = 1.0
+        else:
+            fraction = min(max(bar.completed / bar.total, 0.0), 1.0)
+
+        filled_width = min(width, int(round(width * fraction)))
+        if bar.completed > 0:
+            filled_width = max(1, filled_width)
+        empty_width = width - filled_width
+        return f"{color}{_PROGRESS_BAR_CHAR * filled_width}{_TRACK}{_PROGRESS_BAR_CHAR * empty_width}{_RESET}"
 
     def _format_legend_table_line(
         self,
@@ -556,16 +597,21 @@ class StickyProgressBar:
         input_width: int,
         output_width: int,
         status_width: int,
+        progress_bar: str,
+        progress_width: int,
     ) -> str:
         marker_text = f"{marker} " if marker else "  "
         gap = " " * _LEGEND_COLUMN_GAP
         line = (
-            f"{marker_text}{_fit_plain(label, label_width)}{gap}{done:>{done_width}}"
+            f"{marker_text}{_fit_plain(label, label_width)}"
             f"{gap}{now_value:>{rate_width}}{gap}{avg_value:>{rate_width}}"
             f"{gap}{input_token_rate:>{input_width}}{gap}{output_token_rate:>{output_width}}"
         )
         if status is not None:
             line = f"{line}{gap}{status:>{status_width}}"
+        line = f"{line}{gap}{done:>{done_width}}"
+        if progress_width > 0:
+            line = f"{line}{gap}{_fit_ansi(progress_bar, progress_width)}"
         if marker:
             return line
         return f"{_MUTED}{line}{_RESET}"

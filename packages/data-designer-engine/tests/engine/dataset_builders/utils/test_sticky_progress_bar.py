@@ -107,6 +107,10 @@ def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
         row = next(line for line in panel_lines if "column 'a'" in line)
         assert "|" not in header
         assert "|" not in row
+        assert header.index("out tok/s") < header.index("done")
+        assert "━" in row
+        assert row.rindex("0.0") < row.index("10/100")
+        assert row.index("10/100") < row.index("━")
         assert "╭" in panel
         assert "╰" in panel
 
