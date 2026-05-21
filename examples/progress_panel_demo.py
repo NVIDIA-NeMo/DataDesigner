@@ -7,6 +7,8 @@ import threading
 import time
 
 import data_designer.config as dd
+from data_designer.engine.context import current_generation_column
+from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
 
 _WORKERS = threading.Semaphore(6)
 
@@ -14,8 +16,22 @@ _WORKERS = threading.Semaphore(6)
 def _simulate_work(row: dict, *, column: str, base_delay: float) -> str:
     topic = str(row["topic"])
     jitter = (sum(ord(ch) for ch in topic + column) % 7) * 0.025
+    input_tokens = 80 + (sum(ord(ch) for ch in topic) % 45)
+    output_tokens = 12 + (sum(ord(ch) for ch in column) % 16)
     with _WORKERS:
-        time.sleep(base_delay + jitter)
+        # This example is intentionally credential-free, so emit synthetic
+        # token usage to exercise the progress panel's live token-rate columns.
+        for _ in range(4):
+            time.sleep((base_delay + jitter) / 4)
+            emit_token_usage_event(
+                TokenUsageEvent(
+                    model_alias="progress-panel-demo",
+                    model_name="synthetic-token-stream",
+                    input_tokens=input_tokens // 4,
+                    output_tokens=output_tokens // 4,
+                    column=current_generation_column.get() or column,
+                )
+            )
     return f"{column}:{topic.lower().replace(' ', '-')}"
 
 

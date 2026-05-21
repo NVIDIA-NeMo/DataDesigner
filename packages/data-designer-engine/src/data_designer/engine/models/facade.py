@@ -854,9 +854,9 @@ class ModelFacade:
             return
 
         token_usage = None
-        if usage is not None and usage.input_tokens is not None:
+        if usage is not None and (usage.input_tokens is not None or usage.output_tokens is not None):
             token_usage = TokenUsageStats(
-                input_tokens=usage.input_tokens,
+                input_tokens=usage.input_tokens or 0,
                 output_tokens=usage.output_tokens or 0,
                 reasoning_tokens=usage.reasoning_tokens,
                 reasoning_token_count_source=usage.reasoning_token_count_source,

@@ -372,6 +372,27 @@ def test_completion_emits_token_usage_event(
     assert events[0].column == "intent_label"
 
 
+def test_completion_emits_token_usage_event_when_only_output_tokens_are_reported(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    events: list[TokenUsageEvent] = []
+    unsubscribe = subscribe_token_usage(events.append)
+    stub_model_client.completion.return_value = ChatCompletionResponse(
+        message=AssistantMessage(content="ok"),
+        usage=Usage(output_tokens=8),
+    )
+
+    try:
+        stub_model_facade.completion([ChatMessage.as_user("hi")])
+    finally:
+        unsubscribe()
+
+    assert len(events) == 1
+    assert events[0].input_tokens == 0
+    assert events[0].output_tokens == 8
+
+
 def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:
     # Model config generate kwargs are used as base, and purpose is removed.
     # When telemetry is enabled (default), X-Title is injected.
