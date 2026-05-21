@@ -106,16 +106,6 @@ def is_media_url(value: str) -> bool:
     return isinstance(value, str) and value.startswith(("http://", "https://"))
 
 
-def is_audio_url(value: str) -> bool:
-    """Return whether a value looks like an audio URL."""
-    return is_media_url(value) and _has_media_extension(value, SUPPORTED_AUDIO_EXTENSIONS)
-
-
-def is_video_url(value: str) -> bool:
-    """Return whether a value looks like a video URL."""
-    return is_media_url(value) and _has_media_extension(value, SUPPORTED_VIDEO_EXTENSIONS)
-
-
 def is_audio_path(value: str) -> bool:
     """Return whether a value looks like a local audio path."""
     return _has_path_extension(value, SUPPORTED_AUDIO_EXTENSIONS)
@@ -144,12 +134,6 @@ def audio_format_from_mime_type(media_type: str) -> AudioFormat | None:
 def video_format_from_mime_type(media_type: str) -> VideoFormat | None:
     """Infer a video format from a MIME type."""
     return _VIDEO_MIME_TYPE_TO_FORMAT.get(media_type.lower())
-
-
-def _has_media_extension(value: str, supported_extensions: tuple[str, ...]) -> bool:
-    if not isinstance(value, str):
-        return False
-    return any(ext in value.lower() for ext in supported_extensions)
 
 
 def _has_path_extension(value: str, supported_extensions: tuple[str, ...]) -> bool:

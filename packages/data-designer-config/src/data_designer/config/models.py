@@ -199,10 +199,9 @@ class AudioContext(ModalityContext):
             detected_format = audio_format_from_mime_type(media_type)
             if detected_format is None:
                 raise ValueError(f"Unsupported audio media type {media_type!r}")
-            audio_format = self.audio_format or detected_format
-            if audio_format != detected_format:
+            if self.audio_format is not None and self.audio_format != detected_format:
                 raise ValueError(
-                    f"audio_format {audio_format.value!r} does not match data URI media type {media_type!r}"
+                    f"audio_format {self.audio_format.value!r} does not match data URI media type {media_type!r}"
                 )
             return media_type, data
 

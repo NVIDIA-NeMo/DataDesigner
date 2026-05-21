@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from data_designer.config.models import Modality
-from data_designer.config.utils.media_helpers import get_media_base64_context, get_media_url_context
+from data_designer.config.utils.media_helpers import (
+    get_media_base64_context,
+    get_media_url_context,
+    parse_base64_data_uri,
+)
 from data_designer.engine.models.clients.parsing import extract_usage, fill_reasoning_token_count_from_content
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
@@ -19,7 +22,6 @@ from data_designer.engine.models.clients.types import (
 )
 
 _DEFAULT_MAX_TOKENS = 4096
-_DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
 _UNSUPPORTED_MEDIA_BLOCK_MODALITIES: dict[str, str] = {
     "audio": "audio",
     "audio_url": "audio",
@@ -350,9 +352,10 @@ def translate_image_url_block(block: dict[str, Any]) -> dict[str, Any]:
 
     url = image_url.get("url", "")
 
-    match = _DATA_URI_RE.match(url)
-    if match:
-        return get_media_base64_context(Modality.IMAGE.value, match.group("media_type"), match.group("data"))
+    parsed = parse_base64_data_uri(url)
+    if parsed is not None:
+        media_type, data = parsed
+        return get_media_base64_context(Modality.IMAGE.value, media_type, data)
 
     return get_media_url_context(Modality.IMAGE.value, url)
 

@@ -15,10 +15,8 @@ from data_designer.config.utils.media_helpers import (
     get_media_context,
     get_media_url_context,
     is_audio_path,
-    is_audio_url,
     is_media_url,
     is_video_path,
-    is_video_url,
     normalize_media_context_values,
     parse_base64_data_uri,
     video_format_from_mime_type,
@@ -54,20 +52,11 @@ def test_parse_base64_data_uri() -> None:
     assert parse_base64_data_uri("abc123") is None
 
 
-def test_audio_url_detection() -> None:
+def test_media_url_detection() -> None:
     assert is_media_url("https://example.com/download?id=123") is True
-    assert is_audio_url("https://example.com/audio.mp3") is True
-    assert is_audio_url("https://example.com/audio.wav?download=1") is True
-    assert is_audio_url("https://example.com/image.png") is False
-    assert is_audio_url(123) is False  # type: ignore[arg-type]
-
-
-def test_video_url_detection() -> None:
-    assert is_media_url("https://example.com/download?id=123") is True
-    assert is_video_url("https://example.com/video.mp4") is True
-    assert is_video_url("https://example.com/video.webm?download=1") is True
-    assert is_video_url("https://example.com/audio.mp3") is False
-    assert is_video_url(123) is False  # type: ignore[arg-type]
+    assert is_media_url("http://example.com/media") is True
+    assert is_media_url("ftp://example.com/media") is False
+    assert is_media_url(123) is False  # type: ignore[arg-type]
 
 
 def test_local_media_path_detection() -> None:
