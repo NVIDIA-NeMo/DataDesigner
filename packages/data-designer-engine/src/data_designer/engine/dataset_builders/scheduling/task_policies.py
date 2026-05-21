@@ -190,7 +190,7 @@ class BoundedBorrowTaskAdmissionPolicy(StrictFairTaskAdmissionPolicy):
             if projected <= strict_share:
                 continue
 
-            new_debt = projected - strict_share
+            new_debt = min(amount, projected - strict_share)
             ceiling, ceiling_diagnostics = self._borrow_ceiling(
                 debt_key,
                 resource_limit=admission_view.resource_limits.get(resource, 0),
@@ -261,9 +261,8 @@ class BoundedBorrowTaskAdmissionPolicy(StrictFairTaskAdmissionPolicy):
         )
         target_solo_cap = max(0, resource_limit - reserved_slots)
         borrow_slots = max(0, target_solo_cap - strict_share)
-        ceiling = _triangular_number(borrow_slots)
-        return ceiling, {
-            "ceiling": ceiling,
+        return borrow_slots, {
+            "ceiling": borrow_slots,
             "ceiling_source": "dynamic",
             "reserved_slots": reserved_slots,
             "borrow_slots": borrow_slots,
@@ -302,6 +301,7 @@ def _strict_share(
     candidate_groups = _competing_group_specs(item, resource, queue_view, admission_view)
     group_weight = max(1.0, item.group.weight)
     if len(candidate_groups) <= 1:
+        # Reserve headroom for a future peer; otherwise solo groups would never reach borrow accounting.
         total_weight = group_weight * 2
     else:
         total_weight = sum(max(1.0, group.weight) for group in candidate_groups.values())
@@ -318,10 +318,6 @@ def _strict_share(
 
 def _dynamic_reserved_slots(resource_limit: int, *, reserve_fraction: float, max_reserved_slots: int) -> int:
     return min(max_reserved_slots, max(1, math.ceil(resource_limit * reserve_fraction)))
-
-
-def _triangular_number(value: int) -> int:
-    return value * (value + 1) // 2
 
 
 def _competing_group_specs(
