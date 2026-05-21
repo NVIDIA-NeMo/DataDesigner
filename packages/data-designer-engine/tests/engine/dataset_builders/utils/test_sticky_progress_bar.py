@@ -60,10 +60,6 @@ def _last_panel_lines(output: str) -> list[str]:
     return clean[panel_start:].splitlines()
 
 
-def _pipe_positions(line: str) -> list[int]:
-    return [index for index, char in enumerate(line) if char == "|"]
-
-
 def test_no_output_when_not_tty() -> None:
     stream = io.StringIO()
     with StickyProgressBar(stream=stream) as bar:
@@ -107,7 +103,8 @@ def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
         assert "20/100" in panel
         header = next(line for line in panel_lines if "in tok/s" in line)
         row = next(line for line in panel_lines if "column 'a'" in line)
-        assert _pipe_positions(header) == _pipe_positions(row)
+        assert "|" not in header
+        assert "|" not in row
         assert "╭" in panel
         assert "╰" in panel
 
