@@ -88,13 +88,24 @@ def test_strict_fair_policy_denies_capped_group_with_peer_pressure() -> None:
 def test_bounded_borrow_policy_records_borrow_without_peer_pressure() -> None:
     group = TaskGroupSpec(TaskGroupKey(kind="model", identity=("provider", "model")), admitted_limit=1)
     item = _item("a", group)
-    policy = BoundedBorrowTaskAdmissionPolicy(BoundedBorrowTaskAdmissionPolicyConfig(default_borrow_ceiling=1))
+    policy = BoundedBorrowTaskAdmissionPolicy(
+        BoundedBorrowTaskAdmissionPolicyConfig(
+            default_borrow_ceiling=1,
+            strict_share_rounding="floor",
+        )
+    )
 
     decision = policy.evaluate(item, _queue_view(item), _admission_view(running_group=group.key))
     delta = policy.on_acquire(_lease(item), decision)
 
     assert decision.allowed is True
     assert delta.debt_changes == {(group.key, "submission"): 1}
+
+
+def test_bounded_borrow_policy_defaults_to_ceil_strict_share_rounding() -> None:
+    config = BoundedBorrowTaskAdmissionPolicyConfig()
+
+    assert config.strict_share_rounding == "ceil"
 
 
 def test_bounded_borrow_policy_denies_existing_debt_under_peer_pressure() -> None:

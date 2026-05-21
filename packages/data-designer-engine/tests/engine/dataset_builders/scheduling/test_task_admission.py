@@ -210,7 +210,10 @@ def test_bounded_borrow_limits_solo_group_borrow_debt() -> None:
     controller = TaskAdmissionController(
         TaskAdmissionConfig(
             submission_capacity=3,
-            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(default_borrow_ceiling=1),
+            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(
+                default_borrow_ceiling=1,
+                strict_share_rounding="floor",
+            ),
         )
     )
     first = _item("a", 0, group=group)
@@ -258,7 +261,10 @@ def test_bounded_borrow_debt_blocks_under_peer_pressure_and_releases() -> None:
     controller = TaskAdmissionController(
         TaskAdmissionConfig(
             submission_capacity=3,
-            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(default_borrow_ceiling=1),
+            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(
+                default_borrow_ceiling=1,
+                strict_share_rounding="floor",
+            ),
         )
     )
     first = _item("a", 0, group=group)
@@ -307,7 +313,10 @@ def test_bounded_borrow_release_repayment_is_group_level() -> None:
     controller = TaskAdmissionController(
         TaskAdmissionConfig(
             submission_capacity=3,
-            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(default_borrow_ceiling=1),
+            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(
+                default_borrow_ceiling=1,
+                strict_share_rounding="floor",
+            ),
         )
     )
     first = _item("a", 0, group=group)

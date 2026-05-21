@@ -45,7 +45,7 @@ class BoundedBorrowTaskAdmissionPolicyConfig:
         default_factory=dict
     )
     default_borrow_ceiling: int = DEFAULT_BOUNDED_BORROW_CEILING
-    strict_share_rounding: Literal["floor", "ceil"] = "floor"
+    strict_share_rounding: Literal["floor", "ceil"] = "ceil"
     repay_on_withheld_peer_pressure: bool = True
 
     def __post_init__(self) -> None:
