@@ -110,6 +110,7 @@ class ProgressTracker:
                     success=self.success,
                     failed=self.failed,
                     skipped=self.skipped,
+                    force=True,
                 )
                 return
             if self.completed > 0:

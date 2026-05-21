@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_REPORT_INTERVAL = 5.0
+DEFAULT_TTY_REPORT_INTERVAL = 0.75
 
 
 class AsyncProgressReporter:
@@ -36,6 +37,7 @@ class AsyncProgressReporter:
         self._report_interval = report_interval
         self._start_time = time.perf_counter()
         self._last_report_time: float = self._start_time
+        self._last_bar_report_time: float = self._start_time
         self._last_reported_total: int = -1
         self._bar = progress_bar
         if self._bar is not None:
@@ -70,7 +72,7 @@ class AsyncProgressReporter:
 
     def log_final(self) -> None:
         if self._bar is not None and self._bar.is_active:
-            self._update_bar()
+            self._update_bar(force=True)
         else:
             self._emit()
         elapsed = time.perf_counter() - self._start_time
@@ -89,22 +91,25 @@ class AsyncProgressReporter:
         )
 
     def _maybe_report(self) -> None:
+        now = time.perf_counter()
         if self._bar is not None and self._bar.is_active:
+            if now - self._last_bar_report_time < DEFAULT_TTY_REPORT_INTERVAL:
+                return
+            self._last_bar_report_time = now
             self._update_bar()
             return
-        now = time.perf_counter()
         if now - self._last_report_time < self._report_interval:
             return
         self._last_report_time = now
         self._emit()
 
-    def _update_bar(self) -> None:
+    def _update_bar(self, *, force: bool = False) -> None:
         elapsed = time.perf_counter() - self._start_time
         updates: dict[str, tuple[int, int, int, int]] = {}
         for col, tracker in self._trackers.items():
             completed, _total, success, failed, skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
             updates[col] = (completed, success, failed, skipped)
-        self._bar.update_many(updates)
+        self._bar.update_many(updates, force=force)
 
     def _emit(self) -> None:
         current_total = sum(tracker.get_snapshot(0.0)[0] for tracker in self._trackers.values())

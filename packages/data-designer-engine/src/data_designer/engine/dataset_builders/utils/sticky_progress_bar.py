@@ -10,11 +10,12 @@ import sys
 import time
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import TextIO
+from typing import Sequence, TextIO
 
 import asciichartpy
 
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _RESET = "\033[0m"
 _BORDER = "\033[38;5;39m"
 _TITLE = "\033[1;38;5;81m"
@@ -33,10 +34,16 @@ _CURVE_COLORS = [
 ]
 _DEFAULT_PANEL_HEIGHT = 16
 _MIN_PANEL_HEIGHT = 9
-_MIN_SAMPLE_INTERVAL_SECONDS = 0.25
+_MIN_TERMINAL_WIDTH = 30
+_MIN_REDRAW_INTERVAL_SECONDS = 0.75
+_RATE_SAMPLE_INTERVAL_SECONDS = 2.0
+_RATE_SMOOTHING_WINDOW = 3
+_MAX_RATE_SAMPLES = 7200
+_RATE_FORMAT = "{:6.1f} "
+_Y_AXIS_RESERVED = 12
 
 
-ProgressUpdate = tuple[int, int, int] | tuple[int, int, int, int]
+_ProgressUpdate = tuple[int, int, int, int]
 
 
 def _visible_len(text: str) -> int:
@@ -54,15 +61,25 @@ def _color(text: str, color: str) -> str:
     return f"{color}{text}{_RESET}"
 
 
-def _average(values: list[float]) -> float:
+def _sanitize_label(label: str) -> str:
+    return _CONTROL_RE.sub("", _ANSI_RE.sub("", label))
+
+
+def _average(values: Sequence[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def _compress_series(series: list[float], max_points: int) -> list[float]:
+def _smooth_series(series: Sequence[float], window: int = _RATE_SMOOTHING_WINDOW) -> list[float]:
+    if window <= 1:
+        return list(series)
+    return [_average(series[max(0, i - window + 1) : i + 1]) for i in range(len(series))]
+
+
+def _compress_series(series: Sequence[float], max_points: int) -> list[float]:
     if max_points <= 0:
         return []
     if len(series) <= max_points:
-        return series or [0.0]
+        return list(series) or [0.0]
 
     compressed: list[float] = []
     count = len(series)
@@ -72,6 +89,32 @@ def _compress_series(series: list[float], max_points: int) -> list[float]:
         bucket = series[start : max(end, start + 1)]
         compressed.append(_average(bucket))
     return compressed
+
+
+def _expand_series(series: Sequence[float], point_count: int) -> list[float]:
+    if point_count <= 0:
+        return []
+    if not series:
+        return [0.0] * point_count
+    if len(series) == 1:
+        return [series[0]] * point_count
+
+    expanded: list[float] = []
+    source_last_index = len(series) - 1
+    target_last_index = max(1, point_count - 1)
+    for index in range(point_count):
+        position = index * source_last_index / target_last_index
+        left_index = int(position)
+        right_index = min(left_index + 1, source_last_index)
+        weight = position - left_index
+        expanded.append(series[left_index] * (1 - weight) + series[right_index] * weight)
+    return expanded
+
+
+def _fit_series(series: Sequence[float], point_count: int) -> list[float]:
+    if len(series) > point_count:
+        return _compress_series(series, point_count)
+    return _expand_series(series, point_count)
 
 
 @dataclass
@@ -104,18 +147,20 @@ class _BarState:
         self.failed = failed
         self.skipped = skipped
 
-        should_sample = elapsed >= _MIN_SAMPLE_INTERVAL_SECONDS or bounded_completed >= self.total
+        should_sample = elapsed >= _RATE_SAMPLE_INTERVAL_SECONDS or bounded_completed >= self.total
         if should_sample:
             delta_completed = max(0, bounded_completed - self.last_completed)
-            sample_elapsed = max(elapsed, _MIN_SAMPLE_INTERVAL_SECONDS)
+            sample_elapsed = max(elapsed, 0.001)
             rate = delta_completed / sample_elapsed
-            self.latest_rate = rate
             self.rates.append(rate)
+            if len(self.rates) > _MAX_RATE_SAMPLES:
+                del self.rates[: len(self.rates) - _MAX_RATE_SAMPLES]
+            self.latest_rate = _average(self.rates[-_RATE_SMOOTHING_WINDOW:])
             self.last_completed = bounded_completed
             self.last_sample_time = now
 
     def average_rate(self, now: float) -> float:
-        elapsed = max(now - self.start_time, _MIN_SAMPLE_INTERVAL_SECONDS)
+        elapsed = max(now - self.start_time, 0.001)
         return self.completed / elapsed if elapsed > 0 else 0.0
 
 
@@ -147,6 +192,7 @@ class StickyProgressBar:
         self._wrapped_handlers: list[tuple[logging.StreamHandler, object]] = []
         self._panel_height = max(_MIN_PANEL_HEIGHT, panel_height)
         self._start_time = time.perf_counter()
+        self._last_redraw_time: float = 0.0
 
     @property
     def is_active(self) -> bool:
@@ -159,9 +205,10 @@ class StickyProgressBar:
     # -- context manager --
 
     def __enter__(self) -> StickyProgressBar:
-        if self._is_tty:
+        if self._is_tty and shutil.get_terminal_size().columns >= _MIN_TERMINAL_WIDTH:
             self._active = True
             self._start_time = time.perf_counter()
+            self._last_redraw_time = 0.0
             self._wrap_handlers()
             self._write("\033[?25l")  # hide cursor
         return self
@@ -177,9 +224,9 @@ class StickyProgressBar:
 
     def add_bar(self, key: str, label: str, total: int) -> None:
         with self._lock:
-            self._bars[key] = _BarState(label=label, total=total)
+            self._bars[key] = _BarState(label=_sanitize_label(label), total=total)
             if self._active:
-                self._redraw()
+                self._redraw(force=True)
 
     def update(
         self,
@@ -189,26 +236,27 @@ class StickyProgressBar:
         success: int = 0,
         failed: int = 0,
         skipped: int = 0,
+        force: bool = False,
     ) -> None:
         with self._lock:
             if bar := self._bars.get(key):
+                now = time.perf_counter()
                 bar.record_update(
                     completed=completed,
                     success=success,
                     failed=failed,
                     skipped=skipped,
-                    now=time.perf_counter(),
+                    now=now,
                 )
                 if self._active:
-                    self._redraw()
+                    self._redraw_if_due(now, force=force)
 
-    def update_many(self, updates: dict[str, ProgressUpdate]) -> None:
+    def update_many(self, updates: dict[str, _ProgressUpdate], *, force: bool = False) -> None:
         with self._lock:
             now = time.perf_counter()
             for key, update in updates.items():
                 if bar := self._bars.get(key):
-                    completed, success, failed = update[:3]
-                    skipped = update[3] if len(update) > 3 else bar.skipped
+                    completed, success, failed, skipped = update
                     bar.record_update(
                         completed=completed,
                         success=success,
@@ -217,13 +265,13 @@ class StickyProgressBar:
                         now=now,
                     )
             if self._active:
-                self._redraw()
+                self._redraw_if_due(now, force=force)
 
     def remove_bar(self, key: str) -> None:
         with self._lock:
             self._bars.pop(key, None)
             if self._active:
-                self._redraw()
+                self._redraw(force=True)
 
     # -- handler wrapping --
 
@@ -242,7 +290,7 @@ class StickyProgressBar:
                     with self._lock:
                         self._clear_bars()
                         orig(record)  # type: ignore[operator]
-                        self._redraw()
+                        self._redraw(force=True)
 
                 return wrapped_emit
 
@@ -264,8 +312,16 @@ class StickyProgressBar:
             self._write("\r\033[2K")
             self._drawn_lines = 0
 
-    def _redraw(self) -> None:
+    def _redraw_if_due(self, now: float, *, force: bool = False) -> None:
+        if force or self._drawn_lines == 0 or now - self._last_redraw_time >= _MIN_REDRAW_INTERVAL_SECONDS:
+            self._redraw(force=True, now=now)
+
+    def _redraw(self, *, force: bool = False, now: float | None = None) -> None:
         """Redraw the chart panel. Caller must hold the lock."""
+        if not force:
+            current_time = time.perf_counter() if now is None else now
+            if self._drawn_lines > 0 and current_time - self._last_redraw_time < _MIN_REDRAW_INTERVAL_SECONDS:
+                return
         self._clear_bars()
         if not self._bars:
             return
@@ -273,6 +329,7 @@ class StickyProgressBar:
         for line in lines:
             self._write(line + "\n")
         self._drawn_lines = len(lines)
+        self._last_redraw_time = time.perf_counter() if now is None else now
 
     def _format_panel(self) -> list[str]:
         terminal_size = shutil.get_terminal_size()
@@ -315,8 +372,8 @@ class StickyProgressBar:
         )
 
     def _format_chart_lines(self, bars: list[_BarState], inner_width: int, chart_height: int) -> list[str]:
-        max_points = max(2, inner_width - 12)
-        series = [_compress_series(bar.rates, max_points) for bar in bars]
+        max_points = max(2, inner_width - _Y_AXIS_RESERVED)
+        series = [_fit_series(_smooth_series(bar.rates), max_points) for bar in bars]
         max_rate = max((max(points) for points in series if points), default=0.0)
         chart = asciichartpy.plot(
             series,
@@ -324,7 +381,7 @@ class StickyProgressBar:
                 "height": chart_height,
                 "min": 0.0,
                 "max": max(1.0, max_rate),
-                "format": "{:6.1f} ",
+                "format": _RATE_FORMAT,
                 "colors": [_CURVE_COLORS[i % len(_CURVE_COLORS)] for i in range(len(series))],
             },
         )
