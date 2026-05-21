@@ -124,14 +124,10 @@ class AsyncProgressReporter:
         self._bar.update_many(updates, force=force)
 
     def _record_token_usage(self, event: TokenUsageEvent) -> None:
-        column = event.column
-        if column is None and event.correlation is not None:
-            column = event.correlation.task_column
-        if column is None or column not in self._trackers:
-            return
         if self._bar is not None:
-            self._bar.record_token_usage(
-                column,
+            self._bar.record_model_usage(
+                model_alias=event.model_alias,
+                model_name=event.model_name,
                 input_tokens=event.input_tokens,
                 output_tokens=event.output_tokens,
             )

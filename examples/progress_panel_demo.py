@@ -19,19 +19,19 @@ def _simulate_work(row: dict, *, column: str, base_delay: float) -> str:
     input_tokens = 80 + (sum(ord(ch) for ch in topic) % 45)
     output_tokens = 12 + (sum(ord(ch) for ch in column) % 16)
     with _WORKERS:
-        # This example is intentionally credential-free, so emit synthetic
-        # token usage to exercise the progress panel's live token-rate columns.
         for _ in range(4):
             time.sleep((base_delay + jitter) / 4)
-            emit_token_usage_event(
-                TokenUsageEvent(
-                    model_alias="progress-panel-demo",
-                    model_name="synthetic-token-stream",
-                    input_tokens=input_tokens // 4,
-                    output_tokens=output_tokens // 4,
-                    column=current_generation_column.get() or column,
-                )
+        # This example is intentionally credential-free, so emit one synthetic
+        # model request per generated cell to exercise the model usage table.
+        emit_token_usage_event(
+            TokenUsageEvent(
+                model_alias="progress-panel-demo",
+                model_name="synthetic-token-stream",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                column=current_generation_column.get() or column,
             )
+        )
     return f"{column}:{topic.lower().replace(' ', '-')}"
 
 

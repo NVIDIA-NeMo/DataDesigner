@@ -92,7 +92,7 @@ def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
         bar.add_bar("b", "column 'b'", 100)
         bar.update_many({"a": (10, 10, 0, 0), "b": (20, 20, 0, 0)}, force=True)
 
-        assert bar.drawn_lines == 16
+        assert bar.drawn_lines == 20
         panel_lines = _last_panel_lines(tty_stream.getvalue())
         panel = "\n".join(panel_lines)
         assert "Throughput" in panel
@@ -103,11 +103,13 @@ def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
         assert "10/100" in panel
         assert "column 'b'" in panel
         assert "20/100" in panel
-        header = next(line for line in panel_lines if "in tok/s" in line)
+        header = next(line for line in panel_lines if "now rec/s" in line)
         row = next(line for line in panel_lines if "column 'a'" in line)
         assert "|" not in header
         assert "|" not in row
-        assert header.index("out tok/s") < header.index("done")
+        assert "in tok/s" not in panel
+        assert "out tok/s" not in panel
+        assert header.index("avg rec/s") < header.index("done")
         assert "━" in row
         assert row.rindex("0.0") < row.index("10/100")
         assert row.index("10/100") < row.index("━")
@@ -115,16 +117,28 @@ def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
         assert "╰" in panel
 
 
-def test_token_usage_rates_render_in_legend_table(tty_stream: FakeTTY) -> None:
+def test_model_usage_rates_render_in_separate_table(tty_stream: FakeTTY) -> None:
     with StickyProgressBar(stream=tty_stream) as bar:
         bar.add_bar("a", "column 'a'", 100)
         bar.update("a", completed=10, success=10, force=True)
-        bar._bars["a"].start_time = time.perf_counter() - 10.0  # noqa: SLF001
-        bar.record_token_usage("a", input_tokens=100, output_tokens=25, force=True)
+        bar._start_time = time.perf_counter() - 10.0  # noqa: SLF001
+        bar.record_model_usage(
+            model_alias="test",
+            model_name="test-model",
+            input_tokens=100,
+            output_tokens=25,
+            force=True,
+        )
 
         panel = "\n".join(_last_panel_lines(tty_stream.getvalue()))
+        assert "model alias" in panel
+        assert "model name" in panel
+        assert "test" in panel
+        assert "test-model" in panel
+        assert "rpm" in panel
         assert "in tok/s" in panel
         assert "out tok/s" in panel
+        assert "6.0" in panel
         assert "10.0" in panel
         assert "2.5" in panel
 
@@ -176,8 +190,8 @@ def test_frequent_updates_are_redraw_throttled(tty_stream: FakeTTY) -> None:
         assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 0
 
         bar.update("a", completed=50, success=50, force=True)
-        assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 16
-        assert bar.drawn_lines == 16
+        assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 20
+        assert bar.drawn_lines == 20
 
 
 def test_log_interleaving_preserves_panel_height(tty_stream: FakeTTY) -> None:
@@ -198,7 +212,7 @@ def test_log_interleaving_preserves_panel_height(tty_stream: FakeTTY) -> None:
 
             snapshot = tty_stream.getvalue()
             bar.update("x", completed=20, success=20, force=True)
-            assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 16
+            assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 20
     finally:
         root_logger.removeHandler(handler)
 
@@ -225,7 +239,7 @@ def test_update_many_single_redraw(tty_stream: FakeTTY) -> None:
         after = tty_stream.getvalue()
 
         new_output = after[len(before) :]
-        assert new_output.count(CURSOR_UP_CLEAR) == 16
+        assert new_output.count(CURSOR_UP_CLEAR) == 20
 
         clean = _clean(after)
         assert "10/100" in clean
@@ -253,7 +267,7 @@ def test_remove_bar_redraws_panel(tty_stream: FakeTTY) -> None:
         bar.remove_bar("a")
 
         new_output = tty_stream.getvalue()[len(snapshot) :]
-        assert new_output.count(CURSOR_UP_CLEAR) == 16
+        assert new_output.count(CURSOR_UP_CLEAR) == 20
         panel = "\n".join(_last_panel_lines(tty_stream.getvalue()))
         assert "col_a" not in panel
         assert "col_b" in panel
@@ -286,11 +300,10 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
                     model_name="test-model",
                     input_tokens=120,
                     output_tokens=30,
-                    column="col_a",
                 )
             )
-            assert bar._bars["col_a"].input_tokens == 120  # noqa: SLF001
-            assert bar._bars["col_a"].output_tokens == 30  # noqa: SLF001
+            assert bar._model_usage["test"].input_tokens == 120  # noqa: SLF001
+            assert bar._model_usage["test"].output_tokens == 30  # noqa: SLF001
 
             snapshot = tty_stream.getvalue()
             reporter.record_success("col_a")
@@ -304,7 +317,7 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
 
             snapshot = tty_stream.getvalue()
             reporter.log_final()
-            assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 16
-            assert bar.drawn_lines == 16
+            assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 20
+            assert bar.drawn_lines == 20
     finally:
         root_logger.removeHandler(handler)

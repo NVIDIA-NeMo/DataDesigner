@@ -33,7 +33,7 @@ _CURVE_COLORS = [
     asciichartpy.cyan,
     asciichartpy.green,
 ]
-_DEFAULT_PANEL_HEIGHT = 16
+_DEFAULT_PANEL_HEIGHT = 20
 _MIN_PANEL_HEIGHT = 9
 _MIN_TERMINAL_WIDTH = 30
 _MIN_REDRAW_INTERVAL_SECONDS = 0.75
@@ -43,6 +43,8 @@ _MAX_RATE_SAMPLES = 7200
 _RATE_FORMAT = "{:6.1f} "
 _Y_AXIS_RESERVED = 12
 _MIN_LEGEND_LABEL_WIDTH = 8
+_MIN_MODEL_ALIAS_WIDTH = 10
+_MIN_MODEL_NAME_WIDTH = 10
 _RATE_COLUMN_WIDTH = 5
 _INPUT_TOKEN_RATE_WIDTH = 8
 _OUTPUT_TOKEN_RATE_WIDTH = 9
@@ -145,8 +147,6 @@ class _BarState:
     last_completed: int = 0
     latest_rate: float = 0.0
     rates: list[float] = field(default_factory=lambda: [0.0])
-    input_tokens: int = 0
-    output_tokens: int = 0
 
     def record_update(
         self,
@@ -176,13 +176,29 @@ class _BarState:
             self.last_completed = bounded_completed
             self.last_sample_time = now
 
-    def record_token_usage(self, *, input_tokens: int, output_tokens: int) -> None:
-        self.input_tokens += max(0, input_tokens)
-        self.output_tokens += max(0, output_tokens)
-
     def average_rate(self, now: float) -> float:
         elapsed = max(now - self.start_time, 0.001)
         return self.completed / elapsed if elapsed > 0 else 0.0
+
+
+@dataclass
+class _ModelUsageState:
+    model_alias: str
+    model_name: str
+    start_time: float
+    request_count: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def record_usage(self, *, model_name: str, input_tokens: int, output_tokens: int) -> None:
+        self.model_name = model_name
+        self.request_count += 1
+        self.input_tokens += max(0, input_tokens)
+        self.output_tokens += max(0, output_tokens)
+
+    def rpm(self, now: float) -> float:
+        elapsed_minutes = max((now - self.start_time) / 60.0, 0.001)
+        return self.request_count / elapsed_minutes
 
     def input_token_rate(self, now: float) -> float:
         elapsed = max(now - self.start_time, 0.001)
@@ -215,6 +231,7 @@ class StickyProgressBar:
         self._stream = stream or sys.stderr
         self._is_tty = hasattr(self._stream, "isatty") and self._stream.isatty()
         self._bars: dict[str, _BarState] = {}
+        self._model_usage: dict[str, _ModelUsageState] = {}
         self._lock = Lock()
         self._drawn_lines = 0
         self._active = False
@@ -296,20 +313,32 @@ class StickyProgressBar:
             if self._active:
                 self._redraw_if_due(now, force=force)
 
-    def record_token_usage(
+    def record_model_usage(
         self,
-        key: str,
         *,
+        model_alias: str,
+        model_name: str,
         input_tokens: int,
         output_tokens: int,
         force: bool = False,
     ) -> None:
         with self._lock:
-            if bar := self._bars.get(key):
-                now = time.perf_counter()
-                bar.record_token_usage(input_tokens=input_tokens, output_tokens=output_tokens)
-                if self._active:
-                    self._redraw_if_due(now, force=force)
+            now = time.perf_counter()
+            alias = _sanitize_label(model_alias) or "(unknown)"
+            name = _sanitize_label(model_name) or "(unknown)"
+            if state := self._model_usage.get(alias):
+                state.record_usage(model_name=name, input_tokens=input_tokens, output_tokens=output_tokens)
+            else:
+                self._model_usage[alias] = _ModelUsageState(
+                    model_alias=alias,
+                    model_name=name,
+                    start_time=self._start_time,
+                    request_count=1,
+                    input_tokens=max(0, input_tokens),
+                    output_tokens=max(0, output_tokens),
+                )
+            if self._active:
+                self._redraw_if_due(now, force=force)
 
     def remove_bar(self, key: str) -> None:
         with self._lock:
@@ -381,14 +410,19 @@ class StickyProgressBar:
         panel_height = min(self._panel_height, max(_MIN_PANEL_HEIGHT, terminal_size.lines - 1))
         inner_width = panel_width - 2
 
-        legend_capacity = 5 if panel_height >= 13 else max(1, panel_height - 9)
-        chart_line_count = max(3, panel_height - 4 - legend_capacity)
+        body_capacity = max(1, panel_height - 4)
+        max_legend_capacity = max(1, body_capacity - 3)
+        desired_legend_capacity = 8 if self._model_usage and panel_height >= 13 else 5
+        legend_capacity = min(max_legend_capacity, desired_legend_capacity)
+        chart_line_count = max(3, body_capacity - legend_capacity)
+        legend_capacity = max(1, body_capacity - chart_line_count)
         chart_height = chart_line_count - 1
 
         now = time.perf_counter()
         bars = list(self._bars.values())
+        model_usage = list(self._model_usage.values())
         chart_lines = self._format_chart_lines(bars, inner_width, chart_height)
-        legend_lines = self._format_legend_lines(bars, now, legend_capacity, inner_width)
+        legend_lines = self._format_legend_lines(bars, model_usage, now, legend_capacity, inner_width)
 
         lines = [
             self._border("╭", "─", "╮", panel_width),
@@ -437,6 +471,32 @@ class StickyProgressBar:
     def _format_legend_lines(
         self,
         bars: list[_BarState],
+        model_usage: list[_ModelUsageState],
+        now: float,
+        capacity: int,
+        inner_width: int,
+    ) -> list[str]:
+        if capacity <= 0:
+            return []
+
+        if not model_usage or capacity < 6:
+            lines = self._format_column_table_lines(bars, now, capacity, inner_width)
+        else:
+            model_capacity = min(len(model_usage) + 1, 3)
+            gap_capacity = 1 if capacity - model_capacity >= 3 else 0
+            column_capacity = max(1, capacity - model_capacity - gap_capacity)
+            lines = self._format_column_table_lines(bars, now, column_capacity, inner_width)
+            if gap_capacity:
+                lines.append("")
+            lines.extend(self._format_model_table_lines(model_usage, now, model_capacity, inner_width))
+
+        while len(lines) < capacity:
+            lines.append("")
+        return lines[:capacity]
+
+    def _format_column_table_lines(
+        self,
+        bars: list[_BarState],
         now: float,
         capacity: int,
         inner_width: int,
@@ -446,13 +506,11 @@ class StickyProgressBar:
             return lines
 
         include_status = any(bar.failed or bar.skipped for bar in bars)
-        label_width, done_width, rate_width, input_width, output_width, status_width, progress_width = (
-            self._legend_column_widths(
-                bars,
-                now,
-                include_status=include_status,
-                inner_width=inner_width,
-            )
+        label_width, done_width, rate_width, status_width, progress_width = self._column_table_widths(
+            bars,
+            now,
+            include_status=include_status,
+            inner_width=inner_width,
         )
         lines.append(
             self._format_legend_table_line(
@@ -461,14 +519,10 @@ class StickyProgressBar:
                 done="done",
                 now_value=_NOW_RATE_HEADER,
                 avg_value=_AVG_RATE_HEADER,
-                input_token_rate="in tok/s",
-                output_token_rate="out tok/s",
                 status="status" if include_status else None,
                 label_width=label_width,
                 done_width=done_width,
                 rate_width=rate_width,
-                input_width=input_width,
-                output_width=output_width,
                 status_width=status_width,
                 progress_bar="",
                 progress_width=progress_width,
@@ -489,14 +543,10 @@ class StickyProgressBar:
                     done=self._format_done(bar),
                     now_value=f"{bar.latest_rate:.1f}",
                     avg_value=f"{bar.average_rate(now):.1f}",
-                    input_token_rate=f"{bar.input_token_rate(now):.1f}",
-                    output_token_rate=f"{bar.output_token_rate(now):.1f}",
                     status=self._format_status(bar) if include_status else None,
                     label_width=label_width,
                     done_width=done_width,
                     rate_width=rate_width,
-                    input_width=input_width,
-                    output_width=output_width,
                     status_width=status_width,
                     progress_bar=self._format_progress_bar(bar, progress_width, color),
                     progress_width=progress_width,
@@ -506,18 +556,16 @@ class StickyProgressBar:
         if len(bars) > row_capacity and row_capacity > 0:
             lines.append(f"{_MUTED}... {len(bars) - len(visible_bars)} more column(s){_RESET}")
 
-        while len(lines) < capacity:
-            lines.append("")
         return lines[:capacity]
 
-    def _legend_column_widths(
+    def _column_table_widths(
         self,
         bars: list[_BarState],
         now: float,
         *,
         include_status: bool,
         inner_width: int,
-    ) -> tuple[int, int, int, int, int, int, int]:
+    ) -> tuple[int, int, int, int, int]:
         done_width = max(len("done"), *(len(self._format_done(bar)) for bar in bars))
         rate_width = max(
             len(_NOW_RATE_HEADER),
@@ -525,29 +573,13 @@ class StickyProgressBar:
             _RATE_COLUMN_WIDTH,
             *(len(f"{value:.1f}") for bar in bars for value in (bar.latest_rate, bar.average_rate(now))),
         )
-        input_width = max(
-            len("in tok/s"),
-            _INPUT_TOKEN_RATE_WIDTH,
-            *(len(f"{bar.input_token_rate(now):.1f}") for bar in bars),
-        )
-        output_width = max(
-            len("out tok/s"),
-            _OUTPUT_TOKEN_RATE_WIDTH,
-            *(len(f"{bar.output_token_rate(now):.1f}") for bar in bars),
-        )
         status_width = 0
         if include_status:
             status_width = max(len("status"), *(len(self._format_status(bar)) for bar in bars))
 
-        separator_count = 6 + int(include_status)
+        separator_count = 4 + int(include_status)
         fixed_width_without_label_or_progress = (
-            2
-            + (separator_count * _LEGEND_COLUMN_GAP)
-            + done_width
-            + (rate_width * 2)
-            + input_width
-            + output_width
-            + status_width
+            2 + (separator_count * _LEGEND_COLUMN_GAP) + done_width + (rate_width * 2) + status_width
         )
         content_label_width = max(len("column"), *(len(_sanitize_label(bar.label)) for bar in bars))
         desired_label_width = max(_MIN_LEGEND_LABEL_WIDTH, content_label_width)
@@ -563,7 +595,113 @@ class StickyProgressBar:
             label_width = max(_MIN_LEGEND_LABEL_WIDTH, min(desired_label_width, max(0, available_width)))
             progress_width = max(0, available_width - label_width)
 
-        return label_width, done_width, rate_width, input_width, output_width, status_width, progress_width
+        return label_width, done_width, rate_width, status_width, progress_width
+
+    def _format_model_table_lines(
+        self,
+        model_usage: list[_ModelUsageState],
+        now: float,
+        capacity: int,
+        inner_width: int,
+    ) -> list[str]:
+        lines: list[str] = []
+        if capacity <= 0:
+            return lines
+
+        alias_width, model_width, rpm_width, input_width, output_width = self._model_table_widths(
+            model_usage,
+            now,
+            inner_width,
+        )
+        lines.append(
+            self._format_model_table_line(
+                model_alias="model alias",
+                model_name="model name",
+                rpm="rpm",
+                input_token_rate="in tok/s",
+                output_token_rate="out tok/s",
+                alias_width=alias_width,
+                model_width=model_width,
+                rpm_width=rpm_width,
+                input_width=input_width,
+                output_width=output_width,
+                header=True,
+            )
+        )
+
+        row_capacity = max(0, capacity - 1)
+        visible_usage = model_usage[:row_capacity]
+        if len(model_usage) > row_capacity and row_capacity > 0:
+            visible_usage = model_usage[: max(0, row_capacity - 1)]
+
+        for state in visible_usage:
+            lines.append(
+                self._format_model_table_line(
+                    model_alias=state.model_alias,
+                    model_name=state.model_name,
+                    rpm=f"{state.rpm(now):.1f}",
+                    input_token_rate=f"{state.input_token_rate(now):.1f}",
+                    output_token_rate=f"{state.output_token_rate(now):.1f}",
+                    alias_width=alias_width,
+                    model_width=model_width,
+                    rpm_width=rpm_width,
+                    input_width=input_width,
+                    output_width=output_width,
+                    header=False,
+                )
+            )
+
+        if len(model_usage) > row_capacity and row_capacity > 0:
+            lines.append(f"{_MUTED}... {len(model_usage) - len(visible_usage)} more model(s){_RESET}")
+
+        return lines[:capacity]
+
+    def _model_table_widths(
+        self,
+        model_usage: list[_ModelUsageState],
+        now: float,
+        inner_width: int,
+    ) -> tuple[int, int, int, int, int]:
+        rpm_width = max(
+            len("rpm"),
+            _RATE_COLUMN_WIDTH,
+            *(len(f"{state.rpm(now):.1f}") for state in model_usage),
+        )
+        input_width = max(
+            len("in tok/s"),
+            _INPUT_TOKEN_RATE_WIDTH,
+            *(len(f"{state.input_token_rate(now):.1f}") for state in model_usage),
+        )
+        output_width = max(
+            len("out tok/s"),
+            _OUTPUT_TOKEN_RATE_WIDTH,
+            *(len(f"{state.output_token_rate(now):.1f}") for state in model_usage),
+        )
+
+        fixed_width_without_text = 2 + (4 * _LEGEND_COLUMN_GAP) + rpm_width + input_width + output_width
+        available_text_width = inner_width - fixed_width_without_text
+        desired_alias_width = max(
+            _MIN_MODEL_ALIAS_WIDTH,
+            len("model alias"),
+            *(len(state.model_alias) for state in model_usage),
+        )
+        desired_model_width = max(
+            _MIN_MODEL_NAME_WIDTH,
+            len("model name"),
+            *(len(state.model_name) for state in model_usage),
+        )
+
+        if available_text_width >= desired_alias_width + desired_model_width:
+            alias_width = desired_alias_width
+            model_width = desired_model_width
+        elif available_text_width >= _MIN_MODEL_ALIAS_WIDTH + _MIN_MODEL_NAME_WIDTH:
+            alias_width = min(desired_alias_width, max(_MIN_MODEL_ALIAS_WIDTH, available_text_width // 2))
+            model_width = available_text_width - alias_width
+        else:
+            alias_width = _MIN_MODEL_ALIAS_WIDTH
+            model_width = _MIN_MODEL_NAME_WIDTH
+
+        return alias_width, model_width, rpm_width, input_width, output_width
 
     def _format_progress_bar(self, bar: _BarState, width: int, color: str) -> str:
         if width <= 0:
@@ -588,14 +726,10 @@ class StickyProgressBar:
         done: str,
         now_value: str,
         avg_value: str,
-        input_token_rate: str,
-        output_token_rate: str,
         status: str | None,
         label_width: int,
         done_width: int,
         rate_width: int,
-        input_width: int,
-        output_width: int,
         status_width: int,
         progress_bar: str,
         progress_width: int,
@@ -603,9 +737,7 @@ class StickyProgressBar:
         marker_text = f"{marker} " if marker else "  "
         gap = " " * _LEGEND_COLUMN_GAP
         line = (
-            f"{marker_text}{_fit_plain(label, label_width)}"
-            f"{gap}{now_value:>{rate_width}}{gap}{avg_value:>{rate_width}}"
-            f"{gap}{input_token_rate:>{input_width}}{gap}{output_token_rate:>{output_width}}"
+            f"{marker_text}{_fit_plain(label, label_width)}{gap}{now_value:>{rate_width}}{gap}{avg_value:>{rate_width}}"
         )
         if status is not None:
             line = f"{line}{gap}{status:>{status_width}}"
@@ -615,6 +747,31 @@ class StickyProgressBar:
         if marker:
             return line
         return f"{_MUTED}{line}{_RESET}"
+
+    def _format_model_table_line(
+        self,
+        *,
+        model_alias: str,
+        model_name: str,
+        rpm: str,
+        input_token_rate: str,
+        output_token_rate: str,
+        alias_width: int,
+        model_width: int,
+        rpm_width: int,
+        input_width: int,
+        output_width: int,
+        header: bool,
+    ) -> str:
+        gap = " " * _LEGEND_COLUMN_GAP
+        line = (
+            f"  {_fit_plain(model_alias, alias_width)}{gap}{_fit_plain(model_name, model_width)}"
+            f"{gap}{rpm:>{rpm_width}}{gap}{input_token_rate:>{input_width}}"
+            f"{gap}{output_token_rate:>{output_width}}"
+        )
+        if header:
+            return f"{_MUTED}{line}{_RESET}"
+        return line
 
     def _format_done(self, bar: _BarState) -> str:
         pct = (bar.completed / bar.total * 100) if bar.total > 0 else 100.0
