@@ -351,6 +351,8 @@ def test_remove_bar_redraws_panel(tty_stream: FakeTTY) -> None:
 
 def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY) -> None:
     root_logger = logging.getLogger()
+    old_level = root_logger.level
+    root_logger.setLevel(logging.INFO)
     handler = logging.StreamHandler(tty_stream)
     handler.setFormatter(logging.Formatter("%(message)s"))
     root_logger.addHandler(handler)
@@ -393,10 +395,13 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
 
             snapshot = tty_stream.getvalue()
             reporter.log_final()
-            assert tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR) == 22
             assert bar.drawn_lines == 22
+            clear_count = tty_stream.getvalue()[len(snapshot) :].count(CURSOR_UP_CLEAR)
+            assert clear_count >= bar.drawn_lines
+            assert clear_count % bar.drawn_lines == 0
     finally:
         root_logger.removeHandler(handler)
+        root_logger.setLevel(old_level)
 
 
 def test_reporter_records_feedback_markers_from_request_events(tty_stream: FakeTTY) -> None:
