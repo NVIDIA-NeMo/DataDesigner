@@ -162,7 +162,7 @@ class AsyncTaskScheduler:
         num_records: int = 0,
         buffer_size: int = 0,
         progress_interval: float | None = None,
-        progress_bar: bool = False,
+        display_tui: bool = False,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
         run_id: str | None = None,
         adaptive_row_group_admission: bool = False,
@@ -311,7 +311,7 @@ class AsyncTaskScheduler:
         self._seed_cols: tuple[str, ...] = tuple(c for c in graph.columns if not graph.get_upstream_columns(c))
 
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
-        self._progress_bar = TerminalThroughputPanel() if progress_bar else None
+        self._progress_bar = TerminalThroughputPanel() if display_tui else None
         self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
 
     def _setup_async_progress_reporter(

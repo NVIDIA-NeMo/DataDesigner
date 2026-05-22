@@ -1066,7 +1066,7 @@ class DatasetBuilder:
             num_records=num_records,
             buffer_size=buffer_size,
             progress_interval=self._resource_provider.run_config.progress_interval,
-            progress_bar=self._resource_provider.run_config.progress_bar,
+            display_tui=self._resource_provider.run_config.display_tui,
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
             request_pressure_advisory=True,
         )
@@ -1417,7 +1417,7 @@ class DatasetBuilder:
     def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-        bar = TerminalThroughputPanel() if self._resource_provider.run_config.progress_bar else None
+        bar = TerminalThroughputPanel() if self._resource_provider.run_config.display_tui else None
         can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
@@ -1441,7 +1441,7 @@ class DatasetBuilder:
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-        bar = TerminalThroughputPanel() if self._resource_provider.run_config.progress_bar else None
+        bar = TerminalThroughputPanel() if self._resource_provider.run_config.display_tui else None
         can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)

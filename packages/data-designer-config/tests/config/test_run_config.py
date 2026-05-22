@@ -24,6 +24,37 @@ def test_run_config_accepts_native_renderer() -> None:
     assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.NATIVE
 
 
+def test_run_config_defaults_to_display_tui_enabled() -> None:
+    assert RunConfig().display_tui is True
+
+
+def test_run_config_accepts_display_tui() -> None:
+    assert RunConfig(display_tui=False).display_tui is False
+
+
+def test_run_config_progress_bar_shim_translates_to_display_tui() -> None:
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        run_config = RunConfig(progress_bar=False)
+
+    assert run_config.display_tui is False
+
+
+def test_run_config_progress_bar_property_getter_warns() -> None:
+    run_config = RunConfig(display_tui=False)
+
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        assert run_config.progress_bar is False
+
+
+def test_run_config_progress_bar_property_setter_warns() -> None:
+    run_config = RunConfig(display_tui=False)
+
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        run_config.progress_bar = True
+
+    assert run_config.display_tui is True
+
+
 def test_run_config_throttle_shim_rejects_unknown_legacy_fields() -> None:
     with pytest.raises(ValidationError, match="max_concurrent_requests"):
         RunConfig(throttle={"max_concurrent_requests": 1})

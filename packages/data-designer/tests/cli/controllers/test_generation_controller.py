@@ -719,7 +719,7 @@ def test_run_create_applies_tui_override(mock_load_config: MagicMock, mock_dd_cl
     """run_create applies explicit --tui/--no-tui override to RunConfig."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
-    mock_dd.run_config = RunConfig(progress_bar=not tui)
+    mock_dd.run_config = RunConfig(display_tui=not tui)
     mock_dd_cls.return_value = mock_dd
     mock_dd.create.return_value = _make_mock_create_results()
 
@@ -733,7 +733,7 @@ def test_run_create_applies_tui_override(mock_load_config: MagicMock, mock_dd_cl
     )
 
     mock_dd.set_run_config.assert_called_once()
-    assert mock_dd.set_run_config.call_args.args[0].progress_bar is tui
+    assert mock_dd.set_run_config.call_args.args[0].display_tui is tui
     mock_dd.create.assert_called_once_with(
         mock_load_config.return_value, num_records=10, dataset_name="dataset", resume=ResumeMode.NEVER
     )
