@@ -184,7 +184,7 @@ config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=df_seed))
 # ]
 # ```
 #
-# URL-backed media can use `data_type=dd.ModalityDataType.URL`, subject to the provider's URL support and file-size limits. Local audio/video paths in URL mode require the model endpoint to have filesystem access to the same paths, typically a colocated vLLM server configured for local media access.
+# URL-backed media can use `data_type=dd.ModalityDataType.URL`, subject to the provider's URL support and file-size limits. Local audio/video paths require explicit URL mode and require the model endpoint to have filesystem access to the same paths, typically a colocated vLLM server configured for local media access.
 
 # %%
 # Add a column to generate detailed image descriptions

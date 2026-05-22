@@ -9,7 +9,7 @@ Model configurations define the specific models you use for synthetic data gener
 
 A `ModelConfig` specifies which LLM model to use and how it should behave during generation. When you create column configurations (like `LLMText`, `LLMCode`, or `LLMStructured`), you reference a model by its alias. Data Designer uses the model configuration to determine which model to call and with what parameters.
 
-When a column includes `multi_modal_context`, the `ModelConfig` alias must point to a model that supports the media types you send. Data Designer can serialize image, audio, and video context blocks, but model capability is still provider-specific. Local audio/video paths in URL mode require the model endpoint to have filesystem access to the same paths, typically a colocated vLLM server configured for local media access.
+When a column includes `multi_modal_context`, the `ModelConfig` alias must point to a model that supports the media types you send. Data Designer can serialize image, audio, and video context blocks, but model capability is still provider-specific. Local audio/video paths require explicit URL mode (`data_type=url`) and require the model endpoint to have filesystem access to the same paths, typically a colocated vLLM server configured for local media access.
 
 ## ModelConfig Structure
 

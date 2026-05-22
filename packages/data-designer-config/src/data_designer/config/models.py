@@ -180,10 +180,9 @@ def _image_formats_match(configured_format: ImageFormat, detected_format: ImageF
 class AudioContext(ModalityContext):
     """Configuration for providing audio context to multimodal models.
 
-    Audio context values are URL, local path, or base64 media values. Local
-    paths are passed through so colocated vLLM servers can read them directly.
-    ``audio_format`` is consulted only for base64 sources; URL and local-path
-    sources are passed through unchanged.
+    Audio context values are URL or base64 media values. Local paths may be
+    passed through only in explicit URL mode so colocated model endpoints can
+    read them directly. ``audio_format`` is consulted only for base64 sources.
     """
 
     modality: Literal[Modality.AUDIO] = Modality.AUDIO
@@ -193,7 +192,7 @@ class AudioContext(ModalityContext):
         """Get audio contexts.
 
         ``base_path`` is accepted for signature compatibility with ``ImageContext``
-        but unused; local audio paths are passed through unchanged.
+        but unused; audio contexts do not resolve local files to base64.
         """
         return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
 
@@ -202,7 +201,7 @@ class AudioContext(ModalityContext):
             self._validate_url_context_value(context_value)
             return get_media_url_context(Modality.AUDIO.value, context_value)
 
-        if self.data_type is None and (is_audio_path(context_value) or is_media_url(context_value)):
+        if self.data_type is None and is_media_url(context_value):
             return get_media_url_context(Modality.AUDIO.value, context_value)
 
         media_type, data = self._resolve_base64_parts(context_value)
@@ -223,8 +222,8 @@ class AudioContext(ModalityContext):
 
         if is_audio_path(context_value):
             raise ValueError(
-                "audio base64 context values must be base64 audio data; use data_type=url "
-                "or omit data_type to pass local audio paths through"
+                "audio context values that look like local paths must use data_type=url; "
+                "otherwise provide base64 audio data"
             )
 
         if self.audio_format is None:
@@ -245,10 +244,9 @@ class AudioContext(ModalityContext):
 class VideoContext(ModalityContext):
     """Configuration for providing video context to multimodal models.
 
-    Video context values are URL, local path, or base64 media values. Local
-    paths are passed through so colocated vLLM servers can read them directly.
-    ``video_format`` is consulted only for base64 sources; URL and local-path
-    sources are passed through unchanged.
+    Video context values are URL or base64 media values. Local paths may be
+    passed through only in explicit URL mode so colocated model endpoints can
+    read them directly. ``video_format`` is consulted only for base64 sources.
     """
 
     modality: Literal[Modality.VIDEO] = Modality.VIDEO
@@ -258,7 +256,7 @@ class VideoContext(ModalityContext):
         """Get video contexts.
 
         ``base_path`` is accepted for signature compatibility with ``ImageContext``
-        but unused; local video paths are passed through unchanged.
+        but unused; video contexts do not resolve local files to base64.
         """
         return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
 
@@ -267,7 +265,7 @@ class VideoContext(ModalityContext):
             self._validate_url_context_value(context_value)
             return get_media_url_context(Modality.VIDEO.value, context_value)
 
-        if self.data_type is None and (is_video_path(context_value) or is_media_url(context_value)):
+        if self.data_type is None and is_media_url(context_value):
             return get_media_url_context(Modality.VIDEO.value, context_value)
 
         media_type, data = self._resolve_base64_parts(context_value)
@@ -288,8 +286,8 @@ class VideoContext(ModalityContext):
 
         if is_video_path(context_value):
             raise ValueError(
-                "video base64 context values must be base64 video data; use data_type=url "
-                "or omit data_type to pass local video paths through"
+                "video context values that look like local paths must use data_type=url; "
+                "otherwise provide base64 video data"
             )
 
         if self.video_format is None:
