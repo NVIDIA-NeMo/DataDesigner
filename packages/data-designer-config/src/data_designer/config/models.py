@@ -184,10 +184,7 @@ class AudioContext(ModalityContext):
             self._validate_url_context_value(context_value)
             return get_media_url_context(Modality.AUDIO.value, context_value)
 
-        if self.data_type is None and is_audio_path(context_value):
-            return get_media_url_context(Modality.AUDIO.value, context_value)
-
-        if self.data_type is None and is_media_url(context_value):
+        if self.data_type is None and (is_audio_path(context_value) or is_media_url(context_value)):
             return get_media_url_context(Modality.AUDIO.value, context_value)
 
         media_type, data = self._resolve_base64_parts(context_value)
@@ -246,10 +243,7 @@ class VideoContext(ModalityContext):
             self._validate_url_context_value(context_value)
             return get_media_url_context(Modality.VIDEO.value, context_value)
 
-        if self.data_type is None and is_video_path(context_value):
-            return get_media_url_context(Modality.VIDEO.value, context_value)
-
-        if self.data_type is None and is_media_url(context_value):
+        if self.data_type is None and (is_video_path(context_value) or is_media_url(context_value)):
             return get_media_url_context(Modality.VIDEO.value, context_value)
 
         media_type, data = self._resolve_base64_parts(context_value)
