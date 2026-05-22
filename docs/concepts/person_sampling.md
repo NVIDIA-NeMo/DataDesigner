@@ -40,7 +40,7 @@ config_builder.add_column(
 )
 ```
 
-For mor details, see the documentation for [`SamplerColumnConfig`](../code_reference/config/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonFromFakerSamplerParams`](../code_reference/config/sampler_params.md#data_designer.config.sampler_params.PersonFromFakerSamplerParams).
+Use `SamplerColumnConfig` with `PersonFromFakerSamplerParams` when you need locale-aware synthetic person fields.
 
 ---
 
@@ -161,7 +161,7 @@ config_builder.add_column(
 )
 ```
 
-For more details, see the documentation for [`SamplerColumnConfig`](../code_reference/config/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonSamplerParams`](../code_reference/config/sampler_params.md#data_designer.config.sampler_params.PersonSamplerParams).
+Use `SamplerColumnConfig` with `PersonSamplerParams` when you need richer personas from curated datasets.
 
 ### Available Data Fields
 

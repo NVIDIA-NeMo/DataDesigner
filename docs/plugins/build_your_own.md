@@ -100,7 +100,7 @@ data-designer-my-plugin/
     index-multiplier = "data_designer_index_multiplier.plugin:plugin"
     ```
 
-    For the generator implementation contract, see [Column Generators](../code_reference/engine/column_generators.md). For inline custom functions, see [Custom Columns](../concepts/custom_columns.md).
+    For inline custom functions, see [Custom Columns](../concepts/custom_columns.md).
 
 === "Seed reader"
 
@@ -196,7 +196,7 @@ data-designer-my-plugin/
     prefixed-text-files = "data_designer_prefixed_text_seed_reader.plugin:plugin"
     ```
 
-    For the engine API behind this example, see [Seed Readers](../code_reference/engine/seed_readers.md).
+    This pattern works for any directory-backed seed reader.
 
 === "Processor"
 
@@ -265,7 +265,7 @@ data-designer-my-plugin/
     regex-filter = "data_designer_regex_filter.plugin:plugin"
     ```
 
-    For callback selection and processor execution details, see [Processors](../concepts/processors.md). For the engine API behind this example, see [Engine Processors code reference](../code_reference/engine/processors.md).
+    For callback selection and processor execution details, see [Processors](../concepts/processors.md).
 
 ## Install and use locally
 

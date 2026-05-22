@@ -208,7 +208,7 @@ without at least one provider configured. Stick to config-layer checks
 (`DataDesignerConfigBuilder.build()`, column type resolution) which do
 not require providers.
 
-**API reference** for writing checks:
+**Useful imports** for writing checks:
 
 ```python
 from data_designer.config.config_builder import DataDesignerConfigBuilder
