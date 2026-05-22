@@ -13,6 +13,7 @@ from data_designer.cli.controllers.generation_controller import GenerationContro
 from data_designer.cli.utils.config_loader import ConfigLoadError
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.run_config import RunConfig
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.engine.storage.artifact_storage import ResumeMode
 
@@ -708,6 +709,35 @@ def test_run_create_custom_options(mock_load_config: MagicMock, mock_dd_cls: Mag
     mock_dd_cls.assert_called_once_with(artifact_path=Path("/custom/output"))
     mock_dd.create.assert_called_once_with(
         mock_load_config.return_value, num_records=100, dataset_name="my_data", resume=ResumeMode.NEVER
+    )
+
+
+@pytest.mark.parametrize("progress", [True, False])
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_applies_progress_override(
+    mock_load_config: MagicMock, mock_dd_cls: MagicMock, progress: bool
+) -> None:
+    """run_create applies explicit --progress/--no-progress override to RunConfig."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd.run_config = RunConfig(progress_bar=not progress)
+    mock_dd_cls.return_value = mock_dd
+    mock_dd.create.return_value = _make_mock_create_results()
+
+    controller = GenerationController()
+    controller.run_create(
+        config_source="config.yaml",
+        num_records=10,
+        dataset_name="dataset",
+        artifact_path=None,
+        progress=progress,
+    )
+
+    mock_dd.set_run_config.assert_called_once()
+    assert mock_dd.set_run_config.call_args.args[0].progress_bar is progress
+    mock_dd.create.assert_called_once_with(
+        mock_load_config.return_value, num_records=10, dataset_name="dataset", resume=ResumeMode.NEVER
     )
 
 

@@ -61,6 +61,14 @@ def create_command(
             "The file is written to <artifact-path>/<dataset-name>/<dataset-name>.<format>."
         ),
     ),
+    progress: bool | None = typer.Option(
+        None,
+        "--progress/--no-progress",
+        help=(
+            "Force the terminal progress panel on or off for this run. "
+            "When omitted, uses the configured RunConfig setting."
+        ),
+    ),
 ) -> None:
     """Create a full dataset and save results to disk.
 
@@ -91,4 +99,5 @@ def create_command(
         artifact_path=artifact_path,
         resume=resume,
         output_format=output_format,
+        progress=progress,
     )

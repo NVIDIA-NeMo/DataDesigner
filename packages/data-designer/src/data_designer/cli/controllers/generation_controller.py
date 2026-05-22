@@ -119,6 +119,7 @@ class GenerationController:
         artifact_path: str | None,
         resume: ResumeMode = ResumeMode.NEVER,
         output_format: str | None = None,
+        progress: bool | None = None,
     ) -> None:
         """Load config, create a full dataset, and save results to disk.
 
@@ -130,6 +131,8 @@ class GenerationController:
             resume: Controls how interrupted runs are handled.
             output_format: If set, export the dataset to a single file in this format after
                 generation. One of 'jsonl', 'csv', 'parquet'.
+            progress: If set, overrides the active RunConfig progress_bar setting for this
+                create invocation.
         """
         config_builder = self._load_config(config_source)
 
@@ -144,6 +147,8 @@ class GenerationController:
 
         try:
             data_designer = DataDesigner(artifact_path=resolved_artifact_path)
+            if progress is not None:
+                data_designer.set_run_config(data_designer.run_config.model_copy(update={"progress_bar": progress}))
             results = data_designer.create(
                 config_builder,
                 num_records=num_records,
