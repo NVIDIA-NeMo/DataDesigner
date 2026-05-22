@@ -22,7 +22,6 @@ from data_designer.engine.models.usage import TokenCountSource
 from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
 
 PROVIDER = "test-provider"
-OPENAI_PROVIDER = "openai"
 MODEL = "gpt-test"
 ENDPOINT = "https://api.example.com/v1"
 
@@ -32,11 +31,10 @@ def _make_client(
     sync_client: MagicMock | None = None,
     async_client: MagicMock | None = None,
     api_key: str | None = "sk-test-key",
-    provider_name: str = PROVIDER,
 ) -> OpenAICompatibleClient:
     concurrency_mode = ClientConcurrencyMode.ASYNC if async_client is not None else ClientConcurrencyMode.SYNC
     return OpenAICompatibleClient(
-        provider_name=provider_name,
+        provider_name=PROVIDER,
         endpoint=ENDPOINT,
         api_key=api_key,
         concurrency_mode=concurrency_mode,
@@ -389,33 +387,6 @@ def test_completion_translates_audio_url_blocks() -> None:
     assert content[0] == {"type": "audio_url", "audio_url": {"url": "https://example.com/download?id=123"}}
 
 
-@pytest.mark.parametrize(
-    "audio_block",
-    [
-        get_media_url_context(Modality.AUDIO.value, "https://example.com/download?id=123"),
-        {"type": "audio_url", "audio_url": {"url": "https://example.com/download?id=123"}},
-    ],
-    ids=["canonical", "provider-specific"],
-)
-def test_completion_rejects_audio_url_blocks_for_openai_provider(audio_block: dict[str, Any]) -> None:
-    sync_mock = make_mock_sync_client(_chat_response())
-    client = _make_client(sync_client=sync_mock, provider_name=OPENAI_PROVIDER)
-
-    request = ChatCompletionRequest(
-        model=MODEL,
-        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
-    )
-
-    with pytest.raises(ProviderError) as exc_info:
-        client.completion(request)
-
-    assert exc_info.value.kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY
-    assert exc_info.value.provider_name == OPENAI_PROVIDER
-    assert exc_info.value.model_name == MODEL
-    assert "audio url context" in exc_info.value.message
-    sync_mock.post.assert_not_called()
-
-
 def test_completion_translates_local_audio_path_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
@@ -478,35 +449,6 @@ def test_completion_translates_base64_video_blocks() -> None:
     payload = sync_mock.post.call_args.kwargs["json"]
     content = payload["messages"][0]["content"]
     assert content[0] == {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,abc123"}}
-
-
-@pytest.mark.parametrize(
-    "video_block",
-    [
-        get_media_url_context(Modality.VIDEO.value, "https://example.com/download?id=123"),
-        get_media_base64_context(Modality.VIDEO.value, "video/mp4", "abc123"),
-        {"type": "video_url", "video_url": {"url": "https://example.com/download?id=123"}},
-        {"type": "input_video", "input_video": {"data": "abc123", "format": "mp4"}},
-    ],
-    ids=["canonical-url", "canonical-base64", "provider-video-url", "provider-input-video"],
-)
-def test_completion_rejects_video_blocks_for_openai_provider(video_block: dict[str, Any]) -> None:
-    sync_mock = make_mock_sync_client(_chat_response())
-    client = _make_client(sync_client=sync_mock, provider_name=OPENAI_PROVIDER)
-
-    request = ChatCompletionRequest(
-        model=MODEL,
-        messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
-    )
-
-    with pytest.raises(ProviderError) as exc_info:
-        client.completion(request)
-
-    assert exc_info.value.kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY
-    assert exc_info.value.provider_name == OPENAI_PROVIDER
-    assert exc_info.value.model_name == MODEL
-    assert "video" in exc_info.value.message
-    sync_mock.post.assert_not_called()
 
 
 # --- Auth headers ---
@@ -576,6 +518,25 @@ def test_http_error_maps_to_provider_error(
         client.completion(request)
 
     assert exc_info.value.kind == expected_kind
+
+
+def test_http_400_error_preserves_provider_message() -> None:
+    error_json = {"error": {"message": "Unsupported content type: audio_url"}}
+    sync_mock = make_mock_sync_client(error_json, status_code=400)
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = get_media_url_context(Modality.AUDIO.value, "https://example.com/speech.mp3")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.BAD_REQUEST
+    assert exc_info.value.status_code == 400
+    assert "Unsupported content type: audio_url" in exc_info.value.message
+    sync_mock.post.assert_called_once()
 
 
 def test_transport_timeout_raises_timeout_error() -> None:
