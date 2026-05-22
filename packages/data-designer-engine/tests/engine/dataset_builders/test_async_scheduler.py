@@ -38,6 +38,7 @@ from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionLease
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
+from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
@@ -1838,6 +1839,24 @@ async def test_scheduler_llm_bound_one_way_handoff() -> None:
     snapshot = scheduler.task_admission_snapshot()
     assert snapshot.resources_available["submission"] == max_submitted
     assert snapshot.resources_available["llm_wait"] == max_llm_wait
+
+
+def test_scheduler_default_task_admission_uses_bounded_borrow_policy() -> None:
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+    )
+
+    assert isinstance(scheduler.task_admission_config.bounded_borrow, BoundedBorrowTaskAdmissionPolicyConfig)
 
 
 @pytest.mark.asyncio(loop_scope="session")

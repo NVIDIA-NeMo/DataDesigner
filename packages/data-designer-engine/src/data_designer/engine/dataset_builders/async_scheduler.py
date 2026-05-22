@@ -44,6 +44,7 @@ from data_designer.engine.dataset_builders.scheduling.task_admission import (
     TaskAdmissionLease,
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
+from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
@@ -185,6 +186,7 @@ class AsyncTaskScheduler:
         admission_config = task_admission_config or TaskAdmissionConfig(
             submission_capacity=max_submitted_tasks,
             resource_limits={"llm_wait": max_model_task_admission, "local": max_submitted_tasks},
+            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(),
         )
         self._task_admission = TaskAdmissionController(admission_config)
         self._task_admission_config = admission_config
@@ -1841,6 +1843,11 @@ class AsyncTaskScheduler:
     def task_admission_snapshot(self) -> object:
         """Return the current scheduler task-admission snapshot for diagnostics."""
         return self._task_admission.view()
+
+    @property
+    def task_admission_config(self) -> TaskAdmissionConfig:
+        """Return the effective scheduler task-admission config."""
+        return self._task_admission_config
 
     def capacity_plan(self) -> AsyncCapacityPlan:
         """Return the scheduler-side async capacity explanation for this run."""

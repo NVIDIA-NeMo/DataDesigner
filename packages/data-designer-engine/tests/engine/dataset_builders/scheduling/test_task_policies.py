@@ -88,13 +88,47 @@ def test_strict_fair_policy_denies_capped_group_with_peer_pressure() -> None:
 def test_bounded_borrow_policy_records_borrow_without_peer_pressure() -> None:
     group = TaskGroupSpec(TaskGroupKey(kind="model", identity=("provider", "model")), admitted_limit=1)
     item = _item("a", group)
-    policy = BoundedBorrowTaskAdmissionPolicy(BoundedBorrowTaskAdmissionPolicyConfig(default_borrow_ceiling=1))
+    policy = BoundedBorrowTaskAdmissionPolicy(
+        BoundedBorrowTaskAdmissionPolicyConfig(
+            default_borrow_ceiling=1,
+            strict_share_rounding="floor",
+        )
+    )
 
     decision = policy.evaluate(item, _queue_view(item), _admission_view(running_group=group.key))
     delta = policy.on_acquire(_lease(item), decision)
 
     assert decision.allowed is True
     assert delta.debt_changes == {(group.key, "submission"): 1}
+
+
+def test_bounded_borrow_policy_defaults_to_ceil_strict_share_rounding() -> None:
+    config = BoundedBorrowTaskAdmissionPolicyConfig()
+
+    assert config.strict_share_rounding == "ceil"
+    assert config.default_borrow_ceiling is None
+    assert config.dynamic_borrow_reserve_fraction == 0.125
+    assert config.dynamic_borrow_max_reserved_slots == 8
+
+
+def test_bounded_borrow_policy_zero_resource_limit_has_no_strict_share() -> None:
+    group = TaskGroupSpec(TaskGroupKey(kind="model", identity=("provider", "model")), admitted_limit=1)
+    item = _item("a", group)
+    policy = BoundedBorrowTaskAdmissionPolicy(BoundedBorrowTaskAdmissionPolicyConfig())
+    view = TaskAdmissionView(
+        resource_limits={"submission": 0},
+        resources_available={"submission": 0},
+        leased_resources={},
+        leased_resources_by_group={},
+        running_counts_by_group={},
+        policy_debt_by_group_resource={},
+    )
+
+    decision = policy.evaluate(item, _queue_view(item), view)
+
+    assert decision.allowed is False
+    assert decision.reason == "borrow_debt"
+    assert decision.diagnostics["strict_share"] == 0
 
 
 def test_bounded_borrow_policy_denies_existing_debt_under_peer_pressure() -> None:
