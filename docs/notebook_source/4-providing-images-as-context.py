@@ -19,9 +19,11 @@
 # #### 📚 What you'll learn
 #
 # This notebook demonstrates how to provide images as context to generate text descriptions using vision-language models.
+# The same `multi_modal_context` field can also carry audio or video context when the selected model supports those modalities.
 #
 # - ✨ **Visual Document Processing**: Converting images to chat-ready format for model consumption
 # - 🔍 **Vision-Language Generation**: Using vision models to generate detailed summaries from images
+# - 🧩 **Media Context Pattern**: Understanding how `ImageContext`, `AudioContext`, and `VideoContext` fit into the same configuration field
 #
 # If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
@@ -153,6 +155,37 @@ img_dataset.head()
 df_seed = pd.DataFrame(img_dataset)[["uuid", "label", "base64_image"]]
 config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=df_seed))
 
+# %% [markdown]
+# ### 🧩 Media context and model capabilities
+#
+# `multi_modal_context` accepts media context descriptors such as `ImageContext`, `AudioContext`, and `VideoContext`. Data Designer reads the referenced seed columns and serializes them for the model request, but the selected model still determines which modalities are valid.
+#
+# This notebook uses image context only because image-capable VLMs are broadly available. Before combining image, audio, and video in one column, choose a model alias backed by an omni or otherwise modality-compatible model, and check that the provider accepts every context type you send.
+#
+# For base64 seed columns, store the raw base64 payload without a `data:<media-type>;base64,` prefix and specify the media format on the context object:
+#
+# ```python
+# media_context = [
+#     dd.ImageContext(
+#         column_name="image_base64",
+#         data_type=dd.ModalityDataType.BASE64,
+#         image_format=dd.ImageFormat.PNG,
+#     ),
+#     dd.AudioContext(
+#         column_name="audio_base64",
+#         data_type=dd.ModalityDataType.BASE64,
+#         audio_format=dd.AudioFormat.MP3,
+#     ),
+#     dd.VideoContext(
+#         column_name="video_base64",
+#         data_type=dd.ModalityDataType.BASE64,
+#         video_format=dd.VideoFormat.MP4,
+#     ),
+# ]
+# ```
+#
+# URL-backed media can use `data_type=dd.ModalityDataType.URL`, subject to the provider's URL support and file-size limits.
+
 # %%
 # Add a column to generate detailed image descriptions
 config_builder.add_column(
@@ -257,7 +290,7 @@ analysis.to_report()
 #
 # - Experiment with different vision models for specific image types
 # - Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)
-# - Combine vision-based descriptions with other column types for multi-modal workflows
+# - Combine image, audio, or video context with other column types after confirming your selected model supports those modalities
 # - Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering
 #
 # - [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) with Data Designer

@@ -9,6 +9,8 @@ Model configurations define the specific models you use for synthetic data gener
 
 A `ModelConfig` specifies which LLM model to use and how it should behave during generation. When you create column configurations (like `LLMText`, `LLMCode`, or `LLMStructured`), you reference a model by its alias. Data Designer uses the model configuration to determine which model to call and with what parameters.
 
+When a column includes `multi_modal_context`, the `ModelConfig` alias must point to a model that supports the media types you send. Data Designer can serialize image, audio, and video context blocks, but model capability is still provider-specific.
+
 ## ModelConfig Structure
 
 The `ModelConfig` class has the following fields:
@@ -81,13 +83,13 @@ model_configs = [
             max_tokens=4096,
         ),
     ),
-    # Vision tasks
+    # Omni multimodal tasks
     dd.ModelConfig(
         alias="vision-model",
-        model="nvidia/nemotron-nano-12b-v2-vl",
+        model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
-            temperature=0.7,
+            temperature=0.60,
             top_p=0.95,
             max_tokens=2048,
         ),
