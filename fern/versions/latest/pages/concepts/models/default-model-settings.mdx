@@ -75,7 +75,7 @@ The following model configurations are automatically available when `OPENROUTER_
 | `openrouter-embedding` | `openai/text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
 
 <Note title="Modality support depends on the model">
-  The `multi_modal_context` field can include image, audio, and video contexts, but each model/provider combination has its own accepted input formats, media-size limits, and modality mix. Use an image-capable model for image-only workflows, and use an omni or otherwise multimodal model before sending audio or video context.
+  The `multi_modal_context` field can include image, audio, and video contexts, but each model/provider combination has its own accepted input formats, media-size limits, and modality mix. Use an image-capable model for image-only workflows, and use an omni or otherwise multimodal model before sending audio or video context. Local audio/video paths in URL mode require the model endpoint to have filesystem access to the same paths, typically a colocated vLLM server configured for local media access.
 </Note>
 
 

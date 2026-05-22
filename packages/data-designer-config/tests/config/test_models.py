@@ -158,6 +158,21 @@ def test_image_context_validate_image_format():
         ImageContext(column_name="image_base64", data_type=ModalityDataType.BASE64)
 
 
+def test_image_context_validates_data_uri_media_type_against_image_format() -> None:
+    context = ImageContext(column_name="image_base64", image_format=ImageFormat.PNG)
+
+    with pytest.raises(ValueError, match="image_format 'png' does not match data URI media type 'image/jpeg'"):
+        context.get_contexts({"image_base64": "data:image/jpeg;base64,image1base64"})
+
+
+def test_image_context_accepts_jpg_format_for_jpeg_data_uri() -> None:
+    context = ImageContext(column_name="image_base64", image_format=ImageFormat.JPG)
+
+    assert context.get_contexts({"image_base64": "data:image/jpeg;base64,image1base64"}) == [
+        get_media_base64_context(Modality.IMAGE.value, "image/jpeg", "image1base64")
+    ]
+
+
 def test_image_context_no_data_type_passes_validation() -> None:
     """Test that ImageContext without data_type passes validation."""
     context = ImageContext(column_name="image_col")

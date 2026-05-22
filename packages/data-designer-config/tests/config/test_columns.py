@@ -206,16 +206,56 @@ def test_column_config_accepts_legacy_image_context_dict(
     config_cls: type[LLMTextColumnConfig] | type[ImageColumnConfig],
     name: str,
 ) -> None:
-    config = config_cls(
-        name=name,
-        prompt="Describe the image",
-        model_alias=stub_model_alias,
-        multi_modal_context=[{"column_name": "image_url", "data_type": "url"}],
-    )
+    with pytest.warns(DeprecationWarning, match="treated as legacy ImageContext configs"):
+        config = config_cls(
+            name=name,
+            prompt="Describe the image",
+            model_alias=stub_model_alias,
+            multi_modal_context=[{"column_name": "image_url", "data_type": "url"}],
+        )
 
     assert config.multi_modal_context is not None
     assert isinstance(config.multi_modal_context[0], ImageContext)
     assert config.multi_modal_context[0].column_name == "image_url"
+
+
+@pytest.mark.parametrize(
+    "context_dict",
+    [
+        {"column_name": "audio_url", "data_type": "url"},
+        {"column_name": "video_url", "data_type": "url"},
+    ],
+    ids=["audio-url-shaped", "video-url-shaped"],
+)
+def test_column_config_warns_modality_less_url_context_is_legacy_image(context_dict: dict[str, str]) -> None:
+    with pytest.warns(DeprecationWarning, match="treated as legacy ImageContext configs"):
+        config = LLMTextColumnConfig(
+            name="test_llm_text",
+            prompt="Describe the context",
+            model_alias=stub_model_alias,
+            multi_modal_context=[context_dict],
+        )
+
+    assert config.multi_modal_context is not None
+    assert isinstance(config.multi_modal_context[0], ImageContext)
+
+
+@pytest.mark.parametrize(
+    "context_dict",
+    [
+        {"column_name": "audio_url", "data_type": "url", "audio_format": "mp3"},
+        {"column_name": "video_url", "data_type": "url", "video_format": "mp4"},
+    ],
+    ids=["audio-format", "video-format"],
+)
+def test_column_config_requires_modality_for_audio_video_specific_dicts(context_dict: dict[str, str]) -> None:
+    with pytest.raises(ValidationError, match="modality"):
+        LLMTextColumnConfig(
+            name="test_llm_text",
+            prompt="Describe the context",
+            model_alias=stub_model_alias,
+            multi_modal_context=[context_dict],
+        )
 
 
 def test_llm_text_column_config_with_trace_serialization() -> None:

@@ -32,6 +32,7 @@ from data_designer.config.utils.media_helpers import (
     detect_image_format,
     get_media_base64_context,
     get_media_url_context,
+    image_format_from_mime_type,
     is_audio_path,
     is_image_path,
     is_image_url,
@@ -148,8 +149,13 @@ class ImageContext(ModalityContext):
         parsed = parse_base64_data_uri(base64_data)
         if parsed is not None:
             media_type, data = parsed
-            if not media_type.startswith("image/"):
+            detected_format = image_format_from_mime_type(media_type)
+            if detected_format is None:
                 raise ValueError(f"Unsupported image media type {media_type!r}")
+            if self.image_format is not None and not _image_formats_match(self.image_format, detected_format):
+                raise ValueError(
+                    f"image_format {self.image_format.value!r} does not match data URI media type {media_type!r}"
+                )
             return get_media_base64_context(Modality.IMAGE.value, media_type, data)
 
         image_format = self.image_format
@@ -165,18 +171,30 @@ class ImageContext(ModalityContext):
         return self
 
 
+def _image_formats_match(configured_format: ImageFormat, detected_format: ImageFormat) -> bool:
+    if configured_format == detected_format:
+        return True
+    return {configured_format, detected_format} == {ImageFormat.JPG, ImageFormat.JPEG}
+
+
 class AudioContext(ModalityContext):
     """Configuration for providing audio context to multimodal models.
 
     Audio context values are URL, local path, or base64 media values. Local
     paths are passed through so colocated vLLM servers can read them directly.
+    ``audio_format`` is consulted only for base64 sources; URL and local-path
+    sources are passed through unchanged.
     """
 
     modality: Literal[Modality.AUDIO] = Modality.AUDIO
     audio_format: AudioFormat | None = None
 
     def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
-        """Get the contexts for the audio modality."""
+        """Get audio contexts.
+
+        ``base_path`` is accepted for signature compatibility with ``ImageContext``
+        but unused; local audio paths are passed through unchanged.
+        """
         return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
 
     def _build_context(self, context_value: Any) -> dict[str, Any]:
@@ -229,13 +247,19 @@ class VideoContext(ModalityContext):
 
     Video context values are URL, local path, or base64 media values. Local
     paths are passed through so colocated vLLM servers can read them directly.
+    ``video_format`` is consulted only for base64 sources; URL and local-path
+    sources are passed through unchanged.
     """
 
     modality: Literal[Modality.VIDEO] = Modality.VIDEO
     video_format: VideoFormat | None = None
 
     def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
-        """Get the contexts for the video modality."""
+        """Get video contexts.
+
+        ``base_path`` is accepted for signature compatibility with ``ImageContext``
+        but unused; local video paths are passed through unchanged.
+        """
         return [self._build_context(value) for value in normalize_media_context_values(record[self.column_name])]
 
     def _build_context(self, context_value: Any) -> dict[str, Any]:

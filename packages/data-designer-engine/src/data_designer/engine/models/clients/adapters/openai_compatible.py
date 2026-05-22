@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from data_designer.config.utils.constants import OPENAI_PROVIDER_NAME
 from data_designer.config.utils.media_helpers import audio_format_from_mime_type
 from data_designer.engine.models.clients.adapters.http_model_client import (
     HttpModelClient,
@@ -167,7 +168,11 @@ def translate_openai_compatible_messages(
         translated = dict(message)
         if "content" in translated:
             try:
-                translated["content"] = translate_openai_compatible_content_blocks(translated["content"])
+                translated["content"] = translate_openai_compatible_content_blocks(
+                    translated["content"],
+                    provider_name=provider_name,
+                    model_name=model_name,
+                )
             except ValueError as exc:
                 raise ProviderError(
                     kind=ProviderErrorKind.BAD_REQUEST,
@@ -180,14 +185,27 @@ def translate_openai_compatible_messages(
     return translated_messages
 
 
-def translate_openai_compatible_content_blocks(content: Any) -> Any:
+def translate_openai_compatible_content_blocks(
+    content: Any,
+    *,
+    provider_name: str,
+    model_name: str,
+) -> Any:
     if not isinstance(content, list):
         return content
 
-    return [translate_openai_compatible_content_block(block) for block in content]
+    return [
+        translate_openai_compatible_content_block(block, provider_name=provider_name, model_name=model_name)
+        for block in content
+    ]
 
 
-def translate_openai_compatible_content_block(block: Any) -> Any:
+def translate_openai_compatible_content_block(
+    block: Any,
+    *,
+    provider_name: str,
+    model_name: str,
+) -> Any:
     if not isinstance(block, dict):
         return block
 
@@ -196,12 +214,28 @@ def translate_openai_compatible_content_block(block: Any) -> Any:
         return block
     if block_type in {"image_url", "input_audio", "text"}:
         return block
+    if block_type == "audio_url":
+        _ensure_extension_media_block_supported(
+            provider_name=provider_name,
+            model_name=model_name,
+            modality="audio",
+            source_type="url",
+        )
+        return block
+    if block_type in {"video_url", "input_video"}:
+        _ensure_extension_media_block_supported(
+            provider_name=provider_name,
+            model_name=model_name,
+            modality="video",
+            source_type="url",
+        )
+        return block
     if block_type == "image":
         return _translate_canonical_image_block(block)
     if block_type == "audio":
-        return _translate_canonical_audio_block(block)
+        return _translate_canonical_audio_block(block, provider_name=provider_name, model_name=model_name)
     if block_type == "video":
-        return _translate_canonical_video_block(block)
+        return _translate_canonical_video_block(block, provider_name=provider_name, model_name=model_name)
     return block
 
 
@@ -219,10 +253,23 @@ def _translate_canonical_image_block(block: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"Unsupported canonical image source type {source_type!r}")
 
 
-def _translate_canonical_audio_block(block: dict[str, Any]) -> dict[str, Any]:
+def _translate_canonical_audio_block(
+    block: dict[str, Any],
+    *,
+    provider_name: str,
+    model_name: str,
+) -> dict[str, Any]:
     source = _get_media_source(block, modality="audio")
     source_type = source.get("type")
     if source_type == "url":
+        _ensure_extension_media_block_supported(
+            provider_name=provider_name,
+            model_name=model_name,
+            modality="audio",
+            source_type="url",
+        )
+        # ``audio_url`` is an OpenAI-compatible extension used by providers such as vLLM/NVIDIA,
+        # not by OpenAI's hosted Chat Completions route.
         return {"type": "audio_url", "audio_url": {"url": source.get("url", "")}}
     if source_type == "base64":
         media_type = source.get("media_type")
@@ -236,18 +283,59 @@ def _translate_canonical_audio_block(block: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"Unsupported canonical audio source type {source_type!r}")
 
 
-def _translate_canonical_video_block(block: dict[str, Any]) -> dict[str, Any]:
+def _translate_canonical_video_block(
+    block: dict[str, Any],
+    *,
+    provider_name: str,
+    model_name: str,
+) -> dict[str, Any]:
     source = _get_media_source(block, modality="video")
     source_type = source.get("type")
     if source_type == "url":
+        _ensure_extension_media_block_supported(
+            provider_name=provider_name,
+            model_name=model_name,
+            modality="video",
+            source_type="url",
+        )
+        # ``video_url`` is an OpenAI-compatible extension used by providers such as vLLM/NVIDIA,
+        # not by OpenAI's hosted Chat Completions route.
         return {"type": "video_url", "video_url": {"url": source.get("url", "")}}
     if source_type == "base64":
+        _ensure_extension_media_block_supported(
+            provider_name=provider_name,
+            model_name=model_name,
+            modality="video",
+            source_type="base64",
+        )
         media_type = source.get("media_type")
         data = source.get("data")
         if not isinstance(media_type, str) or not isinstance(data, str):
             raise ValueError(f"Canonical video base64 source must include media_type and data, got: {source!r}")
+        # No widely supported ``input_video`` block exists; capable OpenAI-compatible
+        # providers may accept a data URI in ``video_url``.
         return {"type": "video_url", "video_url": {"url": f"data:{media_type};base64,{data}"}}
     raise ValueError(f"Unsupported canonical video source type {source_type!r}")
+
+
+def _ensure_extension_media_block_supported(
+    *,
+    provider_name: str,
+    model_name: str,
+    modality: str,
+    source_type: str,
+) -> None:
+    if provider_name.lower() != OPENAI_PROVIDER_NAME:
+        return
+    raise ProviderError.unsupported_capability(
+        provider_name=provider_name,
+        model_name=model_name,
+        operation=f"{modality}-{source_type} context",
+        message=(
+            f"Provider {provider_name!r} does not support {modality} {source_type} context blocks "
+            "through the OpenAI-compatible chat-completions adapter."
+        ),
+    )
 
 
 def _get_media_source(block: dict[str, Any], *, modality: str) -> dict[str, Any]:

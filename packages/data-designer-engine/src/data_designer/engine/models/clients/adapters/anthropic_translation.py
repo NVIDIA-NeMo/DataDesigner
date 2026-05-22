@@ -22,6 +22,8 @@ from data_designer.engine.models.clients.types import (
 )
 
 _DEFAULT_MAX_TOKENS = 4096
+# Include canonical blocks from *Context.get_contexts and provider-specific
+# blocks that users may author directly in templates or tool-result content.
 _UNSUPPORTED_MEDIA_BLOCK_MODALITIES: dict[str, str] = {
     "audio": "audio",
     "audio_url": "audio",

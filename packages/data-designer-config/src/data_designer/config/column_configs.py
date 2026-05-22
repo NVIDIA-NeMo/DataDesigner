@@ -17,7 +17,10 @@ from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFIX, TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.utils.trace_type import TraceType
+from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
+
+_NON_IMAGE_CONTEXT_KEYS = frozenset({"audio_format", "video_format"})
 
 
 class GenerationStrategy(str, Enum):
@@ -184,12 +187,7 @@ class LLMTextColumnConfig(SingleColumnConfig):
     @classmethod
     def inject_legacy_image_context_modality(cls, value: Any) -> Any:
         """Preserve legacy image-context dicts that predate the modality discriminator."""
-        if not isinstance(value, list):
-            return value
-        return [
-            {"modality": "image", **item} if isinstance(item, dict) and _is_legacy_image_context_dict(item) else item
-            for item in value
-        ]
+        return _inject_legacy_image_context_modality(value)
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -629,12 +627,7 @@ class ImageColumnConfig(SingleColumnConfig):
     @classmethod
     def inject_legacy_image_context_modality(cls, value: Any) -> Any:
         """Preserve legacy image-context dicts that predate the modality discriminator."""
-        if not isinstance(value, list):
-            return value
-        return [
-            {"modality": "image", **item} if isinstance(item, dict) and _is_legacy_image_context_dict(item) else item
-            for item in value
-        ]
+        return _inject_legacy_image_context_modality(value)
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -755,5 +748,27 @@ class CustomColumnConfig(SingleColumnConfig):
         return self
 
 
+def _inject_legacy_image_context_modality(value: Any) -> Any:
+    if not isinstance(value, list):
+        return value
+    return [
+        _inject_legacy_image_context_item(item)
+        if isinstance(item, dict) and _is_legacy_image_context_dict(item)
+        else item
+        for item in value
+    ]
+
+
+def _inject_legacy_image_context_item(item: dict[str, Any]) -> dict[str, Any]:
+    warn_at_caller(
+        "Modality-less multi_modal_context dictionaries are treated as legacy ImageContext configs. "
+        "Set modality='image', modality='audio', or modality='video' explicitly for new configs.",
+        DeprecationWarning,
+    )
+    return {"modality": "image", **item}
+
+
 def _is_legacy_image_context_dict(value: dict[str, Any]) -> bool:
-    return "modality" not in value
+    if "modality" in value:
+        return False
+    return not _NON_IMAGE_CONTEXT_KEYS.intersection(value)

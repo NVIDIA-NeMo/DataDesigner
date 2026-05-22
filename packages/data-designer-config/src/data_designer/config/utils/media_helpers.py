@@ -17,6 +17,8 @@ import requests
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.type_helpers import StrEnum
 
+# --- Format enums and constants ---
+
 _BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/=]+$")
 _DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
 
@@ -77,6 +79,13 @@ _PIL_FORMAT_TO_IMAGE_FORMAT: dict[str, ImageFormat] = {
     "webp": ImageFormat.WEBP,
 }
 
+_IMAGE_MIME_TYPE_TO_FORMAT: dict[str, ImageFormat] = {
+    "image/png": ImageFormat.PNG,
+    "image/jpeg": ImageFormat.JPG,
+    "image/jpg": ImageFormat.JPG,
+    "image/gif": ImageFormat.GIF,
+    "image/webp": ImageFormat.WEBP,
+}
 _AUDIO_FORMAT_TO_MIME_TYPE: dict[AudioFormat, str] = {
     AudioFormat.MP3: "audio/mpeg",
     AudioFormat.WAV: "audio/wav",
@@ -99,6 +108,9 @@ _VIDEO_MIME_TYPE_TO_FORMAT: dict[str, VideoFormat] = {
     "video/quicktime": VideoFormat.MOV,
     "video/webm": VideoFormat.WEBM,
 }
+
+
+# --- Image helpers ---
 
 
 def is_image_diffusion_model(model_name: str) -> bool:
@@ -226,6 +238,9 @@ def validate_image(image_path: Path) -> None:
         raise ValueError(f"Image validation failed: {e}") from e
 
 
+# --- Canonical media blocks ---
+
+
 def get_media_context(modality: str, source: dict[str, Any]) -> dict[str, Any]:
     """Build a canonical media context block."""
     return {"type": modality, "source": source}
@@ -248,7 +263,7 @@ def normalize_media_context_values(raw_value: Any) -> list[Any]:
             parsed_value = json.loads(raw_value)
             if isinstance(parsed_value, list):
                 return parsed_value
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError:
             pass
         return [raw_value]
 
@@ -269,6 +284,9 @@ def parse_base64_data_uri(value: str) -> tuple[str, str] | None:
     if match is None:
         return None
     return match.group("media_type"), match.group("data")
+
+
+# --- Audio/video helpers ---
 
 
 def is_media_url(value: str) -> bool:
@@ -294,6 +312,11 @@ def audio_mime_type(audio_format: AudioFormat) -> str:
 def video_mime_type(video_format: VideoFormat) -> str:
     """Return the MIME type for a video format."""
     return _VIDEO_FORMAT_TO_MIME_TYPE[video_format]
+
+
+def image_format_from_mime_type(media_type: str) -> ImageFormat | None:
+    """Infer an image format from a MIME type."""
+    return _IMAGE_MIME_TYPE_TO_FORMAT.get(media_type.lower())
 
 
 def audio_format_from_mime_type(media_type: str) -> AudioFormat | None:

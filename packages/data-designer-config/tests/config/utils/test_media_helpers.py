@@ -24,6 +24,7 @@ from data_designer.config.utils.media_helpers import (
     get_media_base64_context,
     get_media_context,
     get_media_url_context,
+    image_format_from_mime_type,
     is_audio_path,
     is_base64_image,
     is_image_diffusion_model,
@@ -86,6 +87,8 @@ def test_local_media_path_detection() -> None:
 
 def test_media_format_mime_helpers() -> None:
     assert ImageFormat.PNG.value == "png"
+    assert image_format_from_mime_type("image/png") == ImageFormat.PNG
+    assert image_format_from_mime_type("image/jpeg") == ImageFormat.JPG
     assert audio_mime_type(AudioFormat.MP3) == "audio/mpeg"
     assert audio_format_from_mime_type("audio/mpeg") == AudioFormat.MP3
     assert audio_format_from_mime_type("audio/mp3") == AudioFormat.MP3
