@@ -295,13 +295,16 @@ def _strict_share(
     rounding: Literal["floor", "ceil"],
 ) -> int:
     resource_limit = admission_view.resource_limits.get(resource, 0)
-    if resource_limit <= 1:
+    if resource_limit <= 0:
+        return 0
+    if resource_limit == 1:
         return 1
 
     candidate_groups = _competing_group_specs(item, resource, queue_view, admission_view)
     group_weight = max(1.0, item.group.weight)
     if len(candidate_groups) <= 1:
-        # Reserve headroom for a future peer; otherwise solo groups would never reach borrow accounting.
+        # 2x synthesizes one equally weighted future peer, keeping solo strict share near 50%.
+        # Dynamic borrow then decides how much of the remaining capacity the group may use.
         total_weight = group_weight * 2
     else:
         total_weight = sum(max(1.0, group.weight) for group in candidate_groups.values())

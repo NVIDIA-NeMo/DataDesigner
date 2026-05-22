@@ -1844,6 +1844,11 @@ class AsyncTaskScheduler:
         """Return the current scheduler task-admission snapshot for diagnostics."""
         return self._task_admission.view()
 
+    @property
+    def task_admission_config(self) -> TaskAdmissionConfig:
+        """Return the effective scheduler task-admission config."""
+        return self._task_admission_config
+
     def capacity_plan(self) -> AsyncCapacityPlan:
         """Return the scheduler-side async capacity explanation for this run."""
         task_view = self._task_admission.view()

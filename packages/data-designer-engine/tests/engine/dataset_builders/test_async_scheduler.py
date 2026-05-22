@@ -38,6 +38,7 @@ from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionLease
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
+from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
@@ -1855,7 +1856,7 @@ def test_scheduler_default_task_admission_uses_bounded_borrow_policy() -> None:
         row_groups=row_groups,
     )
 
-    assert scheduler._task_admission_config.bounded_borrow is not None
+    assert isinstance(scheduler.task_admission_config.bounded_borrow, BoundedBorrowTaskAdmissionPolicyConfig)
 
 
 @pytest.mark.asyncio(loop_scope="session")
