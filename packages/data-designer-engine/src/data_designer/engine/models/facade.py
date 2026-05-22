@@ -15,7 +15,7 @@ from data_designer.config.utils.constants import (
     OPENROUTER_ATTRIBUTION_HEADERS,
     OPENROUTER_PROVIDER_NAME,
 )
-from data_designer.config.utils.image_helpers import is_image_diffusion_model
+from data_designer.config.utils.media_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.types import (

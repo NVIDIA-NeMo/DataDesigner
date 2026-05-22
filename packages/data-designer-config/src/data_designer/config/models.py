@@ -21,25 +21,23 @@ from data_designer.config.utils.constants import (
     MIN_TEMPERATURE,
     MIN_TOP_P,
 )
-from data_designer.config.utils.image_helpers import (
-    ImageFormat,
-    decode_base64_image,
-    detect_image_format,
-    is_image_path,
-    is_image_url,
-    load_image_path_to_base64,
-)
 from data_designer.config.utils.io_helpers import smart_load_yaml
 from data_designer.config.utils.media_helpers import (
     AudioFormat,
+    ImageFormat,
     VideoFormat,
     audio_format_from_mime_type,
     audio_mime_type,
+    decode_base64_image,
+    detect_image_format,
     get_media_base64_context,
     get_media_url_context,
     is_audio_path,
+    is_image_path,
+    is_image_url,
     is_media_url,
     is_video_path,
+    load_image_path_to_base64,
     normalize_media_context_values,
     parse_base64_data_uri,
     video_format_from_mime_type,

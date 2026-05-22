@@ -14,6 +14,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+import data_designer.config as dd
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import (
@@ -37,6 +38,22 @@ from data_designer.config.models import (
     load_model_configs,
 )
 from data_designer.config.utils.media_helpers import get_media_base64_context, get_media_url_context
+
+
+def test_media_context_exports_are_available_on_config_namespace() -> None:
+    assert dd.ImageContext is ImageContext
+    assert dd.AudioContext is AudioContext
+    assert dd.VideoContext is VideoContext
+    assert dd.ImageFormat is ImageFormat
+    assert dd.AudioFormat is AudioFormat
+    assert dd.VideoFormat is VideoFormat
+
+    assert "ImageContext" in dd.__all__
+    assert "ImageFormat" in dd.__all__
+    assert "AudioContext" in dd.__all__
+    assert "AudioFormat" in dd.__all__
+    assert "VideoContext" in dd.__all__
+    assert "VideoFormat" in dd.__all__
 
 
 def test_image_context_get_contexts_single_string():

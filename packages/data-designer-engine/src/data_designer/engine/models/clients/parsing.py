@@ -11,7 +11,7 @@ import uuid
 from dataclasses import replace
 from typing import Any
 
-from data_designer.config.utils.image_helpers import (
+from data_designer.config.utils.media_helpers import (
     aload_image_url_to_base64,
     extract_base64_from_data_uri,
     is_base64_image,
