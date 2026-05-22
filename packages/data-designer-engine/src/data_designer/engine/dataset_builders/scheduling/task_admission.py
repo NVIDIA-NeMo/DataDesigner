@@ -36,13 +36,14 @@ ReleaseReason = Literal[
     "unknown_lease",
 ]
 RELEASED_TASK_LEASE_HISTORY_LIMIT = 8192
+DEFAULT_IN_FLIGHT_TASK_CAPACITY = 1024
 
 
 @dataclass(frozen=True)
 class TaskAdmissionConfig:
     """Engine-internal scheduler task-stage admission configuration."""
 
-    submission_capacity: int = 256
+    submission_capacity: int = DEFAULT_IN_FLIGHT_TASK_CAPACITY
     resource_limits: Mapping[SchedulerResourceKey, int] = field(default_factory=dict)
     bounded_borrow: BoundedBorrowTaskAdmissionPolicyConfig | None = None
 

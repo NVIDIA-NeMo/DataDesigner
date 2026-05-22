@@ -133,6 +133,10 @@ class RunConfig(ConfigBase):
         buffer_size: Number of records to process in each batch during dataset generation.
             A batch is processed end-to-end (column generation, post-batch processors, and writing the batch
             to artifact storage) before moving on to the next batch. Must be > 0. Default is 1000.
+        max_in_flight_tasks: Maximum number of async scheduler tasks that may hold task
+            leases at once. Tasks may be executing, awaiting I/O, or waiting on model
+            request admission. Model API request concurrency is controlled separately by
+            ``max_parallel_requests``. Must be >= 1. Default is 1024.
         non_inference_max_parallel_workers: Maximum number of worker threads used for non-inference
             cell-by-cell generators. Must be >= 1. Default is 4.
         max_conversation_restarts: Maximum number of full conversation restarts permitted when
@@ -147,6 +151,9 @@ class RunConfig(ConfigBase):
             Default is False.
         progress_interval: How often (in seconds) the async progress reporter emits a
             consolidated log block. Must be > 0. Default is 5.0.
+        preserve_dropped_columns: If True, write columns removed by drop processors to
+            separate dropped-column parquet files. Set to False to omit those artifacts
+            while still removing dropped columns from the final dataset. Default is True.
         jinja_rendering_engine: Template renderer used for engine-side Jinja evaluation.
             ``native`` uses Jinja2's built-in sandbox with the standard filter set and
             fewer Data Designer-specific restrictions. ``secure`` uses Data Designer's
@@ -165,12 +172,26 @@ class RunConfig(ConfigBase):
     shutdown_error_rate: float = Field(default=0.5, ge=0.0, le=1.0)
     shutdown_error_window: int = Field(default=10, ge=1)
     buffer_size: int = Field(default=1000, gt=0)
+    max_in_flight_tasks: int = Field(
+        default=1024,
+        ge=1,
+        description=(
+            "Maximum number of async scheduler tasks that may hold task leases at once. "
+            "Model API request concurrency is controlled separately by max_parallel_requests."
+        ),
+    )
     non_inference_max_parallel_workers: int = Field(default=4, ge=1)
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
     async_trace: bool = False
     progress_bar: bool = False
     progress_interval: float = Field(default=5.0, gt=0.0)
+    preserve_dropped_columns: bool = Field(
+        default=True,
+        description=(
+            "Whether columns removed by drop processors are preserved in separate dropped-column parquet files."
+        ),
+    )
     jinja_rendering_engine: JinjaRenderingEngine = Field(
         default=JinjaRenderingEngine.SECURE,
         description=(

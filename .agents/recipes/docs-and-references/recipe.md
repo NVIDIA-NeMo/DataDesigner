@@ -101,9 +101,6 @@ Review for accuracy against the current code:
   the most recent 3-5 posts for references to functions, classes, or
   architecture that have since been modified.
 
-**Code reference** (`docs/code_reference/`):
-- Check that autodoc module paths point to modules that still exist.
-
 **Prioritize by risk of drift**: pages with the most code symbols referenced
 are most likely to be stale. Don't read every page - sample 5-10 high-value
 pages and flag patterns.

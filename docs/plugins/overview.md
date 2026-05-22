@@ -6,9 +6,9 @@ Plugins let you add new object types to Data Designer without modifying the core
 
 Data Designer supports three plugin types:
 
-- **Column generator plugins**: Custom [column generators](../code_reference/engine/column_generators.md) you pass to the config builder's [add_column](../code_reference/config/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_column) method.
-- **Seed reader plugins**: Custom [seed readers](../code_reference/engine/seed_readers.md) that load data from new sources, such as databases, cloud storage, or custom file formats.
-- **Processor plugins**: Custom [processor implementations](../code_reference/engine/processors.md) configured by processor config objects that transform data before batches, after batches, or after generation completes. Pass them to the config builder's [add_processor](../code_reference/config/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_processor) method.
+- **Column generator plugins**: Custom column types you pass to the config builder's `add_column` method.
+- **Seed reader plugins**: Custom seed readers that load data from new sources, such as databases, cloud storage, or custom file formats.
+- **Processor plugins**: Custom processor implementations that transform data before batches, after batches, or after generation completes. Pass them to the config builder's `add_processor` method.
 
 ## Use an Installed Plugin
 
