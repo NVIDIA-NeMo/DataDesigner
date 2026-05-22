@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import data_designer.engine.dataset_builders.async_scheduler as async_scheduler_module
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
@@ -1801,6 +1802,42 @@ class MockLLMBoundRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
         return data
 
 
+class MockMixedRetryableGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Generator that preserves one rate-limited row while another retryable row exhausts."""
+
+    def __init__(self, *args: Any, rate_limit_failures: int = 0, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._rate_limit_failures = rate_limit_failures
+        self._rate_limit_calls = 0
+        self._timeout_calls = 0
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        return SchedulingMetadata.custom_model("test", self.config.name, "v1")
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        seed = data.get("seed")
+        if seed == 0:
+            self._rate_limit_calls += 1
+            if self._rate_limit_calls <= self._rate_limit_failures:
+                raise ModelRateLimitError("429 Too Many Requests")
+        elif seed == 1:
+            self._timeout_calls += 1
+            raise ModelTimeoutError("timed out")
+        data[self.config.name] = f"mixed_ok_{seed}"
+        return data
+
+
+class MockModelRateLimitGenerator(MockLLMBoundRateLimitGenerator):
+    """Rate-limit fixture with request-admission resource metadata."""
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        return SchedulingMetadata.model("provider", "model", RequestDomain.CHAT.value, weight=1)
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_llm_bound_one_way_handoff() -> None:
     """LLM-bound tasks release submission slot and hold LLM-wait slot during execution."""
@@ -2416,6 +2453,257 @@ async def test_scheduler_llm_bound_429_retried_in_salvage() -> None:
     snapshot = scheduler.task_admission_snapshot()
     assert snapshot.resources_available["submission"] == max_in_flight
     assert snapshot.resources_available["llm_wait"] == max_llm_wait
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_429_beyond_salvage_cap_is_delayed_not_dropped() -> None:
+    """429s may outlast the salvage cap; those rows must wait and retry instead of being dropped."""
+    provider = _mock_provider()
+    num_records = 3
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "llm_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "llm_col": MockLLMBoundRateLimitGenerator(
+            config=_expr_config("llm_col"),
+            resource_provider=provider,
+            rate_limit_failures=num_records * 3,
+        ),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, num_records)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        salvage_max_rounds=2,
+    )
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, num_records, ["seed", "llm_col"])
+    assert not any(tracker.is_dropped(0, row_index) for row_index in range(num_records))
+    assert scheduler._deferred == []
+    assert scheduler._deferred_errors == {}
+    assert scheduler._rate_limit_preservation_counts == {}
+    assert scheduler._rate_limit_preservation_log_state == {}
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_paces_sustained_429_resalvage(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Pure 429 loops should wait between salvage cycles instead of spinning CPU-bound."""
+    provider = _mock_provider()
+    monkeypatch.setattr(async_scheduler_module, "RATE_LIMIT_RESALVAGE_BACKOFF_S", 0.1)
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "llm_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    rate_limited = MockLLMBoundRateLimitGenerator(
+        config=_expr_config("llm_col"),
+        resource_provider=provider,
+        rate_limit_failures=10_000,
+    )
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "llm_col": rate_limited,
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    buffer_mgr = RowGroupBufferManager(storage)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        salvage_max_rounds=1,
+    )
+
+    with caplog.at_level(logging.INFO, logger=async_scheduler_module.__name__):
+        run_task = asyncio.create_task(scheduler.run())
+        try:
+            deadline = time.monotonic() + 1.0
+            while rate_limited._calls < 2:
+                if time.monotonic() > deadline:
+                    raise AssertionError("scheduler did not reach the first preserved 429 salvage cycle")
+                await asyncio.sleep(0)
+
+            calls_after_preserve = rate_limited._calls
+            await asyncio.sleep(0.03)
+
+            assert rate_limited._calls == calls_after_preserve
+            assert not run_task.done()
+
+            deadline = time.monotonic() + 1.0
+            while rate_limited._calls < 3:
+                if time.monotonic() > deadline:
+                    raise AssertionError("scheduler did not retry after the resalvage backoff")
+                await asyncio.sleep(0)
+        finally:
+            run_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await run_task
+
+    messages = [record.getMessage() for record in caplog.records]
+    salvage_logs = [message for message in messages if "Salvaging" in message]
+    preserving_logs = [message for message in messages if "Preserving" in message]
+
+    assert len(salvage_logs) == 1
+    assert len(preserving_logs) == 1
+    assert "(1/1)" in preserving_logs[0]
+    assert "Row group 0" not in "\n".join(messages)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_only_preserves_429_when_retryable_errors_exhaust(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exhausted non-429 retryable errors keep the existing drop behavior."""
+    provider = _mock_provider()
+    monkeypatch.setattr(async_scheduler_module, "RATE_LIMIT_RESALVAGE_BACKOFF_S", 0)
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "llm_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    mixed = MockMixedRetryableGenerator(
+        config=_expr_config("llm_col"),
+        resource_provider=provider,
+        rate_limit_failures=3,
+    )
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "llm_col": mixed,
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        salvage_max_rounds=1,
+    )
+
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, 2, ["seed", "llm_col"])
+    assert not tracker.is_dropped(0, 0)
+    assert tracker.is_dropped(0, 1)
+    assert buffer_mgr.get_row(0, 0)["llm_col"] == "mixed_ok_0"
+    assert scheduler._deferred == []
+    assert scheduler._deferred_errors == {}
+    assert scheduler._rate_limit_preservation_counts == {}
+    assert scheduler._rate_limit_preservation_log_state == {}
+
+
+def test_scheduler_rejects_zero_salvage_rounds() -> None:
+    """At least one salvage round is required so preserved 429 work can retry."""
+    config = ExpressionColumnConfig(name="llm_col", expr="'x'", dtype="str")
+    graph = ExecutionGraph.create([config], {"llm_col": GenerationStrategy.CELL_BY_CELL})
+
+    with pytest.raises(ValueError, match="salvage_max_rounds must be at least 1"):
+        AsyncTaskScheduler(
+            generators={"llm_col": MockCellGenerator(config=config, resource_provider=_mock_provider())},
+            graph=graph,
+            tracker=CompletionTracker.with_graph(graph, [(0, 1)]),
+            row_groups=[(0, 1)],
+            salvage_max_rounds=0,
+        )
+
+
+def test_rate_limit_resalvage_delay_uses_request_cooldown() -> None:
+    """Scheduler-level pacing should respect request-admission cooldown when available."""
+    provider = _mock_provider()
+    config = ExpressionColumnConfig(name="llm_col", expr="'x'", dtype="str")
+    graph = ExecutionGraph.create([config], {"llm_col": GenerationStrategy.CELL_BY_CELL})
+    task = Task(column="llm_col", row_group=0, row_index=0, task_type="cell")
+    resource = RequestResourceKey("provider", "model", RequestDomain.CHAT)
+
+    class PressureProvider:
+        @property
+        def config(self) -> None:
+            return None
+
+        def snapshot(self, request_resource: RequestResourceKey) -> RequestPressureSnapshot | None:
+            if request_resource != resource:
+                return None
+            return RequestPressureSnapshot(
+                captured_at=0.0,
+                sequence=1,
+                resource=resource,
+                effective_max=1,
+                current_limit=1,
+                in_flight_count=0,
+                active_lease_count=0,
+                waiters=0,
+                blocked_until_monotonic=100.0,
+                cooldown_remaining_seconds=0.25,
+                rate_limit_ceiling=1,
+                consecutive_rate_limits=1,
+                last_outcome="rate_limited",
+                leak_diagnostics={},
+            )
+
+        def snapshots(self) -> dict[RequestResourceKey, RequestPressureSnapshot]:
+            snapshot = self.snapshot(resource)
+            return {resource: snapshot} if snapshot is not None else {}
+
+        def global_snapshot(self, provider_name: str, model: str) -> None:
+            return None
+
+        def global_snapshots(self) -> dict[ProviderModelKey, object]:
+            return {}
+
+    scheduler = AsyncTaskScheduler(
+        generators={"llm_col": MockModelRateLimitGenerator(config=config, resource_provider=provider)},
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, [(0, 1)]),
+        row_groups=[(0, 1)],
+        request_pressure_provider=PressureProvider(),
+    )
+    scheduler._deferred = [task]
+    scheduler._deferred_errors[task] = ModelRateLimitError("429 Too Many Requests")
+
+    assert scheduler._rate_limit_resalvage_delay_seconds() == pytest.approx(0.25)
 
 
 @pytest.mark.asyncio(loop_scope="session")
