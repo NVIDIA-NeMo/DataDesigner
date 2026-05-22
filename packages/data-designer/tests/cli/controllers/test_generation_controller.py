@@ -712,16 +712,14 @@ def test_run_create_custom_options(mock_load_config: MagicMock, mock_dd_cls: Mag
     )
 
 
-@pytest.mark.parametrize("progress", [True, False])
+@pytest.mark.parametrize("tui", [True, False])
 @patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
-def test_run_create_applies_progress_override(
-    mock_load_config: MagicMock, mock_dd_cls: MagicMock, progress: bool
-) -> None:
-    """run_create applies explicit --progress/--no-progress override to RunConfig."""
+def test_run_create_applies_tui_override(mock_load_config: MagicMock, mock_dd_cls: MagicMock, tui: bool) -> None:
+    """run_create applies explicit --tui/--no-tui override to RunConfig."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
-    mock_dd.run_config = RunConfig(progress_bar=not progress)
+    mock_dd.run_config = RunConfig(progress_bar=not tui)
     mock_dd_cls.return_value = mock_dd
     mock_dd.create.return_value = _make_mock_create_results()
 
@@ -731,11 +729,11 @@ def test_run_create_applies_progress_override(
         num_records=10,
         dataset_name="dataset",
         artifact_path=None,
-        progress=progress,
+        tui=tui,
     )
 
     mock_dd.set_run_config.assert_called_once()
-    assert mock_dd.set_run_config.call_args.args[0].progress_bar is progress
+    assert mock_dd.set_run_config.call_args.args[0].progress_bar is tui
     mock_dd.create.assert_called_once_with(
         mock_load_config.return_value, num_records=10, dataset_name="dataset", resume=ResumeMode.NEVER
     )

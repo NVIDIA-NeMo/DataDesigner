@@ -61,11 +61,11 @@ def create_command(
             "The file is written to <artifact-path>/<dataset-name>/<dataset-name>.<format>."
         ),
     ),
-    progress: bool | None = typer.Option(
+    tui: bool | None = typer.Option(
         None,
-        "--progress/--no-progress",
+        "--tui/--no-tui",
         help=(
-            "Force the terminal progress panel on or off for this run. "
+            "Force the terminal progress TUI on or off for this run. "
             "When omitted, uses the configured RunConfig setting."
         ),
     ),
@@ -99,5 +99,5 @@ def create_command(
         artifact_path=artifact_path,
         resume=resume,
         output_format=output_format,
-        progress=progress,
+        tui=tui,
     )
