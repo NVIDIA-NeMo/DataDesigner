@@ -168,8 +168,8 @@ class ImageContext(ModalityContext):
 class AudioContext(ModalityContext):
     """Configuration for providing audio context to multimodal models.
 
-    Audio context values are URL or base64 media values. Unlike ``ImageContext``,
-    this class does not resolve local file paths to base64.
+    Audio context values are URL, local path, or base64 media values. Local
+    paths are passed through so colocated vLLM servers can read them directly.
     """
 
     modality: Literal[Modality.AUDIO] = Modality.AUDIO
@@ -182,6 +182,9 @@ class AudioContext(ModalityContext):
     def _build_context(self, context_value: Any) -> dict[str, Any]:
         if self.data_type == ModalityDataType.URL:
             self._validate_url_context_value(context_value)
+            return get_media_url_context(Modality.AUDIO.value, context_value)
+
+        if self.data_type is None and is_audio_path(context_value):
             return get_media_url_context(Modality.AUDIO.value, context_value)
 
         if self.data_type is None and is_media_url(context_value):
@@ -204,17 +207,18 @@ class AudioContext(ModalityContext):
             return media_type, data
 
         if is_audio_path(context_value):
-            raise ValueError("Local audio paths are not supported; provide an audio URL or base64 audio data")
+            raise ValueError(
+                "audio base64 context values must be base64 audio data; use data_type=url "
+                "or omit data_type to pass local audio paths through"
+            )
 
         if self.audio_format is None:
             raise ValueError("audio_format is required for base64 audio context values")
         return audio_mime_type(self.audio_format), context_value
 
     def _validate_url_context_value(self, context_value: Any) -> None:
-        if is_audio_path(context_value):
-            raise ValueError("Local audio paths are not supported; provide an audio URL or base64 audio data")
-        if not is_media_url(context_value):
-            raise ValueError("audio URL context values must be HTTP(S) URLs")
+        if not is_media_url(context_value) and not is_audio_path(context_value):
+            raise ValueError("audio URL context values must be HTTP(S) URLs or local audio paths")
 
     @model_validator(mode="after")
     def _validate_audio_format(self) -> Self:
@@ -226,8 +230,8 @@ class AudioContext(ModalityContext):
 class VideoContext(ModalityContext):
     """Configuration for providing video context to multimodal models.
 
-    Video context values are URL or base64 media values. Local file path
-    resolution is intentionally out of scope for this context type.
+    Video context values are URL, local path, or base64 media values. Local
+    paths are passed through so colocated vLLM servers can read them directly.
     """
 
     modality: Literal[Modality.VIDEO] = Modality.VIDEO
@@ -240,6 +244,9 @@ class VideoContext(ModalityContext):
     def _build_context(self, context_value: Any) -> dict[str, Any]:
         if self.data_type == ModalityDataType.URL:
             self._validate_url_context_value(context_value)
+            return get_media_url_context(Modality.VIDEO.value, context_value)
+
+        if self.data_type is None and is_video_path(context_value):
             return get_media_url_context(Modality.VIDEO.value, context_value)
 
         if self.data_type is None and is_media_url(context_value):
@@ -262,17 +269,18 @@ class VideoContext(ModalityContext):
             return media_type, data
 
         if is_video_path(context_value):
-            raise ValueError("Local video paths are not supported; provide a video URL or base64 video data")
+            raise ValueError(
+                "video base64 context values must be base64 video data; use data_type=url "
+                "or omit data_type to pass local video paths through"
+            )
 
         if self.video_format is None:
             raise ValueError("video_format is required for base64 video context values")
         return video_mime_type(self.video_format), context_value
 
     def _validate_url_context_value(self, context_value: Any) -> None:
-        if is_video_path(context_value):
-            raise ValueError("Local video paths are not supported; provide a video URL or base64 video data")
-        if not is_media_url(context_value):
-            raise ValueError("video URL context values must be HTTP(S) URLs")
+        if not is_media_url(context_value) and not is_video_path(context_value):
+            raise ValueError("video URL context values must be HTTP(S) URLs or local video paths")
 
     @model_validator(mode="after")
     def _validate_video_format(self) -> Self:

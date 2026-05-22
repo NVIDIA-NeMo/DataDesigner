@@ -17,6 +17,19 @@ import requests
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.type_helpers import StrEnum
 
+_BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/=]+$")
+_DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
+
+_IMAGE_DIFFUSION_MODEL_PATTERNS = (
+    "dall-e-",
+    "dalle",
+    "stable-diffusion",
+    "sd-",
+    "sd_",
+    "imagen",
+    "gpt-image-",
+)
+
 
 class ImageFormat(StrEnum):
     """Supported image formats for image modality."""
@@ -46,19 +59,6 @@ class VideoFormat(StrEnum):
 _SUPPORTED_IMAGE_EXTENSIONS = tuple(f".{fmt.value.lower()}" for fmt in ImageFormat)
 _SUPPORTED_AUDIO_EXTENSIONS = tuple(f".{fmt.value.lower()}" for fmt in AudioFormat)
 _SUPPORTED_VIDEO_EXTENSIONS = tuple(f".{fmt.value.lower()}" for fmt in VideoFormat)
-
-_BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/=]+$")
-_DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
-
-_IMAGE_DIFFUSION_MODEL_PATTERNS = (
-    "dall-e-",
-    "dalle",
-    "stable-diffusion",
-    "sd-",
-    "sd_",
-    "imagen",
-    "gpt-image-",
-)
 
 _IMAGE_FORMAT_MAGIC_BYTES = {
     ImageFormat.PNG: b"\x89PNG\r\n\x1a\n",

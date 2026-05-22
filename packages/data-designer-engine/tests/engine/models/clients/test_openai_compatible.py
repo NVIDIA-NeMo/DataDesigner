@@ -387,6 +387,22 @@ def test_completion_translates_audio_url_blocks() -> None:
     assert content[0] == {"type": "audio_url", "audio_url": {"url": "https://example.com/download?id=123"}}
 
 
+def test_completion_translates_local_audio_path_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = get_media_url_context(Modality.AUDIO.value, "recordings/speech.wav")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "audio_url", "audio_url": {"url": "recordings/speech.wav"}}
+
+
 def test_completion_translates_video_blocks() -> None:
     sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
@@ -401,6 +417,22 @@ def test_completion_translates_video_blocks() -> None:
     payload = sync_mock.post.call_args.kwargs["json"]
     content = payload["messages"][0]["content"]
     assert content[0] == {"type": "video_url", "video_url": {"url": "https://example.com/download?id=123"}}
+
+
+def test_completion_translates_local_video_path_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    video_block = get_media_url_context(Modality.VIDEO.value, "clips/screen_recording.mp4")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "video_url", "video_url": {"url": "clips/screen_recording.mp4"}}
 
 
 def test_completion_translates_base64_video_blocks() -> None:

@@ -228,6 +228,9 @@ def test_audio_context_get_contexts_single_string() -> None:
     assert audio_context.get_contexts({"audio_url": "https://example.com/audio.mp3"}) == [
         get_media_url_context(Modality.AUDIO.value, "https://example.com/audio.mp3")
     ]
+    assert audio_context.get_contexts({"audio_url": "recordings/speech.mp3"}) == [
+        get_media_url_context(Modality.AUDIO.value, "recordings/speech.mp3")
+    ]
 
 
 def test_audio_context_get_contexts_list_json_and_numpy() -> None:
@@ -258,6 +261,10 @@ def test_audio_context_auto_detect_url_and_data_uri() -> None:
         get_media_url_context(Modality.AUDIO.value, "https://example.com/audio.mp3")
     ]
 
+    assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "recordings/speech.wav"}) == [
+        get_media_url_context(Modality.AUDIO.value, "recordings/speech.wav")
+    ]
+
     assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "https://example.com/download?id=123"}) == [
         get_media_url_context(Modality.AUDIO.value, "https://example.com/download?id=123")
     ]
@@ -271,11 +278,6 @@ def test_audio_context_validate_audio_format() -> None:
     with pytest.raises(ValueError, match="audio_format is required when data_type is base64"):
         AudioContext(column_name="audio_base64", data_type=ModalityDataType.BASE64)
 
-    with pytest.raises(ValueError, match="Local audio paths are not supported"):
-        AudioContext(column_name="audio_url", data_type=ModalityDataType.URL).get_contexts(
-            {"audio_url": "screen_recording.mp3"}
-        )
-
     with pytest.raises(ValueError, match="audio URL context values must be HTTP"):
         AudioContext(column_name="audio_url", data_type=ModalityDataType.URL).get_contexts({"audio_url": "not-a-url"})
 
@@ -287,10 +289,14 @@ def test_audio_context_validate_audio_format() -> None:
             {"audio_base64": "data:audio/mpeg;base64,audio1base64"}
         )
 
-    with pytest.raises(ValueError, match="Local audio paths are not supported"):
-        AudioContext(column_name="audio_base64", audio_format=AudioFormat.MP3).get_contexts(
-            {"audio_base64": "screen_recording.mp3"}
-        )
+    assert AudioContext(column_name="audio_base64", audio_format=AudioFormat.MP3).get_contexts(
+        {"audio_base64": "screen_recording.mp3"}
+    ) == [get_media_url_context(Modality.AUDIO.value, "screen_recording.mp3")]
+
+    with pytest.raises(ValueError, match="audio base64 context values must be base64 audio data"):
+        AudioContext(
+            column_name="audio_base64", data_type=ModalityDataType.BASE64, audio_format=AudioFormat.MP3
+        ).get_contexts({"audio_base64": "screen_recording.mp3"})
 
 
 def test_video_context_get_contexts_single_string() -> None:
@@ -304,6 +310,9 @@ def test_video_context_get_contexts_single_string() -> None:
     video_context = VideoContext(column_name="video_url", data_type=ModalityDataType.URL)
     assert video_context.get_contexts({"video_url": "https://example.com/video.mp4"}) == [
         get_media_url_context(Modality.VIDEO.value, "https://example.com/video.mp4")
+    ]
+    assert video_context.get_contexts({"video_url": "clips/screen_recording.mp4"}) == [
+        get_media_url_context(Modality.VIDEO.value, "clips/screen_recording.mp4")
     ]
 
 
@@ -335,6 +344,10 @@ def test_video_context_auto_detect_url_and_data_uri() -> None:
         get_media_url_context(Modality.VIDEO.value, "https://example.com/video.mp4")
     ]
 
+    assert VideoContext(column_name="video_col").get_contexts({"video_col": "clips/screen_recording.webm"}) == [
+        get_media_url_context(Modality.VIDEO.value, "clips/screen_recording.webm")
+    ]
+
     assert VideoContext(column_name="video_col").get_contexts({"video_col": "https://example.com/download?id=123"}) == [
         get_media_url_context(Modality.VIDEO.value, "https://example.com/download?id=123")
     ]
@@ -348,11 +361,6 @@ def test_video_context_validate_video_format() -> None:
     with pytest.raises(ValueError, match="video_format is required when data_type is base64"):
         VideoContext(column_name="video_base64", data_type=ModalityDataType.BASE64)
 
-    with pytest.raises(ValueError, match="Local video paths are not supported"):
-        VideoContext(column_name="video_url", data_type=ModalityDataType.URL).get_contexts(
-            {"video_url": "screen_recording.mp4"}
-        )
-
     with pytest.raises(ValueError, match="video URL context values must be HTTP"):
         VideoContext(column_name="video_url", data_type=ModalityDataType.URL).get_contexts({"video_url": "not-a-url"})
 
@@ -364,10 +372,14 @@ def test_video_context_validate_video_format() -> None:
             {"video_base64": "data:video/mp4;base64,video1base64"}
         )
 
-    with pytest.raises(ValueError, match="Local video paths are not supported"):
-        VideoContext(column_name="video_base64", video_format=VideoFormat.MP4).get_contexts(
-            {"video_base64": "screen_recording.mp4"}
-        )
+    assert VideoContext(column_name="video_base64", video_format=VideoFormat.MP4).get_contexts(
+        {"video_base64": "screen_recording.mp4"}
+    ) == [get_media_url_context(Modality.VIDEO.value, "screen_recording.mp4")]
+
+    with pytest.raises(ValueError, match="video base64 context values must be base64 video data"):
+        VideoContext(
+            column_name="video_base64", data_type=ModalityDataType.BASE64, video_format=VideoFormat.MP4
+        ).get_contexts({"video_base64": "screen_recording.mp4"})
 
 
 def test_inference_parameters_default_construction():
