@@ -37,6 +37,7 @@ _CURVE_COLORS = [
 _DEFAULT_PANEL_HEIGHT = 22
 _MIN_PANEL_HEIGHT = 9
 _MIN_TERMINAL_WIDTH = 30
+_MIN_TERMINAL_HEIGHT = _MIN_PANEL_HEIGHT + 1
 _MIN_REDRAW_INTERVAL_SECONDS = 0.75
 _RATE_SAMPLE_INTERVAL_SECONDS = 2.0
 _RATE_SMOOTHING_WINDOW = 3
@@ -306,7 +307,12 @@ class TerminalThroughputPanel:
     # -- context manager --
 
     def __enter__(self) -> TerminalThroughputPanel:
-        if self._is_tty and shutil.get_terminal_size().columns >= _MIN_TERMINAL_WIDTH:
+        terminal_size = shutil.get_terminal_size()
+        if (
+            self._is_tty
+            and terminal_size.columns >= _MIN_TERMINAL_WIDTH
+            and terminal_size.lines >= _MIN_TERMINAL_HEIGHT
+        ):
             self._active = True
             self._start_time = time.perf_counter()
             self._last_redraw_time = 0.0

@@ -55,6 +55,24 @@ def test_run_config_progress_bar_property_setter_warns() -> None:
     assert run_config.display_tui is True
 
 
+def test_run_config_model_copy_progress_bar_shim_translates_to_display_tui() -> None:
+    run_config = RunConfig(display_tui=True)
+
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        copied = run_config.model_copy(update={"progress_bar": False})
+
+    assert copied.display_tui is False
+
+
+def test_run_config_model_copy_display_tui_wins_over_progress_bar_shim() -> None:
+    run_config = RunConfig(display_tui=True)
+
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        copied = run_config.model_copy(update={"progress_bar": False, "display_tui": True})
+
+    assert copied.display_tui is True
+
+
 def test_run_config_preserves_dropped_columns_by_default() -> None:
     assert RunConfig().preserve_dropped_columns is True
 

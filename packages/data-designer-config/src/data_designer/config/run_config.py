@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import Field, model_validator
@@ -256,6 +257,19 @@ class RunConfig(ConfigBase):
             stacklevel=2,
         )
         self.display_tui = value
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        if update is not None and "progress_bar" in update:
+            normalized_update = dict(update)
+            progress_bar = normalized_update.pop("progress_bar")
+            normalized_update.setdefault("display_tui", progress_bar)
+            warnings.warn(
+                _PROGRESS_BAR_DEPRECATION_MESSAGE,
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            update = normalized_update
+        return super().model_copy(update=update, deep=deep)
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:

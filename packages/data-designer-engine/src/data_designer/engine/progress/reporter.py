@@ -51,12 +51,10 @@ class AsyncProgressReporter:
         if self._bar is not None:
             for col, tracker in trackers.items():
                 self._bar.add_bar(col, col, tracker.total_records)
-            self._unsubscribe_token_usage = subscribe_token_usage(self._record_token_usage)
-            self._unsubscribe_request_admission_events = subscribe_request_admission_events(
-                self._record_request_admission_event
-            )
+            self._ensure_event_subscriptions()
 
     def log_start(self, num_row_groups: int) -> None:
+        self._ensure_event_subscriptions()
         cols = ", ".join(self._trackers)
         total = sum(t.total_records for t in self._trackers.values())
         logger.info(
@@ -116,6 +114,7 @@ class AsyncProgressReporter:
     def _maybe_report(self) -> None:
         now = time.perf_counter()
         if self._bar is not None and self._bar.is_active:
+            self._ensure_event_subscriptions()
             if now - self._last_bar_report_time < DEFAULT_TTY_REPORT_INTERVAL:
                 return
             self._last_bar_report_time = now
@@ -133,6 +132,16 @@ class AsyncProgressReporter:
             completed, _total, success, failed, skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
             updates[col] = (completed, success, failed, skipped)
         self._bar.update_many(updates, force=force)
+
+    def _ensure_event_subscriptions(self) -> None:
+        if self._bar is None or not self._bar.is_active:
+            return
+        if self._unsubscribe_token_usage is None:
+            self._unsubscribe_token_usage = subscribe_token_usage(self._record_token_usage)
+        if self._unsubscribe_request_admission_events is None:
+            self._unsubscribe_request_admission_events = subscribe_request_admission_events(
+                self._record_request_admission_event
+            )
 
     def _record_token_usage(self, event: TokenUsageEvent) -> None:
         if self._bar is not None and self._matches_run(event.correlation):

@@ -114,6 +114,16 @@ def test_tiny_terminal_falls_back_to_no_panel(tty_stream: FakeTTY) -> None:
     assert tty_stream.getvalue() == ""
 
 
+def test_short_terminal_falls_back_to_no_panel(tty_stream: FakeTTY) -> None:
+    with patch.object(shutil, "get_terminal_size", return_value=os.terminal_size((80, 9))):
+        with TerminalThroughputPanel(stream=tty_stream) as bar:
+            assert bar.is_active is False
+            bar.add_bar("a", "col_a", 10)
+            bar.update("a", completed=5, success=5, force=True)
+
+    assert tty_stream.getvalue() == ""
+
+
 def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
     with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "column 'a'", 100)
@@ -440,6 +450,28 @@ def test_reporter_records_feedback_markers_from_request_events(tty_stream: FakeT
             RequestAdmissionEvent.capture("request_rate_limited", sequence=3),
         )
         assert len(bar._feedback_markers) == 1  # noqa: SLF001
+
+
+def test_inactive_reporter_does_not_subscribe_to_global_events() -> None:
+    stream = io.StringIO()
+    trackers = {"col_a": ProgressTracker(total_records=100, label="column 'a'", quiet=True)}
+    reporter = AsyncProgressReporter(trackers, report_interval=0.1, progress_bar=TerminalThroughputPanel(stream=stream))
+    try:
+        emit_token_usage_event(
+            TokenUsageEvent(
+                model_alias="inactive",
+                model_name="inactive-model",
+                input_tokens=120,
+                output_tokens=30,
+            )
+        )
+        emit_request_admission_event(RequestAdmissionEvent.capture("request_rate_limited", sequence=1))
+
+        assert reporter._bar is not None  # noqa: SLF001
+        assert not reporter._bar._model_usage  # noqa: SLF001
+        assert not reporter._bar._feedback_markers  # noqa: SLF001
+    finally:
+        reporter.close()
 
 
 def test_reporter_filters_global_events_by_run_id(tty_stream: FakeTTY) -> None:
