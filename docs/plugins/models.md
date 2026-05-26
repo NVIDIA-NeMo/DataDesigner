@@ -191,4 +191,4 @@ The built-in model-backed generators use these same hooks:
 - `ImageCellGenerator` uses `ColumnGeneratorWithModel`, renders a prompt, calls the facade's image methods, and writes generated media through the artifact storage supplied by the same `ResourceProvider`.
 - `CustomColumnGenerator` is the inline-function counterpart: when users declare `model_aliases`, it builds a `models` dict from `resource_provider.model_registry`. Packaged plugins usually use `ColumnGeneratorWithModel` or `ColumnGeneratorWithModelRegistry` directly instead of recreating that dict.
 
-See [Column Generators](../code_reference/engine/column_generators.md) for the full base-class API and [Custom Model Settings](../concepts/models/custom-model-settings.md) for configuring model aliases.
+See [Custom Model Settings](../concepts/models/custom-model-settings.md) for configuring model aliases.

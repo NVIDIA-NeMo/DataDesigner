@@ -15,6 +15,9 @@ concurrency:
   group: docs-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  FERN_PUBLISHED_BRANCH: docs-website
+
 jobs:
   build-and-deploy:
     if: github.actor != 'dependabot[bot]'
@@ -52,10 +55,40 @@ jobs:
       - name: Build docs
         run: .venv/bin/mkdocs build
 
+      - name: Verify published Fern archive exists
+        run: |
+          if ! git ls-remote --exit-code --heads origin "$FERN_PUBLISHED_BRANCH" >/dev/null 2>&1; then
+            echo "::error::$FERN_PUBLISHED_BRANCH does not exist. Publish a Fern release snapshot first."
+            exit 1
+          fi
+
+      - name: Checkout published Fern archive
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          path: published-fern-preview
+          ref: ${{ env.FERN_PUBLISHED_BRANCH }}
+
+      - name: Prepare Fern preview source
+        env:
+          FERN_PREVIEW_ROOT: ${{ runner.temp }}/fern-preview
+        run: |
+          rm -rf "$FERN_PREVIEW_ROOT"
+          mv published-fern-preview "$FERN_PREVIEW_ROOT"
+          python3 fern/scripts/fern-published-branch.py sync-source \
+            --source-root "$GITHUB_WORKSPACE" \
+            --published-root "$FERN_PREVIEW_ROOT"
+
       - name: Check Fern docs
         id: fern-check
         continue-on-error: true
-        run: make check-fern-docs
+        env:
+          FERN_PREVIEW_ROOT: ${{ runner.temp }}/fern-preview
+        run: |
+          cd "$FERN_PREVIEW_ROOT"
+          make check-fern-docs \
+            DOCS_PYTHON="$GITHUB_WORKSPACE/.venv/bin/python" \
+            DOCS_JUPYTEXT="$GITHUB_WORKSPACE/.venv/bin/jupytext"
 
       - name: Skip hosted previews for fork PRs
         if: github.event.pull_request.head.repo.full_name != github.repository
@@ -68,13 +101,14 @@ jobs:
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          FERN_PREVIEW_ROOT: ${{ runner.temp }}/fern-preview
         run: |
           if [ -z "$FERN_TOKEN" ]; then
             echo "::error::DOCS_FERN_TOKEN secret is required to publish Fern preview docs."
             exit 1
           fi
 
-          cd fern
+          cd "$FERN_PREVIEW_ROOT/fern"
           fern_version=$(jq -r .version fern.config.json)
           if [[ ! "$fern_version" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-.][0-9A-Za-z]+)*$ ]]; then
             echo "::error::Invalid Fern version in fern.config.json: $fern_version"
@@ -86,23 +120,13 @@ jobs:
           set -o pipefail
           npx -y "fern-api@$fern_version" generate --docs --preview --id "pr-$PR_NUMBER" --force --no-prompt 2>&1 | tee "$log_file"
 
-          url=$(sed -nE 's#.*(https://[^[:space:]]+docs\.buildwithfern\.com[^[:space:]]*).*#\1#p' "$log_file" | tail -n 1)
-          while [[ "$url" =~ [\)\>\.,]$ ]]; do
-            url="${url%?}"
-          done
-
-          if [ -z "$url" ]; then
-            echo "::error::Could not find Fern preview URL in CLI output."
-            exit 1
-          fi
-
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "url=https://nvidia-preview-pr-$PR_NUMBER.docs.buildwithfern.com/nemo/datadesigner" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to Cloudflare Pages
         if: github.event.pull_request.head.repo.full_name == github.repository
         id: deploy
         continue-on-error: true
-        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -130,7 +154,7 @@ jobs:
 
             **Fern preview:** ${{ steps.fern-preview.outcome == 'success' && steps.fern-preview.outputs.url || 'Fern preview failed or skipped; see workflow logs.' }}
 
-            > Notebook tutorials are rendered without execution outputs in previews.
+            > Fern previews include the `docs-website` version archive with PR changes synced into latest. Notebook tutorials are rendered without execution outputs in previews.
 
       - name: Fail if Fern docs check failed
         if: steps.fern-check.outcome == 'failure'

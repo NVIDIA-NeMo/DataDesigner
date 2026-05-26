@@ -37,7 +37,7 @@ from data_designer.config.utils.constants import (
     TRACE_COLUMN_POSTFIX,
 )
 from data_designer.config.utils.errors import DatasetSampleDisplayError
-from data_designer.config.utils.image_helpers import (
+from data_designer.config.utils.media_helpers import (
     extract_base64_from_data_uri,
     is_base64_image,
     is_image_path,

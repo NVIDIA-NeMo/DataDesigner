@@ -5,13 +5,87 @@ from __future__ import annotations
 
 import pytest
 
-from data_designer.engine.models.clients.parsing import extract_reasoning_content, extract_tool_calls
+from data_designer.engine.models.clients.parsing import (
+    aparse_chat_completion_response,
+    extract_reasoning_content,
+    extract_tool_calls,
+    extract_usage,
+    fill_reasoning_token_count_from_content,
+    parse_chat_completion_response,
+)
 from data_designer.engine.models.clients.types import (
+    AssistantMessage,
     ChatCompletionRequest,
+    ChatCompletionResponse,
     EmbeddingRequest,
     ImageGenerationRequest,
     TransportKwargs,
+    Usage,
 )
+from data_designer.engine.models.usage import TokenCountSource
+
+# --- ChatCompletionResponse compatibility ---
+
+
+def test_chat_completion_response_exposes_choices_for_single_message() -> None:
+    message = AssistantMessage(content="ok")
+    response = ChatCompletionResponse(message=message)
+
+    assert response.message is message
+    assert response.choices[0].message is message
+    assert response.messages == [message]
+
+
+def test_parse_chat_completion_response_preserves_all_choices() -> None:
+    response = parse_chat_completion_response(
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "first"},
+                    "finish_reason": "stop",
+                },
+                {
+                    "index": 1,
+                    "message": {"role": "assistant", "content": "second"},
+                    "finish_reason": "length",
+                },
+            ],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
+        }
+    )
+
+    assert response.message.content == "first"
+    assert [choice.message.content for choice in response.choices] == ["first", "second"]
+    assert [choice.index for choice in response.choices] == [0, 1]
+    assert [choice.finish_reason for choice in response.choices] == ["stop", "length"]
+    assert [message.content for message in response.messages] == ["first", "second"]
+
+
+@pytest.mark.asyncio
+async def test_aparse_chat_completion_response_preserves_all_choices() -> None:
+    response = await aparse_chat_completion_response(
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "first"},
+                    "finish_reason": "stop",
+                },
+                {
+                    "index": 1,
+                    "message": {"role": "assistant", "content": "second"},
+                    "finish_reason": "length",
+                },
+            ],
+        }
+    )
+
+    assert response.message.content == "first"
+    assert [choice.message.content for choice in response.choices] == ["first", "second"]
+    assert [choice.index for choice in response.choices] == [0, 1]
+    assert [choice.finish_reason for choice in response.choices] == ["stop", "length"]
+
 
 # --- TransportKwargs.from_request: extra_body flattening (default) ---
 
@@ -29,6 +103,13 @@ def test_extra_body_keys_are_flattened_into_body() -> None:
     assert transport.body["reasoning_effort"] == "high"
     assert transport.body["seed"] == 42
     assert "extra_body" not in transport.body
+
+
+def test_chat_completion_request_n_is_forwarded_into_body() -> None:
+    request = ChatCompletionRequest(model="m", messages=[], n=4)
+    transport = TransportKwargs.from_request(request)
+
+    assert transport.body["n"] == 4
 
 
 def test_extra_body_none_produces_no_extra_keys() -> None:
@@ -251,3 +332,138 @@ def test_extract_reasoning_content_works_with_object_style_message() -> None:
         reasoning_content = "legacy object"
 
     assert extract_reasoning_content(Msg()) == "from object"
+
+
+# --- extract_usage ---
+
+
+@pytest.mark.parametrize(
+    ("raw_usage", "expected_reasoning_token_count"),
+    [
+        pytest.param(
+            {"prompt_tokens": 10, "completion_tokens": 7, "completion_tokens_details": {"reasoning_tokens": 4}},
+            4,
+            id="openai-chat-completions",
+        ),
+        pytest.param(
+            {"input_tokens": 10, "output_tokens": 7, "output_tokens_details": {"reasoning_tokens": "4"}},
+            4,
+            id="openai-responses",
+        ),
+        pytest.param(
+            {"input_tokens": 10, "output_tokens": 7, "reasoning_tokens": 4},
+            4,
+            id="top-level-provider-variant",
+        ),
+        pytest.param(
+            {"input_tokens": 10, "output_tokens": 7},
+            None,
+            id="not-reported",
+        ),
+    ],
+)
+def test_extract_usage_reasoning_token_count(
+    raw_usage: dict[str, object],
+    expected_reasoning_token_count: int | None,
+) -> None:
+    usage = extract_usage(raw_usage)
+
+    assert usage is not None
+    assert usage.reasoning_tokens == expected_reasoning_token_count
+    assert usage.reasoning_token_count_source == (
+        TokenCountSource.PROVIDER if expected_reasoning_token_count is not None else None
+    )
+
+
+def test_extract_usage_reasoning_token_count_is_not_added_to_output_or_total_tokens() -> None:
+    usage = extract_usage(
+        {"prompt_tokens": 10, "completion_tokens": 7, "completion_tokens_details": {"reasoning_tokens": 4}}
+    )
+
+    assert usage is not None
+    assert usage.input_tokens == 10
+    assert usage.output_tokens == 7
+    assert usage.reasoning_tokens == 4
+    assert usage.reasoning_token_count_source == TokenCountSource.PROVIDER
+    assert usage.total_tokens == 17
+
+
+def test_parse_chat_completion_estimates_reasoning_token_count_from_reasoning_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def count_reasoning_text(text: str) -> int:
+        assert text == "hidden thinking"
+        return 6
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", count_reasoning_text)
+
+    response = {
+        "choices": [{"message": {"role": "assistant", "content": "final answer", "reasoning": "hidden thinking"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 7, "total_tokens": 17},
+    }
+
+    result = parse_chat_completion_response(response)
+
+    assert result.usage is not None
+    assert result.usage.input_tokens == 10
+    assert result.usage.output_tokens == 7
+    assert result.usage.reasoning_tokens == 6
+    assert result.usage.reasoning_token_count_source == TokenCountSource.ESTIMATED
+    assert result.usage.total_tokens == 17
+
+
+def test_parse_chat_completion_prefers_provider_reasoning_token_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_count_text_tokens(text: str) -> int:
+        raise AssertionError(f"Unexpected reasoning token estimate for {text!r}")
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", fail_count_text_tokens)
+
+    response = {
+        "choices": [{"message": {"role": "assistant", "content": "final answer", "reasoning": "hidden thinking"}}],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 7,
+            "completion_tokens_details": {"reasoning_tokens": 4},
+            "total_tokens": 17,
+        },
+    }
+
+    result = parse_chat_completion_response(response)
+
+    assert result.usage is not None
+    assert result.usage.reasoning_tokens == 4
+    assert result.usage.reasoning_token_count_source == TokenCountSource.PROVIDER
+
+
+def test_fill_reasoning_token_count_from_content_skips_when_usage_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_count_text_tokens(text: str) -> int:
+        raise AssertionError(f"Unexpected reasoning token estimate for {text!r}")
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", fail_count_text_tokens)
+
+    assert fill_reasoning_token_count_from_content(None, "hidden thinking") is None
+
+
+def test_fill_reasoning_token_count_from_content_preserves_provider_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_count_text_tokens(text: str) -> int:
+        raise AssertionError(f"Unexpected reasoning token estimate for {text!r}")
+
+    monkeypatch.setattr("data_designer.engine.models.clients.parsing.count_text_tokens", fail_count_text_tokens)
+    usage = Usage(
+        input_tokens=10,
+        output_tokens=7,
+        reasoning_tokens=0,
+        reasoning_token_count_source=TokenCountSource.PROVIDER,
+    )
+
+    result = fill_reasoning_token_count_from_content(usage, "hidden thinking")
+
+    assert result is usage
+    assert result.reasoning_tokens == 0
+    assert result.reasoning_token_count_source == TokenCountSource.PROVIDER

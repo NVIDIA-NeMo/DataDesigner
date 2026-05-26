@@ -95,6 +95,7 @@ Learn how to use vision-language models to generate text descriptions from image
 
 - Processing and converting images to base64 format for model consumption
 - Using vision-language models (VLMs) to analyze visual documents
+- Understanding how image, audio, and video context share the same `multi_modal_context` field, while still requiring model support for each modality
 - Generating detailed summaries from document images
 - Inspecting and validating vision-based generation results
 
@@ -131,12 +132,3 @@ Understanding these concepts will help you make the most of the tutorials:
 - **[Columns](../concepts/columns.md)** - Learn about different column types (Sampler, LLM, Expression, Validation, etc.)
 - **[Validators](../concepts/validators.md)** - Understand how to validate generated data with Python, SQL, and remote validators
 - **[Person Sampling](../concepts/person_sampling.md)** - Learn how to sample realistic person data with demographic attributes
-
-### Code Reference
-
-Quick reference guides for the main configuration objects:
-
-- **[column_configs](../code_reference/config/column_configs.md)** - All column configuration types
-- **[config_builder](../code_reference/config/config_builder.md)** - The `DataDesignerConfigBuilder` API
-- **[data_designer_config](../code_reference/config/data_designer_config.md)** - Main configuration schema
-- **[validator_params](../code_reference/config/validator_params.md)** - Validator configuration options

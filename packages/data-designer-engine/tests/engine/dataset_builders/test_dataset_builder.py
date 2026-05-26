@@ -44,9 +44,8 @@ def _force_sync_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin tests in this file to the legacy sync engine.
 
     These tests use Mock-based stub resource providers that don't satisfy the
-    contracts expected by the async task-queue scheduler (e.g. the registry's
-    ``get_aggregate_max_parallel_requests()`` returns a Mock instead of an int).
-    They cover sync-engine behavior; the async path has dedicated coverage in
+    contracts expected by the async task-queue scheduler. They cover sync-engine
+    behavior; the async path has dedicated coverage in
     ``test_async_builder_integration.py`` and ``test_async_scheduler.py``.
     """
     monkeypatch.setattr(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", False)
@@ -421,6 +420,7 @@ def test_dataset_builder_validate_column_configs(
 
 def test_run_config_default_non_inference_max_parallel_workers() -> None:
     run_config = RunConfig()
+    assert run_config.max_in_flight_tasks == 1024
     assert run_config.non_inference_max_parallel_workers == 4
 
 
@@ -1688,6 +1688,67 @@ def test_build_resume_raises_on_buffer_size_mismatch(stub_resource_provider, stu
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=3)
     with pytest.raises(DatasetGenerationError, match="buffer_size=3 does not match"):
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_always_raises_on_dropped_column_artifact_policy_mismatch(
+    stub_resource_provider,
+    stub_test_config_builder,
+    tmp_path,
+    caplog,
+):
+    """resume=ALWAYS rejects runs that would mix dropped-column artifact policies."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+        preserve_dropped_columns=True,
+    )
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    stub_resource_provider.run_config = RunConfig(buffer_size=2, preserve_dropped_columns=False)
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(DatasetGenerationError, match="does not match the config used"):
+            builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    assert any("preserve_dropped_columns changed from True to False" in record.message for record in caplog.records)
+
+
+def test_build_if_possible_starts_fresh_on_dropped_column_artifact_policy_mismatch(
+    stub_resource_provider,
+    stub_test_config_builder,
+    tmp_path,
+):
+    """resume=IF_POSSIBLE starts fresh when dropped-column artifact policy differs."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+        preserve_dropped_columns=True,
+    )
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
+    stub_resource_provider.artifact_storage = storage
+    stub_resource_provider.run_config = RunConfig(buffer_size=2, preserve_dropped_columns=False)
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(builder, "_run_batch"):
+            with patch.object(builder.batch_manager, "finish"):
+                final_path = builder.build(num_records=4, resume=ResumeMode.IF_POSSIBLE)
+
+    assert storage.resume == ResumeMode.NEVER
+    assert (dataset_dir / "sentinel.txt").exists()
+    assert final_path != dataset_dir / "parquet-files"
 
 
 def test_build_resume_raises_on_corrupt_metadata(stub_resource_provider, stub_test_config_builder, tmp_path):

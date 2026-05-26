@@ -15,8 +15,8 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     DatasetBuilderColumnConfigT,
     MultiColumnConfig,
 )
+from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef
 from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
-from data_designer.engine.dataset_builders.utils.task_model import SliceRef
 from data_designer.logging import LOG_INDENT
 
 logger = logging.getLogger(__name__)

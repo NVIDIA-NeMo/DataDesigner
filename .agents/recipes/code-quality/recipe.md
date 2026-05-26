@@ -152,7 +152,7 @@ Examples of things to test (pick 2-3 per run, and invent new ones):
 - Column names with special characters or very long strings
 - Recently changed validators (check `git log --oneline -10 -- packages/*/src/data_designer/config/`)
 
-**API reference:**
+**Useful imports:**
 
 ```python
 from data_designer.config.config_builder import DataDesignerConfigBuilder
