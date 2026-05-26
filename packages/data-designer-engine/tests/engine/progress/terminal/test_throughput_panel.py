@@ -244,6 +244,20 @@ def test_rate_samples_are_bounded() -> None:
     assert len(state.rates) == _MAX_RATE_SAMPLES
 
 
+def test_completed_rate_sample_is_not_diluted_by_later_updates() -> None:
+    state = _BarState(label="col_a", total=100, start_time=0.0, last_sample_time=0.0)
+
+    state.record_update(completed=100, success=100, failed=0, skipped=0, now=10.0)
+    completed_rates = list(state.rates)
+    completed_latest_rate = state.latest_rate
+
+    for now in (12.0, 14.0, 16.0):
+        state.record_update(completed=100, success=100, failed=0, skipped=0, now=now)
+
+    assert state.rates == completed_rates
+    assert state.latest_rate == completed_latest_rate
+
+
 def test_sparse_rate_samples_span_chart_width() -> None:
     fitted = _fit_series([0.0, 10.0, 5.0], 7)
 

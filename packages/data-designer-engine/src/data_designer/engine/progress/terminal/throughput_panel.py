@@ -208,7 +208,10 @@ class _BarState:
         self.failed = failed
         self.skipped = skipped
 
-        should_sample = elapsed >= _RATE_SAMPLE_INTERVAL_SECONDS or bounded_completed >= self.total
+        already_complete = self.total > 0 and self.last_completed >= self.total
+        should_sample = (
+            elapsed >= _RATE_SAMPLE_INTERVAL_SECONDS or bounded_completed >= self.total
+        ) and not already_complete
         if should_sample:
             delta_completed = max(0, bounded_completed - self.last_completed)
             sample_elapsed = max(elapsed, 0.001)
