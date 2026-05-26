@@ -24,6 +24,7 @@ from data_designer.engine.progress.reporter import AsyncProgressReporter
 from data_designer.engine.progress.terminal.throughput_panel import (
     _CHART_LINE_COUNT,
     _MAX_RATE_SAMPLES,
+    _MIN_CHART_LINE_COUNT,
     _RATE_SAMPLE_INTERVAL_SECONDS,
     TerminalThroughputPanel,
     _BarState,
@@ -181,7 +182,35 @@ def test_model_usage_rates_render_in_separate_table(tty_stream: FakeTTY) -> None
         assert "2.5" in panel
 
 
-def test_many_columns_and_models_do_not_shrink_chart(tty_stream: FakeTTY) -> None:
+def test_many_columns_and_models_flex_chart_to_fit_viewport(tty_stream: FakeTTY) -> None:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
+        for index in range(4):
+            bar.add_bar(f"col_{index}", f"column_{index}", 100)
+        bar.update_many(
+            {f"col_{index}": (index + 1, index + 1, 0, 0) for index in range(4)},
+            force=True,
+        )
+        for index in range(4):
+            bar.record_model_usage(
+                model_alias=f"model_{index}",
+                model_name=f"provider/model-{index}",
+                input_tokens=100 + index,
+                output_tokens=10 + index,
+                force=True,
+            )
+
+        panel_lines = _last_panel_lines(tty_stream.getvalue())
+        panel = "\n".join(panel_lines)
+        assert len(_chart_lines(panel_lines)) < _CHART_LINE_COUNT
+        assert len(panel_lines) == 22
+        assert "more column(s)" not in panel
+        assert "more model(s)" not in panel
+        for index in range(4):
+            assert f"column_{index}" in panel
+            assert f"model_{index}" in panel
+
+
+def test_large_tables_keep_rows_after_chart_reaches_minimum(tty_stream: FakeTTY) -> None:
     with TerminalThroughputPanel(stream=tty_stream) as bar:
         for index in range(8):
             bar.add_bar(f"col_{index}", f"column_{index}", 100)
@@ -200,7 +229,7 @@ def test_many_columns_and_models_do_not_shrink_chart(tty_stream: FakeTTY) -> Non
 
         panel_lines = _last_panel_lines(tty_stream.getvalue())
         panel = "\n".join(panel_lines)
-        assert len(_chart_lines(panel_lines)) == _CHART_LINE_COUNT
+        assert len(_chart_lines(panel_lines)) == _MIN_CHART_LINE_COUNT
         assert len(panel_lines) > 22
         assert "more column(s)" not in panel
         assert "more model(s)" not in panel

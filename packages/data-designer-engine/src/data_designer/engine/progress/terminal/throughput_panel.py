@@ -269,8 +269,9 @@ class TerminalThroughputPanel:
 
     Log messages (via standard ``logging``) are rendered above the panel
     automatically. The panel redraws in-place after each update, tracks one
-    records-per-second curve per active generation column, and gives the chart
-    a stable height while the column and model tables grow to fit their rows.
+    records-per-second curve per active generation column. The chart keeps a
+    stable height in normal terminals, but flexes down before the column and
+    model tables overflow the viewport.
 
     Usage::
 
@@ -486,16 +487,23 @@ class TerminalThroughputPanel:
         panel_height = min(self._panel_height, max(_MIN_PANEL_HEIGHT, terminal_size.lines - 1))
         inner_width = panel_width - 2
 
-        body_capacity = max(1, panel_height - 4)
-        chart_line_count = min(_CHART_LINE_COUNT, max(_MIN_CHART_LINE_COUNT, body_capacity - 1))
-        minimum_legend_capacity = max(1, body_capacity - chart_line_count)
-        chart_height = chart_line_count - 1
-
         now = time.perf_counter()
         bars = list(self._bars.values())
         model_usage = list(self._model_usage.values())
+        legend_lines = self._format_legend_lines(bars, model_usage, now, inner_width)
+
+        body_capacity = max(1, panel_height - 4)
+        available_chart_lines = body_capacity - len(legend_lines)
+        if available_chart_lines >= _CHART_LINE_COUNT:
+            chart_line_count = _CHART_LINE_COUNT
+        else:
+            chart_line_count = max(_MIN_CHART_LINE_COUNT, available_chart_lines)
+        minimum_legend_capacity = max(0, body_capacity - chart_line_count)
+        while len(legend_lines) < minimum_legend_capacity:
+            legend_lines.append("")
+
+        chart_height = chart_line_count - 1
         chart_lines = self._format_chart_lines(bars, inner_width, chart_height, now)
-        legend_lines = self._format_legend_lines(bars, model_usage, now, minimum_legend_capacity, inner_width)
 
         lines = [
             self._border("╭", "─", "╮", panel_width),
@@ -589,16 +597,12 @@ class TerminalThroughputPanel:
         bars: list[_BarState],
         model_usage: list[_ModelUsageState],
         now: float,
-        minimum_capacity: int,
         inner_width: int,
     ) -> list[str]:
         lines = self._format_column_table_lines(bars, now, inner_width)
         if model_usage:
             lines.append("")
             lines.extend(self._format_model_table_lines(model_usage, now, inner_width))
-
-        while len(lines) < minimum_capacity:
-            lines.append("")
         return lines
 
     def _format_column_table_lines(
