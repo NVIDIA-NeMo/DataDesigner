@@ -9,10 +9,22 @@ from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validators.sql import SQLValidator
 
+VALID_SQL_BY_DIALECT = [
+    (
+        CodeLang.SQL_ANSI,
+        "SELECT category, COUNT(*) AS total_incidents FROM security_incidents_2 GROUP BY category;",
+    ),
+    (CodeLang.SQL_SQLITE, "SELECT sqlite_version() AS version;"),
+    (CodeLang.SQL_TSQL, "SELECT TOP 1 name FROM sys.objects;"),
+    (CodeLang.SQL_BIGQUERY, "SELECT * EXCEPT(sensitive_column) FROM `project.dataset.table`;"),
+    (CodeLang.SQL_MYSQL, "SELECT `name` FROM users LIMIT 1;"),
+    (CodeLang.SQL_POSTGRES, "SELECT 1::int AS value;"),
+]
 
-def test_valid_ansi_sql_code() -> None:
-    sql_validator = SQLValidator(CodeValidatorParams(code_lang=CodeLang.SQL_ANSI))
-    code = "SELECT category, COUNT(*) as total_incidents FROM security_incidents_2 GROUP BY category;"
+
+@pytest.mark.parametrize(("code_lang", "code"), VALID_SQL_BY_DIALECT)
+def test_valid_sql_code_for_supported_dialects(code_lang: CodeLang, code: str) -> None:
+    sql_validator = SQLValidator(CodeValidatorParams(code_lang=code_lang))
     result = sql_validator.run_validation([{"sql": code}])
     assert result.data[0].is_valid
     assert result.data[0].error_messages == ""
