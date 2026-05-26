@@ -1870,6 +1870,7 @@ class MockRateLimitThenNonRetryableGenerator(ColumnGenerator[ExpressionColumnCon
         super().__init__(*args, **kwargs)
         self._rate_limit_failures = rate_limit_failures
         self._rate_limit_calls = 0
+        self._first_rate_limit_recorded = asyncio.Event()
 
     def get_scheduling_metadata(self) -> SchedulingMetadata:
         return SchedulingMetadata.custom_model("test", self.config.name, "v1")
@@ -1878,13 +1879,15 @@ class MockRateLimitThenNonRetryableGenerator(ColumnGenerator[ExpressionColumnCon
     def get_generation_strategy() -> GenerationStrategy:
         return GenerationStrategy.CELL_BY_CELL
 
-    def generate(self, data: dict) -> dict:
+    async def agenerate(self, data: dict) -> dict:
         seed = data.get("seed")
         if seed == 0:
             self._rate_limit_calls += 1
             if self._rate_limit_calls <= self._rate_limit_failures:
+                self._first_rate_limit_recorded.set()
                 raise ModelRateLimitError("429 Too Many Requests")
         elif seed == 1:
+            await self._first_rate_limit_recorded.wait()
             raise ValueError("non-retryable failure")
         data[self.config.name] = f"shutdown_ok_{seed}"
         return data
