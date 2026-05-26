@@ -4,7 +4,7 @@ description: Audit code quality gaps not covered by ruff - complexity trends, ex
 trigger: schedule
 tool: claude-code
 timeout_minutes: 20
-max_turns: 30
+max_turns: 50
 permissions:
   contents: write
 ---

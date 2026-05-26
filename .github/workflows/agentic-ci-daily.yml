@@ -150,7 +150,7 @@ jobs:
 
           if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 \
+              --max-time 30 \
               -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
               -H "Content-Type: application/json" \
               -H "x-api-key: ${ANTHROPIC_API_KEY}" \
@@ -187,6 +187,13 @@ jobs:
           RUNNER_CTX=$(cat .agents/recipes/_runner.md)
           FIX_POLICY=$(cat .agents/recipes/_fix-policy.md)
           RECIPE_BODY=$(sed '1,/^---$/{ /^---$/,/^---$/d }' "${RECIPE_DIR}/recipe.md")
+          MAX_TURNS=$(awk -F': *' '
+            /^---$/ { section++; next }
+            section == 1 && $1 == "max_turns" { print $2; exit }
+            section == 2 { exit }
+          ' "${RECIPE_DIR}/recipe.md" | grep -oE '[0-9]+' | head -n1 || true)
+          MAX_TURNS=${MAX_TURNS:-50}
+          echo "Using max turns: ${MAX_TURNS}"
 
           PROMPT=$(printf '%s\n\n%s\n\n%s\n\n%s\n' "${PHASE_DIRECTIVE}" "${RUNNER_CTX}" "${FIX_POLICY}" "${RECIPE_BODY}" \
             | sed "s|{{suite}}|${SUITE}|g" \
@@ -196,7 +203,7 @@ jobs:
           stdbuf -oL -eL claude \
             --model "$AGENTIC_CI_MODEL" \
             -p "$PROMPT" \
-            --max-turns 50 \
+            --max-turns "$MAX_TURNS" \
             --output-format stream-json \
             --verbose \
             2>&1 | tee /tmp/claude-audit-log.txt
@@ -253,6 +260,8 @@ jobs:
             | sed "s|{{date}}|$(date -u +%Y-%m-%d)|g" \
             | sed "s|{{memory_path}}|.agentic-ci-state|g")
 
+          # Keep fix-phase turns fixed at 50; the audit budget is the
+          # suite-tuned scan limit, while fixes are bounded by scope gates.
           stdbuf -oL -eL claude \
             --model "$AGENTIC_CI_MODEL" \
             -p "$PROMPT" \
