@@ -23,7 +23,7 @@ from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import JinjaRenderingEngine, RunConfig, ThrottleConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
@@ -712,13 +712,14 @@ def test_init_no_user_providers_no_yaml_default_stays_quiet(
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
-    original_throttle_manager = data_designer._throttle_manager
+    original_request_admission = data_designer._request_admission
 
     # Test default values
     assert data_designer.run_config.disable_early_shutdown is False
     assert data_designer.run_config.shutdown_error_rate == 0.5
     assert data_designer.run_config.shutdown_error_window == 10
     assert data_designer.run_config.buffer_size == 1000
+    assert data_designer.run_config.max_in_flight_tasks == 1024
     assert data_designer.run_config.max_conversation_restarts == 5
     assert data_designer.run_config.max_conversation_correction_steps == 0
 
@@ -729,19 +730,21 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             shutdown_error_rate=0.8,
             shutdown_error_window=25,
             buffer_size=500,
+            max_in_flight_tasks=1536,
             max_conversation_restarts=7,
             max_conversation_correction_steps=2,
-            throttle=ThrottleConfig(success_window=7),
+            request_admission=RequestAdmissionTuningConfig(successes_until_increase=7),
         )
     )
     assert data_designer.run_config.disable_early_shutdown is True
     assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
     assert data_designer.run_config.shutdown_error_window == 25
     assert data_designer.run_config.buffer_size == 500
+    assert data_designer.run_config.max_in_flight_tasks == 1536
     assert data_designer.run_config.max_conversation_restarts == 7
     assert data_designer.run_config.max_conversation_correction_steps == 2
-    assert data_designer._throttle_manager is not original_throttle_manager
-    assert data_designer._throttle_manager._success_window == 7
+    assert data_designer._request_admission is not original_request_admission
+    assert data_designer._request_admission.config.successes_until_increase == 7
 
     # Test updating values
     data_designer.set_run_config(
@@ -750,6 +753,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             shutdown_error_rate=0.3,
             shutdown_error_window=5,
             buffer_size=750,
+            max_in_flight_tasks=2048,
             max_conversation_restarts=9,
             max_conversation_correction_steps=1,
         )
@@ -758,6 +762,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.shutdown_error_rate == 0.3
     assert data_designer.run_config.shutdown_error_window == 5
     assert data_designer.run_config.buffer_size == 750
+    assert data_designer.run_config.max_in_flight_tasks == 2048
     assert data_designer.run_config.max_conversation_restarts == 9
     assert data_designer.run_config.max_conversation_correction_steps == 1
 
@@ -861,6 +866,89 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
     # display report with no errors
     analysis.to_report()
+
+
+def test_create_with_drop_true_can_skip_dropped_column_artifacts(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_model_configs,
+    stub_managed_assets_path,
+):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="uuid",
+            sampler_type="uuid",
+            params={"prefix": "id_", "short_form": True, "uppercase": False},
+        )
+    )
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="hidden_category",
+            sampler_type="category",
+            params={"values": ["private"]},
+            drop=True,
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(preserve_dropped_columns=False))
+
+    results = data_designer.create(config_builder, num_records=3)
+
+    df = results.load_dataset()
+    assert "uuid" in df.columns
+    assert "hidden_category" not in df.columns
+    assert not results.artifact_storage.dropped_columns_dataset_path.exists()
+    metadata = json.loads(results.artifact_storage.metadata_file_path.read_text())
+    assert metadata["preserve_dropped_columns"] is False
+
+
+def test_create_with_drop_true_preserves_columns_only_in_dropped_artifacts(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_model_configs,
+    stub_managed_assets_path,
+):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="uuid",
+            sampler_type="uuid",
+            params={"prefix": "id_", "short_form": True, "uppercase": False},
+        )
+    )
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="hidden_category",
+            sampler_type="category",
+            params={"values": ["private"]},
+            drop=True,
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(config_builder, num_records=3)
+
+    main_df = results.load_dataset()
+    dropped_df = lazy.pd.read_parquet(results.artifact_storage.dropped_columns_dataset_path)
+    assert "uuid" in main_df.columns
+    assert "hidden_category" not in main_df.columns
+    assert "hidden_category" in dropped_df.columns
+    assert "uuid" not in dropped_df.columns
+    metadata = json.loads(results.artifact_storage.metadata_file_path.read_text())
+    assert metadata["preserve_dropped_columns"] is True
 
 
 def test_create_raises_error_when_builder_fails(

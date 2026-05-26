@@ -77,8 +77,8 @@ from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
-    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
-        self._throttle_manager: ThrottleManager = self._create_throttle_manager()
+        self._request_admission: AdaptiveRequestAdmissionController = self._create_request_admission_controller()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._person_reader = person_reader
         # Only consult the YAML's `default:` key when we are also falling back to
@@ -605,15 +605,16 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Args:
             run_config: A RunConfig instance containing runtime settings such as
-                early shutdown behavior, batch sizing via `buffer_size`, and non-inference worker
-                concurrency via `non_inference_max_parallel_workers`.
+                early shutdown behavior, batch sizing via `buffer_size`, async task lease
+                capacity via `max_in_flight_tasks`, and non-inference worker concurrency via
+                `non_inference_max_parallel_workers`.
 
         Notes:
             When `disable_early_shutdown=True`, DataDesigner will never terminate generation early
             due to error-rate thresholds. Errors are still tracked for reporting.
         """
         self._run_config = run_config
-        self._throttle_manager = self._create_throttle_manager()
+        self._request_admission = self._create_request_admission_controller()
 
     def get_models(self, model_aliases: list[str]) -> dict[str, ModelFacade]:
         """Get a dict of ModelFacade instances for custom column development.
@@ -702,13 +703,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
             client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
-            throttle_manager=self._throttle_manager,
+            request_admission=self._request_admission,
         )
 
-    def _create_throttle_manager(self) -> ThrottleManager:
-        from data_designer.engine.models.clients.throttle_manager import ThrottleManager
+    def _create_request_admission_controller(self) -> AdaptiveRequestAdmissionController:
+        from data_designer.engine.models.factory import create_request_admission_controller
 
-        return ThrottleManager(self._run_config.throttle)
+        return create_request_admission_controller(self._run_config)
 
     @staticmethod
     def _resolve_client_concurrency_mode(config_builder: DataDesignerConfigBuilder) -> ClientConcurrencyMode:

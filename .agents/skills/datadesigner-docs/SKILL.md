@@ -4,8 +4,8 @@ description: >
   Maintain the NeMo Data Designer Fern docs site under fern/. Use for any
   documentation change. Triggered by: "edit docs", "add doc page", "update
   docs", "rename page", "fix broken link", "add redirect", "preview docs",
-  "publish docs", "regenerate notebooks", "update dev note", "add API
-  reference", any request that touches `fern/`.
+  "publish docs", "regenerate notebooks", "update dev note", any request
+  that touches `fern/`.
 ---
 
 # Data Designer Docs Maintenance
@@ -16,7 +16,7 @@ Current URL: **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`** (see `i
 
 ## Scope Rule
 
-**ALL doc edits happen under `fern/`.** The legacy `docs/` directory is the original MkDocs source. `docs/notebook_source/*.py` remains canonical for notebook code, but **do not add new top-level prose pages under `docs/`**. Concept pages, recipes, plugins, code reference, and Dev Notes prose live under `fern/versions/latest/pages/`.
+**ALL doc edits happen under `fern/`.** The legacy `docs/` directory is the original MkDocs source. `docs/notebook_source/*.py` remains canonical for notebook code, but **do not add new top-level prose pages under `docs/`**. Concept pages, recipes, plugins, and Dev Notes prose live under `fern/versions/latest/pages/`.
 
 ## Versioning Model
 
@@ -39,7 +39,7 @@ For future Fern-native releases, do not copy page trees by hand on `main`. The r
 ```
 fern/
 ├── README.md                  ← maintainer cheat sheet
-├── docs.yml                   ← title, theme, versions:, libraries:, redirects, custom-domain
+├── docs.yml                   ← title, theme, versions:, redirects, custom-domain
 ├── fern.config.json           ← organization + fern-api version pin
 ├── main.css                   ← bundled NVIDIA theme CSS
 ├── assets/                    ← logos, favicon, recipe assets, devnote post images (shared)
@@ -56,7 +56,6 @@ fern/
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
-├── code-reference/            ← gitignored; populated by `fern docs md generate`
 └── versions/
     ├── latest.yml             ← authoring navigation tree
     └── latest/pages/          ← authoring MDX content
@@ -401,47 +400,6 @@ import notebook from "@/components/notebooks/1-the-basics";
 
 The converter (`fern/scripts/ipynb-to-fern-json.py`) **auto-strips the leading Colab badge cell** — `<NotebookViewer>` renders its own banner from the `colabUrl` prop. Don't manually re-add it.
 
-## Python API Reference (`libraries:`)
-
-`docs.yml` keeps a Fern-native `libraries:` block for the config package. Local generation uses `py2fern` through `make generate-fern-api-reference` and writes multiple gitignored trees under `fern/code-reference/`:
-
-- `data-designer/` for `data_designer.config`
-- `interface/` for `data_designer.interface`
-- `engine/seed-readers/`
-- `engine/processors/`
-- `engine/mcp/`
-- `engine/column-generators/`
-
-To populate locally:
-
-```bash
-make generate-fern-api-reference
-```
-
-This does not require Fern auth. Re-run when the upstream Python source changes. If you need to compare with Fern's native generator, use `make generate-fern-api-reference-native` with Fern auth.
-
-The generated trees are wired into `versions/latest.yml` under `Code Reference`:
-
-- `Config` contains prose pages plus `Config API` from `../code-reference/data-designer/data_designer/config`
-- `Interface` contains prose pages plus `Interface API` from `../code-reference/interface/data_designer/interface`
-- `Engine Extension API` contains prose pages plus the seed reader, processor, MCP runtime, and column generator API folders
-
-There is no `Topic Overviews` section. Prose reference pages live beside the generated folders under `fern/versions/latest/pages/code_reference/`.
-
-To add another generated package, update the `generate-fern-api-reference` target and add the matching `folder:` entry under the right `Code Reference` section. Only add a `libraries:` entry when Fern's native generator should know about that source:
-
-```yaml
-libraries:
-  data-designer:
-    input:
-      git: https://github.com/NVIDIA-NeMo/DataDesigner
-      subpath: packages/data-designer-config/src/data_designer/config
-    output: { path: ./code-reference/data-designer }
-    lang: python
-```
-
-Pyright needs a regular Python package (with `__init__.py`). The `data_designer` namespace itself is PEP 420 (no `__init__.py`), so always point at a sub-package one level deeper.
-
 ## MDX Gotchas (the ones that bit during migration)
 
 | Pattern | Problem | Fix |
@@ -466,14 +424,6 @@ fern docs dev       # localhost:3000 hot-reload preview
 ```
 
 `fern check` must pass before commit. The local broken-link checker has known false positives — it computes URLs from file paths instead of from slugified nav titles, so cross-section absolute links sometimes flag incorrectly. Spot-check by clicking through the dev server.
-
-To generate the API reference for local preview:
-
-```bash
-make generate-fern-api-reference    # py2fern; populates fern/code-reference/ (gitignored)
-```
-
-If the "Python API" sidebar folder is empty, you forgot this step.
 
 ## Commit & Preview
 

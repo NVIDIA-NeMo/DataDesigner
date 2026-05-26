@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from unittest.mock import Mock, patch
 
 import pytest
@@ -16,7 +18,7 @@ from data_designer.config.column_configs import (
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
-from data_designer.config.models import ImageContext, ModalityDataType
+from data_designer.config.models import AudioContext, ImageContext, ModalityDataType
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     SchemaTransformProcessorConfig,
@@ -245,6 +247,18 @@ def test_validate_column_config_with_multi_modal_context():
     violations = validate_prompt_templates([column], [column.name])
     # there should be no violations because the prompt does not reference any columns and it's not necessary
     # when multi modal context is provided
+    assert len(violations) == 0
+
+
+def test_validate_column_config_with_audio_multi_modal_context() -> None:
+    column = LLMTextColumnConfig(
+        name="audio_description",
+        prompt="Describe the audio.",
+        model_alias=STUB_MODEL_ALIAS,
+        multi_modal_context=[AudioContext(column_name="audio_url", data_type=ModalityDataType.URL)],
+    )
+
+    violations = validate_prompt_templates([column], [column.name])
     assert len(violations) == 0
 
 

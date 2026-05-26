@@ -10,18 +10,22 @@ from typing import Any
 
 from jinja2 import meta
 from jinja2 import nodes as j_nodes
-from jinja2.exceptions import SecurityError, TemplateSyntaxError
+from jinja2.exceptions import SecurityError, TemplateSyntaxError, UndefinedError
 from jinja2.nodes import Template
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 from jsonpath_rust_bindings import Finder
 
 from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.processing.ginja.ast import (
+    AccessChain,
     ast_count_name_references,
     ast_descendant_count,
+    ast_extract_access_chains,
     ast_max_depth,
+    resolve_access_chain,
 )
 from data_designer.engine.processing.ginja.exceptions import (
+    EmptyTemplateRenderError,
     UserTemplateError,
     UserTemplateUnsupportedFiltersError,
     maybe_handle_missing_filter_exception,
@@ -311,18 +315,39 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
             if bool(matches):
                 raise UserTemplateError("User template has uncalled __builtin__ method.")
 
-    def _assert_rendered_text_not_empty(self, rendered_text: str) -> None:
-        """Check to make sure the resulting text isn't an empty string"""
-        if len(rendered_text) == 0:
-            raise UserTemplateError("User template renders to empty text.")
+    def _assert_rendered_text_not_empty(
+        self,
+        rendered_text: str,
+        user_template: str | None = None,
+        record: dict | None = None,
+    ) -> None:
+        """Check to make sure the resulting text isn't an empty string.
 
-    def validate_rendered_text(self, rendered_text: str) -> None:
+        When ``user_template`` and ``record`` are provided, raises an
+        ``EmptyTemplateRenderError`` with a row-level actionable message
+        identifying likely culprit fields. Otherwise falls back to a
+        plain ``UserTemplateError`` (the legacy behavior).
+        """
+        if len(rendered_text) != 0:
+            return
+        if user_template is not None and record is not None:
+            raise EmptyTemplateRenderError(_build_empty_render_message(user_template, record, self.parse))
+        raise UserTemplateError("User template renders to empty text.")
+
+    def validate_rendered_text(
+        self,
+        rendered_text: str,
+        user_template: str | None = None,
+        record: dict | None = None,
+    ) -> None:
         """Raises UserTemplateError on invalid renders.
 
         This is used as a post-processing step for capturing and
-        acting on strings before they go out the door.
+        acting on strings before they go out the door. When
+        ``user_template`` and ``record`` are provided, empty-render
+        failures get a row-level diagnostic message.
         """
-        self._assert_rendered_text_not_empty(rendered_text)
+        self._assert_rendered_text_not_empty(rendered_text, user_template=user_template, record=record)
         self._assert_rendered_text_length(rendered_text)
         self._assert_rendered_text_has_no_builtin_descriptions(rendered_text)
 
@@ -349,6 +374,10 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
                 that the template itself has failed static analysis. See the error
                 message for more details.
 
+            EmptyTemplateRenderError: If the template references a field
+                that is missing/None/empty in this row, either rendering
+                to empty text or triggering a Jinja ``UndefinedError``.
+
             RecordContentsError: If there is a system-internal error with
                 the supplied record data. This error is raised to prevent Jinja2
                 processing of potentially insecure data objects.
@@ -365,11 +394,19 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
             raise UserTemplateError("Non-permitted operations in Jinja template.")
         except OverflowError:
             raise UserTemplateError("Template too large.")
+        except UndefinedError as exception:
+            # Raised when a chain like ``{{ a.b.c }}`` hits a missing
+            # intermediate. Convert into the actionable EmptyTemplateRenderError
+            # so the user sees the culprit field rather than a raw
+            # "'dict object' has no attribute 'b'" string.
+            raise EmptyTemplateRenderError(
+                _build_empty_render_message(user_template, record, self.parse)
+            ) from exception
         except Exception as exception:
             maybe_handle_missing_filter_exception(exception, available_jinja_filters=list(self.filters.keys()))
             raise exception
 
-        self.validate_rendered_text(rendered_text)
+        self.validate_rendered_text(rendered_text, user_template=user_template, record=record)
 
         return rendered_text
 
@@ -449,6 +486,10 @@ class NativeJinjaSandboxEnvironment(ImmutableSandboxedEnvironment):
             return template.render(record)
         except SecurityError as exception:
             raise UserTemplateError("Non-permitted operations in Jinja template.") from exception
+        except UndefinedError as exception:
+            raise EmptyTemplateRenderError(
+                _build_empty_render_message(user_template, record, self.parse)
+            ) from exception
         except Exception as exception:
             maybe_handle_missing_filter_exception(exception, available_jinja_filters=list(self.filters.keys()))
             raise UserTemplateError(str(exception)) from exception
@@ -461,9 +502,12 @@ def sanitize_user_exceptions(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except UserTemplateUnsupportedFiltersError as exception:
-            ## Informative messaging is already handled in this
-            ## specific case.
+        except (UserTemplateUnsupportedFiltersError, EmptyTemplateRenderError) as exception:
+            ## Informative messaging is already handled in these
+            ## specific cases.
+            ## NOTE: ordering matters -- both of these are subclasses of
+            ## UserTemplateError, so they must be caught before the generic
+            ## ``UserTemplateError`` clause below.
             raise exception
         except (UserTemplateError, TemplateSyntaxError):
             ## All other details are wrapped in a generic error message
@@ -590,3 +634,146 @@ class WithJinja2UserTemplateRendering:
     def _create_render_func_registry(self) -> None:
         if not hasattr(self, "_render_func_registry"):
             self._render_func_registry = {}
+
+
+# Sentinel describing why a chain showed up as a likely culprit. The values
+# are user-facing labels that get embedded in the error message.
+_CULPRIT_MISSING = "missing from record"
+_CULPRIT_NONE = "resolved to None"
+_CULPRIT_EMPTY_STRING = "resolved to empty string"
+_CULPRIT_EMPTY_COLLECTION = "resolved to empty collection"
+
+
+def _format_access_chain(name: str, accessors: list[str | int]) -> str:
+    """Render an access chain in user-friendly dotted/bracket notation."""
+    parts: list[str] = [name]
+    for acc in accessors:
+        if isinstance(acc, str) and acc.isidentifier():
+            parts.append(f".{acc}")
+        elif isinstance(acc, str):
+            parts.append(f"[{acc!r}]")
+        else:
+            parts.append(f"[{acc}]")
+    return "".join(parts)
+
+
+def _classify_chain(record: dict, name: str, accessors: list[str | int]) -> tuple[str, list[str | int]] | None:
+    """Return ``(reason, prefix)`` if a chain is a likely empty-render culprit.
+
+    The returned ``prefix`` is the longest accessor list that did resolve,
+    so callers can suggest fallback patterns that gate on it.
+    """
+    resolved, value, prefix = resolve_access_chain(record, name, accessors)
+    if not resolved:
+        return (_CULPRIT_MISSING, prefix)
+    if value is None:
+        return (_CULPRIT_NONE, prefix)
+    if isinstance(value, str) and value == "":
+        return (_CULPRIT_EMPTY_STRING, prefix)
+    # Empty collections (lists/dicts/tuples/sets) render to "[]"/"{}"/etc.
+    # via Jinja2 by default, but they're a common source of empty output when
+    # used as a loop iterable, e.g. ``{% for x in items %}...{% endfor %}``
+    # with ``items=[]``. Surface them as culprits so the user sees which
+    # field to gate on.
+    if isinstance(value, (list, dict, tuple, set, frozenset)) and len(value) == 0:
+        return (_CULPRIT_EMPTY_COLLECTION, prefix)
+    return None
+
+
+def _collect_culprit_chains(
+    chains: list[AccessChain], record: dict
+) -> list[tuple[str, list[str | int], str, list[str | int]]]:
+    """Identify chains in ``chains`` that resolve to empty-ish values in ``record``.
+
+    Returns a list of ``(name, accessors, reason, resolvable_prefix)`` tuples,
+    deduped on the chain identity to avoid repeating the same culprit when a
+    template references it multiple times.
+    """
+    seen: set[tuple[str, tuple[str | int, ...]]] = set()
+    culprits: list[tuple[str, list[str | int], str, list[str | int]]] = []
+    for name, accessors in chains:
+        key = (name, tuple(accessors))
+        if key in seen:
+            continue
+        seen.add(key)
+        classification = _classify_chain(record, name, accessors)
+        if classification is None:
+            continue
+        reason, prefix = classification
+        culprits.append((name, accessors, reason, prefix))
+    return culprits
+
+
+def _build_empty_render_message(user_template: str, record: dict, parser: Callable[[str], j_nodes.Template]) -> str:
+    """Compose an actionable error message for empty/undefined-access renders.
+
+    ``parser`` is the environment's own ``parse`` method; we accept it as a
+    parameter so this helper stays decoupled from any specific environment.
+    """
+    header = (
+        "Template rendered to empty text. This usually happens when one or "
+        "more referenced fields are missing, None, or empty in this row."
+    )
+    culprits: list[tuple[str, list[str | int], str, list[str | int]]] = []
+    try:
+        ast = parser(user_template)
+        chains = ast_extract_access_chains(ast)
+        # Filter out chains rooted in Jinja-scoped names (e.g. ``person`` in
+        # ``{% for person in people %}{{ person.name }}{% endfor %}``). The
+        # canonical way to identify true external references is
+        # ``meta.find_undeclared_variables``, which already understands loop
+        # targets and other scoping constructs.
+        undeclared = meta.find_undeclared_variables(ast)
+        chains = [(name, accessors) for name, accessors in chains if name in undeclared]
+        culprits = _collect_culprit_chains(chains, record)
+    except Exception:
+        # If anything in the culprit-finding path fails, fall back to a
+        # message without the per-row diagnostic. We never want this helper
+        # to mask the original render failure.
+        culprits = []
+
+    if not culprits:
+        return (
+            f"{header}\n"
+            "\nTo handle missing values, provide a fallback in your template "
+            "using a Jinja conditional, e.g. "
+            "`{{ field if field else 'N/A' }}`, or gate generation with a "
+            "SkipConfig."
+        )
+
+    culprit_lines = []
+    for name, accessors, reason, _prefix in culprits:
+        culprit_lines.append(f"  - {_format_access_chain(name, accessors)} ({reason})")
+    culprit_block = "\n".join(culprit_lines)
+
+    sample_name, sample_accessors, _sample_reason, sample_prefix = culprits[0]
+    full_chain = _format_access_chain(sample_name, sample_accessors)
+    # Pick a "gate" expression that is safe to evaluate in Jinja. Going one
+    # accessor past the resolvable prefix gives us the first Undefined value,
+    # which Jinja happily stringifies as "" and treats as falsy. Going any
+    # further would attempt another lookup on Undefined and re-raise.
+    # For chains that fully resolved (None/empty leaf), prefix == accessors,
+    # so the slice collapses to the full chain.
+    #
+    # Special case: when the root variable itself is absent from the record,
+    # ``resolve_access_chain`` returns ``prefix=[]``. Slicing one past that
+    # would yield ``person.address`` for a missing ``person`` root, but
+    # Jinja's ``Undefined.__getattr__`` raises ``UndefinedError`` -- the very
+    # error we're trying to help the user fix. Fall back to gating on the
+    # root name alone, which Jinja's ``Undefined`` happily treats as falsy.
+    if sample_name not in record:
+        gate_accessors: list[str | int] = []
+    else:
+        gate_accessors = sample_accessors[: len(sample_prefix) + 1]
+    gate_chain = _format_access_chain(sample_name, gate_accessors)
+
+    return (
+        f"{header}\n"
+        "\nLikely culprits in this row:\n"
+        f"{culprit_block}\n"
+        "\nTo handle missing values, you can:\n"
+        "\n  1. Provide a fallback in your template using a Jinja conditional:\n"
+        f"       {{{{ {full_chain} if {gate_chain} else 'N/A' }}}}\n"
+        "\n  2. Skip rows where required fields are missing using SkipConfig:\n"
+        f'       skip=SkipConfig(when="{{{{ not {gate_chain} }}}}")'
+    )

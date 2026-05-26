@@ -35,7 +35,7 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
     def process_after_batch(self, data: pd.DataFrame, *, current_batch_number: int | None) -> pd.DataFrame:
         logger.info(f"🙈 Dropping columns: {self.config.column_names}")
         resolved = self._resolve_columns(data.columns)
-        if current_batch_number is not None:
+        if current_batch_number is not None and self.resource_provider.run_config.preserve_dropped_columns:
             self._save_dropped_columns(data, resolved, current_batch_number)
         if resolved:
             data.drop(columns=resolved, inplace=True)

@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from data_designer.config.models import Modality
+from data_designer.config.utils.media_helpers import get_media_base64_context, get_media_url_context
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
@@ -115,6 +117,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     request = ChatCompletionRequest(
         model=MODEL,
         messages=[{"role": "user", "content": "Hi"}],
+        n=4,
         temperature=0.7,
         extra_body={"seed": 42},
         extra_headers={"X-Trace": "1"},
@@ -125,6 +128,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
     assert "/chat/completions" in call_args.args[0]
     payload = call_args.kwargs["json"]
     assert payload["model"] == MODEL
+    assert payload["n"] == 4
     assert payload["temperature"] == 0.7
     assert payload["seed"] == 42
     assert "timeout" not in payload
@@ -296,6 +300,157 @@ def test_completion_forwards_base64_image_url_dict_unchanged() -> None:
     assert content[0] == image_block
 
 
+def test_completion_forwards_multimodal_tool_result_content_unchanged() -> None:
+    """OpenAI-compatible VLM backends receive canonical multimodal tool content."""
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    content = [
+        {"type": "text", "text": "Rendered page:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}},
+    ]
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "tool", "tool_call_id": "call-1", "content": content}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["messages"][0]["content"] == content
+
+
+def test_completion_translates_canonical_image_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    image_block = get_media_base64_context(Modality.IMAGE.value, "image/png", "iVBOR...")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [image_block, {"type": "text", "text": "What is this?"}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}}
+
+
+def test_completion_translates_base64_audio_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = get_media_base64_context(Modality.AUDIO.value, "audio/mpeg", "abc123")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "input_audio", "input_audio": {"data": "abc123", "format": "mp3"}}
+
+
+def test_completion_rejects_unsupported_canonical_audio_media_type() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = get_media_base64_context(Modality.AUDIO.value, "audio/flac", "abc123")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.BAD_REQUEST
+    assert exc_info.value.provider_name == PROVIDER
+    assert exc_info.value.model_name == MODEL
+    assert "audio/flac" in exc_info.value.message
+    sync_mock.post.assert_not_called()
+
+
+def test_completion_translates_audio_url_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = get_media_url_context(Modality.AUDIO.value, "https://example.com/download?id=123")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "audio_url", "audio_url": {"url": "https://example.com/download?id=123"}}
+
+
+def test_completion_translates_local_audio_path_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = get_media_url_context(Modality.AUDIO.value, "recordings/speech.wav")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "audio_url", "audio_url": {"url": "recordings/speech.wav"}}
+
+
+def test_completion_translates_video_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    video_block = get_media_url_context(Modality.VIDEO.value, "https://example.com/download?id=123")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "video_url", "video_url": {"url": "https://example.com/download?id=123"}}
+
+
+def test_completion_translates_local_video_path_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    video_block = get_media_url_context(Modality.VIDEO.value, "clips/screen_recording.mp4")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "video_url", "video_url": {"url": "clips/screen_recording.mp4"}}
+
+
+def test_completion_translates_base64_video_blocks() -> None:
+    sync_mock = make_mock_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    video_block = get_media_base64_context(Modality.VIDEO.value, "video/mp4", "abc123")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [video_block, {"type": "text", "text": "Describe this."}]}],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,abc123"}}
+
+
 # --- Auth headers ---
 
 
@@ -363,6 +518,25 @@ def test_http_error_maps_to_provider_error(
         client.completion(request)
 
     assert exc_info.value.kind == expected_kind
+
+
+def test_http_400_error_preserves_provider_message() -> None:
+    error_json = {"error": {"message": "Unsupported content type: audio_url"}}
+    sync_mock = make_mock_sync_client(error_json, status_code=400)
+    client = _make_client(sync_client=sync_mock)
+
+    audio_block = get_media_url_context(Modality.AUDIO.value, "https://example.com/speech.mp3")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": [audio_block, {"type": "text", "text": "Transcribe this."}]}],
+    )
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.BAD_REQUEST
+    assert exc_info.value.status_code == 400
+    assert "Unsupported content type: audio_url" in exc_info.value.message
+    sync_mock.post.assert_called_once()
 
 
 def test_transport_timeout_raises_timeout_error() -> None:
