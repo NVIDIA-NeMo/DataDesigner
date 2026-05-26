@@ -719,6 +719,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.shutdown_error_rate == 0.5
     assert data_designer.run_config.shutdown_error_window == 10
     assert data_designer.run_config.buffer_size == 1000
+    assert data_designer.run_config.max_in_flight_tasks == 1024
     assert data_designer.run_config.max_conversation_restarts == 5
     assert data_designer.run_config.max_conversation_correction_steps == 0
 
@@ -729,6 +730,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             shutdown_error_rate=0.8,
             shutdown_error_window=25,
             buffer_size=500,
+            max_in_flight_tasks=1536,
             max_conversation_restarts=7,
             max_conversation_correction_steps=2,
             request_admission=RequestAdmissionTuningConfig(successes_until_increase=7),
@@ -738,6 +740,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
     assert data_designer.run_config.shutdown_error_window == 25
     assert data_designer.run_config.buffer_size == 500
+    assert data_designer.run_config.max_in_flight_tasks == 1536
     assert data_designer.run_config.max_conversation_restarts == 7
     assert data_designer.run_config.max_conversation_correction_steps == 2
     assert data_designer._request_admission is not original_request_admission
@@ -750,6 +753,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             shutdown_error_rate=0.3,
             shutdown_error_window=5,
             buffer_size=750,
+            max_in_flight_tasks=2048,
             max_conversation_restarts=9,
             max_conversation_correction_steps=1,
         )
@@ -758,6 +762,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.shutdown_error_rate == 0.3
     assert data_designer.run_config.shutdown_error_window == 5
     assert data_designer.run_config.buffer_size == 750
+    assert data_designer.run_config.max_in_flight_tasks == 2048
     assert data_designer.run_config.max_conversation_restarts == 9
     assert data_designer.run_config.max_conversation_correction_steps == 1
 
@@ -861,6 +866,89 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
     # display report with no errors
     analysis.to_report()
+
+
+def test_create_with_drop_true_can_skip_dropped_column_artifacts(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_model_configs,
+    stub_managed_assets_path,
+):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="uuid",
+            sampler_type="uuid",
+            params={"prefix": "id_", "short_form": True, "uppercase": False},
+        )
+    )
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="hidden_category",
+            sampler_type="category",
+            params={"values": ["private"]},
+            drop=True,
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(preserve_dropped_columns=False))
+
+    results = data_designer.create(config_builder, num_records=3)
+
+    df = results.load_dataset()
+    assert "uuid" in df.columns
+    assert "hidden_category" not in df.columns
+    assert not results.artifact_storage.dropped_columns_dataset_path.exists()
+    metadata = json.loads(results.artifact_storage.metadata_file_path.read_text())
+    assert metadata["preserve_dropped_columns"] is False
+
+
+def test_create_with_drop_true_preserves_columns_only_in_dropped_artifacts(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_model_configs,
+    stub_managed_assets_path,
+):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="uuid",
+            sampler_type="uuid",
+            params={"prefix": "id_", "short_form": True, "uppercase": False},
+        )
+    )
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="hidden_category",
+            sampler_type="category",
+            params={"values": ["private"]},
+            drop=True,
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(config_builder, num_records=3)
+
+    main_df = results.load_dataset()
+    dropped_df = lazy.pd.read_parquet(results.artifact_storage.dropped_columns_dataset_path)
+    assert "uuid" in main_df.columns
+    assert "hidden_category" not in main_df.columns
+    assert "hidden_category" in dropped_df.columns
+    assert "uuid" not in dropped_df.columns
+    metadata = json.loads(results.artifact_storage.metadata_file_path.read_text())
+    assert metadata["preserve_dropped_columns"] is True
 
 
 def test_create_raises_error_when_builder_fails(

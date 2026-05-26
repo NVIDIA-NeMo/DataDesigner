@@ -378,6 +378,27 @@ def test_composite_workflow_rejects_duplicate_output_processor_names(
         )
 
 
+def test_composite_workflow_rejects_duplicate_names_within_output_processors(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _category_builder(stub_model_configs)
+    workflow = _data_designer(stub_artifact_path, stub_model_providers).compose_workflow(
+        name="duplicate-within-output-processors"
+    )
+
+    with pytest.raises(DataDesignerWorkflowError, match="distinct within output_processors"):
+        workflow.add_stage(
+            "base",
+            stage,
+            output_processors=[
+                DropColumnsProcessorConfig(name="drop_scratch", column_names=["scratch"]),
+                DropColumnsProcessorConfig(name="drop_scratch", column_names=["other_scratch"]),
+            ],
+        )
+
+
 def test_composite_workflow_rejects_duplicate_stage_names(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],

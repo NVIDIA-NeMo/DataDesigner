@@ -86,12 +86,12 @@ div.output_subarea pre,
     width: 10rem !important;
 }
 
-/* Hide right sidebar (TOC) by default, JavaScript will show it on Code Reference pages */
+/* Hide right sidebar (TOC) by default, JavaScript will show it on Concepts and Plugins pages */
 .md-sidebar.md-sidebar--secondary {
     display: none !important;
 }
 
-/* Show TOC on Code Reference pages (controlled by JavaScript) */
+/* Show TOC on selected pages (controlled by JavaScript) */
 body.show-toc .md-sidebar.md-sidebar--secondary {
     display: block !important;
 }

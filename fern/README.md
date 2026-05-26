@@ -10,7 +10,7 @@ Data Designer is moving from MkDocs to Fern over several releases. During that t
 - Keep Fern working in parallel for local checks and hosted validation.
 - Treat `docs/` as the docs source of truth unless a page has already been intentionally moved to Fern-only MDX.
 - Treat `docs/notebook_source/*.py` as the notebook source of truth.
-- Keep generated Fern API reference and notebook artifacts gitignored.
+- Keep generated Fern notebook artifacts gitignored.
 
 ## Prerequisites
 
@@ -21,23 +21,9 @@ npm install -g fern-api
 
 ## First-time setup
 
-Two pre-render steps are needed before the dev server has all content. Both produce gitignored files and are safe to rerun.
+One pre-render step is needed before the dev server has all tutorial content. It produces gitignored files and is safe to rerun.
 
-### 1. Python API reference (gitignored - must regenerate)
-
-`make generate-fern-api-reference` uses `py2fern` to extract API docs from local Python source. The output lands in `fern/code-reference/` (gitignored), preserving the existing Config API folder and adding Interface and curated Engine extension API folders.
-
-```bash
-make generate-fern-api-reference
-```
-
-`py2fern` only descends into Python packages. Add `__init__.py` to any new subdirectory whose modules should appear in the API reference.
-
-The `libraries:` block in [`docs.yml`](docs.yml) still documents the Fern-native config generator. Run `make generate-fern-api-reference-native` only when you want the Fern CLI output and have Fern auth.
-
-Re-run when the upstream package source changes.
-
-### 2. Notebook tutorials (gitignored - regenerate on clone)
+### Notebook tutorials (gitignored - regenerate on clone)
 
 Each tutorial source file is converted to a JSON+TS pair in `fern/components/notebooks/`, then rendered through the `<NotebookViewer>` component on the wrapper MDX page. Output is gitignored; regenerate it after cloning and after changing `docs/notebook_source/*.py`.
 
@@ -57,7 +43,7 @@ make serve-fern-docs-locally
 # → http://localhost:3000
 ```
 
-`serve-fern-docs-locally` generates Fern API reference and notebook artifacts before starting `fern docs dev`. It does not publish.
+`serve-fern-docs-locally` generates notebook artifacts before starting `fern docs dev`. It does not publish.
 
 ## CI and publishing
 
@@ -114,7 +100,7 @@ Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages
 ```
 fern/
 ├── README.md                  ← this file
-├── docs.yml                   ← title, colors, versions:, libraries:, redirects, custom domain
+├── docs.yml                   ← title, colors, versions:, redirects, custom domain
 ├── fern.config.json           ← organization, fern-api version pin
 ├── main.css                   ← bundled NVIDIA theme CSS
 ├── assets/                    ← logos, favicon, recipe assets, devnote post images
@@ -131,7 +117,6 @@ fern/
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
-├── code-reference/            ← gitignored; populated by `make generate-fern-api-reference`
 └── versions/
     ├── latest.yml             ← authoring navigation tree
     └── latest/pages/          ← authoring MDX content
@@ -154,11 +139,9 @@ Support and CI targets:
 | Command | Purpose |
 |---------|---------|
 | `make install-docs-deps` | Install docs and notebook dependencies |
-| `make generate-fern-api-reference` | Generate local Fern API reference with `py2fern` |
-| `make generate-fern-api-reference-native` | Generate Fern API reference with Fern CLI (requires Fern auth) |
 | `make generate-fern-notebooks` | Refresh gitignored notebook output from `docs/notebook_source/*.py` |
-| `make prepare-fern-docs` | Generate local Fern artifacts |
-| `make check-fern-docs` | Generate local Fern artifacts and run `fern check` |
+| `make prepare-fern-docs` | Generate local Fern notebook artifacts |
+| `make check-fern-docs` | Generate local Fern notebook artifacts and run `fern check` |
 
 Raw Fern CLI commands, normally wrapped by Make:
 
@@ -166,5 +149,4 @@ Raw Fern CLI commands, normally wrapped by Make:
 |---------|---------|
 | `fern docs dev` | Local preview at `http://localhost:3000` |
 | `fern check` | Validate `docs.yml` and MDX |
-| `fern docs md generate` | Generate library API docs with Fern CLI (requires Fern auth) |
 | `fern generate --docs --preview` | Hosted preview on `*.docs.buildwithfern.com` (needs Fern token) |

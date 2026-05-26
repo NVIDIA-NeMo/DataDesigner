@@ -15,7 +15,7 @@ from data_designer.config.utils.constants import (
     OPENROUTER_ATTRIBUTION_HEADERS,
     OPENROUTER_PROVIDER_NAME,
 )
-from data_designer.config.utils.image_helpers import is_image_diffusion_model
+from data_designer.config.utils.media_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.types import (
@@ -309,6 +309,7 @@ class ModelFacade:
                 prompt.
             parser (func(str) -> Any): A function applied to the LLM response which processes
                 an LLM response into some output object. Default: identity function.
+            multi_modal_context: Optional list of image, audio, or video context blocks.
             tool_alias (str | None): Optional tool configuration alias. When provided,
                 the model may call permitted tools from the configured MCP providers.
                 The alias must reference a ToolConfig registered in the MCPRegistry.
@@ -627,7 +628,7 @@ class ModelFacade:
 
         Args:
             prompt: The prompt for image generation
-            multi_modal_context: Optional list of image contexts for multi-modal generation.
+            multi_modal_context: Optional list of image, audio, or video contexts for multi-modal generation.
                 Only used with autoregressive models via chat completions API.
             skip_usage_tracking: Whether to skip usage tracking
             **kwargs: Additional arguments to pass to the model
@@ -686,7 +687,7 @@ class ModelFacade:
 
         Args:
             prompt: The prompt for image generation
-            multi_modal_context: Optional list of image contexts for multi-modal generation.
+            multi_modal_context: Optional list of image, audio, or video contexts for multi-modal generation.
                 Only used with autoregressive models via chat completions API.
             skip_usage_tracking: Whether to skip usage tracking
             **kwargs: Additional arguments to pass to the model

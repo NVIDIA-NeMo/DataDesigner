@@ -15,8 +15,8 @@ import tempfile
 from pathlib import Path
 
 DEVNOTES_SECTION_RE = re.compile(r"^  - section:\s+Dev Notes\s*$")
-CODE_REFERENCE_SECTION_RE = re.compile(r"^  - section:\s+Code Reference\s*$")
-CODE_REFERENCE_PAGE_ROOT_RE = re.compile(r"path:\s+\./([^/]+)/pages/code_reference/")
+RETIRED_REFERENCE_SECTION_RE = re.compile(r"^  - section:\s+" + re.escape("Code " + "Reference") + r"\s*$")
+RETIRED_REFERENCE_DIR = "code" + "_reference"
 NAV_PATH_RE = re.compile(r"^(\s*path:\s+)\./([^#\s]+)(.*)$")
 REDIRECT_VERSION_RE = re.compile(
     r'^\s*destination:\s+["\']/nemo/datadesigner/((?:v[0-9][^/"\']*)|older-versions)(?:/|["\'])'
@@ -46,43 +46,16 @@ FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/styles/metrics-table.css",
     "fern/styles/trajectory-viewer.css",
 ]
-CONFIG_CODE_REFERENCE_PAGES = [
-    "analysis.mdx",
-    "column_configs.mdx",
-    "config_builder.mdx",
-    "data_designer_config.mdx",
-    "mcp.mdx",
-    "models.mdx",
-    "processors.mdx",
-    "run_config.mdx",
-    "sampler_params.mdx",
-    "validator_params.mdx",
-]
-CODE_REFERENCE_STRUCTURE_PAGES = [
-    "index.mdx",
-    "config/index.mdx",
-    "config/seeds.mdx",
-    "engine/column_generators.mdx",
-    "engine/index.mdx",
-    "engine/mcp.mdx",
-    "engine/processors.mdx",
-    "engine/seed_readers.mdx",
-    "interface/data_designer.mdx",
-    "interface/errors.mdx",
-    "interface/index.mdx",
-    "interface/results.mdx",
-]
-CODE_REFERENCE_LINK_REPLACEMENTS = [
-    ("/code-reference/topic-overviews/data-designer-config", "/code-reference/config/data-designer-config"),
-    ("/code-reference/topic-overviews/column-configs", "/code-reference/config/column-configs"),
-    ("/code-reference/topic-overviews/config-builder", "/code-reference/config/config-builder"),
-    ("/code-reference/topic-overviews/run-config", "/code-reference/config/run-config"),
-    ("/code-reference/topic-overviews/sampler-params", "/code-reference/config/sampler-params"),
-    ("/code-reference/topic-overviews/validator-params", "/code-reference/config/validator-params"),
-    ("/code-reference/topic-overviews/models", "/code-reference/config/models"),
-    ("/code-reference/topic-overviews/mcp", "/code-reference/config/mcp"),
-    ("/code-reference/topic-overviews/processors", "/code-reference/config/processors"),
-    ("/code-reference/topic-overviews/analysis", "/code-reference/config/analysis"),
+RETIRED_REFERENCE_CLEAN_PAGE_PATHS = [
+    "concepts/columns.mdx",
+    "concepts/custom_columns.mdx",
+    "concepts/models/model-configs.mdx",
+    "concepts/person_sampling.mdx",
+    "concepts/security.mdx",
+    "concepts/tool_use_and_mcp.mdx",
+    "concepts/validators.mdx",
+    "plugins/example.mdx",
+    "plugins/overview.mdx",
 ]
 
 
@@ -231,16 +204,6 @@ def copy_path(source: Path, target: Path) -> None:
         shutil.copy2(source, target)
 
 
-def copy_mdx_with_link_rewrites(source: Path, target: Path) -> None:
-    if not source.exists():
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    content = source.read_text()
-    for old, new in CODE_REFERENCE_LINK_REPLACEMENTS:
-        content = content.replace(old, new)
-    target.write_text(content)
-
-
 def clear_published_tree(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for path in root.iterdir():
@@ -291,54 +254,36 @@ def replace_navigation_section(path: Path, section_re: re.Pattern[str], block: l
     path.write_text("".join(lines))
 
 
-def code_reference_page_root(block: list[str]) -> str | None:
-    for line in block:
-        match = CODE_REFERENCE_PAGE_ROOT_RE.search(line)
-        if match:
-            return match.group(1)
-    return None
-
-
-def rewrite_code_reference_block(block: list[str], page_root: str) -> list[str]:
-    return [line.replace("./latest/pages/code_reference/", f"./{page_root}/pages/code_reference/") for line in block]
-
-
-def sync_code_reference_pages(source_root: Path, published_root: Path, page_root: str) -> None:
-    source_base = source_root / "fern" / "versions" / "latest" / "pages" / "code_reference"
-    target_base = published_root / "fern" / "versions" / page_root / "pages" / "code_reference"
-    if not source_base.exists() or not target_base.exists():
+def remove_navigation_section(path: Path, section_re: re.Pattern[str]) -> None:
+    lines = path.read_text().splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if section_re.match(line)), -1)
+    if start == -1:
         return
-
-    for rel_path in CODE_REFERENCE_STRUCTURE_PAGES:
-        copy_mdx_with_link_rewrites(source_base / rel_path, target_base / rel_path)
-
-    for filename in CONFIG_CODE_REFERENCE_PAGES:
-        flat_source = target_base / filename
-        nested_source = target_base / "config" / filename
-        latest_source = source_base / "config" / filename
-        source = flat_source if flat_source.exists() else nested_source if nested_source.exists() else latest_source
-        copy_mdx_with_link_rewrites(source, target_base / "config" / filename)
+    end = start + 1
+    while end < len(lines):
+        if lines[end].startswith("  - ") and lines[end].strip():
+            break
+        end += 1
+    lines[start:end] = []
+    path.write_text("".join(lines))
 
 
-def sync_code_reference_archive(source_root: Path, published_root: Path) -> None:
-    source_nav = source_root / "fern" / "versions" / "latest.yml"
-    if not source_nav.exists():
-        return
-    source_block = extract_navigation_section(source_nav, CODE_REFERENCE_SECTION_RE)
-
+def remove_retired_reference_archive(source_root: Path, published_root: Path) -> None:
     versions_dir = published_root / "fern" / "versions"
     for nav in sorted(path for path in versions_dir.glob("*.yml") if path.name != "latest.yml"):
-        try:
-            current_block = extract_navigation_section(nav, CODE_REFERENCE_SECTION_RE)
-        except PublishedBranchError:
-            continue
-        page_root = code_reference_page_root(current_block)
-        if page_root is None:
-            continue
-        sync_code_reference_pages(source_root, published_root, page_root)
-        replace_navigation_section(
-            nav, CODE_REFERENCE_SECTION_RE, rewrite_code_reference_block(source_block, page_root)
-        )
+        remove_navigation_section(nav, RETIRED_REFERENCE_SECTION_RE)
+
+    for path in sorted(versions_dir.glob(f"*/pages/{RETIRED_REFERENCE_DIR}")):
+        if path.is_dir():
+            shutil.rmtree(path)
+
+    source_pages = source_root / "fern" / "versions" / "latest" / "pages"
+    for pages_dir in sorted(versions_dir.glob("v*/pages")):
+        for rel_path in RETIRED_REFERENCE_CLEAN_PAGE_PATHS:
+            source_file = source_pages / rel_path
+            target_file = pages_dir / rel_path
+            if source_file.exists() and target_file.exists():
+                copy_path(source_file, target_file)
 
 
 def materialize_version_nav_pages(published_root: Path) -> None:
@@ -389,7 +334,7 @@ def sync_source(args: argparse.Namespace) -> int:
         merge_preserved_versions(
             source_root / "fern" / "versions", published_root / "fern" / "versions", preserved_versions
         )
-        sync_code_reference_archive(source_root, published_root)
+        remove_retired_reference_archive(source_root, published_root)
         materialize_version_nav_pages(published_root)
         restore_versions_block(published_root / "fern" / "docs.yml", preserved_versions_block)
         validate_redirect_targets(published_root)

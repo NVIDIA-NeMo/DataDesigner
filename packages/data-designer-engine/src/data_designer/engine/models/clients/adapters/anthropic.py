@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from data_designer.engine.models.clients.adapters.anthropic_translation import (
+    UnsupportedAnthropicMediaBlockError,
     build_anthropic_payload,
     parse_anthropic_response,
 )
@@ -106,6 +107,16 @@ class AnthropicClient(HttpModelClient):
     def _build_payload_or_raise(self, request: ChatCompletionRequest) -> dict[str, Any]:
         try:
             return build_anthropic_payload(request)
+        except UnsupportedAnthropicMediaBlockError as exc:
+            raise ProviderError.unsupported_capability(
+                provider_name=self.provider_name,
+                model_name=request.model,
+                operation=f"{exc.modality}-context",
+                message=(
+                    f"Provider {self.provider_name!r} does not support {exc.modality} context "
+                    f"for model {request.model!r}."
+                ),
+            ) from exc
         except ValueError as exc:
             raise ProviderError(
                 kind=ProviderErrorKind.BAD_REQUEST,

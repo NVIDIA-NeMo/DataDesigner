@@ -605,8 +605,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Args:
             run_config: A RunConfig instance containing runtime settings such as
-                early shutdown behavior, batch sizing via `buffer_size`, and non-inference worker
-                concurrency via `non_inference_max_parallel_workers`.
+                early shutdown behavior, batch sizing via `buffer_size`, async task lease
+                capacity via `max_in_flight_tasks`, and non-inference worker concurrency via
+                `non_inference_max_parallel_workers`.
 
         Notes:
             When `disable_early_shutdown=True`, DataDesigner will never terminate generation early
