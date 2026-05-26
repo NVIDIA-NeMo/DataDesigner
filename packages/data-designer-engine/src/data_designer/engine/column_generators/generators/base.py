@@ -279,9 +279,8 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
     def _build_multi_modal_context(self, record: dict) -> list[dict[str, Any]] | None:
         """Build multi-modal context from the config's multi_modal_context list.
 
-        Passes base_path to get_contexts() so that generated image file paths
-        (stored under base_dataset_path in create mode) can be resolved to base64
-        before being sent to the model endpoint.
+        Passes base_path to get_contexts() so context types that support
+        artifact-relative resolution can use the dataset artifact directory.
 
         Args:
             record: The deserialized record containing column values.

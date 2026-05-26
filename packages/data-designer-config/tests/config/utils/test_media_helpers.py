@@ -1,31 +1,101 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
 import base64
+import json
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.models import ImageFormat
-from data_designer.config.utils.image_helpers import (
+from data_designer.config.utils.media_helpers import (
+    AudioFormat,
+    ImageFormat,
+    VideoFormat,
+    audio_format_from_mime_type,
+    audio_mime_type,
     decode_base64_image,
     detect_image_format,
     extract_base64_from_data_uri,
+    get_media_base64_context,
+    get_media_context,
+    get_media_url_context,
+    image_format_from_mime_type,
+    is_audio_path,
     is_base64_image,
     is_image_diffusion_model,
     is_image_path,
     is_image_url,
+    is_media_url,
+    is_video_path,
     load_image_path_to_base64,
+    normalize_media_context_values,
+    parse_base64_data_uri,
     validate_image,
+    video_format_from_mime_type,
+    video_mime_type,
 )
 
-# ---------------------------------------------------------------------------
-# extract_base64_from_data_uri
-# ---------------------------------------------------------------------------
+
+def test_media_context_builders() -> None:
+    assert get_media_context("image", {"type": "url", "url": "https://example.com/image.png"}) == {
+        "type": "image",
+        "source": {"type": "url", "url": "https://example.com/image.png"},
+    }
+    assert get_media_url_context("audio", "https://example.com/audio.mp3") == {
+        "type": "audio",
+        "source": {"type": "url", "url": "https://example.com/audio.mp3"},
+    }
+    assert get_media_base64_context("video", "video/mp4", "abc123") == {
+        "type": "video",
+        "source": {"type": "base64", "media_type": "video/mp4", "data": "abc123"},
+    }
+
+
+def test_normalize_media_context_values() -> None:
+    assert normalize_media_context_values("single") == ["single"]
+    assert normalize_media_context_values(["one", "two"]) == ["one", "two"]
+    assert normalize_media_context_values(json.dumps(["one", "two"])) == ["one", "two"]
+    assert normalize_media_context_values(json.dumps({"nested": "value"})) == [json.dumps({"nested": "value"})]
+    assert normalize_media_context_values(lazy.np.array(["one", "two"])) == ["one", "two"]
+
+
+def test_parse_base64_data_uri() -> None:
+    assert parse_base64_data_uri("data:audio/mpeg;base64,abc123") == ("audio/mpeg", "abc123")
+    assert parse_base64_data_uri("abc123") is None
+
+
+def test_media_url_detection() -> None:
+    assert is_media_url("https://example.com/download?id=123") is True
+    assert is_media_url("http://example.com/media") is True
+    assert is_media_url("ftp://example.com/media") is False
+    assert is_media_url(123) is False  # type: ignore[arg-type]
+
+
+def test_local_media_path_detection() -> None:
+    assert is_audio_path("screen_recording.mp3") is True
+    assert is_audio_path("nested/screen_recording.wav") is True
+    assert is_audio_path("https://example.com/audio.mp3") is False
+    assert is_video_path("screen_recording.mp4") is True
+    assert is_video_path("nested/screen_recording.webm") is True
+    assert is_video_path("https://example.com/video.mp4") is False
+
+
+def test_media_format_mime_helpers() -> None:
+    assert ImageFormat.PNG.value == "png"
+    assert image_format_from_mime_type("image/png") == ImageFormat.PNG
+    assert image_format_from_mime_type("image/jpeg") == ImageFormat.JPG
+    assert audio_mime_type(AudioFormat.MP3) == "audio/mpeg"
+    assert audio_format_from_mime_type("audio/mpeg") == AudioFormat.MP3
+    assert audio_format_from_mime_type("audio/mp3") == AudioFormat.MP3
+    assert audio_format_from_mime_type("audio/x-wav") == AudioFormat.WAV
+    assert video_mime_type(VideoFormat.MP4) == "video/mp4"
+    assert video_format_from_mime_type("video/mp4") == VideoFormat.MP4
+    assert video_format_from_mime_type("VIDEO/MP4") == VideoFormat.MP4
 
 
 def test_extract_base64_from_data_uri_with_prefix() -> None:
@@ -43,11 +113,6 @@ def test_extract_base64_plain_base64_without_prefix() -> None:
 def test_extract_base64_invalid_data_uri_raises_error() -> None:
     with pytest.raises(ValueError, match="Invalid data URI format: missing comma separator"):
         extract_base64_from_data_uri("data:image/png;base64")
-
-
-# ---------------------------------------------------------------------------
-# decode_base64_image
-# ---------------------------------------------------------------------------
 
 
 def test_decode_base64_image_valid() -> None:
@@ -68,11 +133,6 @@ def test_decode_base64_image_with_data_uri() -> None:
 def test_decode_base64_image_invalid_raises_error() -> None:
     with pytest.raises(ValueError, match="Invalid base64 data"):
         decode_base64_image("not-valid-base64!!!")
-
-
-# ---------------------------------------------------------------------------
-# detect_image_format  (magic bytes)
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -112,11 +172,6 @@ def test_detect_image_format_unknown_raises_error() -> None:
         detect_image_format(unknown_bytes)
 
 
-# ---------------------------------------------------------------------------
-# is_image_path
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "value,expected",
     [
@@ -134,11 +189,6 @@ def test_is_image_path(value: str, expected: bool) -> None:
     assert is_image_path(value) is expected
 
 
-# ---------------------------------------------------------------------------
-# is_image_url
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "value,expected",
     [
@@ -152,11 +202,6 @@ def test_is_image_path(value: str, expected: bool) -> None:
 )
 def test_is_image_url(value: str, expected: bool) -> None:
     assert is_image_url(value) is expected
-
-
-# ---------------------------------------------------------------------------
-# is_base64_image
-# ---------------------------------------------------------------------------
 
 
 def test_is_base64_image_data_uri() -> None:
@@ -177,24 +222,14 @@ def test_is_base64_image_invalid_base64_decode() -> None:
     assert is_base64_image(invalid_base64) is False
 
 
-# ---------------------------------------------------------------------------
-# Non-string guard (is_image_path, is_base64_image, is_image_url)
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "func",
     [is_image_path, is_base64_image, is_image_url],
     ids=["is_image_path", "is_base64_image", "is_image_url"],
 )
 @pytest.mark.parametrize("value", [123, None, []], ids=["int", "none", "list"])
-def test_non_string_input_returns_false(func: object, value: object) -> None:
+def test_image_media_helpers_non_string_input_returns_false(func: Callable[..., bool], value: object) -> None:
     assert func(value) is False
-
-
-# ---------------------------------------------------------------------------
-# is_image_diffusion_model
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -232,11 +267,6 @@ def test_is_image_diffusion_model(model_name: str, expected: bool) -> None:
     assert is_image_diffusion_model(model_name) is expected
 
 
-# ---------------------------------------------------------------------------
-# validate_image
-# ---------------------------------------------------------------------------
-
-
 def test_validate_image_valid_png(tmp_path: Path, sample_png_bytes: bytes) -> None:
     image_path = tmp_path / "test.png"
     image_path.write_bytes(sample_png_bytes)
@@ -254,11 +284,6 @@ def test_validate_image_nonexistent_raises_error(tmp_path: Path) -> None:
     image_path = tmp_path / "nonexistent.png"
     with pytest.raises(ValueError, match="Image validation failed"):
         validate_image(image_path)
-
-
-# ---------------------------------------------------------------------------
-# load_image_path_to_base64
-# ---------------------------------------------------------------------------
 
 
 def test_load_image_path_to_base64_absolute_path(tmp_path: Path) -> None:

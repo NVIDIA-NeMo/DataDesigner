@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         ToolConfig,
     )
     from data_designer.config.models import (  # noqa: F401
+        AudioContext,
         ChatCompletionInferenceParams,
         EmbeddingInferenceParams,
         GenerationType,
@@ -52,6 +53,7 @@ if TYPE_CHECKING:
         ModelProvider,
         UniformDistribution,
         UniformDistributionParams,
+        VideoContext,
     )
     from data_designer.config.processors import (  # noqa: F401
         DropColumnsProcessorConfig,
@@ -104,8 +106,8 @@ if TYPE_CHECKING:
     )
     from data_designer.config.seed_source_dataframe import DataFrameSeedSource  # noqa: F401
     from data_designer.config.utils.code_lang import CodeLang  # noqa: F401
-    from data_designer.config.utils.image_helpers import ImageFormat  # noqa: F401
     from data_designer.config.utils.info import InfoType  # noqa: F401
+    from data_designer.config.utils.media_helpers import AudioFormat, ImageFormat, VideoFormat  # noqa: F401
     from data_designer.config.utils.trace_type import TraceType  # noqa: F401
     from data_designer.config.validator_params import (  # noqa: F401
         CodeValidatorParams,
@@ -161,11 +163,13 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "MCPProvider": (_MOD_MCP, "MCPProvider"),
     "ToolConfig": (_MOD_MCP, "ToolConfig"),
     # models
+    "AudioContext": (_MOD_MODELS, "AudioContext"),
+    "AudioFormat": (f"{_MOD_UTILS}.media_helpers", "AudioFormat"),
     "ChatCompletionInferenceParams": (_MOD_MODELS, "ChatCompletionInferenceParams"),
     "EmbeddingInferenceParams": (_MOD_MODELS, "EmbeddingInferenceParams"),
     "GenerationType": (_MOD_MODELS, "GenerationType"),
     "ImageContext": (_MOD_MODELS, "ImageContext"),
-    "ImageFormat": (f"{_MOD_UTILS}.image_helpers", "ImageFormat"),
+    "ImageFormat": (f"{_MOD_UTILS}.media_helpers", "ImageFormat"),
     "ImageInferenceParams": (_MOD_MODELS, "ImageInferenceParams"),
     "ManualDistribution": (_MOD_MODELS, "ManualDistribution"),
     "ManualDistributionParams": (_MOD_MODELS, "ManualDistributionParams"),
@@ -176,6 +180,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ModelProvider": (_MOD_MODELS, "ModelProvider"),
     "UniformDistribution": (_MOD_MODELS, "UniformDistribution"),
     "UniformDistributionParams": (_MOD_MODELS, "UniformDistributionParams"),
+    "VideoContext": (_MOD_MODELS, "VideoContext"),
+    "VideoFormat": (f"{_MOD_UTILS}.media_helpers", "VideoFormat"),
     # processors
     "DropColumnsProcessorConfig": (_MOD_PROCESSORS, "DropColumnsProcessorConfig"),
     "ProcessorType": (_MOD_PROCESSORS, "ProcessorType"),
