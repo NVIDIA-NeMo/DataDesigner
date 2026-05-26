@@ -191,7 +191,7 @@ jobs:
             /^---$/ { section++; next }
             section == 1 && $1 == "max_turns" { print $2; exit }
             section == 2 { exit }
-          ' "${RECIPE_DIR}/recipe.md" | grep -oE '[0-9]+' | head -n1)
+          ' "${RECIPE_DIR}/recipe.md" | grep -oE '[0-9]+' | head -n1 || true)
           MAX_TURNS=${MAX_TURNS:-50}
           echo "Using max turns: ${MAX_TURNS}"
 
