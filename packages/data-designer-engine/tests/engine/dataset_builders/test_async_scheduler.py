@@ -2571,7 +2571,6 @@ async def test_scheduler_paces_sustained_429_resalvage(
 ) -> None:
     """Pure 429 loops should wait between salvage cycles instead of spinning CPU-bound."""
     provider = _mock_provider()
-    monkeypatch.setattr(async_scheduler_module, "RATE_LIMIT_RESALVAGE_BACKOFF_S", 0.1)
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
         LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
@@ -2605,26 +2604,40 @@ async def test_scheduler_paces_sustained_429_resalvage(
         salvage_max_rounds=1,
     )
 
+    first_wait_started = asyncio.Event()
+    release_first_wait = asyncio.Event()
+    second_wait_started = asyncio.Event()
+    block_second_wait = asyncio.Event()
+    wait_calls = 0
+
+    async def controlled_resalvage_wait() -> None:
+        nonlocal wait_calls
+        wait_calls += 1
+        if wait_calls == 1:
+            first_wait_started.set()
+            await release_first_wait.wait()
+            return
+        second_wait_started.set()
+        await block_second_wait.wait()
+
+    monkeypatch.setattr(scheduler, "_wait_before_rate_limit_resalvage", controlled_resalvage_wait)
+
     with caplog.at_level(logging.INFO, logger=async_scheduler_module.__name__):
         run_task = asyncio.create_task(scheduler.run())
         try:
-            deadline = time.monotonic() + 1.0
-            while rate_limited._calls < 2:
-                if time.monotonic() > deadline:
-                    raise AssertionError("scheduler did not reach the first preserved 429 salvage cycle")
-                await asyncio.sleep(0)
-
+            await asyncio.wait_for(first_wait_started.wait(), timeout=5.0)
             calls_after_preserve = rate_limited._calls
-            await asyncio.sleep(0.03)
+            for _ in range(5):
+                await asyncio.sleep(0)
 
             assert rate_limited._calls == calls_after_preserve
             assert not run_task.done()
 
-            deadline = time.monotonic() + 1.0
-            while rate_limited._calls < 3:
-                if time.monotonic() > deadline:
-                    raise AssertionError("scheduler did not retry after the resalvage backoff")
-                await asyncio.sleep(0)
+            release_first_wait.set()
+            await asyncio.wait_for(second_wait_started.wait(), timeout=5.0)
+
+            assert wait_calls == 2
+            assert rate_limited._calls > calls_after_preserve
         finally:
             run_task.cancel()
             with pytest.raises(asyncio.CancelledError):
