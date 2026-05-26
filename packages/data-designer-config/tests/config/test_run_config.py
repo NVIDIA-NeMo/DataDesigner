@@ -64,6 +64,21 @@ def test_run_config_accepts_disabled_dropped_column_preservation() -> None:
     assert run_config.preserve_dropped_columns is False
 
 
+def test_run_config_defaults_max_in_flight_tasks_to_1024() -> None:
+    assert RunConfig().max_in_flight_tasks == 1024
+
+
+def test_run_config_accepts_custom_max_in_flight_tasks() -> None:
+    run_config = RunConfig(max_in_flight_tasks=2048)
+
+    assert run_config.max_in_flight_tasks == 2048
+
+
+def test_run_config_rejects_invalid_max_in_flight_tasks() -> None:
+    with pytest.raises(ValidationError, match="max_in_flight_tasks"):
+        RunConfig(max_in_flight_tasks=0)
+
+
 def test_run_config_throttle_shim_rejects_unknown_legacy_fields() -> None:
     with pytest.raises(ValidationError, match="max_concurrent_requests"):
         RunConfig(throttle={"max_concurrent_requests": 1})

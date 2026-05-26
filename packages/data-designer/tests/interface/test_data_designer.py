@@ -719,6 +719,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.shutdown_error_rate == 0.5
     assert data_designer.run_config.shutdown_error_window == 10
     assert data_designer.run_config.buffer_size == 1000
+    assert data_designer.run_config.max_in_flight_tasks == 1024
     assert data_designer.run_config.max_conversation_restarts == 5
     assert data_designer.run_config.max_conversation_correction_steps == 0
 
@@ -729,6 +730,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             shutdown_error_rate=0.8,
             shutdown_error_window=25,
             buffer_size=500,
+            max_in_flight_tasks=1536,
             max_conversation_restarts=7,
             max_conversation_correction_steps=2,
             request_admission=RequestAdmissionTuningConfig(successes_until_increase=7),
@@ -738,6 +740,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
     assert data_designer.run_config.shutdown_error_window == 25
     assert data_designer.run_config.buffer_size == 500
+    assert data_designer.run_config.max_in_flight_tasks == 1536
     assert data_designer.run_config.max_conversation_restarts == 7
     assert data_designer.run_config.max_conversation_correction_steps == 2
     assert data_designer._request_admission is not original_request_admission
@@ -750,6 +753,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             shutdown_error_rate=0.3,
             shutdown_error_window=5,
             buffer_size=750,
+            max_in_flight_tasks=2048,
             max_conversation_restarts=9,
             max_conversation_correction_steps=1,
         )
@@ -758,6 +762,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.shutdown_error_rate == 0.3
     assert data_designer.run_config.shutdown_error_window == 5
     assert data_designer.run_config.buffer_size == 750
+    assert data_designer.run_config.max_in_flight_tasks == 2048
     assert data_designer.run_config.max_conversation_restarts == 9
     assert data_designer.run_config.max_conversation_correction_steps == 1
 

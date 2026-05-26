@@ -95,6 +95,7 @@ Learn how to use vision-language models to generate text descriptions from image
 
 - Processing and converting images to base64 format for model consumption
 - Using vision-language models (VLMs) to analyze visual documents
+- Understanding how image, audio, and video context share the same `multi_modal_context` field, while still requiring model support for each modality
 - Generating detailed summaries from document images
 - Inspecting and validating vision-based generation results
 

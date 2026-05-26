@@ -39,12 +39,14 @@ from data_designer.engine.dataset_builders.scheduling.resources import (
     stable_task_id,
 )
 from data_designer.engine.dataset_builders.scheduling.task_admission import (
+    DEFAULT_IN_FLIGHT_TASK_CAPACITY,
     TaskAdmissionConfig,
     TaskAdmissionController,
     TaskAdmissionDenied,
     TaskAdmissionLease,
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
+from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
@@ -77,8 +79,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TASK_POOL_SIZE: int = 256
-MODEL_TASK_ADMISSION_HEADROOM_MULTIPLIER: int = 2
 MODEL_GROUP_ADMISSION_BACKLOG_MULTIPLIER: int = 2
 
 # Degraded-provider WARN: emit at most one warning per interval when the
@@ -145,8 +145,8 @@ class AsyncTaskScheduler:
         buffer_manager: RowGroupBufferManager | None = None,
         *,
         max_concurrent_row_groups: int = 3,
-        max_submitted_tasks: int = DEFAULT_TASK_POOL_SIZE,
-        max_model_task_admission: int = DEFAULT_TASK_POOL_SIZE,
+        max_in_flight_tasks: int = DEFAULT_IN_FLIGHT_TASK_CAPACITY,
+        max_model_task_admission: int = DEFAULT_IN_FLIGHT_TASK_CAPACITY,
         task_admission_config: TaskAdmissionConfig | None = None,
         salvage_max_rounds: int = 2,
         on_finalize_row_group: Callable[[int], None] | None = None,
@@ -184,8 +184,9 @@ class AsyncTaskScheduler:
             model_group_limit_cap=max_model_task_admission,
         )
         admission_config = task_admission_config or TaskAdmissionConfig(
-            submission_capacity=max_submitted_tasks,
-            resource_limits={"llm_wait": max_model_task_admission, "local": max_submitted_tasks},
+            submission_capacity=max_in_flight_tasks,
+            resource_limits={"llm_wait": max_model_task_admission},
+            bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(),
         )
         self._task_admission = TaskAdmissionController(admission_config)
         self._task_admission_config = admission_config
@@ -279,7 +280,7 @@ class AsyncTaskScheduler:
         # Pre-compute row-group sizes for O(1) lookup
         self._rg_size_map: dict[int, int] = dict(row_groups)
         self._max_concurrent_row_groups = max_concurrent_row_groups
-        self._max_submitted_tasks = max_submitted_tasks
+        self._max_in_flight_tasks = max_in_flight_tasks
         self._max_model_task_admission = max_model_task_admission
         self._num_records = num_records
         self._buffer_size = buffer_size
@@ -917,7 +918,7 @@ class AsyncTaskScheduler:
         if not self._row_group_row_guard_allows(next_size):
             return "max_admitted_rows"
         queue_view = self._fair_queue.view()
-        queue_guard = max(self._max_submitted_tasks * 4, self._max_model_task_admission * 2)
+        queue_guard = self._max_in_flight_tasks * 4
         if queue_view.queued_total >= queue_guard:
             return "queued_task_guardrail"
         task_view = self._task_admission.view()
@@ -1861,6 +1862,11 @@ class AsyncTaskScheduler:
         """Return the current scheduler task-admission snapshot for diagnostics."""
         return self._task_admission.view()
 
+    @property
+    def task_admission_config(self) -> TaskAdmissionConfig:
+        """Return the effective scheduler task-admission config."""
+        return self._task_admission_config
+
     def capacity_plan(self) -> AsyncCapacityPlan:
         """Return the scheduler-side async capacity explanation for this run."""
         task_view = self._task_admission.view()
@@ -1926,7 +1932,7 @@ class AsyncTaskScheduler:
                     max_admitted_rows=self._adaptive_max_admitted_rows,
                     blocked_reasons=dict(self._row_group_admission_blocked_reasons),
                 ),
-                submission_capacity=CapacityValue(value=self._max_submitted_tasks, source="dataset_builder"),
+                submission_capacity=CapacityValue(value=self._max_in_flight_tasks, source="run_config"),
                 task_resource_limits=CapacityValue(
                     value=dict(self._task_admission_config.resource_limits),
                     source="engine_internal_config",
