@@ -30,6 +30,7 @@ dependencies = [
     "pyyaml>=6.0.1,<7",
     "requests>=2.33,<3",
     "rich>=13.7.1,<15",
+    "urllib3>=2.7.0,<3", # 2.7.0 fixes CVE-2026-44431 and CVE-2026-44432 pulled in by requests
 ]
 
 [build-system]
