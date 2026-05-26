@@ -1389,6 +1389,38 @@ async def test_rate_limit_errors_do_not_trigger_early_shutdown() -> None:
     assert tracker.is_row_group_complete(0, 10, ["seed", "col"])
 
 
+@pytest.mark.asyncio(loop_scope="session")
+async def test_preserved_429_retries_after_unrelated_early_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Early shutdown must not turn rate-limited deferred work into dropped rows."""
+    monkeypatch.setattr(async_scheduler_module, "RATE_LIMIT_RESALVAGE_BACKOFF_S", 0)
+    cell = MockRateLimitThenNonRetryableGenerator(
+        config=_expr_config("cell_out"),
+        resource_provider=_mock_provider(),
+        rate_limit_failures=2,
+    )
+    generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(cell, num_records=3)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_finalize_row_group=lambda rg_id: buffer_mgr.checkpoint_row_group(rg_id),
+        shutdown_error_rate=0.5,
+        shutdown_error_window=1,
+        salvage_max_rounds=1,
+    )
+
+    await scheduler.run()
+
+    assert scheduler.early_shutdown
+    assert not tracker.is_dropped(0, 0)
+    assert tracker.is_dropped(0, 1)
+    assert not tracker.is_dropped(0, 2)
+    assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
+    assert buffer_mgr.actual_num_records == 2
+
+
 @pytest.mark.parametrize("exc_cls", RETRYABLE_MODEL_ERRORS, ids=lambda c: c.__name__)
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retryable_errors_do_not_trigger_early_shutdown(
@@ -1828,6 +1860,33 @@ class MockMixedRetryableGenerator(ColumnGenerator[ExpressionColumnConfig]):
             self._timeout_calls += 1
             raise ModelTimeoutError("timed out")
         data[self.config.name] = f"mixed_ok_{seed}"
+        return data
+
+
+class MockRateLimitThenNonRetryableGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Generator that combines preserved 429 work with an early-shutdown failure."""
+
+    def __init__(self, *args: Any, rate_limit_failures: int = 0, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._rate_limit_failures = rate_limit_failures
+        self._rate_limit_calls = 0
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        return SchedulingMetadata.custom_model("test", self.config.name, "v1")
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        seed = data.get("seed")
+        if seed == 0:
+            self._rate_limit_calls += 1
+            if self._rate_limit_calls <= self._rate_limit_failures:
+                raise ModelRateLimitError("429 Too Many Requests")
+        elif seed == 1:
+            raise ValueError("non-retryable failure")
+        data[self.config.name] = f"shutdown_ok_{seed}"
         return data
 
 

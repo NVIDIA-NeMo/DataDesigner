@@ -1074,6 +1074,9 @@ class AsyncTaskScheduler:
                 if self._deferred:
                     await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
                 self._checkpoint_completed_row_groups(all_columns)
+                if self._has_rate_limited_deferred_tasks():
+                    await self._wait_before_rate_limit_resalvage()
+                    continue
                 break
 
             self._wake_event.clear()
@@ -1294,6 +1297,9 @@ class AsyncTaskScheduler:
         return self._rate_limit_preservation_counts.get(task, 0) > 0 and self._is_rate_limit_error(
             self._deferred_errors.get(task)
         )
+
+    def _has_rate_limited_deferred_tasks(self) -> bool:
+        return any(self._is_rate_limit_error(self._deferred_errors.get(task)) for task in self._deferred)
 
     def _checkpoint_completed_row_groups(self, all_columns: list[str]) -> None:
         """Checkpoint any row groups that reached completion."""
