@@ -375,7 +375,7 @@ The `.ts` is what the wrapper MDX imports. Fern's bundler doesn't follow `.json`
 | `make generate-fern-notebooks` | Notebook prose changed, no need to re-execute. Per file, prefers `docs/notebooks/` (executed) and falls back to converting `docs/notebook_source/*.py` directly. |
 | `make generate-fern-notebooks-with-outputs` | Notebook code changed, want fresh outputs. Needs `NVIDIA_API_KEY` (and `OPENROUTER_API_KEY` for image notebooks 5–6). |
 
-Install notebook docs dependencies first with `make install-dev-notebooks`. Docs setup pins to `DOCS_PYTHON_VERSION ?= 3.13` because `pyarrow` lacks Python 3.14 wheels. Override via `DOCS_PYTHON_VERSION=3.12 make ...`.
+Install notebook docs dependencies first with `make install-dev-notebooks`. Docs setup pins to `DOCS_PYTHON_VERSION ?= 3.13` to match the published docs builds. Override via `DOCS_PYTHON_VERSION=3.14 make ...` (or any other supported version) when needed.
 
 The `convert-execute-notebooks` step loops per file so one notebook missing an API key does not prevent later notebooks from running. Any failure is reported after the loop and the make target exits non-zero.
 
@@ -453,7 +453,7 @@ Do not copy page trees by hand on `main`. The release workflow copies `latest/pa
 | Notebook page renders raw `<a href=colab...>` HTML | `.ts` was generated before the colab-strip improvement; re-run `make generate-fern-notebooks` |
 | Notebook page has no cell outputs | Ran without `NVIDIA_API_KEY` or `convert-execute-notebooks` failed; run `make generate-fern-notebooks-with-outputs` |
 | `URLError: [SSL: CERTIFICATE_VERIFY_FAILED]` during notebook execution | `DOCS_CERTS` not propagated; ensure you're invoking via the make target, not raw Python |
-| `Failed to build pyarrow==X` from source | `DOCS_PYTHON_VERSION` resolved to 3.14+; override with `DOCS_PYTHON_VERSION=3.13 make ...` (or just rely on the default) |
+| `Failed to build pyarrow==X` from source | `DOCS_PYTHON_VERSION` resolved to an interpreter without prebuilt pyarrow wheels; fall back to `DOCS_PYTHON_VERSION=3.13 make ...` (the default) |
 | Cards on landing all link to the same wrong URL | `href` not matching Fern's slugified-title rule — recompute as `/<section-slug>/<page-title-slug>` |
 | Image broken in preview, file exists at `fern/assets/...` | Reference uses relative `../assets/...` — change to absolute `/assets/...` (relative paths break across version slugs) |
 
