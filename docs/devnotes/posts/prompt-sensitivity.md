@@ -96,7 +96,7 @@ The pipeline below shows one specific instantiation for generating diverse pream
              ┌─────────────────────────────────────────────────────────────────────────────────────┐
              │                             STAGE 1: SEED EXAMPLES                                  │
              │                                                                                     │
-             │   5 curated MCQ preambles as style anchors (not templates to copy)                  │
+             │   10 regex-paired format templates × 5 preamble anchors = 50 seed rows              │
              │   Loaded via DataFrameSeedSource with SamplingStrategy.SHUFFLE                      │
              └─────────────────────────────────────────┬───────────────────────────────────────────┘
                                                        │
@@ -111,79 +111,99 @@ The pipeline below shows one specific instantiation for generating diverse pream
              │                        encouraging                                                  │
              │                        strict            verbosity_level (3)                        │
              │                                          concise / standard / detailed              │
-             │   domain_context (3)   answer_format (3)                                            │
-             │   general              \boxed{}                                                     │
-             │   STEM                 \boxed{LETTER}    Combinatorial space:                       │
-             │   humanities           \boxed{<letter>}  3 × 5 × 3 × 3 × 3 × 3 = 1,215              │
+             │   domain_context (3)   preamble_format_order (8)                                    │
+             │   general              P + F + {problem},  F + P + {problem},                       │
+             │   STEM                 P + {problem} + F,  F + {problem} + P,                       │
+             │   humanities           {problem} + P + F,  {problem} + F + P,                       │
+             │                        PF + {problem},     {problem} + PF                           │
+             │                                                                                     │
+             │                                          Combinatorial space:                       │
+             │                                          3 × 5 × 3 × 3 × 3 × 8 = 3,240              │
              └─────────────────────────────────────────┬───────────────────────────────────────────┘
                                                        │
                                                        ▼
              ┌─────────────────────────────────────────────────────────────────────────────────────┐
-             │                         STAGE 3: LLM PREAMBLE GENERATION                            │
+             │                         STAGE 3: LLM GENERATION COLUMNS                             │
              │                                                                                     │
-             │   Single LLMTextColumnConfig conditioned on all 6 samplers + seed example           │
-             │   "Generate a preamble instruction for a multiple-choice question..."               │
-             │   1,000+ unique preambles generated per domain (STEM, Math, Code)                   │
+             │   Three LLMTextColumnConfigs conditioned on the samplers + seed rows:               │
+             │     • preamble           — generic instruction (no format requirements)             │
+             │     • format_instruction — paraphrased from seed; must match output_regex           │
+             │     • user_prompt        — composed via preamble_format_order                       │
              └─────────────────────────────────────────┬───────────────────────────────────────────┘
                                                        │
                                                        ▼
              ┌─────────────────────────────────────────────────────────────────────────────────────┐
-             │                          STAGE 4: DUAL QUALITY JUDGES                               │
+             │                            STAGE 4: QUALITY JUDGES                                  │
              │                                                                                     │
-             │   format_compliance (binary 0/1):                                                   │
-             │     Does the preamble mention the correct answer format?                            │
-             │     ~15-20% of preambles fail this without the judge gate                           │
+             │   format_compliance (binary): does format_instruction enforce the format?           │
+             │   regex_alignment   (binary): does format_instruction align with output_regex?      │
+             │   order_coherence   (binary): does the assembled user_prompt read coherently?       │
+             │   preamble_quality  (0-3):    does preamble match tone, verbosity, clarity?         │
              │                                                                                     │
-             │   preamble_quality (rubric 0-3):                                                    │
-             │     Does the preamble match requested tone, verbosity, clarity?                     │
-             │     Filter to score ≥ 2 (Good or Excellent)                                         │
+             │   ~15-20% of generations fail at least one binary gate.                             │
+             │   Filter binary gates to 1 and preamble_quality ≥ 2.                                │
              └─────────────────────────────────────────┬───────────────────────────────────────────┘
                                                        │
                                                        ▼
              ┌─────────────────────────────────────────────────────────────────────────────────────┐
              │                    STAGE 5: INTEGRATION INTO TRAINING MIXTURES                      │
              │                                                                                     │
-             │   YAML-driven pipeline: add_prompt_variations.py                                    │
+             │   YAML-driven mixture script that operates at production scale:                     │
              │   ├─ Load base SFT dataset (STEM MCQ, Math, Code)                                   │
-             │   ├─ Sample preambles from generated pool                                           │
-             │   ├─ Prepend preamble to each problem's user prompt                                 │
-             │   ├─ majority_percentage: 25% (original format) / 75% (diverse variations)          │
+             │   ├─ Sample user_prompts from the generated pool                                    │
+             │   ├─ Substitute {problem} with each record's question                               │
+             │   ├─ majority_percentage: 25% (canonical format) / 75% (diverse variations)         │
              │   └─ Pack sequences to 128k tokens for training                                     │
              └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The 6 samplers create a combinatorial diversity space of **1,215 unique combinations**. Even generating 1,000 records covers a substantial fraction of this space, ensuring the training data doesn't cluster around a few dominant styles.
+The 6 samplers create a combinatorial diversity space of **3,240 unique combinations**, multiplied by 50 seed rows from the format-template × preamble cross-product. Generating 1,000 records covers a broad slice of this space, ensuring the training data doesn't cluster around a few dominant styles.
 
 ---
 
 ## **Step 1: Curated Seed Examples**
 
-We provide 5 hand-written preambles as reference examples. These aren't used as templates to copy --- they're provided as *style anchors* so the LLM understands what a preamble looks like:
+The seed is the cross-product of two small hand-written sets: **10 regex-paired format templates** (covered in the [Regex-Paired Format Templates](#regex-paired-format-templates-enabling-both-sft-and-rl) section below) and **5 generic preamble anchors**. Together they form 50 seed rows. Templates carry the format-instruction seed plus its paired `output_regex`; preambles act as style anchors so the LLM knows what a generic instruction line looks like.
 
 ```python
+import itertools
 import pandas as pd
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
-seed_data = pd.DataFrame([
-    {"example_preamble": "Choose the correct answer. Place your final answer in \\boxed{}."},
-    {"example_preamble": "Read carefully and select the best option. Write your answer as \\boxed{LETTER}."},
-    {"example_preamble": "Answer the following MCQ. Put your final answer in \\boxed{}."},
-    {"example_preamble": "Consider each option and pick the correct one. Format: \\boxed{your answer}."},
-    {"example_preamble": "Solve the problem and select the right choice. Enclose your answer in \\boxed{}."},
+# 10 regex-paired format templates (full list in the appendix)
+MCQ_FORMAT_TEMPLATES = [
+    {"format_key": "boxed_letter",
+     "seed_format_instruction": "Choose exactly one letter. Place your answer in \\boxed{LETTER} format.",
+     "output_regex": r"\\boxed\{([A-Za-z])\}"},
+    # ... 9 more
+]
+
+# 5 generic preamble anchors (no format requirements)
+SEED_PREAMBLES = [
+    "Choose the correct answer from the options below.",
+    "Read the question carefully and select the best option.",
+    "Answer the following multiple choice question.",
+    "Consider each option and pick the correct one.",
+    "Solve the problem and select the right choice.",
+]
+
+# Cross-product: every format template × every preamble = 50 seed rows
+seed_df = pd.DataFrame([
+    {**fmt, "seed_preamble": preamble}
+    for fmt, preamble in itertools.product(MCQ_FORMAT_TEMPLATES, SEED_PREAMBLES)
 ])
 
 config = dd.DataDesignerConfigBuilder(model_configs=[
-    dd.ModelConfig(alias="preamble-gen", model="qwen/qwen3-235b-a22b", provider="nvidia"),
+    dd.ModelConfig(alias="gen", model="qwen/qwen3-235b-a22b", provider="nvidia"),
 ])
-
 config.with_seed_dataset(
-    dd.DataFrameSeedSource(df=seed_data),
+    dd.DataFrameSeedSource(df=seed_df),
     sampling_strategy=dd.SamplingStrategy.SHUFFLE,
 )
 ```
 
-With `SamplingStrategy.SHUFFLE`, each generated record sees a random seed example alongside its sampled style parameters.
+With `SamplingStrategy.SHUFFLE`, each generated record sees a random seed row (a `(seed_format_instruction, output_regex, seed_preamble)` triple) alongside its sampled style parameters.
 
 ---
 
@@ -223,91 +243,100 @@ config.add_column(dd.SamplerColumnConfig(
 ))
 
 config.add_column(dd.SamplerColumnConfig(
-    name="answer_format",
+    name="preamble_format_order",
     sampler_type=dd.SamplerType.CATEGORY,
-    params=dd.CategorySamplerParams(values=["\\boxed{}", "\\boxed{LETTER}", "\\boxed{<letter>}"]),
+    params=dd.CategorySamplerParams(values=[
+        "P + F + {problem}", "F + P + {problem}",
+        "P + {problem} + F", "F + {problem} + P",
+        "{problem} + P + F", "{problem} + F + P",
+        "PF + {problem}", "{problem} + PF",
+    ]),
 ))
 ```
 
-The generation prompt references all six via Jinja2 templates:
+The last sampler — `preamble_format_order` — controls how the preamble (P), format instruction (F), and `{problem}` placeholder get arranged in the final user prompt. It prevents the model from overfitting to a single positional layout.
+
+Three LLM text columns then produce the actual generation. The first, `preamble`, is a generic instruction line with **no format requirements**:
 
 ```python
 config.add_column(dd.LLMTextColumnConfig(
     name="preamble",
-    model_alias="preamble-gen",
+    model_alias="gen",
     prompt=(
-        "Generate a preamble instruction for a multiple-choice question.\n"
-        "Style requirements:\n"
+        "You are writing a concise instruction line to accompany a "
+        "{{ domain_context }} question.\n"
+        "Keep it neutral and generic; do NOT include output formatting requirements.\n\n"
+        "Constraints:\n"
         "- Sentence type: {{ sentence_type }}\n"
         "- Tone: {{ tone }}\n"
         "- Strictness: {{ strictness_level }}\n"
-        "- Verbosity: {{ verbosity_level }}\n"
-        "- Domain: {{ domain_context }}\n"
-        "- Answer format: the student MUST place their final answer in {{ answer_format }}\n\n"
-        "Reference example (for style, not to copy): {{ example_preamble }}\n\n"
-        "Requirements:\n"
-        "1. Do NOT include the actual question or options\n"
-        "2. The preamble MUST mention the exact format {{ answer_format }}\n"
-        "3. Keep it to 1-3 sentences based on verbosity level\n"
-        "4. Match the requested tone and sentence type\n\n"
-        "Return ONLY the preamble text."
+        "- Verbosity: {{ verbosity_level }}\n\n"
+        "Seed (paraphrase; do not copy): \"{{ seed_preamble }}\"\n\n"
+        "Return ONLY the instruction line text."
     ),
 ))
 ```
 
-This is the power of Data Designer's sampler + template approach: you define the diversity *dimensions*, and the framework handles the *combinatorics*.
+The second, `format_instruction`, paraphrases the seed format-instruction in a way that stays compatible with its paired `output_regex`. The third, `user_prompt`, concatenates `preamble` + `format_instruction` + `{problem}` in the order chosen by `preamble_format_order`. See the [appendix](#try-for-yourself) for both column configs.
+
+This is the power of Data Designer's sampler + template approach: you define the diversity *dimensions* — including positional order — and the framework handles the *combinatorics*.
 
 ---
 
-## **Step 3: Dual Quality Judges**
+## **Step 3: Quality Judges**
 
-Two separate judges evaluate each generated preamble:
+Four LLM judges score each generated row across format and quality dimensions. Three binary gates catch hard failures; one rubric judge scores tone and clarity.
 
-**Format compliance (binary):** Does the preamble actually mention the required answer format? Without this gate, roughly 15-20% of generated preambles mention the wrong format or omit it entirely.
+**`format_compliance` (binary):** Does `format_instruction` actually enforce the required output pattern?
 
 ```python
 config.add_column(dd.LLMJudgeColumnConfig(
     name="format_compliance",
-    model_alias="preamble-gen",
+    model_alias="gen",
     prompt=(
-        "Check if this preamble instructs the user to format their answer as "
-        "{{ answer_format }}.\n\n"
-        "Preamble: {{ preamble }}\n"
-        "Expected format: {{ answer_format }}"
+        "Does this instruction enforce the format?\n\n"
+        "Instruction: {{ format_instruction }}\n"
+        "Regex: {{ output_regex }}"
     ),
     scores=[dd.Score(
         name="format_match",
-        description="Does the preamble mention the correct answer format?",
-        options={1: "Yes, format is correctly specified", 0: "No, format is missing or wrong"},
+        description="Format enforced?",
+        options={1: "Yes", 0: "No"},
     )],
 ))
 ```
 
-**Quality (0-3 rubric):** Does the preamble match the requested tone and verbosity? Is it clear and professional?
+**`regex_alignment` (binary):** Does `format_instruction` align with the paired `output_regex` from the seed template? This catches drift where the generated instruction sounds plausible but won't be matched by the extraction regex at training/eval time.
+
+**`order_coherence` (binary):** Does the assembled `user_prompt` read coherently in the sampled `preamble_format_order`? Some orderings (e.g. `{problem} + PF`) only work if the preamble and format instruction flow naturally after the question.
+
+**`preamble_quality` (0-3 rubric):** Does the preamble match the requested tone, verbosity, and clarity?
 
 ```python
 config.add_column(dd.LLMJudgeColumnConfig(
     name="preamble_quality",
-    model_alias="preamble-gen",
+    model_alias="gen",
     prompt=(
-        "Evaluate the quality of this MCQ preamble.\n\n"
-        "Preamble: {{ preamble }}\n"
-        "Tone requested: {{ tone }}\n"
-        "Verbosity requested: {{ verbosity_level }}"
+        "Evaluate this instruction line.\n\n"
+        "Instruction: {{ preamble }}\n"
+        "Tone: {{ tone }}\n"
+        "Verbosity: {{ verbosity_level }}"
     ),
     scores=[dd.Score(
         name="quality",
-        description="Overall preamble quality",
+        description="Preamble quality",
         options={3: "Excellent", 2: "Good", 1: "Fair", 0: "Poor"},
     )],
 ))
 ```
 
+Roughly 15-20% of generations fail at least one binary gate. The downstream filter keeps rows that pass all three binary judges and score ≥ 2 on `preamble_quality`.
+
 ---
 
 ## **Step 4: Integration into Training Mixtures**
 
-Generated preambles don't exist in isolation. They feed into a YAML-driven training mixture pipeline (`add_prompt_variations.py`) that operates at production scale:
+Generated preambles don't exist in isolation. They feed into a YAML-driven training-mixture script that operates at production scale:
 
 ```yaml
 mixture:
@@ -375,7 +404,7 @@ The key design decision that makes this pipeline work for both SFT and RL is **p
   output_regex: 'Correct Answer >> ([A-Za-z])'
 ```
 
-We curated 25+ distinct format templates spanning `\boxed{}`, brackets, parentheses, XML tags, markdown bold, arrows, and plain text. This dual-use design means:
+The appendix ships **10 distinct format templates** spanning `\boxed{}`, brackets, parentheses, XML tags, markdown bold, arrows, and plain text — easy to extend by adding more `(prompt, output_regex)` pairs. This dual-use design means:
 
 - **For SFT:** The paraphrased format instructions add diversity to the training data. The model sees the same problem with many different answer format requirements, building robustness.
 - **For RL:** The paired regex lets the reward function extract the answer from model output regardless of which format was requested. The RL environment (e.g., NeMo-Gym) uses the regex to verify correctness without brittle string matching.
@@ -386,11 +415,11 @@ The preamble (generic instruction) and format instruction (answer format) are ge
 
 ## **Key Takeaways**
 
-1. **Samplers make diversity systematic.** Six categorical samplers with 3-5 values each create a 1,215-combination space. No human annotator covers that surface area consistently.
+1. **Samplers make diversity systematic.** Six categorical samplers (3-8 values each) create a 3,240-combination space, multiplied by 50 seed rows from the format-template × preamble cross-product. No human annotator covers that surface area consistently.
 
 2. **Seed examples are style anchors, not templates.** The LLM needs to see what a preamble *is*, but the samplers control what each preamble *says*. Without seeds, the LLM guesses at the format; without samplers, it converges to a narrow style.
 
-3. **Format compliance is a hard gate.** A preamble that mentions `\boxed{LETTER}` when the answer should be `\boxed{}` will confuse the model during training. Binary judges catch this --- LLMs generate the wrong format ~15-20% of the time.
+3. **Format compliance is a hard gate.** A `format_instruction` that drifts from its paired `output_regex` will confuse the model during training and break extraction at eval time. Binary judges (`format_compliance` + `regex_alignment`) catch this — LLMs generate misaligned formats ~15-20% of the time.
 
 4. **The value is in the pipeline, not the individual records.** Any single preamble is easy to write by hand. The value is generating 1,000+ diverse, validated preambles automatically and integrating them into million-record training mixtures with controlled majority/variation ratios.
 

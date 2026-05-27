@@ -85,11 +85,11 @@ nav:
       - Owning the Model Stack: devnotes/posts/owning-the-model-stack.md
       - Data Designer Got Skills: devnotes/posts/data-designer-got-skills.md
       - Search Agent: devnotes/posts/search-agent.md
+      - Prompt Sensitivity: devnotes/posts/prompt-sensitivity.md
       - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
+      - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
       - Design Principles: devnotes/posts/design-principles.md
       - RQA Dataset: devnotes/posts/rqa.md
-      - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
-      - Prompt Sensitivity: devnotes/posts/prompt-sensitivity.md
 
 theme:
   name: material
