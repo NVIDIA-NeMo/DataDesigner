@@ -5,14 +5,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import inspect
 import logging
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
+from data_designer.config.scheduling import SchedulingMetadata
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
+from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
@@ -20,11 +24,106 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Floor for the derived sync→async bridge timeout. Defends against pathologically
+# small `inference_parameters.timeout` values; under normal operation the per-call
+# derivation in ``_compute_bridge_timeout`` exceeds this floor.
+# Module-level so tests can patch it for fast feedback.
+_BRIDGE_TIMEOUT_FLOOR_S: float = 60.0
+
+
+def _compute_bridge_timeout(
+    request_timeout: float,
+    max_correction_steps: int,
+    max_conversation_restarts: int = 0,
+) -> float:
+    """Derive the sync→async bridge deadline for one logical generation.
+
+    One bridged call can fire up to ``(1 + max_conversation_restarts)`` full
+    attempts, and each attempt can fire up to ``(1 + max_correction_steps)``
+    requests against the model. The 1.5x buffer absorbs HTTP connect/teardown
+    and serialization overhead. The floor (``_BRIDGE_TIMEOUT_FLOOR_S``) keeps
+    the deadline sane when ``inference_parameters.timeout`` is small or the
+    factory default.
+    """
+    attempts = (1 + max_conversation_restarts) * (1 + max_correction_steps)
+    return max(_BRIDGE_TIMEOUT_FLOOR_S, attempts * request_timeout * 1.5)
+
+
+class _AsyncBridgedModelFacade:
+    """Proxy that bridges ``model.generate()`` to ``model.agenerate()`` in async engine mode.
+
+    When a sync custom column runs inside ``asyncio.to_thread`` under the async engine,
+    the sync HTTP client is unavailable. This proxy intercepts the resulting
+    ``SyncClientUnavailableError`` and schedules ``agenerate()`` on the engine's persistent
+    event loop via ``run_coroutine_threadsafe``.
+
+    All other attributes are forwarded to the underlying facade unchanged.
+    """
+
+    __slots__ = ("_facade",)
+
+    def __init__(self, facade: Any) -> None:
+        object.__setattr__(self, "_facade", facade)
+
+    def generate(self, *args: Any, **kwargs: Any) -> tuple[Any, list]:
+        from data_designer.engine.models.clients.errors import SyncClientUnavailableError
+
+        facade = object.__getattribute__(self, "_facade")
+        try:
+            return facade.generate(*args, **kwargs)
+        except SyncClientUnavailableError:
+            pass  # Fall through to async bridge
+
+        # We're in a worker thread (asyncio.to_thread) with no running loop.
+        # Guard against accidental use from the event loop itself (would deadlock).
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass  # No running loop - safe to bridge
+        else:
+            raise RuntimeError(
+                "model.generate() is not available in async engine mode from the event loop. "
+                "Use 'await model.agenerate()' in async custom columns."
+            )
+
+        from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
+
+        # Honor a per-call ``timeout=`` override (passed straight through to the
+        # HTTP layer); fall back to the model's configured ``inference_parameters.timeout``
+        # via ``facade.request_timeout`` when no override is set.
+        per_request_timeout_override = kwargs.get("timeout")
+        per_request_timeout = (
+            float(per_request_timeout_override) if per_request_timeout_override is not None else facade.request_timeout
+        )
+        correction_steps = int(kwargs.get("max_correction_steps", 0) or 0)
+        conversation_restarts = int(kwargs.get("max_conversation_restarts", 0) or 0)
+        bridge_timeout = _compute_bridge_timeout(per_request_timeout, correction_steps, conversation_restarts)
+
+        loop = ensure_async_engine_loop()
+        future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
+        try:
+            return future.result(timeout=bridge_timeout)
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            # Demoted to debug: the raised ModelTimeoutError already surfaces
+            # the timeout at the scheduler with full context, and the request-admission
+            # degraded-provider WARN is the user-facing signal under sustained
+            # bridge timeouts. Per-event WARN was noise on top of those.
+            logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
+            # Raise as ModelTimeoutError so the scheduler classifies it retryable.
+            raise ModelTimeoutError(f"model.generate() bridge timed out after {bridge_timeout:.0f}s") from exc
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_facade"), name)
+
+    def __repr__(self) -> str:
+        return f"_AsyncBridgedModelFacade({object.__getattribute__(self, '_facade')!r})"
+
 
 class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
     """Column generator that uses a user-provided callable function.
 
-    Supports two strategies based on config.strategy:
+    Supports two strategies based on config.generation_strategy:
         - cell_by_cell: Processes rows one at a time (dict -> dict), parallelized by framework.
         - full_column: Processes entire batch (DataFrame -> DataFrame) for vectorized ops.
 
@@ -38,6 +137,19 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     The models dict provides direct access to ModelFacade instances keyed by alias.
     """
+
+    def get_scheduling_metadata(self) -> SchedulingMetadata:
+        """Return custom-model metadata when the custom column declares model aliases."""
+        if not self.config.model_aliases:
+            return SchedulingMetadata.local()
+        identity = "-".join(sorted(str(alias) for alias in self.config.model_aliases))
+        return SchedulingMetadata.custom_model(
+            "custom_column",
+            identity or self.config.name,
+            "v1",
+            weight=max(1, len(self.config.model_aliases)),
+            diagnostics={"aliases": tuple(sorted(str(alias) for alias in self.config.model_aliases))},
+        )
 
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
@@ -65,12 +177,61 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         return self._generate(data, is_dataframe)
 
+    async def agenerate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame | list[dict]:
+        """Async generate — branches on strategy and detects coroutine functions."""
+        is_full_column = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
+        if is_full_column:
+            return await asyncio.to_thread(self.generate, data.copy())
+        # The @custom_column_generator decorator wraps the user function in a sync
+        # wrapper, so we must unwrap to detect async functions.
+        fn_unwrapped = inspect.unwrap(self.config.generator_function)
+        if asyncio.iscoroutinefunction(fn_unwrapped):
+            missing = set(self.config.required_columns) - set(data.keys())
+            if missing:
+                raise CustomColumnGenerationError(
+                    f"Missing required columns for custom generator '{self.config.name}': {sorted(missing)}"
+                )
+            keys_before = set(data.keys())
+
+            try:
+                result = await self._ainvoke_generator_function(data)
+            except CustomColumnGenerationError:
+                raise
+            except RETRYABLE_MODEL_ERRORS:
+                # Preserve retryability so the scheduler can salvage these
+                # instead of counting them toward the early-shutdown gate.
+                raise
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ Custom generator function {self.config.generator_function.__name__!r} "
+                    f"failed for column '{self.config.name}'. This record will be skipped.\n{e}"
+                )
+                raise CustomColumnGenerationError(
+                    f"Custom generator function failed for column '{self.config.name}': {e}"
+                ) from e
+
+            return self._postprocess_result(result, is_dataframe=False, keys_before=keys_before)
+        return await asyncio.to_thread(self.generate, data)
+
+    async def _ainvoke_generator_function(self, data: dict) -> dict | pd.DataFrame:
+        """Invoke an async user generator function with appropriate arguments.
+
+        The @custom_column_generator decorator's sync wrapper returns a coroutine
+        when the original function is async, so we await the wrapper's return value.
+        """
+        params = self._get_validated_params()
+        fn = self.config.generator_function
+        if len(params) == 1:
+            return await fn(data)
+        elif len(params) == 2:
+            return await fn(data, self.config.generator_params)
+        else:
+            models = self._build_models_dict()
+            return await fn(data, self.config.generator_params, models)
+
     def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame | list[dict]:
         """Unified generation logic for both strategies."""
-        # Get columns/keys using unified accessor
         get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
-        expected_type = lazy.pd.DataFrame if is_dataframe else dict
-        type_name = "DataFrame" if is_dataframe else "dict"
 
         # Check required columns
         missing = set(self.config.required_columns) - get_keys(data)
@@ -86,6 +247,10 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             result = self._invoke_generator_function(data)
         except CustomColumnGenerationError:
             raise
+        except RETRYABLE_MODEL_ERRORS:
+            # Preserve retryability so the scheduler can salvage these
+            # instead of counting them toward the early-shutdown gate.
+            raise
         except Exception as e:
             if not is_dataframe:
                 logger.warning(
@@ -96,6 +261,15 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
                 f"Custom generator function failed for column '{self.config.name}': {e}"
             ) from e
 
+        return self._postprocess_result(result, is_dataframe, keys_before)
+
+    def _postprocess_result(
+        self,
+        result: dict | pd.DataFrame | list[dict],
+        is_dataframe: bool,
+        keys_before: set[str],
+    ) -> dict | pd.DataFrame | list[dict]:
+        """Validate type and output columns of a generation result."""
         # Cell-by-cell with allow_resize: accept dict or list[dict]
         if not is_dataframe and self.config.allow_resize:
             if isinstance(result, dict):
@@ -113,6 +287,8 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             )
 
         # Validate return type for non-resize paths
+        expected_type = lazy.pd.DataFrame if is_dataframe else dict
+        type_name = "DataFrame" if is_dataframe else "dict"
         if not isinstance(result, expected_type):
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' must return a {type_name}, "
@@ -211,7 +387,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         elif len(params) == 2:
             return self.config.generator_function(data, self.config.generator_params)
         else:
-            models = self._build_models_dict()
+            models = {k: _AsyncBridgedModelFacade(v) for k, v in self._build_models_dict().items()}
             return self.config.generator_function(data, self.config.generator_params, models)
 
     def _build_models_dict(self) -> dict[str, Any]:

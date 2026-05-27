@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from typing import TYPE_CHECKING, Any
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -18,8 +20,14 @@ if TYPE_CHECKING:
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import custom_column_generator
-from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
+from data_designer.engine.column_generators.generators.custom import (
+    CustomColumnGenerator,
+    _AsyncBridgedModelFacade,
+    _compute_bridge_timeout,
+)
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
+from data_designer.engine.models.clients.errors import SyncClientUnavailableError
+from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
@@ -97,6 +105,8 @@ def test_config_and_decorator_integration() -> None:
     assert config.required_columns == ["col1", "col2"]
     assert config.side_effect_columns == ["extra"]
     assert config.model_aliases == ["model-a"]
+    # get_model_aliases() opts the decorator-declared aliases into the startup health check
+    assert config.get_model_aliases() == ["model-a"]
 
     # Serialization works
     assert config.model_dump()["generator_function"] == "decorated_generator"
@@ -350,6 +360,37 @@ def test_function_error_logs_warning_cell_by_cell(caplog: pytest.LogCaptureFixtu
     assert "something broke" in caplog.text
 
 
+@pytest.mark.parametrize("exc_cls", RETRYABLE_MODEL_ERRORS, ids=lambda c: c.__name__)
+def test_retryable_model_errors_pass_through_sync_wrap(exc_cls: type[Exception]) -> None:
+    """Retryable model errors raised inside a sync generator must NOT be wrapped.
+
+    Without this, the scheduler classifies the wrapped error as non-retryable and
+    counts it toward the early-shutdown gate (regression seen in #575 follow-up).
+    """
+
+    @custom_column_generator()
+    def raising_gen(row: dict) -> dict:
+        raise exc_cls("boom")
+
+    generator = _create_test_generator(name="result", generator_function=raising_gen)
+    with pytest.raises(exc_cls):
+        generator.generate({"input": 1})
+
+
+@pytest.mark.parametrize("exc_cls", RETRYABLE_MODEL_ERRORS, ids=lambda c: c.__name__)
+@pytest.mark.asyncio
+async def test_retryable_model_errors_pass_through_async_wrap(exc_cls: type[Exception]) -> None:
+    """Retryable errors raised inside an async user generator must propagate unchanged."""
+
+    @custom_column_generator()
+    async def raising_gen(row: dict) -> dict:
+        raise exc_cls("boom")
+
+    generator = _create_test_generator(name="result", generator_function=raising_gen)
+    with pytest.raises(exc_cls):
+        await generator.agenerate({"input": 1})
+
+
 def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixture) -> None:
     """Test that undeclared columns are removed with a warning."""
     import logging
@@ -467,3 +508,207 @@ def test_strategy_mismatch_at_runtime() -> None:
     gen = _create_test_generator(name="result", generator_function=df_func)
     with pytest.raises(CustomColumnGenerationError, match="first parameter must be 'row', got 'df'"):
         gen.generate({"input": 1})
+
+
+# Async model bridge tests for _AsyncBridgedModelFacade
+
+
+def test_async_bridge_proxy_transparent_in_sync_mode(stub_resource_provider, stub_model_facade) -> None:
+    """Proxy passes through generate(), forwards attributes; _build_models_dict returns raw facades."""
+
+    @custom_column_generator(required_columns=["input"], model_aliases=["test-model"])
+    def gen_with_model(row: dict, generator_params: SampleParams, models: dict) -> dict:
+        row["result"] = "ok"
+        return row
+
+    generator = _create_test_generator(
+        name="result",
+        generator_function=gen_with_model,
+        generator_params=SampleParams(),
+        resource_provider=stub_resource_provider,
+    )
+
+    # _build_models_dict returns raw facades (wrapping happens at the call site)
+    models = generator._build_models_dict()
+    assert not isinstance(models["test-model"], _AsyncBridgedModelFacade)
+
+    # Proxy itself passes through generate() and forwards attributes
+    proxy = _AsyncBridgedModelFacade(stub_model_facade)
+    result, _ = proxy.generate("test", parser=str)
+    assert result == "Generated summary text"
+    stub_model_facade.generate.assert_called_once_with("test", parser=str)
+    assert proxy.model_alias == "test_model"
+
+
+def test_async_bridge_falls_back_to_agenerate_on_sync_client_error() -> None:
+    """When sync generate() fails with an async/sync error, falls back to agenerate()."""
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError(
+        "Sync methods are not available on an async-mode HttpModelClient."
+    )
+    facade.request_timeout = 60.0
+
+    async def fake_agenerate(*args: Any, **kwargs: Any) -> tuple:
+        return ("async_result", list(args), kwargs)
+
+    facade.agenerate = fake_agenerate
+    proxy = _AsyncBridgedModelFacade(facade)
+
+    engine_loop = asyncio.new_event_loop()
+    engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
+    engine_thread.start()
+
+    try:
+        with patch(
+            "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+            return_value=engine_loop,
+        ):
+            result = proxy.generate("hello", parser=str)
+        assert result == ("async_result", ["hello"], {"parser": str})
+    finally:
+        engine_loop.call_soon_threadsafe(engine_loop.stop)
+        engine_thread.join(timeout=5)
+
+
+def test_async_bridge_non_client_mode_errors_propagate() -> None:
+    """Only SyncClientUnavailableError triggers bridging; other errors propagate."""
+    # ValueError - different type entirely
+    facade = Mock()
+    facade.generate.side_effect = ValueError("invalid prompt format")
+    proxy = _AsyncBridgedModelFacade(facade)
+    with pytest.raises(ValueError, match="invalid prompt format"):
+        proxy.generate(prompt="hello")
+
+    # RuntimeError - same base type as SyncClientUnavailableError, but not caught
+    facade = Mock()
+    facade.generate.side_effect = RuntimeError("connection timed out for async request")
+    proxy = _AsyncBridgedModelFacade(facade)
+    with pytest.raises(RuntimeError, match="connection timed out"):
+        proxy.generate(prompt="hello")
+
+
+def test_async_bridge_timeout_raises_model_timeout_error() -> None:
+    """A bridge timeout must surface as ModelTimeoutError so the scheduler sees it as retryable."""
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError(
+        "Sync methods are not available on an async-mode HttpModelClient."
+    )
+    # Bridge derives timeout from facade.request_timeout × max_correction_steps
+    # (clamped to _BRIDGE_TIMEOUT_FLOOR_S). Patch the floor down so this test
+    # finishes in milliseconds rather than the production default of 60s.
+    facade.request_timeout = 0.01
+
+    async def hangs_forever(*args: Any, **kwargs: Any) -> tuple:
+        await asyncio.sleep(60)
+        return ("never", [], {})
+
+    facade.agenerate = hangs_forever
+    proxy = _AsyncBridgedModelFacade(facade)
+
+    engine_loop = asyncio.new_event_loop()
+    engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
+    engine_thread.start()
+
+    try:
+        with (
+            patch(
+                "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+                return_value=engine_loop,
+            ),
+            patch("data_designer.engine.column_generators.generators.custom._BRIDGE_TIMEOUT_FLOOR_S", 0.05),
+            pytest.raises(ModelTimeoutError, match="bridge timed out"),
+        ):
+            proxy.generate("hello")
+    finally:
+        engine_loop.call_soon_threadsafe(engine_loop.stop)
+        engine_thread.join(timeout=5)
+
+
+def test_async_bridge_deadlock_guard_on_event_loop() -> None:
+    """Raises a clear error instead of deadlocking when called from the event loop."""
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError(
+        "Sync methods are not available on an async-mode HttpModelClient."
+    )
+    proxy = _AsyncBridgedModelFacade(facade)
+
+    async def call_from_loop() -> None:
+        proxy.generate(prompt="hello")
+
+    with pytest.raises(RuntimeError, match="Use 'await model.agenerate\\(\\)'"):
+        asyncio.run(call_from_loop())
+
+
+@pytest.mark.parametrize(
+    "request_timeout,correction_steps,conversation_restarts,expected",
+    [
+        (60.0, 0, 0, 90.0),  # 1 * 1 * 60 * 1.5 = 90, above floor
+        (60.0, 2, 0, 270.0),  # 3 * 1 * 60 * 1.5 = 270
+        (60.0, 0, 2, 270.0),  # 1 * 3 * 60 * 1.5 = 270 — restarts contribute too
+        (60.0, 1, 1, 360.0),  # 2 * 2 * 60 * 1.5 = 360 — corrections × restarts compound
+        (10.0, 0, 0, 60.0),  # 1 * 1 * 10 * 1.5 = 15, clamped to 60s floor
+    ],
+    ids=[
+        "no-corrections-no-restarts",
+        "corrections-only",
+        "restarts-only",
+        "corrections-and-restarts-compound",
+        "small-clamped-to-floor",
+    ],
+)
+def test_compute_bridge_timeout(
+    request_timeout: float, correction_steps: int, conversation_restarts: int, expected: float
+) -> None:
+    """Bridge deadline = max(floor, (1+restarts) * (1+corrections) * request_timeout * 1.5)."""
+    assert _compute_bridge_timeout(request_timeout, correction_steps, conversation_restarts) == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected_per_request",
+    [
+        ({}, 60.0),  # No override; bridge uses facade.request_timeout
+        ({"timeout": 600.0}, 600.0),  # Per-call timeout overrides the model default
+    ],
+    ids=["no-override-uses-facade-default", "override-uses-per-call-value"],
+)
+def test_async_bridge_honors_per_call_timeout(kwargs: dict[str, object], expected_per_request: float) -> None:
+    """``model.generate(timeout=...)`` must drive the bridge deadline, not just the facade default."""
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError("sync unavailable")
+    facade.request_timeout = 60.0  # would be used if no override
+
+    captured: dict[str, float] = {}
+
+    async def fake_agenerate(*_args: object, **_kwargs: object) -> tuple:
+        return ("ok", [], {})
+
+    facade.agenerate = fake_agenerate
+    proxy = _AsyncBridgedModelFacade(facade)
+
+    real_compute = _compute_bridge_timeout
+
+    def capture_compute(per_request: float, *args: object, **inner: object) -> float:
+        captured["per_request"] = per_request
+        return real_compute(per_request, *args, **inner)
+
+    engine_loop = asyncio.new_event_loop()
+    engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
+    engine_thread.start()
+
+    try:
+        with (
+            patch(
+                "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+                return_value=engine_loop,
+            ),
+            patch(
+                "data_designer.engine.column_generators.generators.custom._compute_bridge_timeout",
+                capture_compute,
+            ),
+        ):
+            proxy.generate("hello", **kwargs)
+    finally:
+        engine_loop.call_soon_threadsafe(engine_loop.stop)
+        engine_thread.join(timeout=5)
+
+    assert captured["per_request"] == expected_per_request

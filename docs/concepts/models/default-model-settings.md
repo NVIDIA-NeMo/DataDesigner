@@ -44,8 +44,8 @@ The following model configurations are automatically available when `NVIDIA_API_
 | Alias | Model | Use Case | Inference Parameters |
 |-------|-------|----------|---------------------|
 | `nvidia-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
-| `nvidia-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
-| `nvidia-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `nvidia-reasoning` | `nvidia/nemotron-3-super-120b-a12b` | Reasoning and analysis tasks | `temperature=1.0, top_p=0.95, extra_body={"reasoning_effort": "medium"}` |
+| `nvidia-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | Vision and image understanding | `temperature=0.60, top_p=0.95` |
 | `nvidia-embedding` | `nvidia/llama-3.2-nv-embedqa-1b-v2` | Text embeddings | `encoding_format="float", extra_body={"input_type": "query"}` |
 
 
@@ -68,7 +68,7 @@ The following model configurations are automatically available when `OPENROUTER_
 |-------|-------|----------|---------------------|
 | `openrouter-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
 | `openrouter-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
-| `openrouter-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `openrouter-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | Vision and image understanding | `temperature=0.60, top_p=0.95` |
 | `openrouter-embedding` | `openai/text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
 
 
@@ -106,6 +106,16 @@ Both methods operate on the same files, ensuring consistency across your entire 
 
 !!! warning "API Key Requirements"
     While default model configurations are always available, you need to set the appropriate API key environment variable (`NVIDIA_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`) to actually use the corresponding models for data generation. Without a valid API key, any attempt to generate data using that provider's models will fail.
+
+!!! warning "Hosted Provider Data Handling"
+    The default model providers call hosted endpoints operated by NVIDIA, OpenAI, OpenRouter, or their upstream providers. Provider terms and privacy practices apply independently of Data Designer, and free or trial endpoints may log request data for security, operations, or product improvement. Do not submit confidential information or personal data, including faces, voices, screenshots, regulated data, or other sensitive content, unless the selected provider and endpoint are approved for your use case.
+
+!!! warning "Deprecated: implicit default provider routing"
+    The `default:` key in `~/.data-designer/model_providers.yaml` and the registry-level
+    "default provider" concept are **deprecated** and will be removed in a future release.
+    Specify `provider=` explicitly on every `ModelConfig` instead — the built-in defaults
+    above already do this, and a `DeprecationWarning` is now emitted whenever the legacy
+    routing is exercised. See [issue #589](https://github.com/NVIDIA-NeMo/DataDesigner/issues/589).
 
 !!! tip "Environment Variables"
     Store your API keys in environment variables rather than hardcoding them in your scripts:

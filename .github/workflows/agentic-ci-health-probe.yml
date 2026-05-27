@@ -1,0 +1,110 @@
+name: "Agentic CI: Health Probe"
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, agentic-ci]
+    timeout-minutes: 3
+    steps:
+      - name: Check required config
+        run: |
+          if [ -z "${{ vars.AGENTIC_CI_MODEL }}" ]; then
+            echo "::error::AGENTIC_CI_MODEL variable is not set. Configure it in repo settings."
+            exit 1
+          fi
+
+      - name: Detect auth mode
+        id: auth
+        run: |
+          if [ -n "${{ secrets.AGENTIC_CI_API_BASE_URL }}" ] && [ -n "${{ secrets.AGENTIC_CI_API_KEY }}" ]; then
+            echo "mode=custom" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=oauth" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ping inference API
+        id: ping
+        if: steps.auth.outputs.mode == 'custom'
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          MODEL="${AGENTIC_CI_MODEL}"
+
+          echo "Auth mode: custom"
+          echo "Model: ${MODEL}"
+
+          START=$(date +%s%N)
+
+          HTTP_CODE=$(curl -s -o /tmp/api-response.json -w "%{http_code}" \
+            --max-time 30 \
+            -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "{\"model\":\"${MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+
+          END=$(date +%s%N)
+          LATENCY_MS=$(( (END - START) / 1000000 ))
+
+          echo "http_code=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
+          echo "latency_ms=${LATENCY_MS}" >> "$GITHUB_OUTPUT"
+
+          echo "API responded HTTP ${HTTP_CODE} in ${LATENCY_MS}ms"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::API returned HTTP ${HTTP_CODE}"
+            cat /tmp/api-response.json
+            exit 1
+          fi
+
+      - name: Check latency threshold
+        if: steps.auth.outputs.mode == 'custom' && fromJSON(steps.ping.outputs.latency_ms) > 10000
+        run: |
+          echo "::warning::API latency ${{ steps.ping.outputs.latency_ms }}ms exceeds 10s threshold"
+
+      - name: Verify Claude CLI
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
+          AGENTIC_CI_MODEL: ${{ vars.AGENTIC_CI_MODEL }}
+        run: |
+          MODEL="${AGENTIC_CI_MODEL}"
+
+          # Verify claude is installed and reachable
+          if ! command -v claude &> /dev/null; then
+            echo "::error::claude CLI not found in PATH"
+            exit 1
+          fi
+
+          echo "Claude CLI version: $(claude --version 2>&1 || true)"
+
+          # Run a minimal prompt to verify auth + model work end-to-end
+          RESULT=$(claude \
+            --bare \
+            --model "$MODEL" \
+            -p "Reply with exactly: HEALTH_CHECK_OK" \
+            --max-turns 1 \
+            --tools "" \
+            --output-format text \
+            2>&1) || {
+              echo "::error::Claude CLI failed"
+              echo "$RESULT"
+              exit 1
+            }
+
+          echo "Claude response: ${RESULT}"
+
+          if echo "$RESULT" | grep -q "HEALTH_CHECK_OK"; then
+            echo "Claude CLI health check passed"
+          else
+            echo "::warning::Claude responded but output was unexpected"
+          fi

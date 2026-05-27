@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,10 +31,11 @@ def test_get_default_inference_parameters():
         top_p=0.95,
     )
     assert get_default_inference_parameters(
-        "reasoning", {"temperature": 0.35, "top_p": 0.95}
+        "reasoning", {"temperature": 1.0, "top_p": 0.95, "extra_body": {"reasoning_effort": "medium"}}
     ) == ChatCompletionInferenceParams(
-        temperature=0.35,
+        temperature=1.0,
         top_p=0.95,
+        extra_body={"reasoning_effort": "medium"},
     )
     assert get_default_inference_parameters(
         "vision", {"temperature": 0.85, "top_p": 0.95}
@@ -59,10 +61,10 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[0].model == "nvidia/nemotron-3-nano-30b-a3b"
     assert builtin_model_configs[0].provider == "nvidia"
     assert builtin_model_configs[1].alias == "nvidia-reasoning"
-    assert builtin_model_configs[1].model == "openai/gpt-oss-20b"
+    assert builtin_model_configs[1].model == "nvidia/nemotron-3-super-120b-a12b"
     assert builtin_model_configs[1].provider == "nvidia"
     assert builtin_model_configs[2].alias == "nvidia-vision"
-    assert builtin_model_configs[2].model == "nvidia/nemotron-nano-12b-v2-vl"
+    assert builtin_model_configs[2].model == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     assert builtin_model_configs[2].provider == "nvidia"
     assert builtin_model_configs[3].alias == "nvidia-embedding"
     assert builtin_model_configs[3].model == "nvidia/llama-3.2-nv-embedqa-1b-v2"
@@ -86,8 +88,12 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[9].model == "openai/gpt-oss-20b"
     assert builtin_model_configs[9].provider == "openrouter"
     assert builtin_model_configs[10].alias == "openrouter-vision"
-    assert builtin_model_configs[10].model == "nvidia/nemotron-nano-12b-v2-vl"
+    assert builtin_model_configs[10].model == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
     assert builtin_model_configs[10].provider == "openrouter"
+    assert builtin_model_configs[10].inference_parameters == ChatCompletionInferenceParams(
+        temperature=0.60,
+        top_p=0.95,
+    )
     assert builtin_model_configs[11].alias == "openrouter-embedding"
     assert builtin_model_configs[11].model == "openai/text-embedding-3-large"
     assert builtin_model_configs[11].provider == "openrouter"
@@ -100,14 +106,17 @@ def test_get_builtin_model_providers():
     assert builtin_model_providers[0].endpoint == "https://integrate.api.nvidia.com/v1"
     assert builtin_model_providers[0].provider_type == "openai"
     assert builtin_model_providers[0].api_key == "NVIDIA_API_KEY"
+    assert builtin_model_providers[0].extra_headers is None
     assert builtin_model_providers[1].name == "openai"
     assert builtin_model_providers[1].endpoint == "https://api.openai.com/v1"
     assert builtin_model_providers[1].provider_type == "openai"
     assert builtin_model_providers[1].api_key == "OPENAI_API_KEY"
+    assert builtin_model_providers[1].extra_headers is None
     assert builtin_model_providers[2].name == "openrouter"
     assert builtin_model_providers[2].endpoint == "https://openrouter.ai/api/v1"
     assert builtin_model_providers[2].provider_type == "openai"
     assert builtin_model_providers[2].api_key == "OPENROUTER_API_KEY"
+    assert builtin_model_providers[2].extra_headers is None
 
 
 def test_get_default_model_configs_path_exists(tmp_path: Path):
@@ -138,19 +147,54 @@ def test_get_default_providers_path_does_not_exist():
 
 
 def test_get_default_provider_name_with_default_key(tmp_path: Path):
+    """When the YAML carries a non-None ``default:``, the function must
+    return that value AND emit a ``DeprecationWarning`` (regression for #589).
+    """
     providers_file_path = tmp_path / "providers.yaml"
     providers_file_path.write_text(
         json.dumps(dict(providers=[p.model_dump() for p in get_builtin_model_providers()], default="nvidia"))
     )
     with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=providers_file_path):
-        assert get_default_provider_name() == "nvidia"
+        with pytest.warns(DeprecationWarning, match="'default:' key.*is deprecated"):
+            assert get_default_provider_name() == "nvidia"
 
 
 def test_get_default_provider_name_without_default_key(tmp_path: Path):
+    """Pin the post-deprecation happy path: a YAML without ``default:`` must
+    return ``None`` and NOT emit a ``DeprecationWarning``.
+    """
     providers_file_path = tmp_path / "providers.yaml"
     providers_file_path.write_text(json.dumps({"providers": [p.model_dump() for p in get_builtin_model_providers()]}))
     with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=providers_file_path):
-        assert get_default_provider_name() is None
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            assert get_default_provider_name() is None
+
+
+def test_get_default_provider_name_warning_attributes_to_user_frame(tmp_path: Path):
+    """Regression for PR #594 review (andreatgretel): the YAML-default warning
+    must attribute to the user's call site, not to ``default_model_settings.py``.
+    Python's default filter ignores library-attributed ``DeprecationWarning``
+    entries, so the previous ``stacklevel=2`` attribution rendered the warning
+    invisible under default filters on the only real call path
+    (``DataDesigner.__init__``). See issue #589.
+    """
+    providers_file_path = tmp_path / "providers.yaml"
+    providers_file_path.write_text(
+        json.dumps(dict(providers=[p.model_dump() for p in get_builtin_model_providers()], default="nvidia"))
+    )
+    with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=providers_file_path):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            assert get_default_provider_name() == "nvidia"
+
+    matches = [w for w in caught if "'default:' key" in str(w.message)]
+    assert len(matches) == 1, [str(w.message) for w in caught]
+    assert matches[0].filename == __file__, (
+        f"Warning attributed to {matches[0].filename!r} (line {matches[0].lineno}) "
+        f"instead of the test file. Library-attributed DeprecationWarnings are "
+        f"silenced under default filters."
+    )
 
 
 def test_get_default_provider_name_path_does_not_exist():

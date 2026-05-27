@@ -32,19 +32,27 @@ import asyncio
 import atexit
 import json
 import logging
+import re
 import threading
-from collections.abc import Coroutine, Iterable
+from collections.abc import Callable, Coroutine, Iterable
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamablehttp_client
 
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProviderT
+from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, MCPProviderT
+from data_designer.config.utils.media_helpers import (
+    decode_base64_image,
+    detect_image_format,
+    extract_base64_from_data_uri,
+)
 from data_designer.engine.mcp.errors import MCPToolError
 from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 
 logger = logging.getLogger(__name__)
+_DATA_URI_MIME_TYPE_RE = re.compile(r"^data:(?P<mime_type>[^;]+);base64,")
 
 
 def _provider_cache_key(provider: MCPProviderT) -> str:
@@ -211,11 +219,15 @@ class MCPIOService:
                         env=provider.env,
                     )
                     ctx = stdio_client(params)
+                elif isinstance(provider, MCPProvider) and provider.provider_type == "streamable_http":
+                    headers = _build_auth_headers(provider.api_key)
+                    ctx = streamablehttp_client(provider.endpoint, headers=headers)
                 else:
                     headers = _build_auth_headers(provider.api_key)
                     ctx = sse_client(provider.endpoint, headers=headers)
 
-                read, write = await ctx.__aenter__()
+                ctx_result = await ctx.__aenter__()
+                read, write = ctx_result[0], ctx_result[1]
                 new_session = ClientSession(read, write)
                 await new_session.__aenter__()
                 await new_session.initialize()
@@ -284,7 +296,7 @@ class MCPIOService:
         session = await self._get_or_create_session(provider)
         result = await session.call_tool(tool_name, arguments)
 
-        content = _serialize_tool_result_content(result)
+        content = _coerce_tool_result_content(result)
         is_error = getattr(result, "isError", None)
         if is_error is None:
             is_error = getattr(result, "is_error", False)
@@ -399,6 +411,11 @@ def list_tools(provider: MCPProviderT, timeout_sec: float | None = None) -> tupl
     return _MCP_IO_SERVICE.list_tools(provider, timeout_sec=timeout_sec)
 
 
+def list_tool_names(provider: MCPProviderT, timeout_sec: float) -> list[str]:
+    """Return the names of all tools available on an MCP provider."""
+    return [t.name for t in _MCP_IO_SERVICE.list_tools(provider, timeout_sec=timeout_sec)]
+
+
 def call_tools(
     calls: list[tuple[MCPProviderT, str, dict[str, Any]]],
     *,
@@ -434,7 +451,7 @@ def get_session_pool_info() -> dict[str, Any]:
 
 
 def _build_auth_headers(api_key: str | None) -> dict[str, Any] | None:
-    """Build authentication headers for SSE client."""
+    """Build authentication headers for remote MCP clients."""
     if not api_key:
         return None
     return {"Authorization": f"Bearer {api_key}"}
@@ -457,31 +474,195 @@ def _coerce_tool_definition(tool: Any, tool_definition_cls: type[MCPToolDefiniti
     return tool_definition_cls(name=name, description=description, input_schema=input_schema)
 
 
-def _serialize_tool_result_content(result: Any) -> str:
-    """Serialize tool result content to a string."""
+def _coerce_tool_result_content(result: Any) -> str | list[dict[str, Any]]:
+    """Coerce MCP tool result content while preserving image blocks."""
     content = getattr(result, "content", result)
     if content is None:
         return ""
     if isinstance(content, str):
         return content
     if isinstance(content, dict):
+        if _is_image_url_block(content):
+            return [_coerce_image_url_block(content)]
+        if _is_image_content(content) or _has_base64_image_payload(content):
+            return [_build_image_url_block(content)]
+        if _is_text_content(content):
+            return str(content.get("text", ""))
         return json.dumps(content)
+    if _is_image_content(content) or _has_base64_image_payload(content):
+        return [_build_image_url_block(content)]
+    if _is_text_content(content):
+        return str(_get_content_field(content, "text", default=""))
     if isinstance(content, list):
-        parts: list[str] = []
+        blocks: list[dict[str, Any]] = []
+        has_image = False
         for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-                continue
-            if isinstance(item, dict):
-                if item.get("type") == "text":
-                    parts.append(str(item.get("text", "")))
-                else:
-                    parts.append(json.dumps(item))
-                continue
-            text_value = getattr(item, "text", None)
-            if text_value is not None:
-                parts.append(str(text_value))
-            else:
-                parts.append(str(item))
-        return "\n".join(parts)
+            block = _coerce_tool_result_content_item(item)
+            blocks.append(block)
+            has_image = has_image or block.get("type") == "image_url"
+        if has_image:
+            return blocks
+        return "\n".join(block.get("text", "") for block in blocks)
     return str(content)
+
+
+def _coerce_tool_result_content_item(item: Any) -> dict[str, Any]:
+    """Coerce a single MCP content item to an internal ChatML-style block."""
+    if isinstance(item, str):
+        return _build_text_block(item)
+    if _is_image_url_block(item):
+        return _coerce_image_url_block(item)
+    if _is_image_content(item) or _has_base64_image_payload(item):
+        return _build_image_url_block(item)
+    if _is_text_content(item):
+        return _build_text_block(_get_content_field(item, "text", default=""))
+    if isinstance(item, dict):
+        return _build_text_block(json.dumps(item))
+
+    text_value = getattr(item, "text", None)
+    if text_value is not None:
+        return _build_text_block(text_value)
+    return _build_text_block(item)
+
+
+def _is_text_content(item: Any) -> bool:
+    return _get_content_field(item, "type") == "text"
+
+
+def _is_image_content(item: Any) -> bool:
+    return _get_content_field(item, "type") == "image"
+
+
+def _is_image_url_block(item: Any) -> bool:
+    return isinstance(item, dict) and item.get("type") == "image_url"
+
+
+def _has_base64_image_payload(item: Any) -> bool:
+    data = _get_content_field(item, "data", "b64_json", "base64")
+    if not isinstance(data, str) or not data:
+        return False
+
+    mime_type = _get_content_field(item, "mimeType", "mime_type", "media_type")
+    if isinstance(mime_type, str) and mime_type:
+        return _is_image_mime_type(mime_type)
+
+    data_uri_mime_type = _extract_data_uri_mime_type(data)
+    return data_uri_mime_type is not None and _is_image_mime_type(data_uri_mime_type)
+
+
+def _coerce_image_url_block(block: dict[str, Any]) -> dict[str, Any]:
+    image_url = block.get("image_url")
+    if isinstance(image_url, str):
+        image_url = {"url": image_url}
+    elif not isinstance(image_url, dict):
+        raise MCPToolError("MCP image_url block must contain an image_url dict or string.")
+
+    url = image_url.get("url")
+    if not isinstance(url, str) or not url:
+        raise MCPToolError("MCP image_url block must contain a non-empty string URL.")
+    if url.startswith(("http://", "https://")):
+        return {"type": "image_url", "image_url": image_url}
+    if url.startswith("data:"):
+        _extract_mime_type_from_data_uri(url)
+        _coerce_base64_image_data(url)
+        return {"type": "image_url", "image_url": image_url}
+
+    return _build_image_url_block({"base64": url})
+
+
+def _build_image_url_block(item: Any) -> dict[str, Any]:
+    data = _get_content_field(item, "data", "b64_json", "base64")
+    mime_type = _get_content_field(item, "mimeType", "mime_type", "media_type")
+    if not isinstance(data, str) or not data:
+        raise MCPToolError("MCP image content is missing base64 data.")
+    mime_type = _coerce_image_mime_type(data, mime_type)
+    base64_data = _coerce_base64_image_data(data)
+
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:{mime_type};base64,{base64_data}"},
+    }
+
+
+def _coerce_image_mime_type(data: str, mime_type: Any) -> str:
+    if isinstance(mime_type, str) and mime_type:
+        if not _is_image_mime_type(mime_type):
+            raise MCPToolError(f"MCP image content must use an image MIME type, got {mime_type!r}.")
+        return mime_type
+
+    data_uri_mime_type = _extract_mime_type_from_data_uri(data)
+    if data_uri_mime_type is not None:
+        return data_uri_mime_type
+
+    try:
+        return f"image/{detect_image_format(decode_base64_image(data)).value}"
+    except ValueError as exc:
+        raise MCPToolError("MCP image content is missing a MIME type.") from exc
+
+
+def _coerce_base64_image_data(data: str) -> str:
+    try:
+        base64_data = extract_base64_from_data_uri(data)
+        decode_base64_image(base64_data)
+        return base64_data
+    except ValueError as exc:
+        raise MCPToolError("MCP image content has invalid base64 data.") from exc
+
+
+def _extract_mime_type_from_data_uri(data: str) -> str | None:
+    mime_type = _extract_data_uri_mime_type(data)
+    if mime_type is None:
+        return None
+    if not _is_image_mime_type(mime_type):
+        raise MCPToolError(f"MCP image content data URI must use an image MIME type, got {mime_type!r}.")
+    return mime_type
+
+
+def _extract_data_uri_mime_type(data: str) -> str | None:
+    match = _DATA_URI_MIME_TYPE_RE.match(data)
+    if match is None:
+        return None
+    return match.group("mime_type")
+
+
+def _is_image_mime_type(mime_type: str) -> bool:
+    return mime_type.lower().startswith("image/")
+
+
+def _get_content_field(item: Any, *names: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        for name in names:
+            if name in item:
+                return item[name]
+        return default
+
+    for name in names:
+        if hasattr(item, name):
+            return getattr(item, name)
+
+    model_dump = getattr(item, "model_dump", None)
+    if callable(model_dump):
+        return _get_content_field_from_dump(model_dump, names, default)
+
+    dict_dump = getattr(item, "dict", None)
+    if callable(dict_dump):
+        return _get_content_field_from_dump(dict_dump, names, default)
+
+    return default
+
+
+def _get_content_field_from_dump(dump_method: Callable[..., Any], names: tuple[str, ...], default: Any) -> Any:
+    for kwargs in ({"by_alias": True}, {}):
+        try:
+            dumped = dump_method(**kwargs)
+        except TypeError:
+            continue
+        if isinstance(dumped, dict):
+            for name in names:
+                if name in dumped:
+                    return dumped[name]
+    return default
+
+
+def _build_text_block(value: Any) -> dict[str, Any]:
+    return {"type": "text", "text": str(value)}

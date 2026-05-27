@@ -45,6 +45,24 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](code_generation/text_to_sql.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/code_generation/text_to_sql.py){ .md-button download="text_to_sql.py" }
 
+-   :material-database-search:{ .lg .middle } **Nemotron Super Text to SQL**
+
+    Generate enterprise-grade text-to-SQL training data used for Nemotron Super v3 SFT -- dialect-specific SQL, distractor injection, dirty data, 5 LLM judges with 15 scoring dimensions.
+
+    ---
+
+    **Demonstrates:**
+
+    - Dialect-specific SQL generation (SQLite, MySQL, PostgreSQL)
+    - Distractor table/column and dirty data injection
+    - Conditional sampling with SubcategorySamplerParams
+    - 5 LLM judges with 15 score extraction columns
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](code_generation/enterprise_text_to_sql.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/code_generation/enterprise_text_to_sql.py){ .md-button download="enterprise_text_to_sql.py" }
+
 
 -   :material-chat:{ .lg .middle } **Product Info QA**
 
@@ -81,6 +99,24 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](qa_and_chat/multi_turn_chat.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/qa_and_chat/multi_turn_chat.py){ .md-button download="multi_turn_chat.py" }
 
+-   :material-source-branch:{ .lg .middle } **Agent Rollout Trace Distillation**
+
+    Read agent rollout traces from disk and turn each imported rollout into a structured workflow record inside a Data Designer pipeline.
+
+    ---
+
+    **Demonstrates:**
+
+    - `AgentRolloutSeedSource` across ATIF, Claude Code, Codex, and Hermes Agent rollout formats
+    - Using normalized trace columns in generation prompts
+    - Distilling agent traces into reusable structured records
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](trace_ingestion/agent_rollout_distillation.md){ .md-button }
+    [:material-file-document-outline: Ingestion Guide](../concepts/agent-rollout-ingestion.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/trace_ingestion/agent_rollout_distillation.py){ .md-button download="agent_rollout_distillation.py" }
+
 
 -   :material-tools:{ .lg .middle } **Basic MCP Tool Use**
 
@@ -116,5 +152,70 @@ Each recipe is a self-contained example that can be run independently.
 
     [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/pdf_qa.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/pdf_qa.py){ .md-button download="pdf_qa.py" }
+
+-   :material-magnify:{ .lg .middle } **Nemotron Super Search Agent (MCP + Tool Use)**
+
+    Generate multi-turn search agent trajectories used for Nemotron Super post-training -- Tavily web search via MCP, Wikidata KG seeding, BrowseComp-style question generation.
+
+    ---
+
+    **Demonstrates:**
+
+    - MCP tool calling with Tavily web search
+    - Wikidata knowledge graph seeding
+    - Two-stage question generation (draft + BrowseComp obfuscation)
+    - Full trajectory capture with traces
+    - Structured output formatting
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/search_agent.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/search_agent.py){ .md-button download="search_agent.py" }
+
+-   :material-file-document-multiple:{ .lg .middle } **Markdown Section Seed Reader**
+
+    Define a custom `FileSystemSeedReader` inline and turn Markdown files into one seed row per heading section.
+
+    ---
+
+    **Demonstrates:**
+
+    - Single-file custom seed reader pattern
+    - `hydrate_row()` fanout from `1 -> N`
+    - Manifest-based file selection semantics
+    - `DirectorySeedSource` customization without a new `seed_type`
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](plugin_development/markdown_seed_reader.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/plugin_development/markdown_seed_reader.py){ .md-button download="markdown_seed_reader.py" }
+
+-   :material-file-eye:{ .lg .middle } **VLM Long-Document Understanding**
+
+    A 9-recipe pipeline for generating visual QA training data from long PDF documents — OCR, page classification, single-page / multi-page / whole-document QA, and frontier-model quality filtering. Used to generate SFT data for Nemotron-3-Nano-Omni-30B-A3B's training recipe on long document understanding.
+
+    ---
+
+    **Demonstrates:**
+
+    - Multi-modal image context (`LLMTextColumnConfig`, `LLMStructuredColumnConfig`)
+    - Classification-first filtering with visual taxonomy
+    - Thinking models with `extract_reasoning_content`
+    - Multi-image and whole-document VLM generation
+    - `LLMJudgeColumnConfig` with multi-rubric scoring
+
+    ---
+
+    | # | Recipe | |
+    | :---: | :--- | :--- |
+    | 01 | [Seed Dataset Preparation](vlm_long_doc/seed_dataset_preparation.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/01-seed-dataset-preparation.py){ download="01-seed-dataset-preparation.py" } |
+    | 02 | [Nemotron Parse OCR](vlm_long_doc/nemotron_parse_ocr.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/02-nemotron-parse-ocr-sdg.py){ download="02-nemotron-parse-ocr-sdg.py" } |
+    | 03 | [Text QA from OCR Transcripts](vlm_long_doc/text_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/03-text-qa-sdg.py){ download="03-text-qa-sdg.py" } |
+    | 04 | [Page Classification](vlm_long_doc/page_classification.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/04-page-classification-sdg.py){ download="04-page-classification-sdg.py" } |
+    | 05 | [Visual QA](vlm_long_doc/visual_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/05-visual-qa-sdg.py){ download="05-visual-qa-sdg.py" } |
+    | 06 | [Single-Page QA](vlm_long_doc/single_page_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/06-single-page-qa-sdg.py){ download="06-single-page-qa-sdg.py" } |
+    | 07 | [Multi-Page Windowed QA](vlm_long_doc/multi_page_windowed_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/07-multi-page-windowed-qa-sdg.py){ download="07-multi-page-windowed-qa-sdg.py" } |
+    | 08 | [Whole-Document QA](vlm_long_doc/whole_document_qa.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/08-whole-document-qa-sdg.py){ download="08-whole-document-qa-sdg.py" } |
+    | 09 | [Frontier Judge QA Filter](vlm_long_doc/frontier_judge.md) | [Download :octicons-download-24:](../assets/recipes/vlm_long_doc/09-frontier-judge-sdg.py){ download="09-frontier-judge-sdg.py" } |
 
 </div>

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10 - 3.13](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/100+_Billion-Tokens_Generated-76b900.svg?logo=nvidia&logoColor=white)
+[![Python 3.10 - 3.14](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13_|_3.14-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/400+_Billion-Tokens_Generated-76b900.svg?logo=nvidia&logoColor=white)
 
 **Generate high-quality synthetic datasets from scratch or using your own seed data.**
 
@@ -19,6 +19,14 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 - **Validate quality** with built-in Python, SQL, and custom local and remote validators
 - **Score outputs** using LLM-as-a-judge for quality assessment
 - **Iterate quickly** with preview mode before full-scale generation
+
+---
+
+### 📣 Heads-up: async engine is now the default
+
+Data Designer now runs pipelines on a cell-level async engine that overlaps independent columns and adapts concurrency per (provider, model). On most pipelines this is faster with no config changes; on slow self-hosted endpoints, set `inference_parameters.timeout` to your real per-request latency. See [Architecture & Performance → Async Engine](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/architecture-and-performance/#async-engine) for the behaviors worth knowing about.
+
+If you hit anything unexpected, fall back to the legacy sync engine for one transitional release with `DATA_DESIGNER_ASYNC_ENGINE=0`, and please [open an issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new) so we can fix the async path.
 
 ---
 
@@ -95,12 +103,18 @@ preview.display_sample_record()
 
 ### 📚 Learn more
 
-- **[Quick Start Guide](https://nvidia-nemo.github.io/DataDesigner/latest/quick-start/)** – Detailed walkthrough with more examples
+- **[Getting Started](https://nvidia-nemo.github.io/DataDesigner/latest/)** – Install, configure, and generate your first dataset
 - **[Tutorial Notebooks](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/)** – Step-by-step interactive tutorials
 - **[Column Types](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/columns/)** – Explore samplers, LLM columns, validators, and more
 - **[Validators](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/validators/)** – Learn how to validate generated data with Python, SQL, and remote validators
 - **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/model-configs/)** – Configure custom models and providers
 - **[Person Sampling](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/)** – Learn how to sample realistic person data with demographic attributes
+
+### 📝 Documentation transition
+
+Data Designer is gradually moving documentation from MkDocs to Fern. During the transition, maintainers publish both docs builds for a few releases so the Fern site can mature without losing the existing MkDocs release archive.
+
+Contributors should keep editing the existing docs sources under `docs/`. Tutorial notebook source lives in `docs/notebook_source/*.py`; generated notebooks and Fern artifacts are not the source of truth.
 
 ### 🔧 Configure models via CLI
 
@@ -110,49 +124,40 @@ data-designer config models    # Set up your model configurations
 data-designer config list      # View current settings
 ```
 
+### 🤖 Agent Skill
+
+Data Designer has a [skill](https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/data-designer-got-skills/) for coding agents. Just describe the dataset you want, and your agent handles schema design, validation, and generation. While the skill should work with other coding agents that support skills, our development and testing has focused on [Claude Code](https://code.claude.com) at this stage.
+
+**Install via [skills.sh](https://skills.sh)** (be sure to select Claude Code as an additional agent):
+
+```bash
+npx skills add NVIDIA-NeMo/DataDesigner
+```
+
+After installation, type `/data-designer` or describe the dataset you want and the skill will kick in.
+
 ### 🤝 Get involved
 
-- **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/latest/CONTRIBUTING)** – Help improve Data Designer
+This repository supports agent-assisted development — see [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended workflow.
+
+- **[Contributing Guide](CONTRIBUTING.md)** – How to contribute, including agent-assisted workflows
 - **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or make a feature request
 
 ---
 
 ## Telemetry
 
-Data Designer collects telemetry to help us improve the library for developers. We collect:
+Data Designer collects telemetry to help us improve the library for developers. This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community.
 
-* The names of models used
-* The count of input tokens
-* The count of output tokens
+Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and-privacy)**
 
-**No user or device information is collected.** This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community.
+### Top models (YTD)
 
-Specifically, a model name that is defined a `ModelConfig` object, is what will be collected. In the below example config:
-
-```python
-ModelConfig(
-    alias="nv-reasoning",
-    model="openai/gpt-oss-20b",
-    provider="nvidia",
-    inference_parameters=ChatCompletionInferenceParams(
-        temperature=0.3,
-        top_p=0.9,
-        max_tokens=4096,
-    ),
-)
-```
-
-The value `openai/gpt-oss-20b` would be collected.
-
-To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
-
-### Top Models
-
-This chart represents the breakdown of models used for Data Designer across all synthetic data generation jobs from 1/24/2026 to 2/24/2026.
+Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–5/1/2026:
 
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
-_Last updated on 2/24/2026_
+_Last updated on May 1, 2026_
 
 ---
 
@@ -175,3 +180,15 @@ If you use NeMo Data Designer in your research, please cite it using the followi
   note = {GitHub Repository},
 }
 ```
+
+---
+
+<a id="telemetry-and-privacy"></a>
+
+## Telemetry & privacy
+
+NeMo Data Designer includes an optional function to share anonymous telemetry data with NVIDIA for product improvement. Data collected is limited to names of models used and token counts (input and output). No user or device information is collected. This data is used to prioritize product improvements and will be shared in aggregate with the community. It is not used to track any individual user behavior.
+
+You may opt out of telemetry collection at any time. Opting out applies only to data collection by the NeMo Data Designer library itself.
+
+**Use of third-party endpoints, including NVIDIA Build:** NeMo Data Designer can be configured to use various inference endpoints, including [build.nvidia.com](https://build.nvidia.com) (NVIDIA Build). If you choose to use NVIDIA Build or any other third-party endpoint, that endpoint's own terms of service and privacy practices apply independently of this library. Any opt-out you exercise within NeMo Data Designer does not extend to data collection by your chosen endpoint. NVIDIA Build is intended for evaluation and testing purposes only and may not be used in production environments. Do not submit any confidential information or personal data when using NVIDIA Build.

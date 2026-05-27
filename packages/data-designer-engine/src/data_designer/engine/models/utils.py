@@ -18,7 +18,7 @@ class ChatMessage:
     Attributes:
         role: The role of the message sender. One of 'user', 'assistant', 'system', or 'tool'.
         content: The message content. Can be a string or a list of content blocks
-            for multimodal messages (e.g., text + images).
+            for multimodal messages (e.g., text + image/audio/video context).
         reasoning_content: Optional reasoning/thinking content from the assistant,
             typically from extended thinking or chain-of-thought models.
         tool_calls: Optional list of tool calls requested by the assistant.
@@ -78,7 +78,7 @@ class ChatMessage:
         return cls(role="system", content=content)
 
     @classmethod
-    def as_tool(cls, content: str, tool_call_id: str) -> ChatMessage:
+    def as_tool(cls, content: str | list[dict[str, Any]], tool_call_id: str) -> ChatMessage:
         """Create a tool response message."""
         return cls(role="tool", content=content, tool_call_id=tool_call_id)
 
@@ -115,6 +115,8 @@ def _normalize_content_blocks(content: Any) -> list[dict[str, Any]]:
 def _normalize_content_block(block: Any) -> dict[str, Any]:
     if isinstance(block, dict) and "type" in block:
         return block
+    if isinstance(block, dict) and "text" in block:
+        return _text_block(block["text"])
     return _text_block(block)
 
 

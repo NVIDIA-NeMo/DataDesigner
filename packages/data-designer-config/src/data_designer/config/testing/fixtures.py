@@ -139,6 +139,7 @@ def stub_model_configs() -> list[ModelConfig]:
         ModelConfig(
             alias="stub-model",
             model="stub-model",
+            provider="provider-1",
             inference_parameters=ChatCompletionInferenceParams(
                 temperature=0.9,
                 top_p=0.9,

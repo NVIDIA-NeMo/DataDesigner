@@ -55,6 +55,9 @@ Model aliases are validated before generation starts. If an alias doesn't exist 
 
 For `full_column`, set `generation_strategy=dd.GenerationStrategy.FULL_COLUMN`.
 
+!!! note "Concurrent dispatch"
+    Sync `cell_by_cell` generators are dispatched concurrently across rows under the async engine. Module-level mutable state (counters, caches, non-thread-safe HTTP clients) needs synchronization or per-row instantiation. For network-bound work, prefer `async def fn(row)` — the engine runs it directly on its event loop and skips the thread bridge.
+
 ## The Decorator
 
 ```python
@@ -175,7 +178,17 @@ models = data_designer.get_models(["my-model"])
 result = my_generator({"name": "Alice"}, None, models)
 ```
 
+In unit tests that mock model clients, use `MagicMock(spec=ModelFacade)` so async methods are auto-detected:
+
+```python
+from unittest.mock import MagicMock
+from data_designer.engine.models.facade import ModelFacade
+
+mock_model = MagicMock(spec=ModelFacade)
+```
+
+Mocking only `generate()` will silently no-op under the async engine because the bridge routes through `agenerate()`.
+
 ## See Also
 
-- [Column Configs Reference](../code_reference/column_configs.md)
 - [Plugins Overview](../plugins/overview.md)

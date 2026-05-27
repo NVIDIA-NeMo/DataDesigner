@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Convert Jupyter notebooks (.ipynb) to Fern NotebookViewer JSON+TS format.
+
+Reads notebook JSON and outputs a minimal format with cells array:
+  { "cells": [ { "type": "markdown"|"code", "source": "...", "source_html"?: "...",
+    "language"?: "python", "outputs"?: [{ "type": "text"|"image", "data": "...", "format"?: "plain"|"html" }] } ] }
+
+Code cells include source_html (Pygments syntax-highlighted HTML) and outputs when available.
+
+The leading "Open In Colab" badge cell that `generate_colab_notebooks.py` injects is skipped:
+NotebookViewer renders its own colab banner from the wrapper MDX's `colabUrl` prop, so the raw
+HTML anchor would otherwise leak into the page.
+
+Writes both <name>.json (canonical data) and <name>.ts (default-export wrapper that MDX
+imports — Fern's bundler doesn't follow JSON imports cleanly).
+
+Usage:
+  python ipynb-to-fern-json.py input.ipynb -o output.json
+  python ipynb-to-fern-json.py docs/colab_notebooks/1-the-basics.ipynb -o fern/components/notebooks/1-the-basics.json
+
+Run after: make convert-execute-notebooks && make generate-colab-notebooks
+  (executed notebooks preserve outputs; generate-colab injects the colab setup cell.)
+"""
+
+from __future__ import annotations
+
+import base64
+import io
+import json
+import re
+import sys
+from pathlib import Path
+
+from markdown_it import MarkdownIt
+from PIL import Image
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers import get_lexer_by_name
+from pygments.style import Style
+from pygments.token import Comment, Error, Generic, Keyword, Literal, Name, Number, Operator, Punctuation, String, Text
+from pygments.util import ClassNotFound
+
+# Cap each image's longest edge so notebook .ts payloads stay small enough for
+# Fern's SSR bundler (a 22MB module from full-resolution Flux outputs broke
+# server-render evaluation). 800px is plenty for in-doc viewing.
+MAX_IMAGE_DIMENSION = 800
+
+# CommonMark-compliant markdown renderer with table + strikethrough +
+# raw-HTML support. Used to pre-render markdown cell sources to HTML at
+# build time so NotebookViewer doesn't have to ship a JS markdown parser.
+_MD = (
+    MarkdownIt("commonmark", {"html": True, "linkify": False, "breaks": False}).enable("table").enable("strikethrough")
+)
+
+COLAB_BADGE_RE = re.compile(
+    r"colab\.research\.google\.com/(?:assets/colab-badge\.svg|github/)",
+    re.IGNORECASE,
+)
+COLAB_SETUP_HEADING_RE = re.compile(r"^\s*###\s*⚡\s*Colab Setup\b", re.MULTILINE)
+COLAB_INSTALL_RE = re.compile(r"^%%capture\s*\n!pip install -U data-designer\b", re.MULTILINE)
+COLAB_USERDATA_RE = re.compile(r"from google\.colab import userdata")
+COLAB_INJECT_METADATA = "nemo_colab_inject"
+
+# Inline base64 PNG/JPEG embedded in IPython.display.HTML blobs. The image
+# notebooks (5, 6) emit `<img src='data:image/png;base64,...'>` inside HTML
+# outputs, which bypasses the `image/png` MIME path and so skips
+# shrink_image_b64 — leaving multi-MB images in the .ts payload and breaking
+# Fern's SSR bundler. Match here so the HTML branch can shrink them too.
+INLINE_DATA_URI_RE = re.compile(
+    r"data:image/(png|jpe?g);base64,([A-Za-z0-9+/=\s]+?)(?=[\"'\s)])",
+    re.IGNORECASE,
+)
+STYLE_ATTR_RE = re.compile(r'style="([^"]*color:[^"]*)"')
+COLOR_DECL_RE = re.compile(r"(?<!-)color:\s*([^;]+)")
+
+FERN_DARK_COLOR_BY_LIGHT = {
+    "#032f62": "#a5d6ff",
+    "#005cc5": "#79c0ff",
+    "#22863a": "#7ee787",
+    "#24292e": "#e6edf3",
+    "#6a737d": "#8b949e",
+    "#6f42c1": "#d2a8ff",
+    "#b31d28": "#ffa198",
+    "#d73a49": "#ff7b72",
+    "#e36209": "#ffa657",
+}
+
+
+class FernGithubLightStyle(Style):
+    default_style = "#24292e"
+    background_color = "#ffffff"
+    styles = {
+        Text: "#24292e",
+        Comment: "italic #6a737d",
+        Error: "#b31d28",
+        Keyword: "#d73a49",
+        Keyword.Constant: "#005cc5",
+        Keyword.Declaration: "#d73a49",
+        Keyword.Namespace: "#d73a49",
+        Keyword.Pseudo: "#005cc5",
+        Keyword.Reserved: "#d73a49",
+        Keyword.Type: "#d73a49",
+        Operator: "#d73a49",
+        Operator.Word: "#d73a49",
+        Punctuation: "#24292e",
+        Name: "#24292e",
+        Name.Attribute: "#005cc5",
+        Name.Builtin: "#005cc5",
+        Name.Builtin.Pseudo: "#005cc5",
+        Name.Class: "#6f42c1",
+        Name.Constant: "#005cc5",
+        Name.Decorator: "#6f42c1",
+        Name.Exception: "#d73a49",
+        Name.Function: "#6f42c1",
+        Name.Namespace: "#24292e",
+        Name.Tag: "#22863a",
+        Name.Variable: "#e36209",
+        Literal: "#032f62",
+        String: "#032f62",
+        Number: "#005cc5",
+        Generic.Deleted: "#b31d28",
+        Generic.Emph: "italic",
+        Generic.Error: "#b31d28",
+        Generic.Heading: "bold #005cc5",
+        Generic.Inserted: "#22863a",
+        Generic.Output: "#6a737d",
+        Generic.Prompt: "#6a737d",
+        Generic.Strong: "bold",
+        Generic.Subheading: "bold #6f42c1",
+        Generic.Traceback: "#b31d28",
+    }
+
+
+def get_language(metadata: dict) -> str:
+    info = metadata.get("kernelspec", {}) or {}
+    lang = info.get("language", "python")
+    return "python" if lang == "python3" else lang
+
+
+def highlight_code(source: str, language: str) -> str | None:
+    try:
+        lexer = get_lexer_by_name(language, stripall=True)
+    except ClassNotFound:
+        return None
+    formatter = HtmlFormatter(noclasses=True, style=FernGithubLightStyle, nowrap=True)
+    return add_fern_highlight_vars(highlight(source, lexer, formatter))
+
+
+def add_fern_highlight_vars(html: str) -> str:
+    def replace_style(match: re.Match[str]) -> str:
+        style = match.group(1)
+        if "--shiki-light" in style:
+            return match.group(0)
+
+        color_match = COLOR_DECL_RE.search(style)
+        if color_match is None:
+            return match.group(0)
+
+        color = color_match.group(1).strip()
+        dark_color = FERN_DARK_COLOR_BY_LIGHT.get(color.lower(), color)
+        style = COLOR_DECL_RE.sub("color: var(--shiki-light)", style, count=1)
+        return f'style="--shiki-light: {color}; --shiki-dark: {dark_color}; {style}"'
+
+    return STYLE_ATTR_RE.sub(replace_style, html)
+
+
+def _join_source(source: list | str | None) -> str:
+    if source is None:
+        return ""
+    if isinstance(source, list):
+        return "".join(source)
+    return str(source)
+
+
+def is_colab_injected_cell(cell: dict) -> bool:
+    """True if the cell is injected for Colab, not rendered docs."""
+    metadata = cell.get("metadata") or {}
+    if metadata.get(COLAB_INJECT_METADATA) is True:
+        return True
+
+    src = _join_source(cell.get("source", []))
+    if cell.get("cell_type") == "markdown":
+        return bool(COLAB_BADGE_RE.search(src) or COLAB_SETUP_HEADING_RE.search(src))
+    if cell.get("cell_type") == "code":
+        return bool(COLAB_INSTALL_RE.search(src) or COLAB_USERDATA_RE.search(src))
+    return False
+
+
+def shrink_image_b64(b64: str, max_dim: int = MAX_IMAGE_DIMENSION) -> tuple[str, str]:
+    """Decode a base64 PNG, resize so its longest edge is at most max_dim, and
+    re-encode as JPEG (q=82) for photographic Flux outputs. Massively cheaper
+    than PNG for the .ts payload — full-resolution Flux PNGs blow past Fern's
+    SSR module-size threshold (a 22MB combined .ts breaks server-render).
+
+    Returns (b64, mime). On any failure, returns the original PNG bytes."""
+    try:
+        raw = base64.b64decode(b64)
+        img = Image.open(io.BytesIO(raw))
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        if img.mode in ("RGBA", "LA"):
+            # Flatten alpha onto white before JPEG encode
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            bg.paste(img, mask=img.split()[-1])
+            img = bg
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=82, optimize=True, progressive=True)
+        return base64.b64encode(buf.getvalue()).decode("ascii"), "image/jpeg"
+    except Exception:
+        return b64, "image/png"
+
+
+def shrink_inline_b64_in_html(html: str) -> str:
+    """Replace each inline `data:image/...;base64,...` URI inside an HTML string
+    with a shrunk JPEG variant. IPython.display.HTML outputs in the image
+    notebooks embed full-resolution PNGs this way; without resizing, a single
+    cell can carry 2MB+ of base64."""
+
+    def _sub(match: re.Match[str]) -> str:
+        b64 = "".join(match.group(2).split())
+        shrunk, mime = shrink_image_b64(b64)
+        return f"data:{mime};base64,{shrunk}"
+
+    return INLINE_DATA_URI_RE.sub(_sub, html)
+
+
+def extract_outputs(outputs: list) -> list[dict]:
+    result: list[dict] = []
+    for out in outputs:
+        out_type = out.get("output_type", "")
+        if out_type == "stream":
+            text = _join_source(out.get("text", []))
+            if text.strip():
+                result.append({"type": "text", "data": text.rstrip("\n"), "format": "plain"})
+        elif out_type in ("display_data", "execute_result"):
+            data = out.get("data", {})
+            if "image/png" in data:
+                b64 = data["image/png"]
+                if isinstance(b64, list):
+                    b64 = "".join(b64)
+                b64, mime = shrink_image_b64(b64)
+                result.append({"type": "image", "data": b64, "mime": mime})
+            elif "text/html" in data:
+                html = data["text/html"]
+                if isinstance(html, list):
+                    html = "".join(html)
+                if html.strip():
+                    html = shrink_inline_b64_in_html(html)
+                    result.append({"type": "text", "data": html, "format": "html"})
+            elif "text/plain" in data:
+                text = data["text/plain"]
+                if isinstance(text, list):
+                    text = "".join(text)
+                if text.strip():
+                    result.append({"type": "text", "data": text.rstrip("\n"), "format": "plain"})
+    return result
+
+
+def convert_cell(cell: dict, default_language: str) -> dict:
+    cell_type = cell.get("cell_type", "code")
+    source = _join_source(cell.get("source", [])).rstrip("\n")
+    result: dict = {"type": cell_type, "source": source}
+    if cell_type == "code":
+        result["language"] = default_language
+        source_html = highlight_code(source, default_language)
+        if source_html:
+            result["source_html"] = source_html
+        raw_outputs = cell.get("outputs", [])
+        if raw_outputs:
+            result["outputs"] = extract_outputs(raw_outputs)
+    elif cell_type == "markdown" and source:
+        # Pre-render markdown to HTML at build time. NotebookViewer renders
+        # this directly, side-stepping the JS-side markdown parser that
+        # didn't handle blockquotes, fenced code, tables, or nested lists.
+        result["source_html"] = _MD.render(source)
+    return result
+
+
+def convert_notebook(ipynb_path: Path) -> tuple[dict, int]:
+    """Convert a .ipynb file to Fern format. Returns (data, n_skipped_colab_cells)."""
+    with open(ipynb_path, encoding="utf-8") as f:
+        nb = json.load(f)
+    metadata = nb.get("metadata", {})
+    default_language = get_language(metadata)
+    raw_cells = nb.get("cells", [])
+    skipped = 0
+    cells = []
+    for cell in raw_cells:
+        if is_colab_injected_cell(cell):
+            skipped += 1
+            continue
+        cells.append(convert_cell(cell, default_language))
+    return {"cells": cells}, skipped
+
+
+def write_ts_export(data: dict, ts_path: Path) -> None:
+    """Write a .ts file that exports the notebook data inline (MDX imports the .ts, not the .json)."""
+    cells_json = json.dumps(data["cells"], indent=2, ensure_ascii=False)
+    ts_path.write_text(
+        f"/** Auto-generated by ipynb-to-fern-json.py - do not edit */\nexport default {{ cells: {cells_json} }};\n",
+        encoding="utf-8",
+    )
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    if not args or "-h" in args or "--help" in args:
+        print(__doc__)
+        return 0
+    input_path = Path(args[0])
+    output_path: Path | None = None
+    if "-o" in args:
+        idx = args.index("-o")
+        if idx + 1 < len(args):
+            output_path = Path(args[idx + 1])
+    if not output_path:
+        output_path = input_path.with_suffix(".json")
+    if not input_path.exists():
+        print(f"Error: {input_path} not found", file=sys.stderr)
+        return 1
+    data, skipped = convert_notebook(input_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    print(f"Wrote {output_path}")
+    ts_path = output_path.with_suffix(".ts")
+    write_ts_export(data, ts_path)
+    print(f"Wrote {ts_path}")
+    if skipped:
+        print(f"  (skipped {skipped} colab-badge cell{'s' if skipped != 1 else ''})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

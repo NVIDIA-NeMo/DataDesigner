@@ -1,13 +1,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import base64
 from unittest.mock import Mock, patch
 
 import pytest
 
 from data_designer.config.column_configs import ImageColumnConfig
-from data_designer.config.models import ImageContext, ImageFormat, ModalityDataType
+from data_designer.config.models import (
+    AudioContext,
+    ImageContext,
+    ImageFormat,
+    Modality,
+    ModalityDataType,
+    VideoContext,
+)
+from data_designer.config.utils.media_helpers import get_media_base64_context, get_media_url_context
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.image import ImageCellGenerator
 from data_designer.engine.processing.ginja.exceptions import UserTemplateError
@@ -114,13 +124,17 @@ def test_image_cell_generator_missing_columns_error(stub_image_column_config, st
 
 
 def test_image_cell_generator_empty_prompt_error(stub_resource_provider):
-    """Test that empty rendered prompt raises UserTemplateError."""
+    """Test that empty rendered prompt is rejected by the secure renderer."""
     # Create config with template that renders to empty string
     config = ImageColumnConfig(name="test_image", prompt="{{ empty }}", model_alias="test_model")
 
     generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
 
-    with pytest.raises(UserTemplateError):
+    # See https://github.com/NVIDIA-NeMo/DataDesigner/issues/629: empty renders
+    # used to surface as a generic "invalid" message; they now raise the more
+    # actionable EmptyTemplateRenderError (a UserTemplateError subclass) that
+    # names the culprit field.
+    with pytest.raises(UserTemplateError, match="empty"):
         generator.generate(data={"empty": ""})
 
 
@@ -171,8 +185,9 @@ def test_image_cell_generator_with_multi_modal_context(stub_resource_provider):
         assert call_args.kwargs["prompt"] == "Generate a similar image to the reference"
         assert call_args.kwargs["multi_modal_context"] is not None
         assert len(call_args.kwargs["multi_modal_context"]) == 1
-        assert call_args.kwargs["multi_modal_context"][0]["type"] == "image_url"
-        assert call_args.kwargs["multi_modal_context"][0]["image_url"] == "https://example.com/image.png"
+        assert call_args.kwargs["multi_modal_context"][0] == get_media_url_context(
+            Modality.IMAGE.value, "https://example.com/image.png"
+        )
 
 
 def test_image_cell_generator_with_base64_multi_modal_context(stub_resource_provider):
@@ -214,9 +229,47 @@ def test_image_cell_generator_with_base64_multi_modal_context(stub_resource_prov
         assert call_args.kwargs["prompt"] == "Generate a variation of this image"
         assert call_args.kwargs["multi_modal_context"] is not None
         assert len(call_args.kwargs["multi_modal_context"]) == 1
-        assert call_args.kwargs["multi_modal_context"][0]["type"] == "image_url"
-        # Should be formatted as data URI
-        assert "data:image/png;base64," in call_args.kwargs["multi_modal_context"][0]["image_url"]["url"]
+        assert call_args.kwargs["multi_modal_context"][0] == get_media_base64_context(
+            Modality.IMAGE.value, "image/png", "iVBORw0KGgoAAAANS"
+        )
+
+
+def test_image_cell_generator_with_mixed_media_context(stub_resource_provider: Mock) -> None:
+    config = ImageColumnConfig(
+        name="test_image",
+        prompt="Generate a poster from this media",
+        model_alias="test_model",
+        multi_modal_context=[
+            ImageContext(column_name="reference_image", data_type=ModalityDataType.URL),
+            AudioContext(column_name="reference_audio", data_type=ModalityDataType.URL),
+            VideoContext(column_name="reference_video", data_type=ModalityDataType.URL),
+        ],
+    )
+
+    mock_storage = Mock()
+    mock_storage.save_base64_image.return_value = "images/generated.png"
+    stub_resource_provider.artifact_storage.media_storage = mock_storage
+
+    with patch.object(
+        stub_resource_provider.model_registry.get_model.return_value,
+        "generate_image",
+        return_value=["base64_generated_image"],
+    ) as mock_generate:
+        generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
+        generator.generate(
+            data={
+                "reference_image": "https://example.com/image.png",
+                "reference_audio": "https://example.com/audio.mp3",
+                "reference_video": "https://example.com/video.mp4",
+            }
+        )
+
+    mock_generate.assert_called_once()
+    assert mock_generate.call_args.kwargs["multi_modal_context"] == [
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/image.png"),
+        get_media_url_context(Modality.AUDIO.value, "https://example.com/audio.mp3"),
+        get_media_url_context(Modality.VIDEO.value, "https://example.com/video.mp4"),
+    ]
 
 
 def test_image_cell_generator_build_multi_modal_context_returns_none_when_not_configured(
@@ -270,10 +323,9 @@ def test_image_cell_generator_auto_resolves_generated_image_file_path(stub_resou
         context = call_args.kwargs["multi_modal_context"]
         assert context is not None
         assert len(context) == 1
-        assert context[0]["type"] == "image_url"
         # Should contain base64 data, NOT the file path
         expected_b64 = base64.b64encode(png_bytes).decode()
-        assert expected_b64 in context[0]["image_url"]["url"]
+        assert context[0] == get_media_base64_context(Modality.IMAGE.value, "image/png", expected_b64)
 
 
 def test_image_cell_generator_auto_detect_passes_through_urls(stub_resource_provider: Mock) -> None:
@@ -302,4 +354,4 @@ def test_image_cell_generator_auto_detect_passes_through_urls(stub_resource_prov
         mock_generate.assert_called_once()
         context = mock_generate.call_args.kwargs["multi_modal_context"]
         assert context is not None
-        assert context[0]["image_url"] == "https://example.com/image.png"
+        assert context[0] == get_media_url_context(Modality.IMAGE.value, "https://example.com/image.png")

@@ -32,7 +32,6 @@ _LAZY_IMPORTS = {
     "pq": "pyarrow.parquet",
     "pa": "pyarrow",
     "faker": "faker",
-    "litellm": "litellm",
     "sqlfluff": "sqlfluff",
     "httpx": "httpx",
     "duckdb": "duckdb",
@@ -41,6 +40,7 @@ _LAZY_IMPORTS = {
     "jsonschema": "jsonschema",
     "PIL": "PIL",
     "Image": "PIL.Image",
+    "tiktoken": "tiktoken",
 }
 
 

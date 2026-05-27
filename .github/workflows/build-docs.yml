@@ -1,13 +1,25 @@
 name: Build docs
 on:
   workflow_dispatch:
+    inputs:
+      use_cache:
+        description: "Use cached notebooks for unchanged sources"
+        type: boolean
+        default: true
   release:
     types:
       - published
 
+permissions: {}
+
 jobs:
   build-notebooks:
     uses: ./.github/workflows/build-notebooks.yml
+    permissions:
+      actions: read
+      contents: write
+    with:
+      use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
     secrets: inherit
   deploy:
     needs: build-notebooks
@@ -16,9 +28,9 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.9.5"
       - name: Set up Python
@@ -26,7 +38,7 @@ jobs:
       - name: Install dependencies for docs
         run: uv sync --all-packages --group docs
       - name: Download artifact from previous step
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: notebooks
           path: docs/notebooks

@@ -40,7 +40,7 @@ config_builder.add_column(
 )
 ```
 
-For mor details, see the documentation for [`SamplerColumnConfig`](../code_reference/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonFromFakerSamplerParams`](../code_reference/sampler_params.md#data_designer.config.sampler_params.PersonFromFakerSamplerParams).
+Use `SamplerColumnConfig` with `PersonFromFakerSamplerParams` when you need locale-aware synthetic person fields.
 
 ---
 
@@ -56,9 +56,11 @@ Supported locales:
 - `en_US`: United States
 - `en_IN`: India (English)
 - `en_SG`: Singapore (English)
+- `fr_FR`: France (French)
 - `hi_Deva_IN`: India (Devanagari script)
 - `hi_Latn_IN`: India (Latin script)
 - `ja_JP`: Japan
+- `ko_KR`: South Korea (Korean)
 - `pt_BR`: Brazil (Portuguese)
 
 ### Features
@@ -119,8 +121,14 @@ ngc registry resource download-version "nvidia/nemotron-personas/nemotron-person
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_latn_in"
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_in"
 
+# For Nemotron-Personas FR
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-fr_fr"
+
 # For Nemotron-Personas JP
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ja_jp"
+
+# For Nemotron-Personas KR
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ko_kr"
 
 # For Nemotron-Personas SG
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_sg"
@@ -153,7 +161,7 @@ config_builder.add_column(
 )
 ```
 
-For more details, see the documentation for [`SamplerColumnConfig`](../code_reference/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonSamplerParams`](../code_reference/sampler_params.md#data_designer.config.sampler_params.PersonSamplerParams).
+Use `SamplerColumnConfig` with `PersonSamplerParams` when you need richer personas from curated datasets.
 
 ### Available Data Fields
 
@@ -183,23 +191,52 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 | `email_address` | string | |
 | `national_id` | string |
 
+**France-Specific Fields (`fr_FR`):**
+
+- `household_type` - Household composition (e.g., single person, couple with/without children)
+- `monthly_income_eur` - Estimated monthly income in euros
+- `first_name_heritage` - Cultural origin of the first name
+- `name_heritage` - Cultural, linguistic, or geographic origin of the surname
+- `is_first_gen_immigrant` - Whether the individual is a first-generation immigrant to France
+
 **Japan-Specific Fields (`ja_JP`):**
 
 - `area`
-- `prefecture`
-- `zone`
+
+**Korea-Specific Fields (`ko_KR`):**
+
+- `economic_activity_status` - Employment / economic activity status
+- `family_type` - Household / family composition type
+- `housing_type` - Dwelling type (apartment, detached home, etc.)
+- `housing_tenure` - Owned vs rented, etc.
+- `income_bracket` - Income range
+- `military_status` - Military service status
+- `drinking_status` - Drinking frequency / status
+- `smoking_status` - Smoking frequency / status
+- `blood_pressure_status` - Blood pressure health indicator
+- `blood_sugar_status` - Blood sugar health indicator
+- `bmi_status` - BMI health indicator
+- `waist_status` - Waist-circumference health indicator
 
 **Brazil-Specific Fields (`pt_BR`):**
 
 - `race` - Census-reported race
 
-**Brazil and India Shared Fields (`pt_BR`, `en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
+**Singapore-Specific Fields (`en_SG`):**
+
+- `industry` - Industry of employment
+- `preferred_english_name` - Preferred English-form name
+
+**English Locales Shared Fields (`en_US`, `en_SG`):**
+
+- `ethnic_background` - Self-identified ethnic background
+
+**Religion Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`, `en_SG`, `pt_BR`):**
 
 - `religion` - Census-reported religion
 
-**India-Specific Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
+**India Locales Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
 
-- `district` - Census-reported district
 - `education_degree` - Census-reported education degree
 - `first_language` - Native language
 - `second_language` - Second language (if applicable)
@@ -215,17 +252,21 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 - Career goals
 - Context-specific personas (professional, financial, healthcare, sports, arts & entertainment, travel, culinary, etc.)
 
-*Japan-specific persona fields:*
+*Japan-specific persona fields (`ja_JP`):*
 
 - `aspects`
-- `digital_skills`
+- `digital_skill`
 
-*Brazil and India shared persona fields (`pt_BR`, `en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):*
+*Korea-specific persona fields (`ko_KR`):*
+
+- `family_persona`
+
+*Religious persona fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`, `en_SG`, `pt_BR`):*
 
 - `religious_persona`
 - `religious_background`
 
-*India-specific persona fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):*
+*India-locales persona fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):*
 
 - `linguistic_persona`
 - `linguistic_background`
@@ -234,7 +275,7 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `locale` | str | Language/region code - must be one of: "en_US", "en_IN", "en_SG", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "pt_BR" |
+| `locale` | str | Language/region code - must be one of: "en_US", "en_IN", "en_SG", "fr_FR", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "ko_KR", "pt_BR" |
 | `sex` | str (optional) | Filter by "Male" or "Female" |
 | `city` | str or list[str] (optional) | Filter by specific city or cities within locale |
 | `age_range` | list[int] (optional) | Two-element list [min_age, max_age] (default: [18, 114]) |

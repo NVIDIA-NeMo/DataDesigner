@@ -69,7 +69,7 @@ Learn the fundamentals of Data Designer by generating a simple product review da
 
 **Start here if you're new to Data Designer!**
 
-### [2. Structured Outputs and Jinja Expressions](2-structured-outputs-and-jinja-expressions.ipynb)
+### [2. Structured Outputs, Jinja Expressions, and Conditional Generation](2-structured-outputs-and-jinja-expressions.ipynb)
 
 Explore more advanced data generation capabilities:
 
@@ -78,6 +78,7 @@ Explore more advanced data generation capabilities:
 - Combining samplers with structured data
 - Building complex data dependencies
 - Working with nested data structures
+- Conditional generation with `skip.when`
 
 ### [3. Seeding with an External Dataset](3-seeding-with-a-dataset.ipynb)
 
@@ -94,6 +95,7 @@ Learn how to use vision-language models to generate text descriptions from image
 
 - Processing and converting images to base64 format for model consumption
 - Using vision-language models (VLMs) to analyze visual documents
+- Understanding how image, audio, and video context share the same `multi_modal_context` field, while still requiring model support for each modality
 - Generating detailed summaries from document images
 - Inspecting and validating vision-based generation results
 
@@ -130,12 +132,3 @@ Understanding these concepts will help you make the most of the tutorials:
 - **[Columns](../concepts/columns.md)** - Learn about different column types (Sampler, LLM, Expression, Validation, etc.)
 - **[Validators](../concepts/validators.md)** - Understand how to validate generated data with Python, SQL, and remote validators
 - **[Person Sampling](../concepts/person_sampling.md)** - Learn how to sample realistic person data with demographic attributes
-
-### Code Reference
-
-Quick reference guides for the main configuration objects:
-
-- **[column_configs](../code_reference/column_configs.md)** - All column configuration types
-- **[config_builder](../code_reference/config_builder.md)** - The `DataDesignerConfigBuilder` API
-- **[data_designer_config](../code_reference/data_designer_config.md)** - Main configuration schema
-- **[validator_params](../code_reference/validator_params.md)** - Validator configuration options

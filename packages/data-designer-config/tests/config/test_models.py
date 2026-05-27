@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import base64
 import json
 import tempfile
+import warnings
 from collections import Counter
 from pathlib import Path
 
@@ -11,9 +14,12 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+import data_designer.config as dd
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import (
+    AudioContext,
+    AudioFormat,
     ChatCompletionInferenceParams,
     EmbeddingInferenceParams,
     GenerationType,
@@ -22,12 +28,32 @@ from data_designer.config.models import (
     ImageInferenceParams,
     ManualDistribution,
     ManualDistributionParams,
+    Modality,
     ModalityDataType,
     ModelConfig,
     UniformDistribution,
     UniformDistributionParams,
+    VideoContext,
+    VideoFormat,
     load_model_configs,
 )
+from data_designer.config.utils.media_helpers import get_media_base64_context, get_media_url_context
+
+
+def test_media_context_exports_are_available_on_config_namespace() -> None:
+    assert dd.ImageContext is ImageContext
+    assert dd.AudioContext is AudioContext
+    assert dd.VideoContext is VideoContext
+    assert dd.ImageFormat is ImageFormat
+    assert dd.AudioFormat is AudioFormat
+    assert dd.VideoFormat is VideoFormat
+
+    assert "ImageContext" in dd.__all__
+    assert "ImageFormat" in dd.__all__
+    assert "AudioContext" in dd.__all__
+    assert "AudioFormat" in dd.__all__
+    assert "VideoContext" in dd.__all__
+    assert "VideoFormat" in dd.__all__
 
 
 def test_image_context_get_contexts_single_string():
@@ -36,18 +62,12 @@ def test_image_context_get_contexts_single_string():
         column_name="image_base64", data_type=ModalityDataType.BASE64, image_format=ImageFormat.PNG
     )
     assert image_context.get_contexts({"image_base64": "somebase64encodedimagestring"}) == [
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,somebase64encodedimagestring", "format": "png"},
-        }
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "somebase64encodedimagestring")
     ]
 
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
     assert image_context.get_contexts({"image_url": "https://example.com/examle_image.png"}) == [
-        {
-            "type": "image_url",
-            "image_url": "https://example.com/examle_image.png",
-        }
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/examle_image.png")
     ]
 
 
@@ -57,32 +77,17 @@ def test_image_context_get_contexts_list_of_strings():
         column_name="image_base64", data_type=ModalityDataType.BASE64, image_format=ImageFormat.PNG
     )
     assert image_context.get_contexts({"image_base64": ["image1base64", "image2base64", "image3base64"]}) == [
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
-        },
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
-        },
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image3base64", "format": "png"},
-        },
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "image1base64"),
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "image2base64"),
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "image3base64"),
     ]
 
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
     assert image_context.get_contexts(
         {"image_url": ["https://example.com/image1.png", "https://example.com/image2.png"]}
     ) == [
-        {
-            "type": "image_url",
-            "image_url": "https://example.com/image1.png",
-        },
-        {
-            "type": "image_url",
-            "image_url": "https://example.com/image2.png",
-        },
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/image1.png"),
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/image2.png"),
     ]
 
 
@@ -93,27 +98,15 @@ def test_image_context_get_contexts_numpy_array():
     )
     numpy_array = lazy.np.array(["image1base64", "image2base64"])
     assert image_context.get_contexts({"image_base64": numpy_array}) == [
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
-        },
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
-        },
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "image1base64"),
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "image2base64"),
     ]
 
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
     numpy_array = lazy.np.array(["https://example.com/image1.png", "https://example.com/image2.png"])
     assert image_context.get_contexts({"image_url": numpy_array}) == [
-        {
-            "type": "image_url",
-            "image_url": "https://example.com/image1.png",
-        },
-        {
-            "type": "image_url",
-            "image_url": "https://example.com/image2.png",
-        },
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/image1.png"),
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/image2.png"),
     ]
 
 
@@ -124,27 +117,15 @@ def test_image_context_get_contexts_json_serialized_list():
     )
     json_str = json.dumps(["image1base64", "image2base64"])
     assert image_context.get_contexts({"image_base64": json_str}) == [
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
-        },
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
-        },
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "image1base64"),
+        get_media_base64_context(Modality.IMAGE.value, "image/png", "image2base64"),
     ]
 
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
     json_str = json.dumps(["https://example.com/image1.png", "https://example.com/image2.png"])
     assert image_context.get_contexts({"image_url": json_str}) == [
-        {
-            "type": "image_url",
-            "image_url": "https://example.com/image1.png",
-        },
-        {
-            "type": "image_url",
-            "image_url": "https://example.com/image2.png",
-        },
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/image1.png"),
+        get_media_url_context(Modality.IMAGE.value, "https://example.com/image2.png"),
     ]
 
 
@@ -152,12 +133,8 @@ def test_image_context_get_contexts_json_string_not_list():
     """Test get_contexts with a JSON string that isn't a list (should treat as single string)."""
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
     json_str = json.dumps({"nested": "object"})
-    # Should treat the entire JSON string as a single image URL
     assert image_context.get_contexts({"image_url": json_str}) == [
-        {
-            "type": "image_url",
-            "image_url": json_str,
-        }
+        get_media_url_context(Modality.IMAGE.value, json_str)
     ]
 
 
@@ -166,10 +143,7 @@ def test_image_context_get_contexts_invalid_json():
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
     invalid_json = "not a valid json string"
     assert image_context.get_contexts({"image_url": invalid_json}) == [
-        {
-            "type": "image_url",
-            "image_url": invalid_json,
-        }
+        get_media_url_context(Modality.IMAGE.value, invalid_json)
     ]
 
 
@@ -184,6 +158,21 @@ def test_image_context_validate_image_format():
         ImageContext(column_name="image_base64", data_type=ModalityDataType.BASE64)
 
 
+def test_image_context_validates_data_uri_media_type_against_image_format() -> None:
+    context = ImageContext(column_name="image_base64", image_format=ImageFormat.PNG)
+
+    with pytest.raises(ValueError, match="image_format 'png' does not match data URI media type 'image/jpeg'"):
+        context.get_contexts({"image_base64": "data:image/jpeg;base64,image1base64"})
+
+
+def test_image_context_accepts_jpg_format_for_jpeg_data_uri() -> None:
+    context = ImageContext(column_name="image_base64", image_format=ImageFormat.JPG)
+
+    assert context.get_contexts({"image_base64": "data:image/jpeg;base64,image1base64"}) == [
+        get_media_base64_context(Modality.IMAGE.value, "image/jpeg", "image1base64")
+    ]
+
+
 def test_image_context_no_data_type_passes_validation() -> None:
     """Test that ImageContext without data_type passes validation."""
     context = ImageContext(column_name="image_col")
@@ -195,7 +184,7 @@ def test_image_context_auto_detect_url() -> None:
     """Test auto-detection with URL value (no data_type)."""
     context = ImageContext(column_name="image_col")
     result = context.get_contexts({"image_col": "https://example.com/image.png"})
-    assert result == [{"type": "image_url", "image_url": "https://example.com/image.png"}]
+    assert result == [get_media_url_context(Modality.IMAGE.value, "https://example.com/image.png")]
 
 
 def test_image_context_auto_detect_base64(minimal_png_base64: str) -> None:
@@ -204,9 +193,7 @@ def test_image_context_auto_detect_base64(minimal_png_base64: str) -> None:
     context = ImageContext(column_name="image_col")
     result = context.get_contexts({"image_col": png_base64})
     assert len(result) == 1
-    assert result[0]["type"] == "image_url"
-    assert result[0]["image_url"]["format"] == "png"
-    assert f"base64,{png_base64}" in result[0]["image_url"]["url"]
+    assert result[0] == get_media_base64_context(Modality.IMAGE.value, "image/png", png_base64)
 
 
 def test_image_context_auto_detect_file_path_resolved(tmp_path: Path) -> None:
@@ -223,9 +210,8 @@ def test_image_context_auto_detect_file_path_resolved(tmp_path: Path) -> None:
         base_path=str(tmp_path),
     )
     assert len(result) == 1
-    assert result[0]["type"] == "image_url"
     expected_base64 = base64.b64encode(png_bytes).decode()
-    assert f"base64,{expected_base64}" in result[0]["image_url"]["url"]
+    assert result[0] == get_media_base64_context(Modality.IMAGE.value, "image/png", expected_base64)
 
 
 def test_image_context_auto_detect_file_path_not_resolved_without_base_path() -> None:
@@ -243,6 +229,184 @@ def test_image_context_auto_detect_file_path_not_exists(tmp_path: Path) -> None:
             {"image_col": "images/col/nonexistent.png"},
             base_path=str(tmp_path),
         )
+
+
+def test_audio_context_get_contexts_single_string() -> None:
+    audio_context = AudioContext(
+        column_name="audio_base64", data_type=ModalityDataType.BASE64, audio_format=AudioFormat.MP3
+    )
+    assert audio_context.get_contexts({"audio_base64": "audio1base64"}) == [
+        get_media_base64_context(Modality.AUDIO.value, "audio/mpeg", "audio1base64")
+    ]
+
+    audio_context = AudioContext(column_name="audio_url", data_type=ModalityDataType.URL)
+    assert audio_context.get_contexts({"audio_url": "https://example.com/audio.mp3"}) == [
+        get_media_url_context(Modality.AUDIO.value, "https://example.com/audio.mp3")
+    ]
+    assert audio_context.get_contexts({"audio_url": "recordings/speech.mp3"}) == [
+        get_media_url_context(Modality.AUDIO.value, "recordings/speech.mp3")
+    ]
+    assert audio_context.get_contexts({"audio_url": "file:///data/recordings/speech.mp3"}) == [
+        get_media_url_context(Modality.AUDIO.value, "file:///data/recordings/speech.mp3")
+    ]
+
+
+def test_audio_context_get_contexts_list_json_and_numpy() -> None:
+    audio_context = AudioContext(
+        column_name="audio_base64", data_type=ModalityDataType.BASE64, audio_format=AudioFormat.WAV
+    )
+    assert audio_context.get_contexts({"audio_base64": ["audio1", "audio2"]}) == [
+        get_media_base64_context(Modality.AUDIO.value, "audio/wav", "audio1"),
+        get_media_base64_context(Modality.AUDIO.value, "audio/wav", "audio2"),
+    ]
+
+    json_str = json.dumps(["https://example.com/audio1.mp3", "https://example.com/audio2.mp3"])
+    url_context = AudioContext(column_name="audio_url", data_type=ModalityDataType.URL)
+    assert url_context.get_contexts({"audio_url": json_str}) == [
+        get_media_url_context(Modality.AUDIO.value, "https://example.com/audio1.mp3"),
+        get_media_url_context(Modality.AUDIO.value, "https://example.com/audio2.mp3"),
+    ]
+
+    numpy_array = lazy.np.array(["https://example.com/audio1.mp3", "https://example.com/audio2.mp3"])
+    assert url_context.get_contexts({"audio_url": numpy_array}) == [
+        get_media_url_context(Modality.AUDIO.value, "https://example.com/audio1.mp3"),
+        get_media_url_context(Modality.AUDIO.value, "https://example.com/audio2.mp3"),
+    ]
+
+
+def test_audio_context_auto_detect_url_and_data_uri() -> None:
+    assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "https://example.com/audio.mp3"}) == [
+        get_media_url_context(Modality.AUDIO.value, "https://example.com/audio.mp3")
+    ]
+
+    assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "https://example.com/download?id=123"}) == [
+        get_media_url_context(Modality.AUDIO.value, "https://example.com/download?id=123")
+    ]
+
+    assert AudioContext(column_name="audio_col").get_contexts({"audio_col": "data:audio/mpeg;base64,audio1base64"}) == [
+        get_media_base64_context(Modality.AUDIO.value, "audio/mpeg", "audio1base64")
+    ]
+
+
+@pytest.mark.parametrize("audio_path", ["recordings/speech.wav", "file:///data/recordings/speech.mp3"])
+def test_audio_context_auto_detect_local_path_rejected(audio_path: str) -> None:
+    with pytest.raises(ValueError, match="audio context values that look like local paths must use data_type=url"):
+        AudioContext(column_name="audio_col").get_contexts({"audio_col": audio_path})
+
+
+def test_audio_context_validate_audio_format() -> None:
+    with pytest.raises(ValueError, match="audio_format is required when data_type is base64"):
+        AudioContext(column_name="audio_base64", data_type=ModalityDataType.BASE64)
+
+    with pytest.raises(ValueError, match="audio URL context values must be HTTP"):
+        AudioContext(column_name="audio_url", data_type=ModalityDataType.URL).get_contexts({"audio_url": "not-a-url"})
+
+    with pytest.raises(ValueError, match="audio_format is required for base64 audio context values"):
+        AudioContext(column_name="audio_base64").get_contexts({"audio_base64": "audio1base64"})
+
+    with pytest.raises(ValueError, match="does not match data URI media type"):
+        AudioContext(column_name="audio_base64", audio_format=AudioFormat.WAV).get_contexts(
+            {"audio_base64": "data:audio/mpeg;base64,audio1base64"}
+        )
+
+    with pytest.raises(ValueError, match="audio context values that look like local paths must use data_type=url"):
+        AudioContext(column_name="audio_base64", audio_format=AudioFormat.MP3).get_contexts(
+            {"audio_base64": "screen_recording.mp3"}
+        )
+
+    with pytest.raises(ValueError, match="audio context values that look like local paths must use data_type=url"):
+        AudioContext(
+            column_name="audio_base64", data_type=ModalityDataType.BASE64, audio_format=AudioFormat.MP3
+        ).get_contexts({"audio_base64": "screen_recording.mp3"})
+
+
+def test_video_context_get_contexts_single_string() -> None:
+    video_context = VideoContext(
+        column_name="video_base64", data_type=ModalityDataType.BASE64, video_format=VideoFormat.MP4
+    )
+    assert video_context.get_contexts({"video_base64": "video1base64"}) == [
+        get_media_base64_context(Modality.VIDEO.value, "video/mp4", "video1base64")
+    ]
+
+    video_context = VideoContext(column_name="video_url", data_type=ModalityDataType.URL)
+    assert video_context.get_contexts({"video_url": "https://example.com/video.mp4"}) == [
+        get_media_url_context(Modality.VIDEO.value, "https://example.com/video.mp4")
+    ]
+    assert video_context.get_contexts({"video_url": "clips/screen_recording.mp4"}) == [
+        get_media_url_context(Modality.VIDEO.value, "clips/screen_recording.mp4")
+    ]
+    assert video_context.get_contexts({"video_url": "file:///data/clips/screen_recording.mp4"}) == [
+        get_media_url_context(Modality.VIDEO.value, "file:///data/clips/screen_recording.mp4")
+    ]
+
+
+def test_video_context_get_contexts_list_json_and_numpy() -> None:
+    video_context = VideoContext(
+        column_name="video_base64", data_type=ModalityDataType.BASE64, video_format=VideoFormat.WEBM
+    )
+    assert video_context.get_contexts({"video_base64": ["video1", "video2"]}) == [
+        get_media_base64_context(Modality.VIDEO.value, "video/webm", "video1"),
+        get_media_base64_context(Modality.VIDEO.value, "video/webm", "video2"),
+    ]
+
+    json_str = json.dumps(["https://example.com/video1.mp4", "https://example.com/video2.mp4"])
+    url_context = VideoContext(column_name="video_url", data_type=ModalityDataType.URL)
+    assert url_context.get_contexts({"video_url": json_str}) == [
+        get_media_url_context(Modality.VIDEO.value, "https://example.com/video1.mp4"),
+        get_media_url_context(Modality.VIDEO.value, "https://example.com/video2.mp4"),
+    ]
+
+    numpy_array = lazy.np.array(["https://example.com/video1.mp4", "https://example.com/video2.mp4"])
+    assert url_context.get_contexts({"video_url": numpy_array}) == [
+        get_media_url_context(Modality.VIDEO.value, "https://example.com/video1.mp4"),
+        get_media_url_context(Modality.VIDEO.value, "https://example.com/video2.mp4"),
+    ]
+
+
+def test_video_context_auto_detect_url_and_data_uri() -> None:
+    assert VideoContext(column_name="video_col").get_contexts({"video_col": "https://example.com/video.mp4"}) == [
+        get_media_url_context(Modality.VIDEO.value, "https://example.com/video.mp4")
+    ]
+
+    assert VideoContext(column_name="video_col").get_contexts({"video_col": "https://example.com/download?id=123"}) == [
+        get_media_url_context(Modality.VIDEO.value, "https://example.com/download?id=123")
+    ]
+
+    assert VideoContext(column_name="video_col").get_contexts({"video_col": "data:video/mp4;base64,video1base64"}) == [
+        get_media_base64_context(Modality.VIDEO.value, "video/mp4", "video1base64")
+    ]
+
+
+@pytest.mark.parametrize("video_path", ["clips/screen_recording.webm", "file:///data/clips/screen_recording.mp4"])
+def test_video_context_auto_detect_local_path_rejected(video_path: str) -> None:
+    with pytest.raises(ValueError, match="video context values that look like local paths must use data_type=url"):
+        VideoContext(column_name="video_col").get_contexts({"video_col": video_path})
+
+
+def test_video_context_validate_video_format() -> None:
+    with pytest.raises(ValueError, match="video_format is required when data_type is base64"):
+        VideoContext(column_name="video_base64", data_type=ModalityDataType.BASE64)
+
+    with pytest.raises(ValueError, match="video URL context values must be HTTP"):
+        VideoContext(column_name="video_url", data_type=ModalityDataType.URL).get_contexts({"video_url": "not-a-url"})
+
+    with pytest.raises(ValueError, match="video_format is required for base64 video context values"):
+        VideoContext(column_name="video_base64").get_contexts({"video_base64": "video1base64"})
+
+    with pytest.raises(ValueError, match="does not match data URI media type"):
+        VideoContext(column_name="video_base64", video_format=VideoFormat.WEBM).get_contexts(
+            {"video_base64": "data:video/mp4;base64,video1base64"}
+        )
+
+    with pytest.raises(ValueError, match="video context values that look like local paths must use data_type=url"):
+        VideoContext(column_name="video_base64", video_format=VideoFormat.MP4).get_contexts(
+            {"video_base64": "screen_recording.mp4"}
+        )
+
+    with pytest.raises(ValueError, match="video context values that look like local paths must use data_type=url"):
+        VideoContext(
+            column_name="video_base64", data_type=ModalityDataType.BASE64, video_format=VideoFormat.MP4
+        ).get_contexts({"video_base64": "screen_recording.mp4"})
 
 
 def test_inference_parameters_default_construction():
@@ -415,8 +579,8 @@ def test_generation_parameters_max_tokens_validation():
 
 def test_load_model_configs():
     stub_model_configs = [
-        ModelConfig(alias="test", model="test"),
-        ModelConfig(alias="test2", model="test2"),
+        ModelConfig(alias="test", model="test", provider="test-provider"),
+        ModelConfig(alias="test2", model="test2", provider="test-provider"),
     ]
     stub_model_configs_dict_list = [mc.model_dump(mode="json") for mc in stub_model_configs]
     assert load_model_configs([]) == []
@@ -456,27 +620,63 @@ def test_load_model_configs():
 
 def test_model_config_construction():
     # test default construction
-    model_config = ModelConfig(alias="test", model="test")
+    model_config = ModelConfig(alias="test", model="test", provider="test-provider")
     assert model_config.inference_parameters == ChatCompletionInferenceParams()
     assert model_config.generation_type == GenerationType.CHAT_COMPLETION
 
     # test construction with completion inference parameters
     completion_params = ChatCompletionInferenceParams(temperature=0.5, top_p=0.5, max_tokens=100)
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=completion_params)
+    model_config = ModelConfig(
+        alias="test", model="test", provider="test-provider", inference_parameters=completion_params
+    )
     assert model_config.inference_parameters == completion_params
     assert model_config.generation_type == GenerationType.CHAT_COMPLETION
 
     # test construction with embedding inference parameters
     embedding_params = EmbeddingInferenceParams(dimensions=100)
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=embedding_params)
+    model_config = ModelConfig(
+        alias="test", model="test", provider="test-provider", inference_parameters=embedding_params
+    )
     assert model_config.inference_parameters == embedding_params
     assert model_config.generation_type == GenerationType.EMBEDDING
 
     # test construction with image inference parameters
     image_params = ImageInferenceParams(extra_body={"size": "1024x1024", "quality": "hd"})
-    model_config = ModelConfig(alias="test", model="test", inference_parameters=image_params)
+    model_config = ModelConfig(alias="test", model="test", provider="test-provider", inference_parameters=image_params)
     assert model_config.inference_parameters == image_params
     assert model_config.generation_type == GenerationType.IMAGE
+
+
+def test_model_config_provider_none_emits_deprecation_warning():
+    """Regression for #589: omitting ``provider=`` (or passing ``provider=None``)
+    on a ``ModelConfig`` is deprecated; construction must emit a
+    ``DeprecationWarning`` pointing users at the explicit-provider migration.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig(alias="legacy", model="legacy-model")
+
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig(alias="legacy", model="legacy-model", provider=None)
+
+
+def test_model_config_provider_none_via_model_validate_emits_deprecation_warning():
+    """Regression for #589 / PR #594 review: deserialising legacy on-disk configs
+    via ``ModelConfig.model_validate(...)`` must surface the same
+    ``DeprecationWarning`` as direct construction. Both paths funnel through
+    the same validator today, so this pin protects against a future refactor
+    that, e.g., only runs the validator on construction and not on revalidation.
+    """
+    with pytest.warns(DeprecationWarning, match="ModelConfig.provider=None is deprecated"):
+        ModelConfig.model_validate({"alias": "legacy", "model": "legacy-model"})
+
+
+def test_model_config_with_provider_does_not_warn():
+    """Pin the post-deprecation happy path: specifying ``provider=`` must not
+    emit any deprecation warning.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        ModelConfig(alias="modern", model="modern-model", provider="some-provider")
 
 
 def test_model_config_generation_type_from_dict():
@@ -485,6 +685,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "test",
+            "provider": "test-provider",
             "inference_parameters": {"generation_type": "embedding", "dimensions": 100},
         }
     )
@@ -495,6 +696,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "test",
+            "provider": "test-provider",
             "inference_parameters": {"generation_type": "chat-completion", "temperature": 0.5},
         }
     )
@@ -505,6 +707,7 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "image-model",
+            "provider": "test-provider",
             "inference_parameters": {
                 "generation_type": "image",
                 "extra_body": {"size": "1024x1024", "quality": "hd"},

@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, get_args
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
+from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
@@ -17,6 +20,11 @@ from data_designer.integrations.huggingface.client import HuggingFaceHubClient
 if TYPE_CHECKING:
     import pandas as pd
 
+    from data_designer.engine.dataset_builders.scheduling.task_model import TaskTrace
+
+ExportFormat = Literal["jsonl", "csv", "parquet"]
+SUPPORTED_EXPORT_FORMATS: tuple[str, ...] = get_args(ExportFormat)
+
 
 class DatasetCreationResults(WithRecordSamplerMixin):
     """Results container for a Data Designer dataset creation run.
@@ -24,6 +32,14 @@ class DatasetCreationResults(WithRecordSamplerMixin):
     This class provides access to the generated dataset, profiling analysis, and
     visualization utilities. It is returned by the DataDesigner.create() method
     and implements ResultsProtocol of the DataDesigner interface.
+
+    Resume scope: methods that read from the artifact directory (``load_dataset``,
+    ``count_records``, ``load_analysis``, ``export``, ``push_to_hub``) reflect the
+    full dataset on disk, including rows produced by earlier ``create()`` calls
+    that the current invocation resumed. Per-run observability — ``task_traces``
+    and any model-usage / telemetry side effects emitted during the call — is
+    scoped to the current invocation only, because the original run's in-memory
+    state is not persisted across process boundaries.
     """
 
     def __init__(
@@ -33,6 +49,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         analysis: DatasetProfilerResults,
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
+        task_traces: list[TaskTrace] | None = None,
     ):
         """Creates a new instance with results based on a dataset creation run.
 
@@ -41,18 +58,23 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             analysis: Profiling results for the generated dataset.
             config_builder: Configuration builder used to create the dataset.
             dataset_metadata: Metadata about the generated dataset (e.g., seed column names).
+            task_traces: Optional list of TaskTrace objects from the async scheduler.
+                Resume note: only contains traces for the current invocation; traces
+                from earlier ``create()`` calls that this run resumed are not
+                retained.
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
         self.dataset_metadata = dataset_metadata
+        self.task_traces: list[TaskTrace] = task_traces or []
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.
 
         Returns:
             DatasetProfilerResults containing statistical analysis and quality metrics
-                for each column in the generated dataset.
+                for configured columns in the generated dataset.
         """
         return self._analysis
 
@@ -63,6 +85,32 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             A pandas DataFrame containing the full generated dataset.
         """
         return self.artifact_storage.load_dataset()
+
+    def to_config_builder(self, columns: list[str] | None = None) -> DataDesignerConfigBuilder:
+        """Create a new config builder seeded from this result dataset.
+
+        Loads the full dataset into memory; intended for interactive use. For
+        production pipelines, prefer ``CompositeWorkflow``.
+        """
+        df = self.load_dataset()
+        if columns is not None:
+            df = df.loc[:, columns]
+        return DataDesignerConfigBuilder(
+            model_configs=self._config_builder.model_configs,
+            tool_configs=self._config_builder.tool_configs,
+        ).with_seed_dataset(DataFrameSeedSource(df=df.copy()))
+
+    def count_records(self) -> int:
+        """Return the total number of records in the generated dataset.
+
+        Counts rows by reading Parquet file metadata only — no data pages are
+        loaded, so memory usage is constant regardless of dataset size.
+
+        Returns:
+            Total row count across all batch parquet files.
+        """
+        batch_files = sorted(self.artifact_storage.final_dataset_path.glob("batch_*.parquet"))
+        return sum(lazy.pq.read_metadata(f).num_rows for f in batch_files)
 
     def load_processor_dataset(self, processor_name: str) -> pd.DataFrame:
         """Load the dataset generated by a processor.
@@ -75,14 +123,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         Returns:
             A pandas DataFrame containing the dataset generated by the processor.
         """
-        try:
-            dataset = self.artifact_storage.read_parquet_files(
-                self.artifact_storage.processors_outputs_path / processor_name
-            )
-        except Exception as e:
-            raise ArtifactStorageError(f"Failed to load dataset for processor {processor_name}: {e}")
-
-        return dataset
+        return self.artifact_storage.load_processor_dataset(processor_name)
 
     def get_path_to_processor_artifacts(self, processor_name: str) -> Path:
         """Get the path to the artifacts generated by a processor.
@@ -96,6 +137,57 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         if not self.artifact_storage.processors_outputs_path.exists():
             raise ArtifactStorageError(f"Processor {processor_name} has no artifacts.")
         return self.artifact_storage.processors_outputs_path / processor_name
+
+    def export(self, path: Path | str, *, format: ExportFormat | None = None) -> Path:
+        """Export the generated dataset to a single file by streaming batch files.
+
+        The output format is inferred from the file extension when *format* is
+        omitted.  Pass *format* explicitly to override the extension (e.g. write a
+        ``.txt`` file as JSONL).
+
+        Unlike :meth:`load_dataset`, this method never materialises the full dataset
+        in memory — it reads batch parquet files one at a time and appends each to
+        the output file, keeping peak memory proportional to a single batch.
+
+        Args:
+            path: Output file path. The exact path is used as-is; the extension is
+                not rewritten.
+            format: Output format. One of ``'jsonl'``, ``'csv'``, or ``'parquet'``.
+                When omitted, the format is inferred from the file extension.
+
+        Returns:
+            Path to the written file.
+
+        Raises:
+            InvalidFileFormatError: If the format cannot be determined or is not
+                one of the supported values.
+            ArtifactStorageError: If no batch parquet files are found.
+
+        Example:
+            >>> results = data_designer.create(config, num_records=1000)
+            >>> results.export("output.jsonl")
+            PosixPath('output.jsonl')
+            >>> results.export("output.csv")
+            PosixPath('output.csv')
+            >>> results.export("output.txt", format="jsonl")
+            PosixPath('output.txt')
+        """
+        path = Path(path)
+        resolved_format: str = format if format is not None else path.suffix.lstrip(".").lower()
+        if resolved_format not in SUPPORTED_EXPORT_FORMATS:
+            raise InvalidFileFormatError(
+                f"Unsupported export format: {resolved_format!r}. Choose one of: {', '.join(SUPPORTED_EXPORT_FORMATS)}."
+            )
+        batch_files = sorted(self.artifact_storage.final_dataset_path.glob("batch_*.parquet"))
+        if not batch_files:
+            raise ArtifactStorageError("No batch parquet files found to export.")
+        if resolved_format == "jsonl":
+            _export_jsonl(batch_files, path)
+        elif resolved_format == "csv":
+            _export_csv(batch_files, path)
+        elif resolved_format == "parquet":
+            _export_parquet(batch_files, path)
+        return path
 
     def push_to_hub(
         self,
@@ -142,3 +234,49 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             description=description,
             tags=tags,
         )
+
+
+def _export_jsonl(batch_files: list[Path], output: Path) -> None:
+    """Write *batch_files* to *output* as JSONL, one record per line.
+
+    Each batch is appended in turn so peak memory stays proportional to one batch.
+    """
+    with output.open("w", encoding="utf-8") as f:
+        for batch_file in batch_files:
+            chunk = lazy.pd.read_parquet(batch_file)
+            content = chunk.to_json(orient="records", lines=True, force_ascii=False, date_format="iso")
+            if content:
+                f.write(content)
+
+
+def _export_csv(batch_files: list[Path], output: Path) -> None:
+    """Write *batch_files* to *output* as CSV with a single header row."""
+    for i, batch_file in enumerate(batch_files):
+        chunk = lazy.pd.read_parquet(batch_file)
+        chunk.to_csv(output, mode="a" if i > 0 else "w", header=(i == 0), index=False)
+
+
+def _export_parquet(batch_files: list[Path], output: Path) -> None:
+    """Write *batch_files* to *output* as a single Parquet file.
+
+    Schemas are unified across batches before writing so that columns with minor
+    type drift (e.g. ``int64`` vs ``float64`` across batches) are cast to a
+    consistent schema rather than causing a write error.
+
+    Raises:
+        InvalidFileFormatError: If batch schemas have incompatible column names or
+            types that cannot be unified or cast.
+    """
+    schemas = [lazy.pq.read_schema(f) for f in batch_files]
+    try:
+        # promote_options="permissive" allows minor numeric type drift (e.g. int64 → double)
+        unified_schema = lazy.pa.unify_schemas(schemas, promote_options="permissive")
+    except (lazy.pa.ArrowInvalid, lazy.pa.ArrowTypeError) as e:
+        raise InvalidFileFormatError(f"Cannot unify batch schemas for parquet export: {e}") from e
+    with lazy.pq.ParquetWriter(output, unified_schema) as writer:
+        for batch_file in batch_files:
+            table = lazy.pq.read_table(batch_file)
+            try:
+                writer.write_table(table.cast(unified_schema))
+            except (lazy.pa.ArrowInvalid, ValueError) as e:
+                raise InvalidFileFormatError(f"Cannot cast batch {batch_file.name} to unified schema: {e}") from e

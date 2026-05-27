@@ -179,12 +179,12 @@ def test_select_provider_type_returns_stdio(mock_select: MagicMock) -> None:
 
 
 # =============================================================================
-# SSE form tests
+# Remote form tests (SSE and Streamable HTTP)
 # =============================================================================
 
 
-def test_run_sse_form_creates_mcp_provider() -> None:
-    """Test _run_sse_form creates valid MCPProvider."""
+def test_run_remote_form_creates_sse_provider() -> None:
+    """Test _run_remote_form creates valid MCPProvider with SSE transport."""
     builder = MCPProviderFormBuilder()
     form_result = {
         "name": "my-server",
@@ -196,29 +196,52 @@ def test_run_sse_form_creates_mcp_provider() -> None:
     mock_form.prompt_all.return_value = form_result
 
     with patch("data_designer.cli.forms.mcp_provider_builder.Form", return_value=mock_form):
-        result = builder._run_sse_form()
+        result = builder._run_remote_form("sse")
 
     assert isinstance(result, MCPProvider)
     assert result.name == "my-server"
     assert result.endpoint == "http://localhost:8080/sse"
     assert result.api_key == "secret-key"
+    assert result.provider_type == "sse"
 
 
-def test_run_sse_form_returns_none_on_cancel() -> None:
-    """Test _run_sse_form returns None when user cancels."""
+def test_run_remote_form_creates_streamable_http_provider() -> None:
+    """Test _run_remote_form creates valid MCPProvider with Streamable HTTP transport."""
+    builder = MCPProviderFormBuilder()
+    form_result = {
+        "name": "my-server",
+        "endpoint": "https://api.example.com/mcp",
+        "api_key": "secret-key",
+    }
+
+    mock_form = MagicMock()
+    mock_form.prompt_all.return_value = form_result
+
+    with patch("data_designer.cli.forms.mcp_provider_builder.Form", return_value=mock_form):
+        result = builder._run_remote_form("streamable_http")
+
+    assert isinstance(result, MCPProvider)
+    assert result.name == "my-server"
+    assert result.endpoint == "https://api.example.com/mcp"
+    assert result.api_key == "secret-key"
+    assert result.provider_type == "streamable_http"
+
+
+def test_run_remote_form_returns_none_on_cancel() -> None:
+    """Test _run_remote_form returns None when user cancels."""
     builder = MCPProviderFormBuilder()
 
     mock_form = MagicMock()
     mock_form.prompt_all.return_value = None
 
     with patch("data_designer.cli.forms.mcp_provider_builder.Form", return_value=mock_form):
-        result = builder._run_sse_form()
+        result = builder._run_remote_form("sse")
 
     assert result is None
 
 
-def test_run_sse_form_handles_optional_api_key() -> None:
-    """Test _run_sse_form handles missing/empty api_key."""
+def test_run_remote_form_handles_optional_api_key() -> None:
+    """Test _run_remote_form handles missing/empty api_key."""
     builder = MCPProviderFormBuilder()
     form_result = {
         "name": "my-server",
@@ -230,14 +253,14 @@ def test_run_sse_form_handles_optional_api_key() -> None:
     mock_form.prompt_all.return_value = form_result
 
     with patch("data_designer.cli.forms.mcp_provider_builder.Form", return_value=mock_form):
-        result = builder._run_sse_form()
+        result = builder._run_remote_form("sse")
 
     assert isinstance(result, MCPProvider)
     assert result.api_key is None
 
 
-def test_run_sse_form_uses_initial_data() -> None:
-    """Test _run_sse_form populates form with initial data."""
+def test_run_remote_form_uses_initial_data() -> None:
+    """Test _run_remote_form populates form with initial data."""
     builder = MCPProviderFormBuilder()
     initial_data = {
         "name": "existing-server",
@@ -249,14 +272,14 @@ def test_run_sse_form_uses_initial_data() -> None:
     mock_form.prompt_all.return_value = initial_data
 
     with patch("data_designer.cli.forms.mcp_provider_builder.Form", return_value=mock_form):
-        builder._run_sse_form(initial_data)
+        builder._run_remote_form("sse", initial_data)
 
     mock_form.set_values.assert_called_once_with(initial_data)
 
 
 @patch("data_designer.cli.forms.mcp_provider_builder.print_error")
-def test_run_sse_form_handles_exception(mock_print_error: MagicMock) -> None:
-    """Test _run_sse_form handles validation exceptions gracefully."""
+def test_run_remote_form_handles_exception(mock_print_error: MagicMock) -> None:
+    """Test _run_remote_form handles validation exceptions gracefully."""
     builder = MCPProviderFormBuilder()
     form_result = {
         "name": "",  # Invalid: empty name will cause exception
@@ -274,7 +297,7 @@ def test_run_sse_form_handles_exception(mock_print_error: MagicMock) -> None:
             side_effect=Exception("Validation error"),
         ),
     ):
-        result = builder._run_sse_form()
+        result = builder._run_remote_form("sse")
 
     assert result is None
     mock_print_error.assert_called()

@@ -15,6 +15,12 @@ def test_scalar_inequality_constraint():
     assert constraint.rhs == 1
     assert constraint.operator == InequalityOperator.LT
     assert constraint.constraint_type == ConstraintType.SCALAR_INEQUALITY
+    assert constraint.model_dump() == {
+        "target_column": "test",
+        "rhs": 1.0,
+        "operator": "lt",
+        "constraint_type": "scalar_inequality",
+    }
 
 
 def test_column_inequality_constraint():
@@ -23,3 +29,9 @@ def test_column_inequality_constraint():
     assert constraint.rhs == "test2"
     assert constraint.operator == InequalityOperator.LT
     assert constraint.constraint_type == ConstraintType.COLUMN_INEQUALITY
+    assert constraint.model_dump() == {
+        "target_column": "test",
+        "rhs": "test2",
+        "operator": "lt",
+        "constraint_type": "column_inequality",
+    }

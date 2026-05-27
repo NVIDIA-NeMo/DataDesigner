@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import os
+from typing import TYPE_CHECKING
+
 from data_designer.config.base import ConfigBase
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.mcp import MCPProviderT, ToolConfig
@@ -16,23 +19,27 @@ from data_designer.engine.model_provider import (
     ModelProviderRegistry,
     resolve_mcp_provider_registry,
 )
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.resources.managed_storage import ManagedBlobStorage
+from data_designer.engine.resources.person_reader import PersonReader
 from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
+if TYPE_CHECKING:
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
+
 
 class ResourceType(StrEnum):
-    BLOB_STORAGE = "blob_storage"
+    PERSON_READER = "person_reader"
     MODEL_REGISTRY = "model_registry"
     SEED_READER = "seed_reader"
 
 
 class ResourceProvider(ConfigBase):
     artifact_storage: ArtifactStorage
-    blob_storage: ManagedBlobStorage | None = None
+    person_reader: PersonReader | None = None
     model_registry: ModelRegistry | None = None
     mcp_registry: MCPRegistry | None = None
     run_config: RunConfig = RunConfig()
@@ -82,15 +89,17 @@ def create_resource_provider(
     secret_resolver: SecretResolver,
     model_provider_registry: ModelProviderRegistry,
     seed_reader_registry: SeedReaderRegistry,
-    blob_storage: ManagedBlobStorage | None = None,
+    person_reader: PersonReader | None = None,
     seed_dataset_source: SeedSource | None = None,
     run_config: RunConfig | None = None,
     mcp_providers: list[MCPProviderT] | None = None,
     tool_configs: list[ToolConfig] | None = None,
+    client_concurrency_mode: ClientConcurrencyMode | None = None,
+    request_admission: AdaptiveRequestAdmissionController | None = None,
 ) -> ResourceProvider:
     """Factory function for creating a ResourceProvider instance.
 
-    This function triggers lazy loading of heavy dependencies like litellm.
+    This function triggers lazy loading of heavy dependencies like httpx.
     The creation order is:
     1. MCPProviderRegistry (can be empty)
     2. MCPRegistry with tool_configs
@@ -102,11 +111,12 @@ def create_resource_provider(
         secret_resolver: Resolver for secrets.
         model_provider_registry: Registry of model providers.
         seed_reader_registry: Registry of seed readers.
-        blob_storage: Optional blob storage for large files.
+        person_reader: Optional reader for person datasets.
         seed_dataset_source: Optional source for seed datasets.
         run_config: Optional runtime configuration.
         mcp_providers: Optional list of MCP provider configurations.
         tool_configs: Optional list of tool configurations.
+        request_admission: Optional shared request-admission controller for model clients.
 
     Returns:
         A configured ResourceProvider instance.
@@ -131,6 +141,20 @@ def create_resource_provider(
             mcp_provider_registry=mcp_provider_registry,
         )
 
+    # Default the client mode from the env var when the caller hasn't decided.
+    # The interface (DataDesigner) computes the mode based on env var AND the
+    # config (e.g. allow_resize columns force a sync fallback) and passes the
+    # result explicitly. Direct callers of this factory still get the env-var
+    # default for backward compatibility.
+    if client_concurrency_mode is None:
+        client_concurrency_mode = (
+            ClientConcurrencyMode.ASYNC
+            if os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
+            else ClientConcurrencyMode.SYNC
+        )
+
+    effective_run_config = run_config or RunConfig()
+
     return ResourceProvider(
         artifact_storage=artifact_storage,
         model_registry=create_model_registry(
@@ -138,9 +162,12 @@ def create_resource_provider(
             secret_resolver=secret_resolver,
             model_provider_registry=model_provider_registry,
             mcp_registry=mcp_registry,
+            client_concurrency_mode=client_concurrency_mode,
+            run_config=effective_run_config,
+            request_admission=request_admission,
         ),
-        blob_storage=blob_storage,
+        person_reader=person_reader,
         mcp_registry=mcp_registry,
         seed_reader=seed_reader,
-        run_config=run_config or RunConfig(),
+        run_config=effective_run_config,
     )

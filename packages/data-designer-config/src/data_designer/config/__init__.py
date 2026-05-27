@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from data_designer.config.analysis.column_profilers import (  # noqa: F401
         JudgeScoreProfilerConfig,
     )
+    from data_designer.config.base import SkipConfig  # noqa: F401
     from data_designer.config.column_configs import (  # noqa: F401
         CustomColumnConfig,
         EmbeddingColumnConfig,
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
         ToolConfig,
     )
     from data_designer.config.models import (  # noqa: F401
+        AudioContext,
         ChatCompletionInferenceParams,
         EmbeddingInferenceParams,
         GenerationType,
@@ -51,13 +53,19 @@ if TYPE_CHECKING:
         ModelProvider,
         UniformDistribution,
         UniformDistributionParams,
+        VideoContext,
     )
     from data_designer.config.processors import (  # noqa: F401
         DropColumnsProcessorConfig,
         ProcessorType,
         SchemaTransformProcessorConfig,
     )
-    from data_designer.config.run_config import RunConfig  # noqa: F401
+    from data_designer.config.run_config import (  # noqa: F401
+        JinjaRenderingEngine,
+        RequestAdmissionTuningConfig,
+        RunConfig,
+        ThrottleConfig,
+    )
     from data_designer.config.sampler_constraints import (  # noqa: F401
         ColumnInequalityConstraint,
         ConstraintType,
@@ -81,6 +89,7 @@ if TYPE_CHECKING:
         UniformSamplerParams,
         UUIDSamplerParams,
     )
+    from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError  # noqa: F401
     from data_designer.config.seed import (  # noqa: F401
         IndexRange,
         PartitionBlock,
@@ -88,13 +97,17 @@ if TYPE_CHECKING:
         SeedConfig,
     )
     from data_designer.config.seed_source import (  # noqa: F401
+        AgentRolloutFormat,
+        AgentRolloutSeedSource,
+        DirectorySeedSource,
+        FileContentsSeedSource,
         HuggingFaceSeedSource,
         LocalFileSeedSource,
     )
     from data_designer.config.seed_source_dataframe import DataFrameSeedSource  # noqa: F401
     from data_designer.config.utils.code_lang import CodeLang  # noqa: F401
-    from data_designer.config.utils.image_helpers import ImageFormat  # noqa: F401
     from data_designer.config.utils.info import InfoType  # noqa: F401
+    from data_designer.config.utils.media_helpers import AudioFormat, ImageFormat, VideoFormat  # noqa: F401
     from data_designer.config.utils.trace_type import TraceType  # noqa: F401
     from data_designer.config.validator_params import (  # noqa: F401
         CodeValidatorParams,
@@ -121,6 +134,8 @@ _MOD_UTILS = f"{_MOD_BASE}.utils"
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     # analysis.column_profilers
     "JudgeScoreProfilerConfig": (f"{_MOD_BASE}.analysis.column_profilers", "JudgeScoreProfilerConfig"),
+    # base
+    "SkipConfig": (f"{_MOD_BASE}.base", "SkipConfig"),
     # column_configs
     "CustomColumnConfig": (_MOD_COLUMN_CONFIGS, "CustomColumnConfig"),
     "EmbeddingColumnConfig": (_MOD_COLUMN_CONFIGS, "EmbeddingColumnConfig"),
@@ -148,11 +163,13 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "MCPProvider": (_MOD_MCP, "MCPProvider"),
     "ToolConfig": (_MOD_MCP, "ToolConfig"),
     # models
+    "AudioContext": (_MOD_MODELS, "AudioContext"),
+    "AudioFormat": (f"{_MOD_UTILS}.media_helpers", "AudioFormat"),
     "ChatCompletionInferenceParams": (_MOD_MODELS, "ChatCompletionInferenceParams"),
     "EmbeddingInferenceParams": (_MOD_MODELS, "EmbeddingInferenceParams"),
     "GenerationType": (_MOD_MODELS, "GenerationType"),
     "ImageContext": (_MOD_MODELS, "ImageContext"),
-    "ImageFormat": (f"{_MOD_UTILS}.image_helpers", "ImageFormat"),
+    "ImageFormat": (f"{_MOD_UTILS}.media_helpers", "ImageFormat"),
     "ImageInferenceParams": (_MOD_MODELS, "ImageInferenceParams"),
     "ManualDistribution": (_MOD_MODELS, "ManualDistribution"),
     "ManualDistributionParams": (_MOD_MODELS, "ManualDistributionParams"),
@@ -163,12 +180,20 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ModelProvider": (_MOD_MODELS, "ModelProvider"),
     "UniformDistribution": (_MOD_MODELS, "UniformDistribution"),
     "UniformDistributionParams": (_MOD_MODELS, "UniformDistributionParams"),
+    "VideoContext": (_MOD_MODELS, "VideoContext"),
+    "VideoFormat": (f"{_MOD_UTILS}.media_helpers", "VideoFormat"),
     # processors
     "DropColumnsProcessorConfig": (_MOD_PROCESSORS, "DropColumnsProcessorConfig"),
     "ProcessorType": (_MOD_PROCESSORS, "ProcessorType"),
     "SchemaTransformProcessorConfig": (_MOD_PROCESSORS, "SchemaTransformProcessorConfig"),
     # run_config
+    "JinjaRenderingEngine": (f"{_MOD_BASE}.run_config", "JinjaRenderingEngine"),
+    "RequestAdmissionTuningConfig": (f"{_MOD_BASE}.run_config", "RequestAdmissionTuningConfig"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
+    "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
+    # scheduling metadata
+    "SchedulingMetadata": (f"{_MOD_BASE}.scheduling", "SchedulingMetadata"),
+    "SchedulingMetadataError": (f"{_MOD_BASE}.scheduling", "SchedulingMetadataError"),
     # sampler_constraints
     "ColumnInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ColumnInequalityConstraint"),
     "ConstraintType": (_MOD_SAMPLER_CONSTRAINTS, "ConstraintType"),
@@ -197,6 +222,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SeedConfig": (_MOD_SEED, "SeedConfig"),
     # seed_source
     "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
+    "AgentRolloutFormat": (_MOD_SEED_SOURCE, "AgentRolloutFormat"),
+    "AgentRolloutSeedSource": (_MOD_SEED_SOURCE, "AgentRolloutSeedSource"),
+    "DirectorySeedSource": (_MOD_SEED_SOURCE, "DirectorySeedSource"),
+    "FileContentsSeedSource": (_MOD_SEED_SOURCE, "FileContentsSeedSource"),
     "HuggingFaceSeedSource": (_MOD_SEED_SOURCE, "HuggingFaceSeedSource"),
     "LocalFileSeedSource": (_MOD_SEED_SOURCE, "LocalFileSeedSource"),
     # utils

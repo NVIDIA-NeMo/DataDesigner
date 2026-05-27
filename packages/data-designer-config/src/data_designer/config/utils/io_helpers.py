@@ -94,6 +94,30 @@ def save_config_file(file_path: Path, config: dict) -> None:
         )
 
 
+def list_processor_names(processors_outputs_path: Path) -> list[str]:
+    """Discover processor names from directories and parquet files under the given path."""
+    if not processors_outputs_path.exists():
+        return []
+    names: dict[str, None] = {}
+    for entry in sorted(processors_outputs_path.iterdir()):
+        if entry.is_dir():
+            names[entry.name] = None
+        elif entry.suffix == ".parquet":
+            names[entry.stem] = None
+    return list(names)
+
+
+def load_processor_dataset(processors_outputs_path: Path, processor_name: str) -> pd.DataFrame:
+    """Load a processor's output dataset, checking for a directory first then a single parquet file."""
+    dir_path = processors_outputs_path / processor_name
+    file_path = processors_outputs_path / f"{processor_name}.parquet"
+    if dir_path.is_dir():
+        return read_parquet_dataset(dir_path)
+    if file_path.is_file():
+        return read_parquet_dataset(file_path)
+    raise FileNotFoundError(f"No artifacts found for processor named {processor_name!r}")
+
+
 def read_parquet_dataset(path: Path) -> pd.DataFrame:
     """Read a parquet dataset from a path.
 

@@ -10,7 +10,7 @@ Synthetic data generation is more than a single prompt to a large language model
 
 <!-- more -->
 
-![Designing Data Designer: from monolithic prompts to composable pipelines](images/design-principles-hero.png)
+![Designing Data Designer: from monolithic prompts to composable pipelines](assets/design-principles/design-principles-hero.png)
 
 ---
 

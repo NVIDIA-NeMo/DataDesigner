@@ -286,10 +286,6 @@ builder.add_column(
 
 The `target_columns` parameter specifies which columns to validate. All target columns are passed to the validator together (except for code validators, which process each column separately).
 
-### Configuration Parameters
-
-See more about parameters used to instantiate `ValidationColumnConfig` in the [code reference](../../code_reference/column_configs/#data_designer.config.column_configs.ValidationColumnConfig).
-
 ### Batch Size Considerations
 
 Larger batch sizes improve efficiency but consume more memory:
@@ -327,7 +323,3 @@ builder.add_column(
 ```
 
 **Note**: Code validators always process each target column separately, even when multiple columns are specified. Local callable and remote validators receive all target columns together.
-
-## See Also
-
-- [Validator Parameters Reference](../code_reference/validator_params.md): Configuration object schemas

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
@@ -141,6 +142,43 @@ def test_datetime_format_mixin_postproc_datetime_formatting():
 def test_datetime_format_mixin_validate_data_conversion_valid_format():
     DatetimeFormatMixin.validate_data_conversion("%Y-%m-%d")
     DatetimeFormatMixin.validate_data_conversion(None)
+
+
+def test_datetime_format_mixin_postproc_no_convert_to_returns_isoformat():
+    series = lazy.pd.Series(lazy.pd.date_range("2023-01-01", periods=3))
+    result = DatetimeFormatMixin.postproc(series, None)
+    expected = lazy.pd.Series(["2023-01-01T00:00:00", "2023-01-02T00:00:00", "2023-01-03T00:00:00"], dtype="str")
+    lazy.pd.testing.assert_series_equal(result, expected)
+
+
+def test_datetime_format_mixin_postproc_single_record():
+    series = lazy.pd.Series(lazy.pd.to_datetime(["2024-06-15 14:30:00"]))
+    result = DatetimeFormatMixin.postproc(series, None)
+    expected = lazy.pd.Series(["2024-06-15T14:30:00"], dtype="str")
+    lazy.pd.testing.assert_series_equal(result, expected)
+
+
+def test_datetime_format_mixin_postproc_same_month_records():
+    series = lazy.pd.Series(lazy.pd.to_datetime(["2024-03-01", "2024-03-15", "2024-03-28"]))
+    result = DatetimeFormatMixin.postproc(series, None)
+    expected = lazy.pd.Series(["2024-03-01T00:00:00", "2024-03-15T00:00:00", "2024-03-28T00:00:00"], dtype="str")
+    lazy.pd.testing.assert_series_equal(result, expected)
+
+
+def test_datetime_format_mixin_postproc_stdlib_fromisoformat():
+    """Output must be parseable by Python stdlib datetime.fromisoformat, not just pandas."""
+    series = lazy.pd.Series(lazy.pd.to_datetime(["2024-06-15 14:30:00", "2025-01-01 00:00:00"]))
+    result = DatetimeFormatMixin.postproc(series, None)
+    for val in result:
+        datetime.fromisoformat(val)
+
+
+def test_datetime_format_mixin_postproc_round_trip_preserves_values():
+    """Output can be parsed back to the original timestamps."""
+    series = lazy.pd.Series(lazy.pd.to_datetime(["2024-03-15 09:30:00", "2024-11-01 18:45:00"]))
+    result = DatetimeFormatMixin.postproc(series, None)
+    round_tripped = lazy.pd.to_datetime(result)
+    lazy.pd.testing.assert_series_equal(round_tripped, series, check_names=False, check_dtype=False)
 
 
 def test_datetime_format_mixin_validate_data_conversion_invalid_format():

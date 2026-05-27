@@ -81,7 +81,12 @@ def test_constraint_scenarios(
             "balance",
             "gt",
             0,
-            {"target_column": "balance", "operator": "gt", "rhs": 0},
+            {
+                "target_column": "balance",
+                "operator": "gt",
+                "rhs": 0,
+                "constraint_type": "scalar_inequality",
+            },
         ),
         (
             "column_inequality_serialization",
@@ -89,7 +94,12 @@ def test_constraint_scenarios(
             "balance",
             "gt",
             "credit",
-            {"target_column": "balance", "operator": "gt", "rhs": "credit"},
+            {
+                "target_column": "balance",
+                "operator": "gt",
+                "rhs": "credit",
+                "constraint_type": "column_inequality",
+            },
         ),
     ],
 )

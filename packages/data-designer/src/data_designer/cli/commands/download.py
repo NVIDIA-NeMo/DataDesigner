@@ -6,7 +6,7 @@ from __future__ import annotations
 import typer
 
 from data_designer.cli.controllers.download_controller import DownloadController
-from data_designer.config.utils.constants import DATA_DESIGNER_HOME
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME, LOCALES_WITH_MANAGED_DATASETS_STR
 
 
 def personas_command(
@@ -14,7 +14,7 @@ def personas_command(
         None,
         "--locale",
         "-l",
-        help="Locales to download (en_US, en_IN, hi_Deva_IN, hi_Latn_IN, ja_JP). Can be specified multiple times.",
+        help=f"Locales to download ({LOCALES_WITH_MANAGED_DATASETS_STR}). Can be specified multiple times.",
     ),
     all_locales: bool = typer.Option(
         False,

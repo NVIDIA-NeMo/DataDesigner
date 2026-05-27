@@ -14,6 +14,7 @@ from data_designer.config.validator_params import (
     CodeValidatorParams,
     LocalCallableValidatorParams,
     RemoteValidatorParams,
+    ValidatorType,
 )
 
 if TYPE_CHECKING:
@@ -21,7 +22,9 @@ if TYPE_CHECKING:
 
 
 def test_code_validator_params():
-    assert CodeValidatorParams(code_lang=CodeLang.PYTHON).code_lang == CodeLang.PYTHON
+    params = CodeValidatorParams(code_lang=CodeLang.PYTHON)
+    assert params.code_lang == CodeLang.PYTHON
+    assert params.validator_type == ValidatorType.CODE
 
     with pytest.raises(ValidationError):
         CodeValidatorParams(code_lang=CodeLang.RUBY)
@@ -30,6 +33,7 @@ def test_code_validator_params():
 def test_remote_validator_params():
     stub_url = "https://example.com"
     params = RemoteValidatorParams(endpoint_url=stub_url)
+    assert params.validator_type == ValidatorType.REMOTE
     assert params.endpoint_url == stub_url
     assert params.output_schema is None
     assert params.timeout == 30.0
@@ -52,8 +56,10 @@ def test_callback_validator_params():
         return lazy.pd.DataFrame([{"is_valid": True, "confidence": "0.98"}])
 
     params = LocalCallableValidatorParams(validation_function=stub_callback)
+    assert params.validator_type == ValidatorType.LOCAL_CALLABLE
     assert params.validation_function == stub_callback
     assert params.output_schema is None
 
     params_model_dump = params.model_dump(mode="json")
+    assert params_model_dump["validator_type"] == "local_callable"
     assert params_model_dump["validation_function"] == "stub_callback"

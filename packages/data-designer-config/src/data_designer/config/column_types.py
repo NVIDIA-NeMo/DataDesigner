@@ -98,6 +98,12 @@ def get_column_display_order() -> list[DataDesignerColumnType]:
     return display_order
 
 
+def is_plugin_column_type(column_type: str | DataDesignerColumnType) -> bool:
+    """Check whether a column type was registered by a plugin."""
+    type_value = column_type.value if isinstance(column_type, DataDesignerColumnType) else column_type
+    return plugin_manager.get_column_generator_plugin_if_exists(type_value) is not None
+
+
 def get_column_emoji_from_type(column_type: DataDesignerColumnType) -> str:
     """Get the emoji for a column type."""
     config_cls = get_column_config_cls_from_type(resolve_string_enum(column_type, DataDesignerColumnType))

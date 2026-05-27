@@ -9,6 +9,7 @@ nav:
   - Concepts:
       - Columns: concepts/columns.md
       - Seed Datasets: concepts/seed-datasets.md
+      - Agent Rollout Ingestion: concepts/agent-rollout-ingestion.md
       - Models:
           - Default Model Settings: concepts/models/default-model-settings.md
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
@@ -19,6 +20,7 @@ nav:
       - Custom Columns: concepts/custom_columns.md
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
+      - Workflow Chaining: concepts/workflow-chaining.md
       - Person Sampling: concepts/person_sampling.md
       - Traces: concepts/traces.md
       - Tool Use & MCP:
@@ -30,10 +32,11 @@ nav:
           - Safety & Limits: concepts/mcp/safety-and-limits.md
       - Architecture & Performance: concepts/architecture-and-performance.md
       - Deployment Options: concepts/deployment-options.md
+      - Security: concepts/security.md
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
-      - Structured Outputs and Jinja Expressions: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
+      - Structured Outputs, Jinja Expressions, and Conditional Generation: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
       - Seeding with an External Dataset: notebooks/3-seeding-with-a-dataset.ipynb
       - Providing Images as Context: notebooks/4-providing-images-as-context.ipynb
       - Generating Images: notebooks/5-generating-images.ipynb
@@ -43,29 +46,46 @@ nav:
       - Code Generation:
           - Text to Python: recipes/code_generation/text_to_python.md
           - Text to SQL: recipes/code_generation/text_to_sql.md
+          - "Nemotron Super Text to SQL": recipes/code_generation/enterprise_text_to_sql.md
+      - Plugin Development:
+          - Markdown Section Seed Reader Plugin: recipes/plugin_development/markdown_seed_reader.md
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
+      - Trace Ingestion:
+          - Agent Rollout Trace Distillation: recipes/trace_ingestion/agent_rollout_distillation.md
       - MCP and Tool Use:
           - "Basic MCP Tool Use": recipes/mcp_and_tooluse/basic_mcp.md
           - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
+          - "Nemotron Super Search Agent": recipes/mcp_and_tooluse/search_agent.md
+      - VLM Long-Document Understanding:
+          - "Seed Dataset Preparation": recipes/vlm_long_doc/seed_dataset_preparation.md
+          - "Nemotron Parse OCR": recipes/vlm_long_doc/nemotron_parse_ocr.md
+          - "Text QA from OCR Transcripts": recipes/vlm_long_doc/text_qa.md
+          - "Page Classification": recipes/vlm_long_doc/page_classification.md
+          - "Visual QA": recipes/vlm_long_doc/visual_qa.md
+          - "Single-Page QA": recipes/vlm_long_doc/single_page_qa.md
+          - "Multi-Page Windowed QA": recipes/vlm_long_doc/multi_page_windowed_qa.md
+          - "Whole-Document QA": recipes/vlm_long_doc/whole_document_qa.md
+          - "Frontier Judge QA Filter": recipes/vlm_long_doc/frontier_judge.md
   - Plugins:
       - Overview: plugins/overview.md
-      - Example Plugin: plugins/example.md
-      - Available Plugin List: plugins/available.md
-  - Code Reference:
-      - models: code_reference/models.md
-      - mcp: code_reference/mcp.md
-      - column_configs: code_reference/column_configs.md
-      - config_builder: code_reference/config_builder.md
-      - data_designer_config: code_reference/data_designer_config.md
-      - run_config: code_reference/run_config.md
-      - sampler_params: code_reference/sampler_params.md
-      - validator_params: code_reference/validator_params.md
-      - processors: code_reference/processors.md
-      - analysis: code_reference/analysis.md
+      - Build Your Own: plugins/build_your_own.md
+      - Using Models: plugins/models.md
+      - Discover Plugins: plugins/discover.md
   - Dev Notes:
+      # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - Retriever SDG Plugin: devnotes/posts/retrieval-sdg-toolkit.md
+      - Have It Your Way: devnotes/posts/have-it-your-way.md
+      - VLM Long Document Understanding: devnotes/posts/vlm-long-document-understanding.md
+      - Push Datasets to Hugging Face Hub: devnotes/posts/push-datasets-to-hugging-face-hub.md
+      - "Text-to-SQL for Nemotron Super": devnotes/posts/text-to-sql.md
+      - "Async All the Way Down": devnotes/posts/async-all-the-way-down.md
+      - Owning the Model Stack: devnotes/posts/owning-the-model-stack.md
+      - Data Designer Got Skills: devnotes/posts/data-designer-got-skills.md
+      - Search Agent: devnotes/posts/search-agent.md
+      - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
       - Design Principles: devnotes/posts/design-principles.md
       - RQA Dataset: devnotes/posts/rqa.md
       - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
@@ -109,9 +129,6 @@ extra:
     default: latest
 
 watch:
-  - packages/data-designer-config/src/data_designer
-  - packages/data-designer-engine/src/data_designer
-  - packages/data-designer/src/data_designer
   - docs/
 
 plugins:
@@ -134,28 +151,9 @@ plugins:
         include_source: True
         ignore:
           - "assets/recipes/**/*.py"
-  - mkdocstrings:
-      handlers:
-          python:
-              paths:
-                  - packages/data-designer-config/src
-                  - packages/data-designer-engine/src
-                  - packages/data-designer/src
-              options:
-                  show_symbol_type_heading: true
-                  show_symbol_type_toc: true
-                  show_root_toc_entry: true
-                  show_object_full_path: false
-                  filters: ["!^_"]
-                  docstring_options:
-                      ignore_init_summary: false
-                  merge_init_into_class: true
-                  docstring_section_style: table
-                  summary: true
 
 extra_css:
   - css/style.css
-  - css/mkdocstrings.css
 
 extra_javascript:
   - js/toc-toggle.js
@@ -170,6 +168,7 @@ markdown_extensions:
       base_path:
         - docs/
         - .
+      url_download: true
   - pymdownx.highlight:
         pygments_lang_class: true
         use_pygments: true

@@ -1,10 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from unittest.mock import Mock, patch
 
 import pytest
 
+from data_designer.config.base import SkipConfig
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
@@ -12,9 +15,10 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
     SamplerColumnConfig,
     Score,
+    SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
-from data_designer.config.models import ImageContext, ModalityDataType
+from data_designer.config.models import AudioContext, ImageContext, ModalityDataType
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     SchemaTransformProcessorConfig,
@@ -33,6 +37,7 @@ from data_designer.engine.validation import (
     validate_expression_references,
     validate_prompt_templates,
     validate_schema_transform_processor,
+    validate_skip_references,
 )
 
 STUB_MODEL_ALIAS = "stub-alias"
@@ -118,17 +123,19 @@ ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 @patch("data_designer.engine.validation.validate_prompt_templates")
 @patch("data_designer.engine.validation.validate_code_validation")
 @patch("data_designer.engine.validation.validate_expression_references")
+@patch("data_designer.engine.validation.validate_skip_references")
 @patch("data_designer.engine.validation.validate_columns_not_all_dropped")
 @patch("data_designer.engine.validation.validate_drop_columns_processor")
 @patch("data_designer.engine.validation.validate_schema_transform_processor")
 def test_validate_data_designer_config(
-    mock_validate_columns_not_all_dropped,
-    mock_validate_expression_references,
-    mock_validate_code_validation,
-    mock_validate_prompt_templates,
-    mock_validate_drop_columns_processor,
-    mock_validate_schema_transform_processor,
-):
+    mock_validate_schema_transform_processor: Mock,
+    mock_validate_drop_columns_processor: Mock,
+    mock_validate_columns_not_all_dropped: Mock,
+    mock_validate_skip_references: Mock,
+    mock_validate_expression_references: Mock,
+    mock_validate_code_validation: Mock,
+    mock_validate_prompt_templates: Mock,
+) -> None:
     mock_validate_columns_not_all_dropped.return_value = [
         Violation(
             column="test_column",
@@ -177,11 +184,20 @@ def test_validate_data_designer_config(
             level=ViolationLevel.ERROR,
         )
     ]
+    mock_validate_skip_references.return_value = [
+        Violation(
+            column="test_column",
+            type=ViolationType.SKIP_REFERENCE_MISSING,
+            message="test error message",
+            level=ViolationLevel.ERROR,
+        )
+    ]
 
     violations = validate_data_designer_config(COLUMNS, PROCESSOR_CONFIGS, ALLOWED_REFERENCE)
-    assert len(violations) == 6
+    assert len(violations) == 7
     mock_validate_columns_not_all_dropped.assert_called_once()
     mock_validate_expression_references.assert_called_once()
+    mock_validate_skip_references.assert_called_once()
     mock_validate_code_validation.assert_called_once()
     mock_validate_prompt_templates.assert_called_once()
     mock_validate_drop_columns_processor.assert_called_once()
@@ -234,6 +250,18 @@ def test_validate_column_config_with_multi_modal_context():
     assert len(violations) == 0
 
 
+def test_validate_column_config_with_audio_multi_modal_context() -> None:
+    column = LLMTextColumnConfig(
+        name="audio_description",
+        prompt="Describe the audio.",
+        model_alias=STUB_MODEL_ALIAS,
+        multi_modal_context=[AudioContext(column_name="audio_url", data_type=ModalityDataType.URL)],
+    )
+
+    violations = validate_prompt_templates([column], [column.name])
+    assert len(violations) == 0
+
+
 def test_validate_columns_not_all_dropped():
     violations = validate_columns_not_all_dropped(
         [
@@ -251,6 +279,51 @@ def test_validate_columns_not_all_dropped():
             ),
         ]
     )
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
+
+
+def test_validate_columns_not_all_dropped_allows_seeded_processor_only_config():
+    violations = validate_columns_not_all_dropped(
+        [SeedDatasetColumnConfig(name="seed_text")],
+        processor_configs=[
+            SchemaTransformProcessorConfig(name="format", template={"text": "{{ seed_text }}"}),
+        ],
+    )
+
+    assert violations == []
+
+
+def test_validate_columns_not_all_dropped_rejects_seeded_processor_only_config_with_no_output_columns():
+    violations = validate_columns_not_all_dropped(
+        [SeedDatasetColumnConfig(name="seed_text")],
+        processor_configs=[
+            DropColumnsProcessorConfig(name="drop_seed", column_names=["seed_text"]),
+        ],
+    )
+
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
+
+
+def test_validate_columns_not_all_dropped_allows_generated_columns_dropped_by_processors():
+    violations = validate_columns_not_all_dropped(
+        [
+            LLMTextColumnConfig(name="question", prompt="Generate a question.", model_alias=STUB_MODEL_ALIAS),
+            LLMTextColumnConfig(name="answer", prompt="Answer {{ question }}.", model_alias=STUB_MODEL_ALIAS),
+        ],
+        processor_configs=[
+            DropColumnsProcessorConfig(name="drop_raw", column_names=["question", "answer"]),
+            SchemaTransformProcessorConfig(name="format", template={"messages": "{{ question }} {{ answer }}"}),
+        ],
+    )
+
+    assert violations == []
+
+
+def test_validate_columns_not_all_dropped_still_rejects_seed_only_config():
+    violations = validate_columns_not_all_dropped([SeedDatasetColumnConfig(name="seed_text")])
+
     assert len(violations) == 1
     assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
 
@@ -349,3 +422,65 @@ def test_rich_print_violations(mock_console_print):
         ]
     )
     mock_console_print.assert_called_once()
+
+
+def test_validate_skip_references_missing_column() -> None:
+    columns = [
+        LLMTextColumnConfig(
+            name="with_skip",
+            prompt="test {{ real_col }}",
+            model_alias=STUB_MODEL_ALIAS,
+            skip=SkipConfig(when="{{ ghost }}"),
+        ),
+    ]
+    violations = validate_skip_references(columns, allowed_references=["real_col"])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.SKIP_REFERENCE_MISSING
+    assert violations[0].column == "with_skip"
+
+
+def test_validate_skip_references_valid() -> None:
+    columns = [
+        LLMTextColumnConfig(
+            name="with_skip",
+            prompt="test {{ gate }}",
+            model_alias=STUB_MODEL_ALIAS,
+            skip=SkipConfig(when="{{ gate == 0 }}"),
+        ),
+    ]
+    violations = validate_skip_references(columns, allowed_references=["gate", "with_skip"])
+    assert len(violations) == 0
+
+
+def test_validate_skip_on_sampler_seed() -> None:
+    col = SamplerColumnConfig.model_construct(
+        name="sampler_with_skip",
+        column_type="sampler",
+        sampler_type="uniform",
+        params={"low": 0, "high": 10},
+        skip=SkipConfig(when="{{ y }}"),
+        drop=False,
+        allow_resize=False,
+        propagate_skip=True,
+    )
+    violations = validate_skip_references([col], allowed_references=["y"])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.SKIP_ON_SAMPLER_SEED
+    assert violations[0].column == "sampler_with_skip"
+
+
+def test_validate_skip_with_allow_resize() -> None:
+    col = LLMTextColumnConfig.model_construct(
+        name="with_skip",
+        column_type="llm-text",
+        prompt="test {{ gate }}",
+        model_alias=STUB_MODEL_ALIAS,
+        skip=SkipConfig(when="{{ gate == 0 }}"),
+        allow_resize=True,
+        drop=False,
+        propagate_skip=True,
+    )
+    violations = validate_skip_references([col], allowed_references=["gate"])
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.SKIP_WITH_ALLOW_RESIZE
+    assert violations[0].column == "with_skip"

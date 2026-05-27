@@ -1,0 +1,361 @@
+instances:
+- url: datadesigner.docs.buildwithfern.com/nemo/datadesigner
+  custom-domain: docs.nvidia.com/nemo/datadesigner
+title: NVIDIA NeMo Data Designer
+footer: ./components/CustomFooter.tsx
+layout:
+  searchbar-placement: header
+  page-width: 1376px
+  sidebar-width: 248px
+  content-width: 812px
+  tabs-placement: header
+  hide-feedback: true
+colors:
+  accentPrimary:
+    dark: '#76B900'
+    light: '#76B900'
+  background:
+    light: '#FFFFFF'
+    dark: '#000000'
+theme:
+  page-actions: toolbar
+  footer-nav: minimal
+logo:
+  dark: ./assets/NVIDIA_dark.svg
+  light: ./assets/NVIDIA_light.svg
+  height: 20
+  href: /nemo/datadesigner/getting-started/welcome
+  right-text: NeMo Data Designer
+favicon: ./assets/NVIDIA_symbol.svg
+js:
+- url: https://assets.adobedtm.com/5d4962a43b79/c1061d2c5e7b/launch-191c2462b890.min.js
+  strategy: beforeInteractive
+css:
+- ./main.css
+- ./styles/notebook-viewer.css
+- ./styles/authors.css
+- ./styles/metrics-table.css
+- ./styles/trajectory-viewer.css
+- ./styles/blog-card.css
+navbar-links:
+- type: github
+  value: https://github.com/NVIDIA-NeMo/DataDesigner
+experimental:
+  mdx-components:
+  - ./components
+  basepath-aware: true
+versions:
+- display-name: "Latest"
+  path: versions/latest.yml
+  slug: latest
+
+redirects:
+  # ---- Section-only landing ----
+  # Mirrors Curator's /home -> /home/welcome convention.
+  - source: "/nemo/datadesigner/getting-started"
+    destination: "/nemo/datadesigner/getting-started/welcome"
+  - source: "/nemo/datadesigner/older-versions/older-versions"
+    destination: "/nemo/datadesigner/older-versions"
+
+  # ---- Historical MkDocs archives ----
+  # Fern only has real version entries starting at v0.5.8. Older released docs remain on the
+  # legacy MkDocs gh-pages archive, so version-prefixed Fern URLs for those
+  # releases should leave the Fern site rather than showing current content.
+  - source: "/nemo/datadesigner/v0.5.7"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.7/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.7/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.7/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.6"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.6/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.6/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.6/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.5"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.5/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.5/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.5/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.4"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.4/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.4/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.4/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.3"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.3/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.3/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.3/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.2"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.2/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.2/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.2/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.1"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.1/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.1/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.1/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.0"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.0/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.5.0/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.5.0/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.4.0"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.4.0/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.4.0/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.4.0/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.8"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.8/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.8/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.8/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.7"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.7/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.7/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.7/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.6"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.6/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.6/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.6/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.5"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.5/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.5/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.5/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.4"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.4/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.4/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.4/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.3"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.3/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.3/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.3/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.2"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.2/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.2/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.2/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.1"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.1/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.3.1/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.3.1/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.3"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.3/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.3/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.3/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.2"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.2/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.2/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.2/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.1"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.1/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.1/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.1/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.0"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.0/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.2.0/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.2.0/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.5"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.5/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.5/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.5/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.4"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.4/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.4/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.4/:path*"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.3"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.3/"
+    permanent: false
+  - source: "/nemo/datadesigner/v0.1.3/:path*"
+    destination: "https://nvidia-nemo.github.io/DataDesigner/0.1.3/:path*"
+    permanent: false
+
+  # ---- MkDocs path renames (most specific first) ----
+  # The legacy site lived at https://nvidia-nemo.github.io/DataDesigner/ and used
+  # MkDocs-Material's directory-URL conventions (blog plugin +
+  # mkdocs-jupyter). The Fern migration changed several path segments because
+  # Fern slugifies section/page titles. These rules catch search-engine indexed
+  # links and copy-pasted bookmarks that arrive at the new host.
+
+  # Tutorials: mkdocs-jupyter rendered .ipynb at /notebooks/<filename>/;
+  # Fern uses the slugified page title under /tutorials/.
+  - source: "/nemo/datadesigner/notebooks/1-the-basics"
+    destination: "/nemo/datadesigner/tutorials/the-basics"
+  - source: "/nemo/datadesigner/notebooks/2-structured-outputs-and-jinja-expressions"
+    destination: "/nemo/datadesigner/tutorials/structured-outputs-jinja-expressions-and-conditional-generation"
+  - source: "/nemo/datadesigner/notebooks/3-seeding-with-a-dataset"
+    destination: "/nemo/datadesigner/tutorials/seeding-with-an-external-dataset"
+  - source: "/nemo/datadesigner/notebooks/4-providing-images-as-context"
+    destination: "/nemo/datadesigner/tutorials/providing-images-as-context"
+  - source: "/nemo/datadesigner/notebooks/5-generating-images"
+    destination: "/nemo/datadesigner/tutorials/generating-images"
+  - source: "/nemo/datadesigner/notebooks/6-editing-images-with-image-context"
+    destination: "/nemo/datadesigner/tutorials/image-to-image-editing"
+  - source: "/nemo/datadesigner/notebooks/README"
+    destination: "/nemo/datadesigner/tutorials/overview"
+  - source: "/nemo/datadesigner/notebooks"
+    destination: "/nemo/datadesigner/tutorials/overview"
+
+  # Recipes: subsection slugs went from snake_case to kebab-case, AND most
+  # recipe page names changed (mkdocs used the .py filename like `basic_mcp`;
+  # Fern uses the page title slug like `basic-mcp-tool-use`). Per-page rules
+  # come first so they match before the subsection :rest* fallbacks.
+  # Index:
+  - source: "/nemo/datadesigner/recipes/cards"
+    destination: "/nemo/datadesigner/recipes/recipe-cards"
+  # Code generation:
+  - source: "/nemo/datadesigner/recipes/code_generation/text_to_python"
+    destination: "/nemo/datadesigner/recipes/code-generation/text-to-python"
+  - source: "/nemo/datadesigner/recipes/code_generation/text_to_sql"
+    destination: "/nemo/datadesigner/recipes/code-generation/text-to-sql"
+  - source: "/nemo/datadesigner/recipes/code_generation/enterprise_text_to_sql"
+    destination: "/nemo/datadesigner/recipes/code-generation/nemotron-super-text-to-sql"
+  # MCP and tool use:
+  - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/basic_mcp"
+    destination: "/nemo/datadesigner/recipes/mcp-and-tool-use/basic-mcp-tool-use"
+  - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/pdf_qa"
+    destination: "/nemo/datadesigner/recipes/mcp-and-tool-use/pdf-document-qa"
+  - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/search_agent"
+    destination: "/nemo/datadesigner/recipes/mcp-and-tool-use/nemotron-super-search-agent"
+  # QA and chat:
+  - source: "/nemo/datadesigner/recipes/qa_and_chat/product_info_qa"
+    destination: "/nemo/datadesigner/recipes/qa-and-chat/product-info-qa"
+  - source: "/nemo/datadesigner/recipes/qa_and_chat/multi_turn_chat"
+    destination: "/nemo/datadesigner/recipes/qa-and-chat/multi-turn-chat"
+  # Plugin development:
+  - source: "/nemo/datadesigner/recipes/plugin_development/markdown_seed_reader"
+    destination: "/nemo/datadesigner/recipes/plugin-development/markdown-section-seed-reader-plugin"
+  # Trace ingestion:
+  - source: "/nemo/datadesigner/recipes/trace_ingestion/agent_rollout_distillation"
+    destination: "/nemo/datadesigner/recipes/trace-ingestion/agent-rollout-trace-distillation"
+  # VLM long-document understanding:
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/seed_dataset_preparation"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/seed-dataset-preparation"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/nemotron_parse_ocr"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/nemotron-parse-ocr"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/text_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/text-qa-from-ocr-transcripts"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/page_classification"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/page-classification"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/visual_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/visual-qa"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/single_page_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/single-page-qa"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/multi_page_windowed_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/multi-page-windowed-qa"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/whole_document_qa"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/whole-document-qa"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/frontier_judge"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/frontier-judge-qa-filter"
+  # Subsection :rest* fallbacks for any URL we missed (only the underscored
+  # subsection segment gets rewritten; page slug passes through unchanged):
+  - source: "/nemo/datadesigner/recipes/mcp_and_tooluse/:rest*"
+    destination: "/nemo/datadesigner/recipes/mcp-and-tool-use/:rest*"
+  - source: "/nemo/datadesigner/recipes/code_generation/:rest*"
+    destination: "/nemo/datadesigner/recipes/code-generation/:rest*"
+  - source: "/nemo/datadesigner/recipes/qa_and_chat/:rest*"
+    destination: "/nemo/datadesigner/recipes/qa-and-chat/:rest*"
+  - source: "/nemo/datadesigner/recipes/plugin_development/:rest*"
+    destination: "/nemo/datadesigner/recipes/plugin-development/:rest*"
+  - source: "/nemo/datadesigner/recipes/trace_ingestion/:rest*"
+    destination: "/nemo/datadesigner/recipes/trace-ingestion/:rest*"
+  - source: "/nemo/datadesigner/recipes/vlm_long_doc/:rest*"
+    destination: "/nemo/datadesigner/recipes/vlm-long-document-understanding/:rest*"
+
+  # Concepts: the "MCP" subsection got promoted to "Tool Use & MCP", and the
+  # standalone tool_use_and_mcp.mdx became its overview page.
+  - source: "/nemo/datadesigner/concepts/tool_use_and_mcp"
+    destination: "/nemo/datadesigner/concepts/tool-use-mcp/overview"
+  # "Safety & Limits" page title slugs to safety-limits (& dropped),
+  # but the legacy filename was safety-and-limits.md.
+  - source: "/nemo/datadesigner/concepts/mcp/safety-and-limits"
+    destination: "/nemo/datadesigner/concepts/tool-use-mcp/safety-limits"
+  # "CLI Configuration" page title slugs to cli-configuration; legacy
+  # filename was configure-mcp-cli.md.
+  - source: "/nemo/datadesigner/concepts/mcp/configure-mcp-cli"
+    destination: "/nemo/datadesigner/concepts/tool-use-mcp/cli-configuration"
+  - source: "/nemo/datadesigner/concepts/mcp/:rest*"
+    destination: "/nemo/datadesigner/concepts/tool-use-mcp/:rest*"
+  - source: "/nemo/datadesigner/concepts/custom_columns"
+    destination: "/nemo/datadesigner/concepts/custom-columns"
+  - source: "/nemo/datadesigner/concepts/person_sampling"
+    destination: "/nemo/datadesigner/concepts/person-sampling"
+
+  # Plugins: page slug differs from filename (Fern uses the page-title slug).
+  - source: "/nemo/datadesigner/plugins/filesystem_seed_reader"
+    destination: "/nemo/datadesigner/plugins/file-system-seed-reader-plugins"
+  - source: "/nemo/datadesigner/plugins/example"
+    destination: "/nemo/datadesigner/plugins/example-plugin"
+  # Dev Notes: mkdocs-material blog plugin URL shape.
+  # Section title "Dev Notes" -> /dev-notes; intermediate posts/ directory dropped.
+  # Most posts kept their filename slug, but two were retitled during migration
+  # so their Fern page-title slug differs from the legacy filename:
+  - source: "/nemo/datadesigner/devnotes/posts/text-to-sql"
+    destination: "/nemo/datadesigner/dev-notes/text-to-sql-for-nemotron-super"
+  - source: "/nemo/datadesigner/devnotes/posts/rqa"
+    destination: "/nemo/datadesigner/dev-notes/rqa-dataset"
+  - source: "/nemo/datadesigner/devnotes/posts/:slug"
+    destination: "/nemo/datadesigner/dev-notes/:slug"
+  - source: "/nemo/datadesigner/devnotes/:slug"
+    destination: "/nemo/datadesigner/dev-notes/:slug"
+  - source: "/nemo/datadesigner/devnotes"
+    destination: "/nemo/datadesigner/dev-notes/overview"
+
+  # MkDocs uses directory URLs (every page URL ends in /); Fern's runtime
+  # accepts both /foo and /foo/ natively, so no explicit slash-strip rule is
+  # needed. The renamed-path rules above already match the no-slash form;
+  # legacy /foo/ requests get the trailing slash trimmed by Fern, then matched.
+
+  # ---- Sphinx-era inheritance (kept as defensive) ----
+  # The legacy mkdocs site predates an even-older Sphinx era. These catch
+  # any *.html / */index.html links that managed to survive in external indexes.
+  - source: "/nemo/datadesigner/index.html"
+    destination: "/nemo/datadesigner/getting-started/welcome"
+  - source: "/nemo/datadesigner/latest/:path*/index.html"
+    destination: "/nemo/datadesigner/latest/:path*"
+  - source: "/nemo/datadesigner/v0.5.8/:path*/index.html"
+    destination: "/nemo/datadesigner/v0.5.8/:path*"
+  - source: "/nemo/datadesigner/:path*/index.html"
+    destination: "/nemo/datadesigner/:path*"
+  - source: "/nemo/datadesigner/latest/:path*.html"
+    destination: "/nemo/datadesigner/latest/:path*"
+  - source: "/nemo/datadesigner/v0.5.8/:path*.html"
+    destination: "/nemo/datadesigner/v0.5.8/:path*"
+  - source: "/nemo/datadesigner/:path*.html"
+    destination: "/nemo/datadesigner/:path*"

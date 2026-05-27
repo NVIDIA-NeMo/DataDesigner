@@ -2,13 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # IMPORTANT: This module must NOT import from any data_designer submodules (i.e., data_designer.*).
-# These base abstractions are foundational and should only depend on pydantic and Python builtins.
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from functools import cached_property
 
-from pydantic import BaseModel, ConfigDict, Field
+from jinja2 import meta as jinja2_meta
+from jinja2.exceptions import TemplateSyntaxError
+from jinja2.sandbox import ImmutableSandboxedEnvironment
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing_extensions import Self
+
+# Shared env for Jinja2 AST parsing (syntax checks + variable extraction).
+# Cannot reuse misc.py helpers because base.py must not import data_designer.*.
+_VALIDATION_ENV = ImmutableSandboxedEnvironment()
 
 
 class ConfigBase(BaseModel):
@@ -21,24 +29,113 @@ class ConfigBase(BaseModel):
     )
 
 
+class SkipConfig(ConfigBase):
+    """Expression gate for conditional column generation.
+
+    Attach to a ``SingleColumnConfig`` via ``skip=SkipConfig(...)`` to gate
+    generation on a Jinja2 expression.  Controls *when* to skip; propagation
+    of upstream skips is controlled separately by ``propagate_skip`` on
+    ``SingleColumnConfig``.
+
+    Attributes:
+        when: Jinja2 expression (including ``{{ }}`` delimiters); when truthy,
+            skip generation for this row.
+        value: Value to write for skipped cells.  Defaults to ``None``
+            (becomes ``NaN``/``pd.NA`` in the DataFrame).
+    """
+
+    when: str = Field(
+        description="Jinja2 expression (including {{ }} delimiters); when truthy, skip generation for this row.",
+    )
+    value: bool | int | float | str | None = Field(
+        default=None,
+        description="Value to write for skipped cells. Defaults to None (becomes NaN/pd.NA in DataFrame).",
+    )
+
+    @field_validator("when")
+    @classmethod
+    def _validate_when_syntax(cls, v: str) -> str:
+        try:
+            ast = _VALIDATION_ENV.parse(v)
+        except TemplateSyntaxError as exc:
+            raise ValueError(str(exc)) from exc
+        if not jinja2_meta.find_undeclared_variables(ast):
+            raise ValueError(
+                f"skip.when expression {v!r} does not reference any columns. "
+                "Expressions must use Jinja2 delimiters, e.g. "
+                "'{{ in_stock == 0 }}' not 'in_stock == 0'."
+            )
+        return v
+
+    # cached_property writes to instance.__dict__; this works because ConfigBase
+    # is not frozen.  If ConfigBase ever gains frozen=True, switch to model_post_init.
+    @cached_property
+    def columns(self) -> list[str]:
+        """Column names referenced in the ``when`` expression.
+
+        Parsed once from the Jinja2 AST and cached.  Used by the DAG builder
+        to add dependency edges and by the execution graph to store metadata.
+        """
+        ast = _VALIDATION_ENV.parse(self.when)
+        return sorted(jinja2_meta.find_undeclared_variables(ast))
+
+
 class SingleColumnConfig(ConfigBase, ABC):
     """Abstract base class for all single-column configuration types.
 
     This class serves as the foundation for all column configurations in DataDesigner,
-    defining shared fields and properties across all column types.
+    defining shared fields and properties across all column type.
 
     Attributes:
         name: Unique name of the column to be generated.
         drop: If True, the column will be generated but removed from the final dataset.
             Useful for intermediate columns that are dependencies for other columns.
+        allow_resize: If True, the generator may emit a different number of rows than
+            it received (1:N or N:1). Explicit ``skip`` gates are invalid on resize
+            columns, and upstream skip propagation is not applied to them.
         column_type: Discriminator field that identifies the specific column type.
             Subclasses must override this field to specify the column type with a `Literal` value.
+        skip: Optional expression gate for conditional generation.
+        propagate_skip: If True (default), this column auto-skips when any of its
+            required_columns was skipped.  Independent of ``skip``.
     """
 
     name: str
     drop: bool = False
     allow_resize: bool = False
     column_type: str
+    skip: SkipConfig | None = None
+    propagate_skip: bool = Field(
+        default=True,
+        description="If True (default), this column auto-skips when any "
+        "of its required_columns was skipped. Independent of skip — "
+        "a column with no SkipConfig still propagates upstream skips. "
+        "Set to False for null-tolerant columns.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_skip_scope(self) -> Self:
+        if self.skip is not None:
+            if self.column_type in ("sampler", "seed-dataset"):
+                raise ValueError(
+                    f"skip is not supported on {self.column_type} columns. "
+                    "Sampler/seed columns are collapsed into shared multi-column generators "
+                    "and cannot be skipped individually."
+                )
+            if self.allow_resize:
+                raise ValueError(
+                    "skip and allow_resize cannot be used together. "
+                    "allow_resize changes buffer size during generation (1:N / N:1), which "
+                    "breaks index-based skip tracking and merge-back."
+                )
+            self_refs = {self.name} | set(self.side_effect_columns)
+            if not self_refs.isdisjoint(self.skip.columns):
+                offending = self_refs & set(self.skip.columns)
+                raise ValueError(
+                    f"skip.when expression for column '{self.name}' references itself "
+                    f"(via {offending!r}). A column cannot gate its own generation."
+                )
+        return self
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -67,6 +164,30 @@ class SingleColumnConfig(ConfigBase, ABC):
             indicates no side effect columns. Override in subclasses to specify side effects.
         """
 
+    def get_model_aliases(self) -> list[str]:
+        """Return every model alias this column depends on.
+
+        The startup model health check uses this to decide which model endpoints to ping.
+        The default implementation returns the column's primary ``model_alias`` (if the
+        attribute is present), which covers the built-in LLM, embedding, and image columns.
+
+        Override this method on configs that depend on more than one model — for example,
+        a plugin config with both a ``model_alias`` and a ``judge_model_alias`` should return
+        both so a typo or unreachable endpoint on the secondary alias surfaces at startup
+        rather than at first generation.
+
+        An empty-string ``model_alias`` is forwarded to the health check so that the
+        registry's "no model config with alias '' found" error is raised eagerly at startup
+        instead of at first generation; only a truly missing attribute is treated as "no
+        model endpoints".
+
+        Returns:
+            List of model aliases this column depends on. Empty list indicates the column
+            does not call any model endpoints.
+        """
+        alias: str | None = getattr(self, "model_alias", None)
+        return [alias] if alias is not None else []
+
 
 class ProcessorConfig(ConfigBase, ABC):
     """Abstract base class for all processor configuration types.
@@ -77,6 +198,8 @@ class ProcessorConfig(ConfigBase, ABC):
     Attributes:
         name: Unique name of the processor, used to identify the processor in results
             and to name output artifacts on disk.
+        processor_type: Discriminator field that identifies the specific processor type.
+            Subclasses must override this field with a ``Literal`` value.
     """
 
     name: str = Field(

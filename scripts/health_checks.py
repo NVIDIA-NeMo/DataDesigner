@@ -31,6 +31,7 @@ from data_designer.config.utils.constants import (
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.secret_resolver import EnvironmentResolver
 
@@ -39,6 +40,8 @@ PROVIDER_API_KEY_ENV_VARS = {
     OPENAI_PROVIDER_NAME: OPENAI_API_KEY_ENV_VAR_NAME,
     OPENROUTER_PROVIDER_NAME: OPENROUTER_API_KEY_ENV_VAR_NAME,
 }
+
+CHAT_COMPLETION_ATTEMPTS = 2
 
 
 def _get_provider_registry(provider_name: str) -> ModelProviderRegistry:
@@ -67,15 +70,23 @@ def _check_model(provider_name: str, model_type: str) -> None:
         provider=provider_name,
     )
 
-    facade = ModelFacade(model_config, secret_resolver, provider_registry)
+    client = create_model_client(model_config, secret_resolver, provider_registry)
+    facade = ModelFacade(model_config, provider_registry, client=client)
 
     if model_type == "embedding":
         result = facade.generate_text_embeddings(
             input_texts=["Hello!"],
             skip_usage_tracking=True,
         )
-        assert len(result) == 1 and len(result[0]) > 0
-    else:
+        if len(result) != 1 or len(result[0]) == 0:
+            raise AssertionError(
+                f"Expected one non-empty embedding from {provider_name}/{model_type} "
+                f"({model_name}); got {len(result)} embeddings"
+            )
+        return
+
+    result = None
+    for attempt in range(1, CHAT_COMPLETION_ATTEMPTS + 1):
         result, _ = facade.generate(
             prompt="Say 'OK' and nothing else.",
             parser=lambda x: x,
@@ -84,7 +95,15 @@ def _check_model(provider_name: str, model_type: str) -> None:
             max_conversation_restarts=0,
             skip_usage_tracking=True,
         )
-        assert isinstance(result, str) and len(result) > 0
+        if isinstance(result, str) and len(result) > 0:
+            return
+        if attempt < CHAT_COMPLETION_ATTEMPTS:
+            print(f"RETRY {provider_name}/{model_type} ({model_name}) returned {result!r}")
+
+    raise AssertionError(
+        f"Expected non-empty chat response from {provider_name}/{model_type} "
+        f"({model_name}) after {CHAT_COMPLETION_ATTEMPTS} attempts; got {result!r}"
+    )
 
 
 def main() -> int:

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Callable, Container, Iterator
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
+from data_designer.engine.dataset_builders.utils.skip_tracker import strip_skip_metadata_from_records
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 
 if TYPE_CHECKING:
@@ -25,6 +26,7 @@ class DatasetBatchManager:
         self._num_records_list: list[int] | None = None
         self._buffer_size: int | None = None
         self._actual_num_records: int = 0
+        self._original_target_num_records: int | None = None
         self.artifact_storage = artifact_storage
 
     @property
@@ -86,9 +88,11 @@ class DatasetBatchManager:
             self._actual_num_records += len(self._buffer)
             final_file_path = self.artifact_storage.move_partial_result_to_final_file_path(self._current_batch_number)
 
+            target = sum(self.num_records_list)
             self.artifact_storage.write_metadata(
                 {
-                    "target_num_records": sum(self.num_records_list),
+                    "target_num_records": target,
+                    "original_target_num_records": self._original_target_num_records or target,
                     "actual_num_records": self._actual_num_records,
                     "total_num_batches": self.num_batches,
                     "buffer_size": self._buffer_size,
@@ -133,7 +137,7 @@ class DatasetBatchManager:
 
     def get_current_batch(self, *, as_dataframe: bool = False) -> pd.DataFrame | list[dict]:
         if as_dataframe:
-            return lazy.pd.DataFrame(self._buffer)
+            return lazy.pd.DataFrame(strip_skip_metadata_from_records(self._buffer))
         return self._buffer
 
     def iter_current_batch(self) -> Iterator[tuple[int, dict]]:
@@ -157,17 +161,32 @@ class DatasetBatchManager:
                     except OSError as e:
                         raise DatasetBatchManagementError(f"🛑 Failed to delete directory {dir_path}: {e}")
 
-    def start(self, *, num_records: int, buffer_size: int) -> None:
+    def start(
+        self,
+        *,
+        num_records: int,
+        buffer_size: int,
+        start_batch: int = 0,
+        initial_actual_num_records: int = 0,
+        num_records_list: list[int] | None = None,
+        original_target_num_records: int | None = None,
+    ) -> None:
         if num_records <= 0:
             raise DatasetBatchManagementError("🛑 num_records must be positive.")
         if buffer_size <= 0:
             raise DatasetBatchManagementError("🛑 buffer_size must be positive.")
 
         self._buffer_size = buffer_size
-        self._num_records_list = [buffer_size] * (num_records // buffer_size)
-        if remaining_records := num_records % buffer_size:
-            self._num_records_list.append(remaining_records)
+        self._original_target_num_records = original_target_num_records
+        if num_records_list is not None:
+            self._num_records_list = list(num_records_list)
+        else:
+            self._num_records_list = [buffer_size] * (num_records // buffer_size)
+            if remaining_records := num_records % buffer_size:
+                self._num_records_list.append(remaining_records)
         self.reset()
+        self._current_batch_number = start_batch
+        self._actual_num_records = initial_actual_num_records
 
     def write(self) -> Path | None:
         """Write the current batch to a parquet file.
@@ -182,7 +201,7 @@ class DatasetBatchManager:
         try:
             file_path = self.artifact_storage.write_batch_to_parquet_file(
                 batch_number=self._current_batch_number,
-                dataframe=lazy.pd.DataFrame(self._buffer),
+                dataframe=lazy.pd.DataFrame(strip_skip_metadata_from_records(self._buffer)),
                 batch_stage=BatchStage.PARTIAL_RESULT,
             )
             return file_path

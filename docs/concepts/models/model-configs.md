@@ -70,21 +70,21 @@ model_configs = [
     # Reasoning and structured tasks
     dd.ModelConfig(
         alias="reasoning-model",
-        model="openai/gpt-oss-20b",
+        model="nvidia/nemotron-3-super-120b-a12b",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
-            temperature=0.3,
-            top_p=0.9,
+            temperature=1.0,
+            top_p=0.95,
             max_tokens=4096,
         ),
     ),
     # Vision tasks
     dd.ModelConfig(
         alias="vision-model",
-        model="nvidia/nemotron-nano-12b-v2-vl",
+        model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         provider="nvidia",
         inference_parameters=dd.ChatCompletionInferenceParams(
-            temperature=0.7,
+            temperature=0.60,
             top_p=0.95,
             max_tokens=2048,
         ),
@@ -143,5 +143,4 @@ model_config = dd.ModelConfig(
 - **[Default Model Settings](default-model-settings.md)**: Pre-configured model settings included with Data Designer
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Use the CLI to manage model settings
-- **[Column Configurations](../../code_reference/column_configs.md)**: Learn how to use models in column configurations
 - **[Architecture & Performance](../architecture-and-performance.md)**: Understanding separation of concerns and optimizing concurrency

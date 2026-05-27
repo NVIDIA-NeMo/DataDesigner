@@ -24,8 +24,8 @@ The `ChatCompletionInferenceParams` class controls how models generate text comp
 !!! note "Default Values"
     If `temperature`, `top_p`, or `max_tokens` are not provided, the model provider's default values will be used. Different providers and models may have different defaults.
 
-!!! tip "Controlling Reasoning Effort for GPT-OSS Models"
-    For gpt-oss models like `gpt-oss-20b` and `gpt-oss-120b`, you can control the reasoning effort using the `extra_body` parameter:
+!!! tip "Controlling Reasoning Effort for Reasoning Models"
+    For reasoning models like Nemotron 3 Super (`nvidia/nemotron-3-super-120b-a12b`) and GPT-OSS (`gpt-oss-20b`, `gpt-oss-120b`), you can control the reasoning effort using the `extra_body` parameter:
 
     ```python
     import data_designer.config as dd
@@ -167,6 +167,7 @@ dd.ModelConfig(
 dd.ModelConfig(
     alias="dalle",
     model="dall-e-3",
+    provider="openai",
     inference_parameters=dd.ImageInferenceParams(
         extra_body={"size": "1024x1024", "quality": "hd"}
     ),

@@ -60,9 +60,6 @@ class _LazyCommand(click.Command):
     ) -> click.Context:
         return self._resolve().make_context(info_name, args, parent, **extra)
 
-    def invoke(self, ctx: click.Context) -> Any:
-        return self._resolve().invoke(ctx)
-
 
 def create_lazy_typer_group(
     lazy_subcommands: dict[str, dict[str, str]],
@@ -86,6 +83,12 @@ def create_lazy_typer_group(
     """
 
     class LazyTyperGroup(TyperGroup):
+        def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+            if not args and self.no_args_is_help and not ctx.resilient_parsing:
+                click.echo(ctx.get_help(), color=ctx.color)
+                ctx.exit(0)
+            return super().parse_args(ctx, args)
+
         def list_commands(self, ctx: click.Context) -> list[str]:
             eager = super().list_commands(ctx)
             lazy_names = [name for name in lazy_subcommands if name not in eager]

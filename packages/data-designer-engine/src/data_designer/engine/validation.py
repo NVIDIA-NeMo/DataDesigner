@@ -39,6 +39,9 @@ class ViolationType(str, Enum):
     INVALID_MODEL_CONFIG = "invalid_model_config"
     INVALID_REFERENCE = "invalid_reference"
     PROMPT_WITHOUT_REFERENCES = "prompt_without_references"
+    SKIP_REFERENCE_MISSING = "skip_reference_missing"
+    SKIP_ON_SAMPLER_SEED = "skip_on_sampler_seed"
+    SKIP_WITH_ALLOW_RESIZE = "skip_with_allow_resize"
 
 
 class ViolationLevel(str, Enum):
@@ -66,7 +69,8 @@ def validate_data_designer_config(
     violations.extend(validate_prompt_templates(columns=columns, allowed_references=allowed_references))
     violations.extend(validate_code_validation(columns=columns))
     violations.extend(validate_expression_references(columns=columns, allowed_references=allowed_references))
-    violations.extend(validate_columns_not_all_dropped(columns=columns))
+    violations.extend(validate_skip_references(columns=columns, allowed_references=allowed_references))
+    violations.extend(validate_columns_not_all_dropped(columns=columns, processor_configs=processor_configs))
     violations.extend(validate_drop_columns_processor(columns=columns, processor_configs=processor_configs))
     violations.extend(validate_schema_transform_processor(columns=columns, processor_configs=processor_configs))
     if not can_run_data_designer_locally():
@@ -254,8 +258,19 @@ def validate_code_validation(
 
 def validate_columns_not_all_dropped(
     columns: list[ColumnConfigT],
+    processor_configs: list[ProcessorConfigT] | None = None,
 ) -> list[Violation]:
-    remaining_cols = [c for c in columns if c.column_type != DataDesignerColumnType.SEED_DATASET and not c.drop]
+    processor_configs = processor_configs or []
+    processor_dropped_columns = _resolve_processor_dropped_columns(columns, processor_configs)
+    remaining_cols = [
+        c
+        for c in columns
+        if not c.drop
+        and (
+            c.column_type != DataDesignerColumnType.SEED_DATASET
+            or (processor_configs and c.name not in processor_dropped_columns)
+        )
+    ]
 
     if len(remaining_cols) == 0:
         return [
@@ -271,6 +286,23 @@ def validate_columns_not_all_dropped(
         ]
 
     return []
+
+
+def _resolve_processor_dropped_columns(
+    columns: list[ColumnConfigT],
+    processor_configs: list[ProcessorConfigT],
+) -> set[str]:
+    column_names = {c.name for c in columns}
+    dropped_columns: set[str] = set()
+    for processor_config in processor_configs:
+        if processor_config.processor_type != ProcessorType.DROP_COLUMNS:
+            continue
+        for name in processor_config.column_names:
+            if _is_glob(name):
+                dropped_columns.update(col for col in column_names if fnmatch(col, name))
+            else:
+                dropped_columns.add(name)
+    return dropped_columns
 
 
 def _is_glob(pattern: str) -> bool:
@@ -375,6 +407,57 @@ def validate_local_only_columns(
                     level=ViolationLevel.ERROR,
                 )
             )
+    return violations
+
+
+def validate_skip_references(
+    columns: list[ColumnConfigT],
+    allowed_references: list[str],
+) -> list[Violation]:
+    """Validate ``skip.when`` expressions: reference existence, type scope, and ``allow_resize`` conflicts."""
+    violations: list[Violation] = []
+    for column in columns:
+        if column.skip is None:
+            continue
+
+        if column.column_type in ("sampler", "seed-dataset"):
+            violations.append(
+                Violation(
+                    column=column.name,
+                    type=ViolationType.SKIP_ON_SAMPLER_SEED,
+                    message=(
+                        f"skip is not supported on {column.column_type} columns. "
+                        "Sampler/seed columns are collapsed into shared multi-column generators "
+                        "and cannot be skipped individually."
+                    ),
+                    level=ViolationLevel.ERROR,
+                )
+            )
+
+        if getattr(column, "allow_resize", False):
+            violations.append(
+                Violation(
+                    column=column.name,
+                    type=ViolationType.SKIP_WITH_ALLOW_RESIZE,
+                    message="skip and allow_resize cannot be used together on the same column.",
+                    level=ViolationLevel.ERROR,
+                )
+            )
+
+        for ref in column.skip.columns:
+            if ref not in allowed_references:
+                violations.append(
+                    Violation(
+                        column=column.name,
+                        type=ViolationType.SKIP_REFERENCE_MISSING,
+                        message=(
+                            f"skip.when expression for column '{column.name}' references "
+                            f"'{ref}' which is not a known column."
+                        ),
+                        level=ViolationLevel.ERROR,
+                    )
+                )
+
     return violations
 
 

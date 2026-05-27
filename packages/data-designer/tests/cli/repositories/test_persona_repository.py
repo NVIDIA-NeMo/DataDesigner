@@ -15,7 +15,7 @@ def repository() -> PersonaRepository:
 def test_init(repository: PersonaRepository) -> None:
     """Test repository initialization creates registry."""
     assert repository._registry is not None
-    assert len(repository._registry.locales) == 7
+    assert len(repository._registry.locales) == 9
     assert repository._registry.dataset_prefix == "nemotron-personas-dataset-"
 
 
@@ -24,11 +24,21 @@ def test_list_all(repository: PersonaRepository) -> None:
     locales = repository.list_all()
 
     assert isinstance(locales, list)
-    assert len(locales) == 7
+    assert len(locales) == 9
 
     # Verify all expected locales are present
     locale_codes = {locale.code for locale in locales}
-    assert locale_codes == {"en_US", "en_IN", "en_SG", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "pt_BR"}
+    assert locale_codes == {
+        "en_US",
+        "en_IN",
+        "en_SG",
+        "fr_FR",
+        "hi_Deva_IN",
+        "hi_Latn_IN",
+        "ja_JP",
+        "ko_KR",
+        "pt_BR",
+    }
 
     # Verify each locale has required fields
     for locale in locales:
@@ -56,6 +66,7 @@ def test_get_by_code_all_locales(repository: PersonaRepository) -> None:
         ("hi_Deva_IN", "4.14 GB", "nemotron-personas-dataset-hi_deva_in"),
         ("hi_Latn_IN", "2.7 GB", "nemotron-personas-dataset-hi_latn_in"),
         ("ja_JP", "1.69 GB", "nemotron-personas-dataset-ja_jp"),
+        ("ko_KR", "2.66 GB", "nemotron-personas-dataset-ko_kr"),
     ]
 
     for code, expected_size, expected_dataset_name in test_cases:

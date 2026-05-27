@@ -59,6 +59,39 @@ def prune_additional_properties(
         logger.info(f"{n_removed} unspecified properties removed from data object.")
 
 
+def _validate_one_of_with_discriminator(
+    validator: Any, one_of: list[JSONSchemaT], instance: DataObjectT, schema: JSONSchemaT
+) -> Any:
+    """Validate a oneOf using the discriminator to select the correct variant.
+
+    Standard oneOf tries all variants, which combined with in-place pruning
+    can corrupt the instance (pruning from a failed variant removes properties
+    needed by the correct variant). When a discriminator is present, this
+    validator selects the matching variant directly.
+    """
+    discriminator = schema.get("discriminator")
+    if not discriminator or not isinstance(discriminator, dict) or not isinstance(instance, dict):
+        yield from lazy.jsonschema.Draft202012Validator.VALIDATORS["oneOf"](validator, one_of, instance, schema)
+        return
+
+    prop_name = discriminator.get("propertyName")
+    mapping = discriminator.get("mapping", {})
+    if not prop_name or prop_name not in instance or not mapping:
+        yield from lazy.jsonschema.Draft202012Validator.VALIDATORS["oneOf"](validator, one_of, instance, schema)
+        return
+
+    matched_ref = mapping.get(str(instance[prop_name]))
+    if matched_ref is None:
+        yield lazy.jsonschema.ValidationError(
+            f"{instance[prop_name]!r} is not a valid value for discriminator {prop_name!r}",
+        )
+        return
+
+    matched_schema = {"$ref": matched_ref}
+    errs = list(validator.descend(instance, matched_schema))
+    yield from errs
+
+
 def extend_jsonschema_validator_with_pruning(validator):
     """Modify behavior of a jsonschema.Validator to use pruning.
 
@@ -66,6 +99,10 @@ def extend_jsonschema_validator_with_pruning(validator):
     fields, rather than raising a ValidationError, when encountering
     extra, unspecified fiends when `additionalProperties: False` is
     set in the validating schema.
+
+    When a oneOf has a discriminator, the discriminator is used to select
+    the correct variant directly, preventing in-place pruning from
+    corrupting the instance during failed variant checks.
 
     Args:
         validator (Type[jsonschema.Validator): A validator class
@@ -75,7 +112,13 @@ def extend_jsonschema_validator_with_pruning(validator):
         Type[jsonschema.Validator]: A validator class that will
             prune extra fields.
     """
-    return lazy.jsonschema.validators.extend(validator, {"additionalProperties": prune_additional_properties})
+    return lazy.jsonschema.validators.extend(
+        validator,
+        {
+            "additionalProperties": prune_additional_properties,
+            "oneOf": _validate_one_of_with_discriminator,
+        },
+    )
 
 
 def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:

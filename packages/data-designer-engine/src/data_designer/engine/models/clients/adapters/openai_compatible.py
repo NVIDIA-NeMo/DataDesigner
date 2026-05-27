@@ -1,0 +1,288 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+from typing import Any
+
+from data_designer.config.utils.media_helpers import audio_format_from_mime_type
+from data_designer.engine.models.clients.adapters.http_model_client import (
+    HttpModelClient,
+)
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
+from data_designer.engine.models.clients.parsing import (
+    aextract_images_from_chat_response,
+    aextract_images_from_image_response,
+    aparse_chat_completion_response,
+    extract_embedding_vector,
+    extract_images_from_chat_response,
+    extract_images_from_image_response,
+    extract_usage,
+    parse_chat_completion_response,
+)
+from data_designer.engine.models.clients.types import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+    TransportKwargs,
+)
+
+
+class OpenAICompatibleClient(HttpModelClient):
+    """Native HTTP adapter for OpenAI-compatible provider APIs.
+
+    Uses ``httpx`` with ``httpx_retries.RetryTransport`` for resilient HTTP
+    calls. Concurrency and request-admission policy are orchestration concerns
+    and are not managed here.
+    """
+
+    _ROUTE_CHAT = "/chat/completions"
+    _ROUTE_EMBEDDING = "/embeddings"
+    _ROUTE_IMAGE = "/images/generations"
+    _IMAGE_EXCLUDE = frozenset({"messages", "prompt"})
+
+    # -------------------------------------------------------------------
+    # Capability checks — adapter-level (see ModelClient docstring)
+    # -------------------------------------------------------------------
+
+    def supports_chat_completion(self) -> bool:
+        return True
+
+    def supports_embeddings(self) -> bool:
+        return True
+
+    def supports_image_generation(self) -> bool:
+        return True
+
+    # -------------------------------------------------------------------
+    # Chat completion
+    # -------------------------------------------------------------------
+
+    def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        transport = TransportKwargs.from_request(request)
+        messages = translate_openai_compatible_messages(
+            request.messages,
+            provider_name=self.provider_name,
+            model_name=request.model,
+        )
+        payload = {"model": request.model, "messages": messages, **transport.body}
+        response_json = self._post_sync(self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout)
+        return parse_chat_completion_response(response_json)
+
+    async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        transport = TransportKwargs.from_request(request)
+        messages = translate_openai_compatible_messages(
+            request.messages,
+            provider_name=self.provider_name,
+            model_name=request.model,
+        )
+        payload = {"model": request.model, "messages": messages, **transport.body}
+        response_json = await self._apost(
+            self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout
+        )
+        return await aparse_chat_completion_response(response_json)
+
+    # -------------------------------------------------------------------
+    # Embeddings
+    # -------------------------------------------------------------------
+
+    def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        transport = TransportKwargs.from_request(request)
+        payload = {"model": request.model, "input": request.inputs, **transport.body}
+        response_json = self._post_sync(
+            self._ROUTE_EMBEDDING, payload, transport.headers, request.model, transport.timeout
+        )
+        return _parse_embedding_json(response_json)
+
+    async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        transport = TransportKwargs.from_request(request)
+        payload = {"model": request.model, "input": request.inputs, **transport.body}
+        response_json = await self._apost(
+            self._ROUTE_EMBEDDING, payload, transport.headers, request.model, transport.timeout
+        )
+        return _parse_embedding_json(response_json)
+
+    # -------------------------------------------------------------------
+    # Image generation
+    # -------------------------------------------------------------------
+
+    def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
+        if request.messages is not None:
+            route = self._ROUTE_CHAT
+            messages = translate_openai_compatible_messages(
+                request.messages,
+                provider_name=self.provider_name,
+                model_name=request.model,
+            )
+            payload = {"model": request.model, "messages": messages, **transport.body}
+        else:
+            route = self._ROUTE_IMAGE
+            payload = {"model": request.model, "prompt": request.prompt, **transport.body}
+        response_json = self._post_sync(route, payload, transport.headers, request.model, transport.timeout)
+        return _parse_image_json(response_json, is_chat_route=request.messages is not None)
+
+    async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
+        if request.messages is not None:
+            route = self._ROUTE_CHAT
+            messages = translate_openai_compatible_messages(
+                request.messages,
+                provider_name=self.provider_name,
+                model_name=request.model,
+            )
+            payload = {"model": request.model, "messages": messages, **transport.body}
+        else:
+            route = self._ROUTE_IMAGE
+            payload = {"model": request.model, "prompt": request.prompt, **transport.body}
+        response_json = await self._apost(route, payload, transport.headers, request.model, transport.timeout)
+        return await _aparse_image_json(response_json, is_chat_route=request.messages is not None)
+
+    def _build_headers(self, extra_headers: dict[str, str]) -> dict[str, str]:
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        if extra_headers:
+            headers.update(extra_headers)
+        return headers
+
+
+# ---------------------------------------------------------------------------
+# Response parsing helpers
+# ---------------------------------------------------------------------------
+
+
+def translate_openai_compatible_messages(
+    messages: list[dict[str, Any]],
+    *,
+    provider_name: str,
+    model_name: str,
+) -> list[dict[str, Any]]:
+    """Translate canonical media blocks to OpenAI-compatible content blocks."""
+    translated_messages: list[dict[str, Any]] = []
+    for message in messages:
+        translated = dict(message)
+        if "content" in translated:
+            try:
+                translated["content"] = translate_openai_compatible_content_blocks(translated["content"])
+            except ValueError as exc:
+                raise ProviderError(
+                    kind=ProviderErrorKind.BAD_REQUEST,
+                    message=str(exc),
+                    provider_name=provider_name,
+                    model_name=model_name,
+                    cause=exc,
+                ) from exc
+        translated_messages.append(translated)
+    return translated_messages
+
+
+def translate_openai_compatible_content_blocks(content: Any) -> Any:
+    if not isinstance(content, list):
+        return content
+
+    return [translate_openai_compatible_content_block(block) for block in content]
+
+
+def translate_openai_compatible_content_block(block: Any) -> Any:
+    if not isinstance(block, dict):
+        return block
+
+    block_type = block.get("type")
+    if not isinstance(block_type, str):
+        return block
+    if block_type in {"audio_url", "image_url", "input_audio", "input_video", "text", "video_url"}:
+        return block
+    if block_type == "image":
+        return _translate_canonical_image_block(block)
+    if block_type == "audio":
+        return _translate_canonical_audio_block(block)
+    if block_type == "video":
+        return _translate_canonical_video_block(block)
+    return block
+
+
+def _translate_canonical_image_block(block: dict[str, Any]) -> dict[str, Any]:
+    source = _get_media_source(block, modality="image")
+    source_type = source.get("type")
+    if source_type == "url":
+        return {"type": "image_url", "image_url": {"url": source.get("url", "")}}
+    if source_type == "base64":
+        media_type = source.get("media_type")
+        data = source.get("data")
+        if not isinstance(media_type, str) or not isinstance(data, str):
+            raise ValueError(f"Canonical image base64 source must include media_type and data, got: {source!r}")
+        return {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{data}"}}
+    raise ValueError(f"Unsupported canonical image source type {source_type!r}")
+
+
+def _translate_canonical_audio_block(block: dict[str, Any]) -> dict[str, Any]:
+    source = _get_media_source(block, modality="audio")
+    source_type = source.get("type")
+    if source_type == "url":
+        # ``audio_url`` is an OpenAI-compatible extension used by providers such as vLLM/NVIDIA,
+        # not by OpenAI's hosted Chat Completions route.
+        return {"type": "audio_url", "audio_url": {"url": source.get("url", "")}}
+    if source_type == "base64":
+        media_type = source.get("media_type")
+        data = source.get("data")
+        if not isinstance(media_type, str) or not isinstance(data, str):
+            raise ValueError(f"Canonical audio base64 source must include media_type and data, got: {source!r}")
+        audio_format = audio_format_from_mime_type(media_type)
+        if audio_format is None:
+            raise ValueError(f"Unsupported canonical audio media type {media_type!r}")
+        return {"type": "input_audio", "input_audio": {"data": data, "format": audio_format.value}}
+    raise ValueError(f"Unsupported canonical audio source type {source_type!r}")
+
+
+def _translate_canonical_video_block(block: dict[str, Any]) -> dict[str, Any]:
+    source = _get_media_source(block, modality="video")
+    source_type = source.get("type")
+    if source_type == "url":
+        # ``video_url`` is an OpenAI-compatible extension used by providers such as vLLM/NVIDIA,
+        # not by OpenAI's hosted Chat Completions route.
+        return {"type": "video_url", "video_url": {"url": source.get("url", "")}}
+    if source_type == "base64":
+        media_type = source.get("media_type")
+        data = source.get("data")
+        if not isinstance(media_type, str) or not isinstance(data, str):
+            raise ValueError(f"Canonical video base64 source must include media_type and data, got: {source!r}")
+        # No widely supported ``input_video`` block exists; capable OpenAI-compatible
+        # providers may accept a data URI in ``video_url``.
+        return {"type": "video_url", "video_url": {"url": f"data:{media_type};base64,{data}"}}
+    raise ValueError(f"Unsupported canonical video source type {source_type!r}")
+
+
+def _get_media_source(block: dict[str, Any], *, modality: str) -> dict[str, Any]:
+    source = block.get("source")
+    if not isinstance(source, dict):
+        raise ValueError(f"Canonical {modality} block must include a source object, got: {block!r}")
+    return source
+
+
+def _parse_embedding_json(response_json: dict[str, Any]) -> EmbeddingResponse:
+    data = response_json.get("data") or []
+    vectors = [extract_embedding_vector(item) for item in data]
+    usage = extract_usage(response_json.get("usage"))
+    return EmbeddingResponse(vectors=vectors, usage=usage, raw=response_json)
+
+
+def _parse_image_json(response_json: dict[str, Any], *, is_chat_route: bool) -> ImageGenerationResponse:
+    if is_chat_route:
+        images = extract_images_from_chat_response(response_json)
+    else:
+        images = extract_images_from_image_response(response_json)
+    usage = extract_usage(response_json.get("usage"), generated_images=len(images))
+    return ImageGenerationResponse(images=images, usage=usage, raw=response_json)
+
+
+async def _aparse_image_json(response_json: dict[str, Any], *, is_chat_route: bool) -> ImageGenerationResponse:
+    if is_chat_route:
+        images = await aextract_images_from_chat_response(response_json)
+    else:
+        images = await aextract_images_from_image_response(response_json)
+    usage = extract_usage(response_json.get("usage"), generated_images=len(images))
+    return ImageGenerationResponse(images=images, usage=usage, raw=response_json)

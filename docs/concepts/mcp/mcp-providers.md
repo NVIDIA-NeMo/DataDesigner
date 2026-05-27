@@ -8,26 +8,35 @@ An MCP provider defines how Data Designer connects to a tool server. Data Design
 
 | Provider Class | Connection Method | Use Case |
 |---------------|-------------------|----------|
-| `MCPProvider` | HTTP Server-Sent Events | Connect to a pre-existing MCP server |
+| `MCPProvider` | SSE or Streamable HTTP | Connect to a pre-existing MCP server |
 | `LocalStdioMCPProvider` | Subprocess via stdin/stdout | Launch an MCP server as a subprocess |
 
 When you create a `ToolConfig`, you reference providers by name, and Data Designer uses those provider settings to communicate with the appropriate MCP servers.
 
-## MCPProvider (Remote SSE)
+## MCPProvider (Remote)
 
-Use `MCPProvider` to connect to a pre-existing MCP server via Server-Sent Events:
+Use `MCPProvider` to connect to a pre-existing MCP server. Both SSE (Server-Sent Events) and Streamable HTTP transports are supported:
 
 ```python
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
-mcp_provider = dd.MCPProvider(
+# SSE transport (default)
+sse_provider = dd.MCPProvider(
     name="remote-mcp",
     endpoint="http://localhost:8080/sse",
     api_key="MCP_API_KEY",  # Environment variable name
 )
 
-data_designer = DataDesigner(mcp_providers=[mcp_provider])
+# Streamable HTTP transport
+http_provider = dd.MCPProvider(
+    name="remote-tools",
+    endpoint="https://mcp.example.com/mcp",
+    api_key="MCP_API_KEY",
+    provider_type="streamable_http",
+)
+
+data_designer = DataDesigner(mcp_providers=[sse_provider, http_provider])
 ```
 
 ### MCPProvider Fields
@@ -35,9 +44,9 @@ data_designer = DataDesigner(mcp_providers=[mcp_provider])
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | `str` | Yes | Unique identifier for the provider |
-| `endpoint` | `str` | Yes | SSE endpoint URL (e.g., `"http://localhost:8080/sse"`) |
+| `endpoint` | `str` | Yes | Endpoint URL for the remote MCP server |
 | `api_key` | `str` | No | API key or environment variable name |
-| `provider_type` | `str` | No | Always `"sse"` (set automatically) |
+| `provider_type` | `str` | No | Transport type: `"sse"` (default) or `"streamable_http"` |
 
 ## LocalStdioMCPProvider (Subprocess)
 
@@ -101,6 +110,12 @@ providers:
   - name: doc-search
     provider_type: sse
     endpoint: http://localhost:8080/sse
+    api_key: ${MCP_API_KEY}
+
+  # Remote Streamable HTTP provider
+  - name: remote-tools
+    provider_type: streamable_http
+    endpoint: https://mcp.example.com/mcp
     api_key: ${MCP_API_KEY}
 
   # Local stdio provider

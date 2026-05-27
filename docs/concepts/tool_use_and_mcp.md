@@ -63,7 +63,3 @@ builder.add_column(
 ## Example
 
 See the [PDF Q&A Recipe](../recipes/mcp_and_tooluse/pdf_qa.md) for a complete working example.
-
-## Code Reference
-
-For internal architecture and API documentation, see [MCP Code Reference](../code_reference/mcp.md).
