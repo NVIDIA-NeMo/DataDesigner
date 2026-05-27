@@ -465,9 +465,9 @@ update-license-headers:
 # DOCUMENTATION
 # ==============================================================================
 
-# Pin docs setup to a Python with prebuilt pyarrow wheels.
-# pyarrow doesn't yet ship wheels for Python 3.14+, so docs builds fall back to
-# a from-source compile (cmake + Apache Arrow C++) on those interpreters and fail.
+# Pin docs setup to a Python version covered by all docs/notebook deps. We
+# default to 3.13 to match the published docs builds; override with
+# DOCS_PYTHON_VERSION=... to test on another interpreter.
 DOCS_PYTHON_VERSION ?= 3.13
 DOCS_PYTHON ?= .venv/bin/python
 DOCS_JUPYTEXT ?= .venv/bin/jupytext
