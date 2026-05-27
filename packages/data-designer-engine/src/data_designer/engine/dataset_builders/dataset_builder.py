@@ -62,6 +62,7 @@ from data_designer.engine.dataset_builders.utils.sticky_progress_bar import Stic
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
+from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import (
@@ -315,8 +316,7 @@ class DatasetBuilder:
         """
         self._reset_run_state()
 
-        self._run_model_health_check_if_needed()
-        self._run_mcp_tool_check_if_needed()
+        run_readiness_check(self.single_column_configs, self._resource_provider)
 
         # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
         # directory. _check_resume_config_compatibility() must NOT access base_dataset_path
@@ -657,8 +657,7 @@ class DatasetBuilder:
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._reset_run_state()
-        self._run_model_health_check_if_needed()
-        self._run_mcp_tool_check_if_needed()
+        run_readiness_check(self.single_column_configs, self._resource_provider)
 
         # Set media storage to DATAFRAME mode for preview - base64 stored directly in DataFrame
         if self._has_image_columns():
@@ -1406,38 +1405,6 @@ class DatasetBuilder:
                 gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
             batch.append(gen_result)
         return batch
-
-    def _run_model_health_check_if_needed(self) -> None:
-        model_aliases: set[str] = set()
-        for config in self.single_column_configs:
-            model_aliases.update(config.get_model_aliases())
-
-        if not model_aliases:
-            return
-
-        if DATA_DESIGNER_ASYNC_ENGINE:
-            loop = ensure_async_engine_loop()
-            future = asyncio.run_coroutine_threadsafe(
-                self._resource_provider.model_registry.arun_health_check(list(model_aliases)),
-                loop,
-            )
-            try:
-                future.result(timeout=180)
-            except TimeoutError:
-                future.cancel()
-                raise
-        else:
-            self._resource_provider.model_registry.run_health_check(list(model_aliases))
-
-    def _run_mcp_tool_check_if_needed(self) -> None:
-        tool_aliases = sorted(
-            {config.tool_alias for config in self.llm_generated_column_configs if getattr(config, "tool_alias", None)}
-        )
-        if not tool_aliases:
-            return
-        if self._resource_provider.mcp_registry is None:
-            raise DatasetGenerationError(f"Tool alias(es) {tool_aliases!r} specified but no MCPRegistry configured.")
-        self._resource_provider.mcp_registry.run_health_check(tool_aliases)
 
     def _setup_fan_out(
         self,

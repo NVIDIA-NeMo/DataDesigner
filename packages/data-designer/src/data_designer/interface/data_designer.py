@@ -43,6 +43,7 @@ from data_designer.engine.dataset_builders.dataset_builder import DATA_DESIGNER_
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.resources.person_reader import (
     PersonReader,
     create_person_reader,
@@ -546,6 +547,37 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
         compile_data_designer_config(config_builder.build(), resource_provider)
+
+    def check_models(self, config_builder: DataDesignerConfigBuilder) -> None:
+        """Probe every model and MCP tool referenced by the configuration.
+
+        Runs the same readiness checks performed at the start of ``preview`` and
+        ``create``: a tiny generation against each referenced model alias, plus a
+        connectivity probe to each referenced MCP tool. Models whose ``ModelConfig``
+        has ``skip_health_check=True`` are skipped.
+
+        This complements :meth:`validate`: ``validate`` answers "is my configuration
+        well-formed?", ``check_models`` answers "are the providers it depends on
+        actually responsive?". Together they cover internal and external readiness
+        without needing to start a workload.
+
+        Args:
+            config_builder: The DataDesignerConfigBuilder whose column configs
+                determine which model aliases and tool aliases are probed.
+
+        Returns:
+            None if every (non-skipped) probe succeeded.
+
+        Raises:
+            ModelAuthenticationError, ModelNotFoundError, ModelAPIConnectionError,
+                and other typed errors from ``data_designer.engine.models.errors``
+                for any failing model probe.
+            DatasetGenerationError: If a tool alias is referenced but no
+                ``MCPRegistry`` is configured.
+            TimeoutError: If async health-check execution exceeds 180 seconds.
+        """
+        resource_provider = self._create_resource_provider("check-models", config_builder)
+        run_readiness_check(config_builder.build().columns, resource_provider)
 
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.

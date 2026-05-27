@@ -111,6 +111,31 @@ class GenerationController:
 
         print_success("Configuration is valid")
 
+    def run_check_models(self, config_source: str) -> None:
+        """Load config and probe every referenced model and MCP tool.
+
+        Complements ``run_validate``: validate covers internal readiness
+        (configuration well-formedness); this covers external readiness
+        (provider liveness).
+
+        Args:
+            config_source: Path to a config file or Python module.
+        """
+        config_builder = self._load_config(config_source)
+
+        print_header("Data Designer Check Models")
+        console.print(f"  Config: [bold]{config_source}[/bold]")
+        console.print()
+
+        try:
+            data_designer = DataDesigner()
+            data_designer.check_models(config_builder)
+        except Exception as e:
+            print_error(f"Model health check failed: {e}")
+            raise typer.Exit(code=1)
+
+        print_success("All models and tools responded successfully")
+
     def run_create(
         self,
         config_source: str,
