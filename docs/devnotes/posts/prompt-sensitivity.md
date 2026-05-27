@@ -462,7 +462,7 @@ MCQ_FORMAT_TEMPLATES = [
      "output_regex": r"\[Answer:\s*([A-Za-z])\]"},
     {"format_key": "angle_brackets",
      "seed_format_instruction": "Provide the correct option enclosed in angle brackets: <A>.",
-     "output_regex": r"<([A-Za-z])>"},
+     "output_regex": r"<([A-Z])>"},
     {"format_key": "correct_answer_arrow",
      "seed_format_instruction": "Conclude by stating 'Correct Answer >> A/B/C/D/...'.",
      "output_regex": r"Correct Answer >> ([A-Za-z])"},
