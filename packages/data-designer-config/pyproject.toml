@@ -16,6 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 dependencies = [
@@ -23,7 +24,7 @@ dependencies = [
     "numpy>=1.23.5,<3",
     "pandas>=2.3.3,<3",
     "pillow>=12.2.0,<13", # 12.2.0 fixes CVE-2026-40192 (FITS GZIP decompression bomb)
-    "pyarrow>=19.0.1,<20", # Required for parquet I/O operations
+    "pyarrow>=22,<23", # Required for parquet I/O operations; 22 is the first release with Python 3.14 wheels
     "pydantic[email]>=2.9.2,<3",
     "pygments>=2.20,<3",
     "python-json-logger>=3,<4",
