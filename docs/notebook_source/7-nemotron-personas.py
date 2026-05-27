@@ -17,27 +17,23 @@
 #
 # This notebook reproduces the [Nemotron-Personas-USA](https://huggingface.co/datasets/nvidia/Nemotron-Personas-USA) generation pipeline end to end with [🎨 NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner), and then shows how to customize that pipeline to generate personas for a specific use case. A similar approach was used to build every dataset in the [Nemotron-Personas HF collection](https://huggingface.co/collections/nvidia/nemotron-personas).
 #
-# We seed the pipeline with the **extended Nemotron-Personas-USA dataset on NGC**, which is a superset of the publicly released HuggingFace version — it includes additional demographic and persona fields used internally to ground synthetic generation. From those grounded seeds, two stages of LLM structured-output columns produce the persona attributes (cultural background, skills, career goals, hobbies) and the persona descriptions across professional, financial, healthcare, sports, arts, travel, and culinary dimensions.
+# We seed the pipeline with the **extended Nemotron-Personas-USA dataset on NGC**, which is a superset of the publicly released HuggingFace version. It includes additional demographic and persona fields used to ground synthetic generation. From those grounded seeds, two stages of LLM structured-output columns produce the persona attributes (cultural background, skills, career goals, hobbies) and the persona descriptions across professional, financial, healthcare, sports, arts, travel, and culinary dimensions.
 #
-# > ⚠️ **Note**: To run this notebook, follow the setup instructions in the [Quick Start](https://nvidia-nemo.github.io/DataDesigner/quick-start/), make sure you have generated an API key for accessing models on [build.nvidia.com](https://build.nvidia.com), and that you've set the `NVIDIA_API_KEY` environment variable. The next section also walks through downloading the NGC-hosted Nemotron-Personas dataset.
+# > **Prerequisites**: This tutorial seeds from the NGC-hosted [Nemotron-Personas](https://huggingface.co/collections/nvidia/nemotron-personas) dataset. See the NGC setup section below to install the NGC CLI and download the dataset before running the rest of the notebook.
+#
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
 # <div align="center">
-#   <img src="https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/yev/nemotron_personas_dev_note/docs/devnotes/posts/assets/nemotron-personas/nemotron_persona_via_ndd.png" alt="Nemotron Personas pipeline overview" width="600" />
+#   <img src="https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/docs/devnotes/posts/assets/nemotron-personas/nemotron_persona_via_ndd.png" alt="Nemotron Personas pipeline overview" width="600" />
 # </div>
 
 # %% [markdown]
-# # 1.  📦 Install and import python packages
-#
-# **IMPORTANT** 👉 If you haven't already, follow the [Quick Start](https://nvidia-nemo.github.io/DataDesigner/quick-start/) to install Data Designer. Note that you may need to restart/select your kernel after setting up the environment.
-#
-# If the installation is successful, you should be able to run the imports below without any errors.
+# # 1. 📦 Imports
 
 # %%
 from __future__ import annotations
 
 import json
-import shlex
-import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -48,11 +44,38 @@ import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 # %% [markdown]
-# ## 📥 Download the Nemotron-Personas dataset from NGC
+# ## 📥 NGC setup (one-time, before running this notebook)
 #
-# Before configuring Data Designer, make sure the NGC-hosted Nemotron-Personas dataset is on disk. This is the **extended** version, a superset of the public HF release. To use it you need an [NGC API key](https://ngc.nvidia.com/setup/api-key), the [NGC CLI](https://ngc.nvidia.com/setup/installers/cli) installed, and `NGC_API_KEY` exported in your environment.
+# This notebook is seeded by the NGC-hosted **extended** Nemotron-Personas dataset, a superset of the public HuggingFace release. Make sure the dataset is on disk before running the cells below. Run the commands below in a terminal (on Colab, prefix each `!` for shell commands; `ngc config set` is interactive and can be run via `!ngc config set` in a Colab cell).
 #
-# The cell below idempotently invokes the Data Designer CLI and only downloads when the locale's parquet isn't already in `~/.data-designer/managed-assets/datasets/`. Change `personas_locale` to any other [supported locale](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) (`en_IN`, `en_SG`, `fr_FR`, `hi_Deva_IN`, `hi_Latn_IN`, `ja_JP`, `ko_KR`, `pt_BR`) to seed a regional pipeline instead.
+# 1. **Generate an NGC API key** at [ngc.nvidia.com/setup/api-key](https://ngc.nvidia.com/setup/api-key).
+#
+# 2. **Install the NGC CLI.** See [ngc.nvidia.com/setup/installers/cli](https://ngc.nvidia.com/setup/installers/cli) for platform-specific instructions. On Linux / Colab:
+#
+#    ```bash
+#    wget -q --content-disposition "https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/3.164.0/files/ngccli_linux.zip" -O ngccli_linux.zip
+#    unzip -q -o ngccli_linux.zip
+#    chmod u+x ngc-cli/ngc
+#    export PATH="$PWD/ngc-cli:$PATH"
+#    ```
+#
+# 3. **Configure the NGC CLI** (interactive — answer the prompts; paste your API key, set `org=nvidia`, leave the rest at defaults):
+#
+#    ```bash
+#    ngc config set
+#    ```
+#
+# 4. **Download the persona dataset** (answer `Y` when prompted):
+#
+#    ```bash
+#    data-designer download personas --locale en_US
+#    ```
+#
+#    Lands at `~/.data-designer/managed-assets/datasets/en_US.parquet` (≈1.4 GB).
+#
+# Change the locale to any other [supported value](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) (`en_IN`, `en_SG`, `fr_FR`, `hi_Deva_IN`, `hi_Latn_IN`, `ja_JP`, `ko_KR`, `pt_BR`) to seed a regional pipeline instead.
+#
+# The cell below verifies the dataset is on disk; if not, it points back to the setup steps.
 
 # %%
 personas_locale = "en_US"
@@ -60,17 +83,16 @@ personas_locale = "en_US"
 assets_dir = Path.home() / ".data-designer" / "managed-assets" / "datasets"
 existing = list(assets_dir.glob(f"{personas_locale}*.parquet")) if assets_dir.exists() else []
 
-if existing:
-    print(f"Nemotron-Personas-{personas_locale} already present at {assets_dir}:")
-    for p in existing:
-        print(f"  - {p.name}")
-else:
-    print(f"Nemotron-Personas-{personas_locale} not found. Downloading via the Data Designer CLI...")
-    subprocess.run(
-        shlex.split(f"data-designer download personas --locale {personas_locale}"),
-        check=True,
+if not existing:
+    raise SystemExit(
+        f"Nemotron-Personas-{personas_locale} not found at {assets_dir}.\n"
+        "See the setup instructions in the cell above; this notebook expects the dataset to "
+        "already be downloaded."
     )
-    print(f"Done. Dataset placed under {assets_dir}.")
+
+print(f"Nemotron-Personas-{personas_locale} found ({len(existing)} parquet file(s)):")
+for p in existing:
+    print(f"  - {p.name}")
 
 # %% [markdown]
 # # 2. 🛠️ Define helpers
@@ -202,13 +224,13 @@ data_designer = DataDesigner()
 # %% [markdown]
 # # 4. ✍️ Design the dataset
 #
-# #### Once the SDG-PGMs reproduction path is wired up, there are three main steps to Nemotron-Personas:
-# #### 1️⃣ Generate OCEAN Personality Traits
-# #### 2️⃣ Generate Persona Attributes by grounding in (PGM + OCEAN) details
-# #### 3️⃣ Generate Personas by grounding in (2)
-
-# %%
-NUM_RECORDS = 5
+# The Nemotron-Personas pipeline has three main steps:
+#
+# - 1️⃣ Generate OCEAN Personality Traits
+# - 2️⃣ Generate Persona Attributes by grounding in (PGM + OCEAN) details
+# - 3️⃣ Generate Personas by grounding in (2)
+#
+# In this notebook Steps 1-2 are seeded from the released NGC artifact via `PersonSampler`; Step 3 runs LLM-driven generation. Section 4.2 also produces persona attributes via a separate LLM call.
 
 # %% [markdown]
 # ## 4.1 🌊 Generate OCEAN (Big Five) personality traits
@@ -223,7 +245,7 @@ NUM_RECORDS = 5
 # We are focusing just on the part in the diagram below and seeding persona attributes with PGM + OCEAN details:
 #
 # <div align="center">
-#   <img src="https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/yev/nemotron_personas_dev_note/docs/devnotes/posts/assets/nemotron-personas/nemotron_persona_via_ndd_step_2.png" alt="Stage 3: Persona attributes via structured outputs" width="600" />
+#   <img src="https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/docs/devnotes/posts/assets/nemotron-personas/nemotron_persona_via_ndd_step_2.png" alt="Stage 3: Persona attributes via structured outputs" width="600" />
 # </div>
 
 # %% [markdown]
@@ -234,7 +256,7 @@ NUM_RECORDS = 5
 # >
 # > When `SAMPLE_FROM_SDG_PGM = True`, persons are generated from a custom Probabilistic Graphical Model via [NeMo SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs), and the OCEAN helpers from Section 2 layer the personality traits on top. **This branch is currently a TODO** — see the cell below for the eventual integration shape.
 # >
-# > To switch locales, just update `personas_locale` in the cell above (and re-run the download cell). All downstream prompts work unchanged across locales.
+# > To switch locales, change `personas_locale` in the Section 1 verify cell (and run `data-designer download personas --locale <code>` for the new locale first). All downstream prompts work unchanged across locales.
 
 # %%
 # Toggle the source of the base "person" record.
@@ -318,7 +340,7 @@ config_builder.add_column(dd.ExpressionColumnConfig(name="county", expr="{{ pers
 
 # Add specific personal detail columns -- included in the public release
 config_builder.add_column(dd.ExpressionColumnConfig(name="sex", expr="{{ person.sex }}"))
-config_builder.add_column(dd.ExpressionColumnConfig(name="age", expr="{{ person.age }}"))
+config_builder.add_column(dd.ExpressionColumnConfig(name="age", expr="{{ person.age }}", dtype="int"))
 config_builder.add_column(dd.ExpressionColumnConfig(name="marital_status", expr="{{ person.marital_status }}"))
 # These can legitimately be null in the source dataset; coerce to a single space so downstream
 # Jinja templates stay safe (DD's validator rejects expression columns that render to "").
@@ -470,7 +492,7 @@ preview.display_sample_record()
 # Now, let's focus on the second part shown in the diagram below:
 #
 # <div align="center">
-#   <img src="https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/yev/nemotron_personas_dev_note/docs/devnotes/posts/assets/nemotron-personas/nemotron_persona_via_ndd_step_3.png" alt="Stage 4: Persona prose synthesis" width="600" />
+#   <img src="https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/main/docs/devnotes/posts/assets/nemotron-personas/nemotron_persona_via_ndd_step_3.png" alt="Stage 4: Persona prose synthesis" width="600" />
 # </div>
 
 # %%
@@ -617,9 +639,11 @@ preview.display_sample_record()
 
 # %% [markdown]
 # ### ↗️  Scale Up Persona Generation
-# Scale up to the specified `NUM_RECORDS`
+# Scale up to the specified `NUM_RECORDS`. Bump this number for larger runs (the original Nemotron-Personas release scales to millions).
 
 # %%
+NUM_RECORDS = 50
+
 scaled_persona_results = data_designer.create(config_builder, num_records=NUM_RECORDS, dataset_name="personas")
 
 # Load the dataset into a pandas DataFrame
@@ -636,7 +660,7 @@ analysis.to_report()
 # %% [markdown]
 # # 5. 🎯 Customize for your use case
 #
-# Everything above reproduces the **general-purpose** Nemotron-Personas-USA pipeline. In practice, enterprises will want personas grounded in their own domain — a healthcare provider needs persona dimensions a media company doesn't, and vice versa. With NeMo Data Designer, layering a custom attribute or persona on top of the released artifact is a few lines of config.
+# Everything above reproduces the **general-purpose** Nemotron-Personas-USA pipeline. In practice, enterprises will want personas grounded in their own domain (a healthcare provider needs persona dimensions a media company doesn't, and vice versa). With NeMo Data Designer, layering a custom attribute or persona on top of the released artifact is a few lines of config.
 #
 # To make the customization story concrete, the cell below adds a **`tech_persona`** dimension (with a specific list of `tech_tools` they use) that wasn't in the original Nemotron-Personas schema. The same pattern (one Pydantic schema + one `LLMStructuredColumnConfig` + one expression column per output field) generalizes to any domain-specific dimension you need.
 
@@ -701,8 +725,8 @@ preview.display_sample_record()
 # %% [markdown]
 # # ⏭️ Next Steps
 #
-# 1. Everything above is just an example of personas that can be generated. These personas are not set in stone and can be easily adjusted. For example, if you need a different type of persona for *-Nemotron, tweak or extend the pipeline (Section 5 demonstrates the pattern).
+# 1. Everything above is just an example of personas that can be generated. These personas are not set in stone and can be easily adjusted. For example, if your downstream model needs a different type of persona, tweak or extend the pipeline (Section 5 demonstrates the pattern).
 #
-# 2. You should be able to use this notebook as is to generate Nemotron-Personas for any of the [supported locales](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) by changing `personas_locale` and re-running the download cell. For a brand-new region without an NGC dataset, flip `SAMPLE_FROM_SDG_PGM = True` and provide a custom [SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs) generator (the OCEAN helpers in Section 2 are the Stage 1 scaffolding for that path).
+# 2. You should be able to use this notebook as is to generate Nemotron-Personas for any of the [supported locales](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) by changing `personas_locale` (and running `data-designer download personas --locale <code>` once for the new locale). For a brand-new region without an NGC dataset, flip `SAMPLE_FROM_SDG_PGM = True` and provide a custom [SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs) generator (the OCEAN helpers in Section 2 are the Stage 1 scaffolding for that path).
 #     - You may need to adjust and/or translate prompts to your region's language(s)
 #     - You may need to work with a different LLM that is better suited for your region

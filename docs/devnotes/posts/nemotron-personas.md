@@ -16,37 +16,41 @@ authors:
 
 # **Inside Nemotron-Personas: Multi-Locale Synthetic Personas Powering Nemotron Training**
 
-The [Nemotron-Personas HF collection](https://huggingface.co/collections/nvidia/nemotron-personas) is a growing family of multilingual, region-specific synthetic persona datasets (currently covering seven countries and nine language variants with roughly **53 million personas** in total), each grounded in real-world demographic and geographic distributions. Behind every dataset is the same NeMo Data Designer compound-AI pipeline, adapted per region. And while the public release is a useful artifact in its own right, what's less visible is just how much these personas show up in **Nemotron model training itself** — seeding long-context samples, tool-use rollouts, formal-logic data, safety refusals, and general chat. This post pulls back the curtain on both halves of that story: how the collection is built, and how it is used.
+The [Nemotron-Personas HF collection](https://huggingface.co/collections/nvidia/nemotron-personas) is a growing family of multilingual, region-specific synthetic persona datasets (currently covering seven countries and nine language variants with roughly **53 million personas** in total), each grounded in real-world demographic and geographic distributions. Behind every dataset is the same [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) compound-AI pipeline, adapted per region. And while the public release is a useful artifact in its own right, what's less visible is just how much these personas show up in **[Nemotron model training itself](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf)**: seeding long-context samples, tool-use rollouts, formal-logic data, safety refusals, and general chat. This post pulls back the curtain on both halves of that story: how the collection is built, and how it is used.
 
 <!-- more -->
 
+> **Want to dive straight into code?** Open the [tutorial notebook in Colab](https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb) — or read on for the full story.
+
 <p align="center">
   <img src="assets/nemotron-personas/nemotron-personas-world-map.png" alt="Nemotron-Personas collection" width="900" />
+  <br>
+  <em>The Nemotron-Personas collection at a glance: seven countries, nine language variants, ~53M personas grounded in real demographic and geographic distributions.</em>
 </p>
 
 ---
+
+
 
 ## **Why grounded synthetic personas matter**
 
 It's easy to underestimate what a really good persona seed buys you. Three angles worth keeping in mind:
 
-1. **Distributional faithfulness for sovereign AI.** Models trained on synthetic data that doesn't reflect the actual demographics of a region inherit subtle biases — over-representing some groups, under-representing others, getting cultural context wrong. For sovereign-AI work, that's not a rounding error; it's the whole problem. Grounding personas in census + administrative data closes that gap before the LLM ever sees the data.
+1. **Distributional faithfulness for sovereign AI.** Models trained on synthetic data that doesn't reflect the actual demographics of a region inherit subtle biases: over-representing some groups, under-representing others, getting cultural context wrong. For sovereign-AI work, this matters a lot. Grounding personas in census + administrative data closes that gap before the LLM ever sees the data.
 
 2. **Diversity that random sampling can't produce.** "Generate 10,000 customer queries" with no seed and an LLM will give you 10,000 variations on the same handful of latent personas. Conditioning each query on a distinct, demographically-grounded persona forces the model to span the actual population it'll be deployed against — the conscientious 62-year-old retired electrician in Pittsburgh, the 24-year-old graduate student in Bengaluru, the elementary-school teacher in Lille. Each yields a meaningfully different prompt.
 
 3. **Reusable seed material.** Once a persona has a name, a demographic profile, an OCEAN vector, and a coherent backstory, *any* downstream pipeline can attach to it: a tool-use environment, a long-context construction, a safety-refusal template, a roleplay scenario. The collection acts as a library — generate the personas once, reuse them across training stages.
 
-That last point is the bridge to the rest of this post.
-
 ---
 
 ## **Nemotron-Personas inside Nemotron training**
 
-The [Nemotron 3 Super Technical Report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf) shows just how foundational these personas have become. They're not a side-quest dataset; they're a *seeding primitive* used across many post-training stages.
+The [Nemotron 3 Super Technical Report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf) shows just how foundational these personas have become. They're a *seeding primitive* used across many post-training stages.
 
 ### Long-context samples
 
-Long-context training data is hard to source — you need genuinely long, coherent sequences that aren't just concatenations of unrelated documents. Persona records, by virtue of being self-contained narratives with rich attributes, concatenate cleanly:
+Long-context training data is hard to source. You need genuinely long, coherent sequences that aren't just concatenations of unrelated documents. Persona records, by virtue of being self-contained narratives with rich attributes, concatenate cleanly:
 
 > *"We also construct long-context samples by concatenating records from [Nemotron-Personas-USA](https://huggingface.co/datasets/nvidia/Nemotron-Personas-USA) to reach the required sequence length."*
 >
@@ -64,9 +68,9 @@ Tool-use trajectories require a *user* with a goal, not just a tool set. The Sup
 
 Seeding the user side with a real persona is what makes the rollouts feel like authentic conversations — the user's goals, communication style, and frustration patterns all flow from their underlying attributes. The agent has to handle the variance that real users actually produce, not the narrow band of "well-behaved benchmark user" prompts.
 
-A closely related approach was used to build **Nemotron-Nano-9B-v2-Japanese**, NVIDIA's Japanese small language model that ranks **#1 on the Nejumi LLM Leaderboard**. The Japanese instruction-following + general-chat data was seeded by [Nemotron-Personas-Japan](https://huggingface.co/datasets/nvidia/Nemotron-Personas-Japan), with prompts and assistant responses anchored to Japanese-grounded personas. That's the multi-locale story turning into a multi-locale model story: a Japanese persona collection, generated by a localized DD pipeline, becomes the seeding layer for a Japanese model that beats the leaderboard.
+A closely related approach was used to build **Nemotron-Nano-9B-v2-Japanese**, NVIDIA's Japanese small language model that ranks **#1 on the Nejumi LLM Leaderboard**. The Japanese instruction-following + general-chat data was seeded by [Nemotron-Personas-Japan](https://huggingface.co/datasets/nvidia/Nemotron-Personas-Japan), with prompts and assistant responses anchored to Japanese-grounded personas. A Japanese persona collection, generated by a localized DD pipeline, becomes the seeding layer for a Japanese model that beats the leaderboard.
 
-The same template is being used across the family — instruction-following and general-chat data going into Nemotron Nano v3 (and from there into Super v3) follows the same persona-seeded recipe.
+The same template is being used across the family — instruction-following and general-chat data going into Nemotron Nano v3 and Super v3 follows the same persona-seeded recipe.
 
 ### Synthetic formal-logic data
 
@@ -84,7 +88,7 @@ The SSCR dataset — used in Nemotron's safety blend — leverages Nemotron-Pers
 
 ### General chat and instruction following
 
-The same persona-seeding pattern that powers tool-use rollouts also powers the broader general-chat and instruction-following data that flows into Nemotron Nano v3 and from there into Super v3. A chat or instruction sample is a function of *who* is asking — their goals, their constraints, their communication style — and personas are how the pipeline encodes "who."
+The same persona-seeding pattern that powers tool-use rollouts also powers the broader general-chat and instruction-following data that flows into Nemotron Nano v3 and Super v3. A chat or instruction sample is a function of *who* is asking — their goals, their constraints, their communication style — and personas are how the pipeline encodes "who."
 
 ---
 
@@ -96,9 +100,9 @@ Across all locales, the construction pipeline is the same four-stage shape (the 
   <img src="assets/nemotron-personas/nemotron_persona_via_ndd.png" alt="Pipeline overview: PGM demographics + OCEAN traits seed two stages of structured-output LLM generation" width="600" />
 </p>
 
-### Stage 1 — OCEAN Big-Five sampling
+### Stage 1: OCEAN Big-Five sampling
 
-OCEAN ([Big Five personality traits](https://en.wikipedia.org/wiki/Big_Five_personality_traits)) is the most empirically grounded model of human personality. For each persona we sample five trait T-scores (\(\mu = 50\), \(\sigma = 10\), clipped to \([20, 80]\)), bucket each into a coarse label, and attach a prose description grounded in the personality literature. Working at the description level (rather than raw scores) is what makes the downstream LLM stages produce nuanced, internally-consistent narratives — "highly conscientious" vs "highly extraverted" reads very differently to an LLM than `t_score=72`.
+OCEAN ([Big Five personality traits](https://en.wikipedia.org/wiki/Big_Five_personality_traits)) is the most empirically grounded model of human personality. For each persona we sample five trait T-scores (μ = 50, σ = 10, clipped to [20, 80]), bucket each into a coarse label, and attach a prose description grounded in the personality literature. Working at the description level (rather than raw scores) is what makes the downstream LLM stages produce nuanced, internally-consistent narratives — "highly conscientious" vs "highly extraverted" reads very differently to an LLM than `t_score=72`.
 
 The score-to-label mapping is shared across all five traits:
 
@@ -143,7 +147,7 @@ Personality profile:
 - {{ neuroticism.description }}
 ```
 
-### Stage 2 — Demographically-grounded sampling
+### Stage 2: Demographically-grounded sampling
 
 This is the engine of regional fidelity. For each locale, the goal is to produce a demographic record whose attributes correlate with each other the way real populations do — age × education × occupation × marital status × geography, with locale-specific extensions. Naive independent sampling produces nonsensical records (3-year-old surgeon married for 30 years living alone in Singapore); the released artifact pulls from [Probabilistic Graphical Models](https://en.wikipedia.org/wiki/Graphical_model) trained on real statistical distributions (census tables, administrative records, public surveys) so the correlations are statistically faithful.
 
@@ -168,27 +172,12 @@ config_builder.add_column(
 
 `{{ person.openness.description }}`, `{{ person.occupation }}`, `{{ person.county }}` all become available to downstream Jinja templates immediately. See the [Person Sampling docs](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) for the full setup walkthrough (NGC API key + `data-designer download personas --locale en_US`).
 
-**For new locales without a released artifact — or for teams that need full control over the demographic distributions** — the underlying engine, **SDG-PGMs**, was just open-sourced as [NVIDIA-NeMo/SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs). Its README states the connection plainly:
+!!! tip "Bring your own region: SDG-PGMs is open source"
+    For new locales without a released artifact — or for teams that need full control over the demographic distributions — the underlying engine, **SDG-PGMs**, was just open-sourced as [NVIDIA-NeMo/SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs):
 
 > *"Together with Data Designer, SDG-PGMs helps power the Nemotron-Personas HF collection — multilingual, region-specific synthetic persona datasets for sovereign AI development. The USA dataset alone contains 6M personas grounded in US Census data, with realistic demographic correlations across age, sex, geography, education, marital status, and 560+ occupations."*
 
-A first-class Data Designer plugin (`PGMGeneratorPluginConfig`) is **coming soon**. The eventual integration shape:
-
-```python
-# Coming soon — full Data Designer integration for custom PGMs:
-from data_designer_plugins.pgm_generator_plugin import PGMGeneratorPluginConfig
-
-config_builder.add_column(
-    PGMGeneratorPluginConfig(
-        name="person",
-        generator_class="my_generators.UsPersonGenerator",
-    )
-)
-```
-
-Until that lands, SDG-PGMs can be run standalone (output → seed parquet → `dd.LocalFileSeedSource`) to feed any Data Designer pipeline. Either way, Stage 2 produces a consistent demographic record per persona; the locale-specific fields (France's `name_heritage`, Korea's military/health indicators, India's multi-language stack, etc.) are layered in here, sourced from the relevant regional statistical bodies.
-
-### Stage 3 — Persona attributes via structured outputs
+### Stage 3: Persona attributes via structured outputs
 
 With OCEAN traits and demographic grounding in hand, the pipeline calls a reasoning LLM with a single `LLMStructuredColumnConfig` that materializes six rich attribute fields in one shot via a Pydantic schema:
 
@@ -238,7 +227,7 @@ Generate the cultural_background, skills_and_expertise, career_goals_and_ambitio
 
 The system prompt forces internal consistency ("attributes that are internally consistent and logically connected to the base persona details"), cultural sensitivity ("avoid stereotypes while acknowledging cultural influences"), and specificity ("create specific, detailed responses rather than generic ones"). Pydantic schema enforcement means every record's attributes parse cleanly downstream.
 
-### Stage 4 — Persona descriptions
+### Stage 4: Persona descriptions
 
 The final stage is a second structured-output LLM call that synthesizes everything above into nine cohesive persona descriptions: `professional_persona`, `finance_persona`, `healthcare_persona`, `sports_persona`, `arts_persona`, `travel_persona`, `culinary_persona`, `concise_persona`, and a paragraph-length `detailed_persona`.
 
@@ -289,11 +278,11 @@ The system prompt contains explicit guardrails: include the name in every descri
 
 ---
 
-## **Building your own — the customization story**
+## **Building your own: the customization story**
 
-The released artifact is the *general-purpose* collection. In practice, every team that uses these personas downstream extends them in some way. NeMo Data Designer makes that trivial: the same `LLMStructuredColumnConfig` + `ExpressionColumnConfig` pattern that builds the released schema can be used to layer on any custom dimension you need.
+The released artifact is the *general-purpose* collection. In practice, most downstream pipelines that use these personas extend them in some way. NeMo Data Designer makes that trivial: the same `LLMStructuredColumnConfig` + `ExpressionColumnConfig` pattern that builds the released schema can be used to layer on any custom dimension you need.
 
-The accompanying [Data Designer Tutorial: Reproducing & Customizing Nemotron-Personas](#try-it-yourself) walks through a concrete example. After reproducing the released schema with a `PersonSampler` against the NGC-hosted dataset, the tutorial adds a custom `tech_persona` dimension with two new fields — a prose description of the persona's relationship with technology, plus a list of specific tech tools they use:
+The accompanying [Data Designer Tutorial: Reproducing & Customizing Nemotron-Personas](#try-it-yourself) walks through a concrete example. After reproducing the released schema with a `PersonSampler` against the NGC-hosted dataset, the tutorial adds a custom `tech_persona` dimension with two new fields: a prose description of the persona's relationship with technology, plus a list of specific tech tools they use:
 
 ```python
 import data_designer.config as dd
@@ -362,7 +351,7 @@ tech_tools    ['MacBook Air', 'iPad Pro 12.9', 'iPhone 14', 'Google Classroom',
                'Microsoft OneNote', 'ChatGPT']
 ```
 
-That's it — a few lines of Pydantic + one LLM column + a couple of expression columns and the released schema picks up two brand-new domain-specific fields. The same pattern scales: a healthcare provider extends with `medical_history_persona` and `insurance_persona`; a media company extends with `media_consumption_persona` and `subscription_stack`; a financial-services team extends with `investment_persona` and `risk_tolerance_persona`. The PGM-grounded base record stays the seed; everything else is one schema away.
+A few lines of Pydantic + one LLM column + a couple of expression columns and the released schema picks up two brand-new domain-specific fields. The same pattern scales: a healthcare provider extends with `medical_history_persona` and `insurance_persona`; a media company extends with `media_consumption_persona` and `subscription_stack`; a financial-services team extends with `investment_persona` and `risk_tolerance_persona`. The PGM-grounded base record stays the seed; everything else is one schema away.
 
 ### Going deeper: build a brand-new locale
 
@@ -376,17 +365,13 @@ The full reproduction-and-customization tutorial covers every detail in this pos
 
 <a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
-- **Tutorial notebook:** [Reproducing & Customizing Nemotron-Personas](../../notebooks/7-nemotron-personas.ipynb) — runs locally end-to-end; takes ~5 min on `gpt-oss-20b` for a 5-record smoke run.
-- **Colab:** click the badge above to launch the same notebook on Colab. The injected setup cells handle the `NVIDIA_API_KEY` / `NGC_API_KEY` ceremony from Colab Secrets and install the NGC CLI before the persona dataset download.
-- **NGC dataset setup (local):** see the [Person Sampling docs](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) for the full walkthrough (NGC API key + NGC CLI + `data-designer download personas --locale en_US`).
-
-Switching locales is a one-liner: change `personas_locale = "en_US"` to any of `en_IN`, `en_SG`, `fr_FR`, `hi_Deva_IN`, `hi_Latn_IN`, `ja_JP`, `ko_KR`, `pt_BR` and re-run the download cell. Everything downstream stays the same.
+Switching locales is a one-liner: change `personas_locale = "en_US"` to any of `en_IN`, `en_SG`, `fr_FR`, `hi_Deva_IN`, `hi_Latn_IN`, `ja_JP`, `ko_KR`, `pt_BR` (and run `data-designer download personas --locale <code>` once for the new locale). Everything downstream stays the same.
 
 ---
 
 ## **Closing thoughts**
 
-The headline number on the [Nemotron-Personas HF collection](https://huggingface.co/collections/nvidia/nemotron-personas) is the persona count, but the real story is that **a single, modular, locale-adaptable pipeline produces seed material that recurs throughout Nemotron's training stack**. Long-context construction, tool-use rollouts, formal-logic variability, safety refusals, instruction-following data — all of them lean on the same underlying primitive. That's the compound-AI bet paying off: build the right primitive once, and many downstream pipelines stop being one-off projects.
+The headline number on the [Nemotron-Personas HF collection](https://huggingface.co/collections/nvidia/nemotron-personas) is the persona count, but the real story is that **a single, modular, locale-adaptable pipeline produces seed material that recurs throughout Nemotron's training stack**. Long-context construction, tool-use rollouts, formal-logic variability, safety refusals, instruction-following data — all of them lean on the same underlying primitive. Building the right primitive once means many downstream pipelines stop being one-off projects.
 
 If you're building region-specific synthetic data for your own model, the path is clear: take a locale's released artifact, layer your domain-specific dimensions on top with a few lines of Data Designer config, and you have a custom dataset that inherits all the demographic grounding the original artifact carries.
 

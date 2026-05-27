@@ -48,41 +48,29 @@ try:
 except userdata.SecretNotFoundError:
     os.environ["NVIDIA_API_KEY"] = getpass.getpass("Enter your NVIDIA API key: ")"""
 
-# Optional per-file Colab setup cells, injected immediately after the standard
-# install + NVIDIA_API_KEY cells. Used by tutorials that need additional Colab
-# bootstrapping (e.g. NGC CLI install + NGC_API_KEY for the Nemotron-Personas
-# tutorial).
-NGC_CLI_INSTALL_CELL = """\
-%%capture
-import os
-
-# Install the NGC CLI (used by `data-designer download personas` to fetch the
-# managed Nemotron-Personas dataset). Pinned to a known-good version; bump as
-# needed when NGC publishes new releases.
-!wget -q --no-cache "https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/3.164.0/files/ngccli_linux.zip" -O /tmp/ngccli_linux.zip
-!unzip -q -o /tmp/ngccli_linux.zip -d /tmp
-!chmod u+x /tmp/ngc-cli/ngc
-os.environ["PATH"] = f"/tmp/ngc-cli:{os.environ['PATH']}\""""
-
-NGC_API_KEY_CELL = """\
-import getpass
-import os
-
-from google.colab import userdata
-
+# Per-file try/except snippets appended into the standard NVIDIA_API_KEY cell
+# so additional API keys share the same imports rather than producing a
+# duplicate-imports cell. The snippets are joined with blank lines.
+NGC_API_KEY_BLOCK = """\
 try:
     os.environ["NGC_API_KEY"] = userdata.get("NGC_API_KEY")
 except userdata.SecretNotFoundError:
     os.environ["NGC_API_KEY"] = getpass.getpass("Enter your NGC API key: ")"""
 
-ADDITIONAL_SETUP_CELLS: dict[str, list[str]] = {
-    "7-nemotron-personas.py": [NGC_CLI_INSTALL_CELL, NGC_API_KEY_CELL],
+# Optional per-file Colab setup cells, injected immediately after the standard
+# install + NVIDIA_API_KEY cells. Currently unused; left in place so future
+# tutorials can register additional one-shot Colab bootstrap cells.
+ADDITIONAL_SETUP_CELLS: dict[str, list[str]] = {}
+
+ADDITIONAL_API_KEY_BLOCKS: dict[str, list[str]] = {
+    "7-nemotron-personas.py": [NGC_API_KEY_BLOCK],
 }
 
 
 def create_colab_setup_cells(
     additional_dependencies: str,
     additional_setup_cell_sources: list[str] | None = None,
+    additional_api_key_blocks: list[str] | None = None,
 ) -> list[NotebookNode]:
     """Create the Colab-specific setup cells to inject before imports."""
     cells = []
@@ -93,7 +81,10 @@ def create_colab_setup_cells(
         install_cell += f" {additional_dependencies}"
     cells += [new_code_cell(source=install_cell)]
 
-    cells += [new_code_cell(source=COLAB_API_KEY_CELL)]
+    api_key_cell = COLAB_API_KEY_CELL
+    if additional_api_key_blocks:
+        api_key_cell = "\n\n".join([api_key_cell, *additional_api_key_blocks])
+    cells += [new_code_cell(source=api_key_cell)]
 
     if additional_setup_cell_sources:
         cells += [new_code_cell(source=src) for src in additional_setup_cell_sources]
@@ -128,6 +119,7 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
 
     additional_dependencies = ADDITIONAL_DEPENDENCIES.get(source_path.name, "")
     additional_setup_cells = ADDITIONAL_SETUP_CELLS.get(source_path.name)
+    additional_api_key_blocks = ADDITIONAL_API_KEY_BLOCKS.get(source_path.name)
 
     # Find where to insert Colab setup (before "Import the essentials")
     import_idx = find_import_section_index(cells)
@@ -137,7 +129,11 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
         import_idx = 1
 
     # Insert Colab setup cells before the import section
-    colab_cells = create_colab_setup_cells(additional_dependencies, additional_setup_cells)
+    colab_cells = create_colab_setup_cells(
+        additional_dependencies,
+        additional_setup_cells,
+        additional_api_key_blocks,
+    )
     processed_cells = cells[:import_idx] + colab_cells + cells[import_idx:]
 
     badge_source = COLAB_BADGE_TEMPLATE.format(filename=f"{source_path.stem}.ipynb")
