@@ -34,6 +34,7 @@ from data_designer.engine.column_generators.generators.base import (
     FromScratchColumnGenerator,
 )
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
+from data_designer.engine.context import current_row_group_start_offset
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
@@ -561,6 +562,48 @@ async def test_scheduler_multiple_row_groups() -> None:
     assert tracker.is_row_group_complete(0, 2, ["seed", "cell_out"])
     assert tracker.is_row_group_complete(1, 2, ["seed", "cell_out"])
     assert tracker.is_row_group_complete(2, 1, ["seed", "cell_out"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_sets_row_group_start_offsets_for_generators() -> None:
+    """Ordered generators can seek by planned row-group offset during async resume."""
+
+    class OffsetSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+        @staticmethod
+        def get_generation_strategy() -> GenerationStrategy:
+            return GenerationStrategy.FULL_COLUMN
+
+        def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+            return data
+
+        def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+            offset = current_row_group_start_offset.get()
+            assert offset is not None
+            return lazy.pd.DataFrame({"seed": list(range(offset, offset + num_records))})
+
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": OffsetSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+    row_groups = [(1, 1), (3, 1)]
+
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = _make_storage()
+    buffer_manager = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        row_group_start_offsets={1: 1, 3: 3},
+    )
+    await scheduler.run()
+
+    assert buffer_manager.get_row(1, 0)["seed"] == 1
+    assert buffer_manager.get_row(3, 0)["seed"] == 3
 
 
 @pytest.mark.asyncio(loop_scope="session")

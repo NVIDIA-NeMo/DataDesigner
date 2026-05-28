@@ -25,7 +25,7 @@ from data_designer.engine.capacity import (
     RequestAdmissionConfigSnapshot,
     RowGroupAdmission,
 )
-from data_designer.engine.context import current_row_group
+from data_designer.engine.context import current_row_group, current_row_group_start_offset
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
@@ -170,6 +170,7 @@ class AsyncTaskScheduler:
         progress_bar: bool = False,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
         run_id: str | None = None,
+        row_group_start_offsets: dict[int, int] | None = None,
         adaptive_row_group_admission: bool = False,
         adaptive_row_group_initial_target: int = 1,
         request_pressure_provider: RequestPressureSnapshotProvider | None = None,
@@ -288,6 +289,9 @@ class AsyncTaskScheduler:
 
         # Pre-compute row-group sizes for O(1) lookup
         self._rg_size_map: dict[int, int] = dict(row_groups)
+        self._rg_start_offset_map: dict[int, int] = row_group_start_offsets or self._build_row_group_start_offsets(
+            row_groups
+        )
         self._max_concurrent_row_groups = max_concurrent_row_groups
         self._max_in_flight_tasks = max_in_flight_tasks
         self._max_model_task_admission = max_model_task_admission
@@ -323,6 +327,15 @@ class AsyncTaskScheduler:
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
         self._progress_bar = StickyProgressBar() if progress_bar else None
         self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
+
+    @staticmethod
+    def _build_row_group_start_offsets(row_groups: list[tuple[int, int]]) -> dict[int, int]:
+        offsets: dict[int, int] = {}
+        next_offset = 0
+        for rg_id, rg_size in row_groups:
+            offsets[rg_id] = next_offset
+            next_offset += rg_size
+        return offsets
 
     def _setup_async_progress_reporter(
         self,
@@ -1550,6 +1563,7 @@ class AsyncTaskScheduler:
         """Core task execution logic."""
         num_rgs = len(self._row_groups)
         token = current_row_group.set((task.row_group, num_rgs))
+        start_offset_token = current_row_group_start_offset.set(self._rg_start_offset_map.get(task.row_group))
         group = lease.item.group
         identity_hash = hashlib.sha1("\0".join(group.key.identity).encode()).hexdigest()[:16]
         correlation_token = runtime_correlation_provider.set(
@@ -1567,6 +1581,7 @@ class AsyncTaskScheduler:
             await self._execute_task_inner_impl(task, lease, task_execution_id)
         finally:
             runtime_correlation_provider.reset(correlation_token)
+            current_row_group_start_offset.reset(start_offset_token)
             current_row_group.reset(token)
 
     async def _execute_task_inner_impl(self, task: Task, lease: TaskAdmissionLease, task_execution_id: str) -> None:

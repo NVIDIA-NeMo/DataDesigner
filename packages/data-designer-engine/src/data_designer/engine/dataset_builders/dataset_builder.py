@@ -35,6 +35,7 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
+from data_designer.engine.context import current_row_group, current_row_group_start_offset
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
@@ -583,6 +584,7 @@ class DatasetBuilder:
                 group_id=group_id,
                 current_batch_number=batch_idx,
                 on_batch_complete=on_batch_complete,
+                row_group_start_offset=sum(self.batch_manager.num_records_list[:batch_idx]),
             )
         self.batch_manager.finish()
         return True
@@ -845,6 +847,7 @@ class DatasetBuilder:
         trace_enabled = _is_async_trace_enabled(settings)
 
         precomputed_row_groups: list[tuple[int, int]] | None = None
+        row_group_start_offsets: dict[int, int] | None = None
         initial_actual_num_records = 0
         initial_total_num_batches = 0
         original_target = num_records  # immutable original target; overridden on resume
@@ -890,12 +893,19 @@ class DatasetBuilder:
                 f"complete ({initial_actual_num_records} records), skipping them."
             )
 
+            all_row_group_start_offsets: dict[int, int] = {}
+            next_offset = 0
+            for rg_id in range(total_row_groups):
+                all_row_group_start_offsets[rg_id] = next_offset
+                next_offset += _rg_size(rg_id)
+
             # Pre-compute the full row-group list with correct per-group sizes so that
             # non-aligned skipped groups deduct their actual on-disk record count rather
             # than buffer_size, keeping extension group sizes accurate.
             precomputed_row_groups = [
                 (rg_id, _rg_size(rg_id)) for rg_id in range(total_row_groups) if rg_id not in completed_ids
             ]
+            row_group_start_offsets = {rg_id: all_row_group_start_offsets[rg_id] for rg_id, _ in precomputed_row_groups}
 
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
@@ -920,6 +930,7 @@ class DatasetBuilder:
             disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
             precomputed_row_groups=precomputed_row_groups,
+            row_group_start_offsets=row_group_start_offsets,
             initial_actual_num_records=initial_actual_num_records,
             initial_total_num_batches=initial_total_num_batches,
         )
@@ -989,6 +1000,7 @@ class DatasetBuilder:
         disable_early_shutdown: bool = False,
         trace: bool = False,
         precomputed_row_groups: list[tuple[int, int]] | None = None,
+        row_group_start_offsets: dict[int, int] | None = None,
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
@@ -1079,6 +1091,7 @@ class DatasetBuilder:
             trace=trace,
             num_records=num_records,
             buffer_size=buffer_size,
+            row_group_start_offsets=row_group_start_offsets,
             progress_interval=self._resource_provider.run_config.progress_interval,
             progress_bar=self._resource_provider.run_config.progress_bar,
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
@@ -1127,47 +1140,61 @@ class DatasetBuilder:
         group_id: str,
         current_batch_number: int | None = None,
         on_batch_complete: Callable[[Path], None] | None = None,
+        row_group_start_offset: int | None = None,
     ) -> None:
+        row_group_token = None
+        start_offset_token = None
+        if row_group_start_offset is not None:
+            if current_batch_number is not None:
+                row_group_token = current_row_group.set((current_batch_number, self.batch_manager.num_batches))
+            start_offset_token = current_row_group_start_offset.set(row_group_start_offset)
+
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
         ran_pre_batch = False
-        for generator in generators:
-            generator.log_pre_generation()
-            try:
-                generation_strategy = generator.get_generation_strategy()
-                if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
-                    self._run_from_scratch_column_generator(generator)
-                    # Run PRE_BATCH after seed generator, before other columns
-                    if not ran_pre_batch:
-                        self._processor_runner.run_pre_batch(self.batch_manager)
-                        ran_pre_batch = True
-                elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
-                    self._run_cell_by_cell_generator(generator)
-                elif generation_strategy == GenerationStrategy.FULL_COLUMN:
-                    self._run_full_column_generator(generator)
-                else:
-                    logger.error(f"❌ Unknown generation strategy: {generation_strategy}")
-                    raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generation_strategy}")
-                if save_partial_results:
-                    self.batch_manager.write()
-            except Exception as e:
-                column_error_str = (
-                    f"columns {generator.config.column_names}"
-                    if hasattr(generator.config, "column_names")
-                    else f"column {generator.config.name!r}"
-                )
-                raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
-
         try:
-            usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
-            self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
-        except Exception:
-            pass
+            for generator in generators:
+                generator.log_pre_generation()
+                try:
+                    generation_strategy = generator.get_generation_strategy()
+                    if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
+                        self._run_from_scratch_column_generator(generator)
+                        # Run PRE_BATCH after seed generator, before other columns
+                        if not ran_pre_batch:
+                            self._processor_runner.run_pre_batch(self.batch_manager)
+                            ran_pre_batch = True
+                    elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
+                        self._run_cell_by_cell_generator(generator)
+                    elif generation_strategy == GenerationStrategy.FULL_COLUMN:
+                        self._run_full_column_generator(generator)
+                    else:
+                        logger.error(f"❌ Unknown generation strategy: {generation_strategy}")
+                        raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generation_strategy}")
+                    if save_partial_results:
+                        self.batch_manager.write()
+                except Exception as e:
+                    column_error_str = (
+                        f"columns {generator.config.column_names}"
+                        if hasattr(generator.config, "column_names")
+                        else f"column {generator.config.name!r}"
+                    )
+                    raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
 
-        if current_batch_number is not None:
-            df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
-            df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=current_batch_number)
-            self._write_processed_batch(df_batch)
-            self.batch_manager.finish_batch(on_batch_complete)
+            try:
+                usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
+                self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
+            except Exception:
+                pass
+
+            if current_batch_number is not None:
+                df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
+                df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=current_batch_number)
+                self._write_processed_batch(df_batch)
+                self.batch_manager.finish_batch(on_batch_complete)
+        finally:
+            if start_offset_token is not None:
+                current_row_group_start_offset.reset(start_offset_token)
+            if row_group_token is not None:
+                current_row_group.reset(row_group_token)
 
     def _run_from_scratch_column_generator(self, generator: ColumnGenerator) -> None:
         df = generator.generate_from_scratch(self.batch_manager.num_records_batch)

@@ -12,12 +12,18 @@ import pytest
 import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import SkipConfig
-from data_designer.config.column_configs import CustomColumnConfig, LLMTextColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import (
+    CustomColumnConfig,
+    ExpressionColumnConfig,
+    LLMTextColumnConfig,
+    SamplerColumnConfig,
+)
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
+from data_designer.config.seed import IndexRange, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
@@ -1595,6 +1601,64 @@ def _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_p
     )
 
 
+def test_build_resume_ordered_seed_dataset_continues_from_next_planned_row(stub_resource_provider, tmp_path):
+    """Regression for issue #709: resume must not replay ordered seed rows."""
+
+    class StopAfterFirstBatch(RuntimeError):
+        pass
+
+    seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"name": ["alpha", "beta", "gamma"]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(
+        seed_source,
+        sampling_strategy=SamplingStrategy.ORDERED,
+        selection_strategy=IndexRange(start=0, end=2),
+    )
+    config_builder.add_column(ExpressionColumnConfig(name="copy", expr="{{ name }}"))
+
+    storage = _ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset", resume=ResumeMode.NEVER)
+    stub_resource_provider.artifact_storage = storage
+    stub_resource_provider.seed_reader = seed_reader
+    stub_resource_provider.run_config = RunConfig(disable_early_shutdown=True, buffer_size=1)
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    def stop(_path: _Path) -> None:
+        raise StopAfterFirstBatch("simulated interruption")
+
+    with pytest.raises(StopAfterFirstBatch, match="simulated interruption"):
+        builder.build(num_records=3, on_batch_complete=stop, resume=ResumeMode.NEVER)
+
+    resumed_seed_reader = DataFrameSeedReader()
+    resumed_seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = resumed_seed_reader
+    stub_resource_provider.artifact_storage = _ArtifactStorage(
+        artifact_path=tmp_path,
+        dataset_name="dataset",
+        resume=ResumeMode.ALWAYS,
+    )
+
+    resumed_builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    final_path = resumed_builder.build(num_records=3, resume=ResumeMode.ALWAYS)
+    result = lazy.pd.concat(
+        [lazy.pd.read_parquet(path) for path in sorted(final_path.glob("batch_*.parquet"))],
+        ignore_index=True,
+    )
+
+    assert result["name"].tolist() == ["alpha", "beta", "gamma"]
+    assert result["copy"].tolist() == ["alpha", "beta", "gamma"]
+
+
 def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
     """resume=True when only the folder exists (no metadata.json) logs an info message and starts fresh.
 
@@ -2197,6 +2261,48 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
     # Filesystem says 2 groups done (IDs 0+1) → 2+2 = 4 records, not stale metadata value 2
     assert captured["initial_actual_num_records"] == 4
     assert captured["initial_total_num_batches"] == 2
+
+
+def test_build_async_resume_passes_planned_offsets_for_remaining_row_groups(
+    stub_resource_provider,
+    stub_test_config_builder,
+    tmp_path,
+):
+    """Async resume tells generators each remaining row group's original planned start offset."""
+    import asyncio as stdlib_asyncio
+
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(dataset_dir, target_num_records=4, buffer_size=1, num_completed_batches=2, actual_num_records=2)
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 2], row_counts={0: 1, 2: 1})
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=1)
+    captured: dict = {}
+
+    def capturing_prepare(*args, **kwargs):
+        captured["precomputed_row_groups"] = kwargs.get("precomputed_row_groups")
+        captured["row_group_start_offsets"] = kwargs.get("row_group_start_offsets")
+        mock_scheduler = Mock()
+        mock_scheduler.traces = []
+        mock_scheduler.early_shutdown = False
+        mock_scheduler.partial_row_groups = ()
+        mock_scheduler.first_non_retryable_error = None
+        mock_buffer_manager = Mock()
+        mock_buffer_manager.actual_num_records = 4
+        return mock_scheduler, mock_buffer_manager
+
+    mock_future = Mock()
+    mock_future.result = Mock(return_value=None)
+
+    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                            builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+    assert captured["precomputed_row_groups"] == [(1, 1), (3, 1)]
+    assert captured["row_group_start_offsets"] == {1: 1, 3: 3}
 
 
 def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_group(

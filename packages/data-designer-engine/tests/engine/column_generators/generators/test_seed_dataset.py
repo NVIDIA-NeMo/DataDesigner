@@ -19,6 +19,7 @@ from data_designer.engine.column_generators.generators.seed_dataset import (
     SeedDatasetColumnGenerator,
 )
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
+from data_designer.engine.context import current_row_group_start_offset
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.resources.seed_reader import LocalFileSeedReader
@@ -240,6 +241,48 @@ def test_seed_dataset_column_generator_reset_batch_reader_forwards_index_range(
         shuffle=False,
     )
     assert gen._batch_reader == mock_batch_reader
+
+
+def test_seed_dataset_column_generator_reset_batch_reader_applies_record_offset(
+    stub_seed_dataset_generator,
+) -> None:
+    gen = stub_seed_dataset_generator
+    mock_batch_reader = Mock()
+    gen._index_range = IndexRange(start=4, end=8)
+    gen.resource_provider.seed_reader.create_batch_reader.return_value = mock_batch_reader
+
+    gen._reset_batch_reader(100, record_offset=3)
+
+    gen.resource_provider.seed_reader.create_batch_reader.assert_called_once_with(
+        batch_size=100,
+        index_range=IndexRange(start=7, end=8),
+        shuffle=False,
+    )
+    assert gen._batch_reader == mock_batch_reader
+
+
+def test_seed_dataset_column_generator_ordered_generation_uses_row_group_offset(
+    stub_seed_dataset_generator,
+) -> None:
+    gen = stub_seed_dataset_generator
+    mock_batch = Mock()
+    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": [3]})
+    mock_batch_reader = Mock()
+    mock_batch_reader.read_next_batch.return_value = mock_batch
+    gen.resource_provider.seed_reader.create_batch_reader.return_value = mock_batch_reader
+
+    token = current_row_group_start_offset.set(3)
+    try:
+        result = gen.generate_from_scratch(1)
+    finally:
+        current_row_group_start_offset.reset(token)
+
+    assert result["col1"].tolist() == [3]
+    gen.resource_provider.seed_reader.create_batch_reader.assert_called_once_with(
+        batch_size=1,
+        index_range=IndexRange(start=3, end=999),
+        shuffle=False,
+    )
 
 
 def test_seed_dataset_column_generator_sample_records_simple(stub_seed_dataset_generator):
