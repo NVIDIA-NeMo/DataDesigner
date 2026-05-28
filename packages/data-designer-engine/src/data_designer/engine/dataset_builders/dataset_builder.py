@@ -119,8 +119,19 @@ class _ResumeState:
     completed_row_groups: dict[int, int]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class RowGroupResumePlan:
+    """Plan describing the row groups left to generate when resuming an async run.
+
+    Attributes:
+        total_row_groups: Total row group count for the full target (original + extension).
+        remaining_row_groups: ``(rg_id, rg_size)`` for groups not yet on disk, in id order.
+        row_group_start_offsets: ``rg_id -> planned start offset`` for the remaining
+            groups, computed from the original plan so completed-group sizes are
+            preserved (offsets are not recomputed from the remaining list, which
+            would shift them when there are holes).
+    """
+
     total_row_groups: int
     remaining_row_groups: list[tuple[int, int]]
     row_group_start_offsets: dict[int, int]
@@ -133,6 +144,27 @@ def build_row_group_resume_plan(
     buffer_size: int,
     completed_ids: set[int],
 ) -> RowGroupResumePlan:
+    """Compute the remaining row-group plan for an async resume.
+
+    Original groups are immutable: their per-group sizes were fixed by the first
+    run's ``original_target_num_records`` and ``buffer_size``. Any extension
+    (``num_records > original_target``) always adds new groups beyond the
+    original count — ``ceil(num_records/buffer_size)`` would give the wrong
+    total when the original run was non-aligned and the extension fits in the
+    last original group's slack.
+
+    Args:
+        original_target: Target record count from the first run (immutable).
+        num_records: Current target record count (may extend ``original_target``).
+        buffer_size: Records per row group.
+        completed_ids: Row-group IDs already persisted on disk.
+
+    Returns:
+        A ``RowGroupResumePlan`` whose ``row_group_start_offsets`` are taken from
+        the full original plan, so the offset for ``rg_id`` is the same whether
+        or not earlier groups have completed. This is what lets ordered seed
+        generators seek to the correct row when resuming with holes.
+    """
     num_original_groups = -(-original_target // buffer_size)
     extension_records = num_records - original_target
     total_row_groups = num_original_groups + -(-extension_records // buffer_size)
@@ -1162,11 +1194,25 @@ class DatasetBuilder:
         on_batch_complete: Callable[[Path], None] | None = None,
         row_group_start_offset: int | None = None,
     ) -> None:
+        """Run one batch of generators in the sync engine.
+
+        Sets two ContextVars for the duration of the batch so order-dependent
+        generators (e.g. seed dataset under ORDERED sampling) and log helpers
+        can observe the row group's place in the run:
+
+        - ``current_row_group`` is set whenever ``current_batch_number`` is known
+          (both fresh and resumed sync runs), so ``format_row_group_tag()``
+          produces a consistent ``(x/X)`` log prefix in either path.
+        - ``current_row_group_start_offset`` is set only when the caller supplies
+          the planned start offset (sync resume passes it; fresh sync and preview
+          do not), so generators can seek into the correct seed slice without
+          replaying already-consumed rows.
+        """
         row_group_token = None
         start_offset_token = None
+        if current_batch_number is not None:
+            row_group_token = current_row_group.set((current_batch_number, self.batch_manager.num_batches))
         if row_group_start_offset is not None:
-            if current_batch_number is not None:
-                row_group_token = current_row_group.set((current_batch_number, self.batch_manager.num_batches))
             start_offset_token = current_row_group_start_offset.set(row_group_start_offset)
 
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()

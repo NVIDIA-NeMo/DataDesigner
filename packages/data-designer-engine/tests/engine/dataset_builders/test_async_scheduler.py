@@ -564,27 +564,29 @@ async def test_scheduler_multiple_row_groups() -> None:
     assert tracker.is_row_group_complete(2, 1, ["seed", "cell_out"])
 
 
+class _OffsetSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+    """Synthetic seed generator that emits ``[offset, offset + n)`` for a row group."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return data
+
+    def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        offset = current_row_group_start_offset.get()
+        assert offset is not None
+        return lazy.pd.DataFrame({"seed": list(range(offset, offset + num_records))})
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_sets_row_group_start_offsets_for_generators() -> None:
     """Ordered generators can seek by planned row-group offset during async resume."""
-
-    class OffsetSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
-        @staticmethod
-        def get_generation_strategy() -> GenerationStrategy:
-            return GenerationStrategy.FULL_COLUMN
-
-        def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
-            return data
-
-        def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
-            offset = current_row_group_start_offset.get()
-            assert offset is not None
-            return lazy.pd.DataFrame({"seed": list(range(offset, offset + num_records))})
-
     provider = _mock_provider()
     configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
     strategies = {"seed": GenerationStrategy.FULL_COLUMN}
-    generators = {"seed": OffsetSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+    generators = {"seed": _OffsetSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
     row_groups = [(1, 1), (3, 1)]
 
     graph = ExecutionGraph.create(configs, strategies)
@@ -604,6 +606,44 @@ async def test_scheduler_sets_row_group_start_offsets_for_generators() -> None:
 
     assert buffer_manager.get_row(1, 0)["seed"] == 1
     assert buffer_manager.get_row(3, 0)["seed"] == 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_auto_computes_row_group_start_offsets_for_fresh_runs() -> None:
+    """Fresh async runs (no caller-supplied offsets) auto-derive offsets from row-group sizes.
+
+    This locks in the per-row-group seek behavior for ordered generators on fresh
+    runs. Previously the scheduler relied on a single shared seed reader whose
+    state advanced under a stateful lock; now each row group seeks to its own
+    planned offset, which is parallel-safe and order-independent.
+    """
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": _OffsetSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+    row_groups = [(0, 2), (1, 2), (2, 1)]  # non-aligned last group exercises offset accumulation
+
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = _make_storage()
+    buffer_manager = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        # row_group_start_offsets intentionally omitted — scheduler should derive
+        # {0: 0, 1: 2, 2: 4} from the row-group sizes.
+    )
+    await scheduler.run()
+
+    assert buffer_manager.get_row(0, 0)["seed"] == 0
+    assert buffer_manager.get_row(0, 1)["seed"] == 1
+    assert buffer_manager.get_row(1, 0)["seed"] == 2
+    assert buffer_manager.get_row(1, 1)["seed"] == 3
+    assert buffer_manager.get_row(2, 0)["seed"] == 4
 
 
 @pytest.mark.asyncio(loop_scope="session")

@@ -94,6 +94,13 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         )
 
     def _index_range_at_offset(self, record_offset: int) -> IndexRange | None:
+        # ORDERED sampling cycles through the index range when more records are
+        # requested than the selection contains. ``record_offset`` is the count
+        # of records already produced for prior row groups, so it may exceed
+        # ``selected_size`` after one or more full cycles. Modulo by selection
+        # size gives the next read position within the current cycle; when it
+        # lands at 0 we fall back to the original range so the next read starts
+        # at ``selected_start`` like a fresh cycle.
         if record_offset <= 0:
             return self._index_range
 

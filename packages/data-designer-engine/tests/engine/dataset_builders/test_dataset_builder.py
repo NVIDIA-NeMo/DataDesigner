@@ -1689,6 +1689,64 @@ def test_build_resume_ordered_seed_dataset_continues_from_next_planned_row(stub_
     assert result["copy"].tolist() == ["alpha", "beta", "gamma"]
 
 
+def test_build_resume_ordered_seed_dataset_extension_wraps_at_cycle_boundary(stub_resource_provider, tmp_path):
+    """Resume that extends past a full seed cycle hits the modulo == 0 branch.
+
+    Companion to the basic #709 regression: when the resumed run's first new
+    row group starts at an offset that is a non-zero multiple of the seed
+    selection size, ``_index_range_at_offset`` returns the full original
+    ``_index_range`` so reads restart at ``_index_range.start`` like a fresh
+    cycle (instead of producing a degenerate empty range).
+    """
+    seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"name": ["alpha", "beta", "gamma"]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(
+        seed_source,
+        sampling_strategy=SamplingStrategy.ORDERED,
+        selection_strategy=IndexRange(start=0, end=2),
+    )
+    config_builder.add_column(ExpressionColumnConfig(name="copy", expr="{{ name }}"))
+
+    storage = ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset", resume=ResumeMode.NEVER)
+    stub_resource_provider.artifact_storage = storage
+    stub_resource_provider.seed_reader = seed_reader
+    stub_resource_provider.run_config = RunConfig(disable_early_shutdown=True, buffer_size=1)
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    # Run 1: target=3 fills exactly one full cycle through the 3-row selection.
+    builder.build(num_records=3, resume=ResumeMode.NEVER)
+
+    resumed_seed_reader = DataFrameSeedReader()
+    resumed_seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = resumed_seed_reader
+    stub_resource_provider.artifact_storage = ArtifactStorage(
+        artifact_path=tmp_path,
+        dataset_name="dataset",
+        resume=ResumeMode.ALWAYS,
+    )
+
+    resumed_builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    # Run 2: extend to 6. The first extension row group has start offset 3,
+    # which is exactly one selection cycle (3 % 3 == 0) — the wrap branch.
+    final_path = resumed_builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    result = lazy.pd.concat(
+        [lazy.pd.read_parquet(path) for path in sorted(final_path.glob("batch_*.parquet"))],
+        ignore_index=True,
+    )
+
+    assert result["name"].tolist() == ["alpha", "beta", "gamma", "alpha", "beta", "gamma"]
+    assert result["copy"].tolist() == ["alpha", "beta", "gamma", "alpha", "beta", "gamma"]
+
+
 def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
     """resume=True when only the folder exists (no metadata.json) logs an info message and starts fresh.
 
