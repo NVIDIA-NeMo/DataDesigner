@@ -1215,9 +1215,9 @@ class DatasetBuilder:
         if row_group_start_offset is not None:
             start_offset_token = current_row_group_start_offset.set(row_group_start_offset)
 
-        pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
-        ran_pre_batch = False
         try:
+            pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
+            ran_pre_batch = False
             for generator in generators:
                 generator.log_pre_generation()
                 try:

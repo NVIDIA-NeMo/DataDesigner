@@ -261,6 +261,31 @@ def test_seed_dataset_column_generator_reset_batch_reader_applies_record_offset(
     assert gen._batch_reader == mock_batch_reader
 
 
+def test_seed_dataset_column_generator_reset_batch_reader_wraps_at_cycle_boundary(
+    stub_seed_dataset_generator,
+) -> None:
+    """Direct unit test for the ``relative_offset == 0`` branch in ``_index_range_at_offset``.
+
+    Selection range ``[4, 8]`` has size 5, so ``record_offset=5`` is exactly one full
+    cycle: modulo lands on 0 and the helper must hand back the original full range
+    so the next read restarts at ``selected_start`` like a fresh cycle (not a
+    degenerate empty range).
+    """
+    gen = stub_seed_dataset_generator
+    mock_batch_reader = Mock()
+    gen._index_range = IndexRange(start=4, end=8)
+    gen.resource_provider.seed_reader.create_batch_reader.return_value = mock_batch_reader
+
+    gen._reset_batch_reader(100, record_offset=5)
+
+    gen.resource_provider.seed_reader.create_batch_reader.assert_called_once_with(
+        batch_size=100,
+        index_range=IndexRange(start=4, end=8),
+        shuffle=False,
+    )
+    assert gen._batch_reader == mock_batch_reader
+
+
 def test_seed_dataset_column_generator_ordered_generation_uses_row_group_offset(
     stub_seed_dataset_generator,
 ) -> None:
