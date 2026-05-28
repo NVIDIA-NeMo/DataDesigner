@@ -25,7 +25,7 @@ from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
-from data_designer.config.seed import IndexRange, SamplingStrategy
+from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
@@ -1745,6 +1745,76 @@ def test_build_resume_ordered_seed_dataset_extension_wraps_at_cycle_boundary(stu
 
     assert result["name"].tolist() == ["alpha", "beta", "gamma", "alpha", "beta", "gamma"]
     assert result["copy"].tolist() == ["alpha", "beta", "gamma", "alpha", "beta", "gamma"]
+
+
+def test_build_resume_ordered_seed_dataset_with_partition_block_continues_within_partition(
+    stub_resource_provider, tmp_path
+):
+    """Resume must seek into the partition slice, not just the full dataset.
+
+    Companion to the basic #709 regression that uses ``IndexRange``: this exercises
+    the same offset machinery with ``PartitionBlock``, which resolves to a
+    contiguous ``IndexRange`` only because of ``PartitionBlock.to_index_range``.
+    The resumed run also crosses a cycle boundary inside the partition, hitting
+    both the offset-into-partition branch and the wraparound (``relative_offset == 0``)
+    branch end-to-end.
+    """
+
+    class StopAfterFirstBatch(RuntimeError):
+        pass
+
+    seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"name": ["a", "b", "c", "d", "e", "f"]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+
+    # PartitionBlock(index=1, num_partitions=3) over 6 rows -> IndexRange(2, 3),
+    # i.e. a 2-row cycle of ["c", "d"]. With buffer_size=1 and num_records=4, a
+    # full continuous run would emit ["c", "d", "c", "d"].
+    config_builder = DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(
+        seed_source,
+        sampling_strategy=SamplingStrategy.ORDERED,
+        selection_strategy=PartitionBlock(index=1, num_partitions=3),
+    )
+    config_builder.add_column(ExpressionColumnConfig(name="copy", expr="{{ name }}"))
+
+    storage = ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset", resume=ResumeMode.NEVER)
+    stub_resource_provider.artifact_storage = storage
+    stub_resource_provider.seed_reader = seed_reader
+    stub_resource_provider.run_config = RunConfig(disable_early_shutdown=True, buffer_size=1)
+
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    def stop(_path: Path) -> None:
+        raise StopAfterFirstBatch("simulated interruption")
+
+    with pytest.raises(StopAfterFirstBatch, match="simulated interruption"):
+        builder.build(num_records=4, on_batch_complete=stop, resume=ResumeMode.NEVER)
+
+    resumed_seed_reader = DataFrameSeedReader()
+    resumed_seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = resumed_seed_reader
+    stub_resource_provider.artifact_storage = ArtifactStorage(
+        artifact_path=tmp_path,
+        dataset_name="dataset",
+        resume=ResumeMode.ALWAYS,
+    )
+
+    resumed_builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    final_path = resumed_builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+    result = lazy.pd.concat(
+        [lazy.pd.read_parquet(path) for path in sorted(final_path.glob("batch_*.parquet"))],
+        ignore_index=True,
+    )
+
+    assert result["name"].tolist() == ["c", "d", "c", "d"]
+    assert result["copy"].tolist() == ["c", "d", "c", "d"]
 
 
 def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
