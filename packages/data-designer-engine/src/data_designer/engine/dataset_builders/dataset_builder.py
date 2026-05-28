@@ -119,6 +119,44 @@ class _ResumeState:
     completed_row_groups: dict[int, int]
 
 
+@dataclass
+class RowGroupResumePlan:
+    total_row_groups: int
+    remaining_row_groups: list[tuple[int, int]]
+    row_group_start_offsets: dict[int, int]
+
+
+def build_row_group_resume_plan(
+    *,
+    original_target: int,
+    num_records: int,
+    buffer_size: int,
+    completed_ids: set[int],
+) -> RowGroupResumePlan:
+    num_original_groups = -(-original_target // buffer_size)
+    extension_records = num_records - original_target
+    total_row_groups = num_original_groups + -(-extension_records // buffer_size)
+
+    def _rg_size(rg_id: int) -> int:
+        if rg_id < num_original_groups:
+            return min(buffer_size, original_target - rg_id * buffer_size)
+        ext_group_idx = rg_id - num_original_groups
+        return min(buffer_size, extension_records - ext_group_idx * buffer_size)
+
+    all_start_offsets: dict[int, int] = {}
+    next_offset = 0
+    for rg_id in range(total_row_groups):
+        all_start_offsets[rg_id] = next_offset
+        next_offset += _rg_size(rg_id)
+
+    remaining_row_groups = [(rg_id, _rg_size(rg_id)) for rg_id in range(total_row_groups) if rg_id not in completed_ids]
+    return RowGroupResumePlan(
+        total_row_groups=total_row_groups,
+        remaining_row_groups=remaining_row_groups,
+        row_group_start_offsets={rg_id: all_start_offsets[rg_id] for rg_id, _ in remaining_row_groups},
+    )
+
+
 class DatasetBuilder:
     def __init__(
         self,
@@ -866,22 +904,15 @@ class DatasetBuilder:
             # non-aligned run gets its true size, not buffer_size.
             original_target = state.original_target_num_records
 
-            num_original_groups = -(-original_target // buffer_size)  # ceil(original_target/buffer_size)
-
-            def _rg_size(rg_id: int) -> int:
-                if rg_id < num_original_groups:
-                    return min(buffer_size, original_target - rg_id * buffer_size)
-                ext_group_idx = rg_id - num_original_groups
-                return min(buffer_size, (num_records - original_target) - ext_group_idx * buffer_size)
-
             self.artifact_storage.clear_partial_results()
 
-            # Original groups are immutable; any extension always needs new groups beyond
-            # num_original_groups — ceil(num_records/bs) gives the wrong count when the
-            # original run was non-aligned and the extension fits in the last group's slack.
-            extension_records = num_records - original_target
-            total_row_groups = num_original_groups + -(-extension_records // buffer_size)
-            if len(completed_ids) >= total_row_groups:
+            resume_plan = build_row_group_resume_plan(
+                original_target=original_target,
+                num_records=num_records,
+                buffer_size=buffer_size,
+                completed_ids=completed_ids,
+            )
+            if len(completed_ids) >= resume_plan.total_row_groups:
                 logger.warning(
                     "⚠️ Dataset is already complete — all row groups were found in the existing artifact "
                     "directory. Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
@@ -889,23 +920,12 @@ class DatasetBuilder:
                 return False
 
             logger.info(
-                f"▶️ Resuming async run: {len(completed_ids)} of {total_row_groups} row group(s) already "
+                f"▶️ Resuming async run: {len(completed_ids)} of {resume_plan.total_row_groups} row group(s) already "
                 f"complete ({initial_actual_num_records} records), skipping them."
             )
 
-            all_row_group_start_offsets: dict[int, int] = {}
-            next_offset = 0
-            for rg_id in range(total_row_groups):
-                all_row_group_start_offsets[rg_id] = next_offset
-                next_offset += _rg_size(rg_id)
-
-            # Pre-compute the full row-group list with correct per-group sizes so that
-            # non-aligned skipped groups deduct their actual on-disk record count rather
-            # than buffer_size, keeping extension group sizes accurate.
-            precomputed_row_groups = [
-                (rg_id, _rg_size(rg_id)) for rg_id in range(total_row_groups) if rg_id not in completed_ids
-            ]
-            row_group_start_offsets = {rg_id: all_row_group_start_offsets[rg_id] for rg_id, _ in precomputed_row_groups}
+            precomputed_row_groups = resume_plan.remaining_row_groups
+            row_group_start_offsets = resume_plan.row_group_start_offsets
 
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
