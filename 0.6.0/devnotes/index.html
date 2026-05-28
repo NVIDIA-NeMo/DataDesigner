@@ -14,7 +14,7 @@
         <link rel="prev" href="../code_reference/interface/results/">
       
       
-        <link rel="next" href="retriever-sdg-toolkit-from-documents-to-training-data/">
+        <link rel="next" href="mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles/">
       
       
         
@@ -3569,6 +3569,8 @@
       
         
       
+        
+      
     
     
     
@@ -3616,6 +3618,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -4001,10 +4031,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_15" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_16" >
         
           
-          <label class="md-nav__link" for="__nav_7_15" id="__nav_7_15_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7_16" id="__nav_7_16_label" tabindex="0">
             
   
   
@@ -4022,8 +4052,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_15_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_15">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_16">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -4103,6 +4133,17 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#retriever-sdg-plugin-turn-your-documents-into-retriever-training-data" class="md-nav__link">
@@ -4203,17 +4244,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -4230,6 +4260,50 @@
 <p>Welcome to NeMo Data Designer Dev Notes! Here you'll find in-depth guides, tutorials, and insights about synthetic data generation.</p>
 <!-- Dev notes will automatically appear below -->
       </header>
+      
+        <article class="md-post md-post--excerpt">
+  <header class="md-post__header">
+    
+      <nav class="md-post__authors md-typeset">
+        
+          <span class="md-author">
+            <img src="https://avatars.githubusercontent.com/u/128275431?v=4" alt="Dhruv Nathawani">
+          </span>
+        
+      </nav>
+    
+    <div class="md-post__meta md-meta">
+      <ul class="md-meta__list">
+        <li class="md-meta__item">
+          <time datetime="2026-05-28 00:00:00+00:00">May 28, 2026</time></li>
+        
+        
+          
+          <li class="md-meta__item">
+            
+              14 min read
+            
+          </li>
+        
+        
+      </ul>
+      
+    </div>
+  </header>
+  <div class="md-post__content md-typeset">
+    <h2 id="mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles"><a class="toclink" href="mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles/"><strong>Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles</strong></a></h2>
+<p>Models behave differently based on how a question is phrased --- a "cynical senior dev" and a "curious student" get different answers to the same problem. Using NeMo Data Designer, we built a pipeline that generates hundreds of diverse prompt preambles with controlled variation across tone, strictness, verbosity, and answer format, then validates each one for compliance. These preambles feed into a YAML-driven training mixture pipeline that prepends diverse instructions to existing SFT data at scale. This approach is now used in Nemotron training mixtures to address the prompt-format brittleness observed in internal testing.</p>
+
+    
+      <nav class="md-post__action">
+        <a href="mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles/">
+          Continue reading
+        </a>
+      </nav>
+    
+    
+  </div>
+</article>
       
         <article class="md-post md-post--excerpt">
   <header class="md-post__header">
@@ -4634,50 +4708,6 @@ Nah. Call <code>.push_to_hub()</code> and you've got a live dataset page on Hugg
   </div>
 </article>
       
-        <article class="md-post md-post--excerpt">
-  <header class="md-post__header">
-    
-      <nav class="md-post__authors md-typeset">
-        
-          <span class="md-author">
-            <img src="https://avatars.githubusercontent.com/u/128275431?v=4" alt="Dhruv Nathawani">
-          </span>
-        
-      </nav>
-    
-    <div class="md-post__meta md-meta">
-      <ul class="md-meta__list">
-        <li class="md-meta__item">
-          <time datetime="2026-02-18 00:00:00+00:00">February 18, 2026</time></li>
-        
-        
-          
-          <li class="md-meta__item">
-            
-              10 min read
-            
-          </li>
-        
-        
-      </ul>
-      
-    </div>
-  </header>
-  <div class="md-post__content md-typeset">
-    <h2 id="structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml"><a class="toclink" href="structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/"><strong>Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML</strong></a></h2>
-<p>Using <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a>, an orchestration framework for generating high-quality synthetic data at scale, we built an iterative pipeline that generates diverse, schema-constrained structured outputs across JSON, YAML, and XML. Through multiple rounds of prompt refinement, rejection sampling, and programmatic validation, we produced a 9,949-sample dataset of verified structured output training data.</p>
-
-    
-      <nav class="md-post__action">
-        <a href="structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/">
-          Continue reading
-        </a>
-      </nav>
-    
-    
-  </div>
-</article>
-      
       
         
           
@@ -4722,13 +4752,13 @@ Nah. Call <code>.push_to_hub()</code> and you've got a live dataset page on Hugg
         
         
           
-          <a href="retriever-sdg-toolkit-from-documents-to-training-data/" class="md-footer__link md-footer__link--next" aria-label="Next: Retriever SDG Plugin: Turn Your Documents Into Retriever Training Data">
+          <a href="mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles/" class="md-footer__link md-footer__link--next" aria-label="Next: Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Retriever SDG Plugin: Turn Your Documents Into Retriever Training Data
+                Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles
               </div>
             </div>
             <div class="md-footer__button md-icon">
