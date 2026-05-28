@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from unittest.mock import Mock, patch
 
 import pytest
@@ -13,9 +15,10 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
     SamplerColumnConfig,
     Score,
+    SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
-from data_designer.config.models import ImageContext, ModalityDataType
+from data_designer.config.models import AudioContext, ImageContext, ModalityDataType
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     SchemaTransformProcessorConfig,
@@ -247,6 +250,18 @@ def test_validate_column_config_with_multi_modal_context():
     assert len(violations) == 0
 
 
+def test_validate_column_config_with_audio_multi_modal_context() -> None:
+    column = LLMTextColumnConfig(
+        name="audio_description",
+        prompt="Describe the audio.",
+        model_alias=STUB_MODEL_ALIAS,
+        multi_modal_context=[AudioContext(column_name="audio_url", data_type=ModalityDataType.URL)],
+    )
+
+    violations = validate_prompt_templates([column], [column.name])
+    assert len(violations) == 0
+
+
 def test_validate_columns_not_all_dropped():
     violations = validate_columns_not_all_dropped(
         [
@@ -264,6 +279,51 @@ def test_validate_columns_not_all_dropped():
             ),
         ]
     )
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
+
+
+def test_validate_columns_not_all_dropped_allows_seeded_processor_only_config():
+    violations = validate_columns_not_all_dropped(
+        [SeedDatasetColumnConfig(name="seed_text")],
+        processor_configs=[
+            SchemaTransformProcessorConfig(name="format", template={"text": "{{ seed_text }}"}),
+        ],
+    )
+
+    assert violations == []
+
+
+def test_validate_columns_not_all_dropped_rejects_seeded_processor_only_config_with_no_output_columns():
+    violations = validate_columns_not_all_dropped(
+        [SeedDatasetColumnConfig(name="seed_text")],
+        processor_configs=[
+            DropColumnsProcessorConfig(name="drop_seed", column_names=["seed_text"]),
+        ],
+    )
+
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
+
+
+def test_validate_columns_not_all_dropped_allows_generated_columns_dropped_by_processors():
+    violations = validate_columns_not_all_dropped(
+        [
+            LLMTextColumnConfig(name="question", prompt="Generate a question.", model_alias=STUB_MODEL_ALIAS),
+            LLMTextColumnConfig(name="answer", prompt="Answer {{ question }}.", model_alias=STUB_MODEL_ALIAS),
+        ],
+        processor_configs=[
+            DropColumnsProcessorConfig(name="drop_raw", column_names=["question", "answer"]),
+            SchemaTransformProcessorConfig(name="format", template={"messages": "{{ question }} {{ answer }}"}),
+        ],
+    )
+
+    assert violations == []
+
+
+def test_validate_columns_not_all_dropped_still_rejects_seed_only_config():
+    violations = validate_columns_not_all_dropped([SeedDatasetColumnConfig(name="seed_text")])
+
     assert len(violations) == 1
     assert violations[0].type == ViolationType.ALL_COLUMNS_DROPPED
 

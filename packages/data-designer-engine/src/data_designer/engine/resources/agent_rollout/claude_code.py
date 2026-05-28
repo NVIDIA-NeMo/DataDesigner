@@ -16,6 +16,7 @@ from data_designer.engine.resources.agent_rollout.utils import (
     build_message,
     coerce_optional_str,
     load_jsonl_rows,
+    min_max_timestamps,
     require_string,
     stringify_json_value,
     stringify_text_value,
@@ -86,6 +87,7 @@ class ClaudeCodeAgentRolloutFormatHandler(AgentRolloutFormatHandler):
             elif record_type == "user":
                 messages.extend(normalize_claude_user_messages(raw_record))
 
+        started_at, ended_at = min_max_timestamps(timestamps)
         session_key = session_id or file_path.stem
         index_entry = session_index.get(session_key, {})
         project_path = coerce_optional_str(index_entry.get("projectPath")) or cwd
@@ -112,8 +114,8 @@ class ClaudeCodeAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                 cwd=cwd,
                 project_path=project_path,
                 git_branch=git_branch,
-                started_at=min(timestamps) if timestamps else None,
-                ended_at=max(timestamps) if timestamps else None,
+                started_at=started_at,
+                ended_at=ended_at,
                 messages=messages,
                 source_meta=source_meta,
             )

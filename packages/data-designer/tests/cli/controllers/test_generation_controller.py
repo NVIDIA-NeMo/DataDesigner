@@ -14,6 +14,7 @@ from data_designer.cli.utils.config_loader import ConfigLoadError
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
+from data_designer.engine.storage.artifact_storage import ResumeMode
 
 _CTRL = "data_designer.cli.controllers.generation_controller"
 _DW = DEFAULT_DISPLAY_WIDTH
@@ -27,8 +28,8 @@ def _make_mock_preview_results(num_records: int) -> MagicMock:
     return mock_results
 
 
-def _make_mock_create_results(num_records: int, base_path: str = "/output/artifacts/dataset") -> MagicMock:
-    """Create a mock CreateResults with the given number of records."""
+def _make_mock_create_results(num_records: int = 0, base_path: str = "/output/artifacts/dataset") -> MagicMock:
+    """Create a mock DatasetCreationResults."""
     mock_results = MagicMock()
     mock_results.count_records.return_value = num_records
     mock_results.artifact_storage.base_dataset_path = base_path
@@ -675,14 +676,16 @@ def test_run_create_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock)
 
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
-    mock_dd.create.return_value = _make_mock_create_results(10)
+    mock_dd.create.return_value = _make_mock_create_results()
 
     controller = GenerationController()
     controller.run_create(config_source="config.yaml", num_records=10, dataset_name="dataset", artifact_path=None)
 
     mock_load_config.assert_called_once_with("config.yaml")
     mock_dd_cls.assert_called_once_with(artifact_path=Path.cwd() / "artifacts")
-    mock_dd.create.assert_called_once_with(mock_builder, num_records=10, dataset_name="dataset")
+    mock_dd.create.assert_called_once_with(
+        mock_builder, num_records=10, dataset_name="dataset", resume=ResumeMode.NEVER
+    )
 
 
 @patch(f"{_CTRL}.DataDesigner")
@@ -692,7 +695,7 @@ def test_run_create_custom_options(mock_load_config: MagicMock, mock_dd_cls: Mag
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
-    mock_dd.create.return_value = _make_mock_create_results(100, "/custom/output/my_data")
+    mock_dd.create.return_value = _make_mock_create_results(base_path="/custom/output/my_data")
 
     controller = GenerationController()
     controller.run_create(
@@ -703,7 +706,9 @@ def test_run_create_custom_options(mock_load_config: MagicMock, mock_dd_cls: Mag
     )
 
     mock_dd_cls.assert_called_once_with(artifact_path=Path("/custom/output"))
-    mock_dd.create.assert_called_once_with(mock_load_config.return_value, num_records=100, dataset_name="my_data")
+    mock_dd.create.assert_called_once_with(
+        mock_load_config.return_value, num_records=100, dataset_name="my_data", resume=ResumeMode.NEVER
+    )
 
 
 @patch(f"{_CTRL}.load_config_builder")
@@ -741,7 +746,7 @@ def test_run_create_calls_to_report_when_analysis_present(mock_load_config: Magi
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
-    mock_results = _make_mock_create_results(10)
+    mock_results = _make_mock_create_results()
     mock_analysis = MagicMock()
     mock_results.load_analysis.return_value = mock_analysis
     mock_dd.create.return_value = mock_results
@@ -760,7 +765,7 @@ def test_run_create_skips_report_when_analysis_is_none(mock_load_config: MagicMo
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
-    mock_results = _make_mock_create_results(10)
+    mock_results = _make_mock_create_results()
     mock_results.load_analysis.return_value = None
     mock_dd.create.return_value = mock_results
 
@@ -770,6 +775,29 @@ def test_run_create_skips_report_when_analysis_is_none(mock_load_config: MagicMo
     # load_analysis() returns None, so to_report() must not be called.
     # If the code ignores the None check, an AttributeError propagates and the test fails.
     mock_results.load_analysis.assert_called_once()
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_passes_resume_always(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """run_create forwards resume=ALWAYS to DataDesigner.create()."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_dd.create.return_value = _make_mock_create_results()
+
+    controller = GenerationController()
+    controller.run_create(
+        config_source="config.yaml",
+        num_records=10,
+        dataset_name="dataset",
+        artifact_path=None,
+        resume=ResumeMode.ALWAYS,
+    )
+
+    mock_dd.create.assert_called_once_with(
+        mock_load_config.return_value, num_records=10, dataset_name="dataset", resume=ResumeMode.ALWAYS
+    )
 
 
 @patch(f"{_CTRL}.DataDesigner")
@@ -793,6 +821,29 @@ def test_run_create_with_output_format_happy_path(mock_load_config: MagicMock, m
 
     mock_results.export.assert_called_once_with(
         Path("/output/artifacts/my_data") / "my_data.jsonl",
+    )
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_passes_resume_if_possible(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """run_create forwards resume=IF_POSSIBLE to DataDesigner.create()."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_dd.create.return_value = _make_mock_create_results()
+
+    controller = GenerationController()
+    controller.run_create(
+        config_source="config.yaml",
+        num_records=10,
+        dataset_name="dataset",
+        artifact_path=None,
+        resume=ResumeMode.IF_POSSIBLE,
+    )
+
+    mock_dd.create.assert_called_once_with(
+        mock_load_config.return_value, num_records=10, dataset_name="dataset", resume=ResumeMode.IF_POSSIBLE
     )
 
 

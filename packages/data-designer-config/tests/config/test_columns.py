@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from typing import Literal
 
 import pytest
@@ -28,7 +30,7 @@ from data_designer.config.column_types import (
     is_plugin_column_type,
 )
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.models import ImageContext
+from data_designer.config.models import AudioContext, ImageContext, ModalityDataType, VideoContext
 from data_designer.config.sampler_params import (
     CategorySamplerParams,
     GaussianSamplerParams,
@@ -130,9 +132,13 @@ def test_llm_text_column_config_required_columns_includes_multi_modal_context():
         name="test_llm_text",
         prompt="Classify this image: {{ description }}",
         model_alias=stub_model_alias,
-        multi_modal_context=[ImageContext(column_name="image_base64")],
+        multi_modal_context=[
+            ImageContext(column_name="image_base64"),
+            AudioContext(column_name="audio_url", data_type=ModalityDataType.URL),
+            VideoContext(column_name="video_url", data_type=ModalityDataType.URL),
+        ],
     )
-    assert set(config.required_columns) == {"description", "image_base64"}
+    assert set(config.required_columns) == {"description", "image_base64", "audio_url", "video_url"}
 
 
 def test_llm_text_column_config_required_columns_deduplicates_multi_modal_and_prompt():
@@ -150,9 +156,106 @@ def test_image_column_config_required_columns_includes_multi_modal_context():
         name="test_image",
         prompt="Generate based on {{ style }}",
         model_alias=stub_model_alias,
-        multi_modal_context=[ImageContext(column_name="reference_image")],
+        multi_modal_context=[
+            ImageContext(column_name="reference_image"),
+            AudioContext(column_name="reference_audio", data_type=ModalityDataType.URL),
+            VideoContext(column_name="reference_video", data_type=ModalityDataType.URL),
+        ],
     )
-    assert set(config.required_columns) == {"style", "reference_image"}
+    assert set(config.required_columns) == {"style", "reference_image", "reference_audio", "reference_video"}
+
+
+@pytest.mark.parametrize(
+    "config_cls,name",
+    [
+        (LLMTextColumnConfig, "test_llm_text"),
+        (ImageColumnConfig, "test_image"),
+    ],
+)
+def test_multi_modal_context_round_trips_discriminated_union(
+    config_cls: type[LLMTextColumnConfig] | type[ImageColumnConfig],
+    name: str,
+) -> None:
+    config = config_cls(
+        name=name,
+        prompt="Describe the context",
+        model_alias=stub_model_alias,
+        multi_modal_context=[
+            ImageContext(column_name="image_url", data_type=ModalityDataType.URL),
+            AudioContext(column_name="audio_url", data_type=ModalityDataType.URL),
+            VideoContext(column_name="video_url", data_type=ModalityDataType.URL),
+        ],
+    )
+
+    round_tripped = config_cls(**config.model_dump())
+
+    assert round_tripped.multi_modal_context is not None
+    assert isinstance(round_tripped.multi_modal_context[0], ImageContext)
+    assert isinstance(round_tripped.multi_modal_context[1], AudioContext)
+    assert isinstance(round_tripped.multi_modal_context[2], VideoContext)
+
+
+@pytest.mark.parametrize(
+    "config_cls,name",
+    [
+        (LLMTextColumnConfig, "test_llm_text"),
+        (ImageColumnConfig, "test_image"),
+    ],
+)
+def test_column_config_accepts_legacy_image_context_dict(
+    config_cls: type[LLMTextColumnConfig] | type[ImageColumnConfig],
+    name: str,
+) -> None:
+    with pytest.warns(DeprecationWarning, match="treated as legacy ImageContext configs"):
+        config = config_cls(
+            name=name,
+            prompt="Describe the image",
+            model_alias=stub_model_alias,
+            multi_modal_context=[{"column_name": "image_url", "data_type": "url"}],
+        )
+
+    assert config.multi_modal_context is not None
+    assert isinstance(config.multi_modal_context[0], ImageContext)
+    assert config.multi_modal_context[0].column_name == "image_url"
+
+
+@pytest.mark.parametrize(
+    "context_dict",
+    [
+        {"column_name": "audio_url", "data_type": "url"},
+        {"column_name": "video_url", "data_type": "url"},
+    ],
+    ids=["audio-url-shaped", "video-url-shaped"],
+)
+def test_column_config_warns_modality_less_url_context_is_legacy_image(context_dict: dict[str, str]) -> None:
+    with pytest.warns(DeprecationWarning, match="treated as legacy ImageContext configs"):
+        config = LLMTextColumnConfig(
+            name="test_llm_text",
+            prompt="Describe the context",
+            model_alias=stub_model_alias,
+            multi_modal_context=[context_dict],
+        )
+
+    assert config.multi_modal_context is not None
+    assert isinstance(config.multi_modal_context[0], ImageContext)
+
+
+@pytest.mark.parametrize(
+    "context_dict",
+    [
+        {"column_name": "audio_url", "data_type": "url", "audio_format": "mp3"},
+        {"column_name": "video_url", "data_type": "url", "video_format": "mp4"},
+    ],
+    ids=["audio-format", "video-format"],
+)
+def test_column_config_requires_modality_for_audio_video_specific_dicts(context_dict: dict[str, str]) -> None:
+    with pytest.raises(ValidationError, match="modality"):
+        LLMTextColumnConfig(
+            name="test_llm_text",
+            prompt="Describe the context",
+            model_alias=stub_model_alias,
+            multi_modal_context=[context_dict],
+        )
 
 
 def test_llm_text_column_config_with_trace_serialization() -> None:
@@ -601,6 +704,60 @@ def test_allow_resize_inherited_by_subclasses() -> None:
     """Subclasses inherit allow_resize from SingleColumnConfig."""
     assert StubColumnConfig(name="test").allow_resize is False
     assert StubColumnConfig(name="test", allow_resize=True).allow_resize is True
+
+
+def test_get_model_aliases_empty_when_no_model_alias_field() -> None:
+    """Configs without a model_alias field return an empty list, not AttributeError."""
+    assert StubColumnConfig(name="test").get_model_aliases() == []
+
+
+def test_get_model_aliases_forwards_empty_string_for_fail_fast() -> None:
+    """An empty model_alias is surfaced so run_health_check fails fast at startup.
+
+    Empty strings are accepted by the config model and previously reached
+    ``run_health_check``, which raised ``No model config with alias '' found!``.
+    Only a truly missing attribute should skip the health check.
+    """
+    config = LLMTextColumnConfig(name="t", prompt=stub_prompt, model_alias="")
+    assert config.get_model_aliases() == [""]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        LLMTextColumnConfig(name="t", prompt=stub_prompt, model_alias=stub_model_alias),
+        LLMCodeColumnConfig(name="c", prompt=stub_prompt, code_lang=CodeLang.PYTHON, model_alias=stub_model_alias),
+        EmbeddingColumnConfig(name="e", target_column="text", model_alias=stub_model_alias),
+        ImageColumnConfig(name="i", prompt="Generate {{ x }}", model_alias=stub_model_alias),
+    ],
+    ids=["llm-text", "llm-code", "embedding", "image"],
+)
+def test_get_model_aliases_returns_primary_alias_for_builtins(config: SingleColumnConfig) -> None:
+    """Built-in model-backed configs return their primary model_alias by default."""
+    assert config.get_model_aliases() == [stub_model_alias]
+
+
+def test_get_model_aliases_can_be_overridden_for_multi_model_plugins() -> None:
+    """A plugin config with multiple model fields can override get_model_aliases()."""
+
+    class _PairwiseJudgeColumnConfig(SingleColumnConfig):
+        column_type: Literal["pairwise-judge-test"] = "pairwise-judge-test"
+        model_alias: str
+        judge_model_alias: str
+
+        @property
+        def required_columns(self) -> list[str]:
+            return []
+
+        @property
+        def side_effect_columns(self) -> list[str]:
+            return []
+
+        def get_model_aliases(self) -> list[str]:
+            return [self.model_alias, self.judge_model_alias]
+
+    config = _PairwiseJudgeColumnConfig(name="pj", model_alias="primary", judge_model_alias="judge")
+    assert config.get_model_aliases() == ["primary", "judge"]
 
 
 @pytest.mark.parametrize(

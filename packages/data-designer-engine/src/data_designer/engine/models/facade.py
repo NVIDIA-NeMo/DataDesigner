@@ -15,7 +15,7 @@ from data_designer.config.utils.constants import (
     OPENROUTER_ATTRIBUTION_HEADERS,
     OPENROUTER_PROVIDER_NAME,
 )
-from data_designer.config.utils.image_helpers import is_image_diffusion_model
+from data_designer.config.utils.media_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.types import (
@@ -36,7 +36,12 @@ from data_designer.engine.models.errors import (
 )
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.telemetry import TELEMETRY_ENABLED
-from data_designer.engine.models.usage import ImageUsageStats, ModelUsageStats, RequestUsageStats, TokenUsageStats
+from data_designer.engine.models.usage import (
+    ImageUsageStats,
+    ModelUsageStats,
+    RequestUsageStats,
+    TokenUsageStats,
+)
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 
 if TYPE_CHECKING:
@@ -80,6 +85,7 @@ _COMPLETION_REQUEST_FIELDS = frozenset(
     {
         "temperature",
         "top_p",
+        "n",
         "max_tokens",
         "stop",
         "seed",
@@ -193,7 +199,12 @@ class ModelFacade:
     # --- completion / acompletion ---
 
     def completion(
-        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
+        self,
+        messages: list[ChatMessage],
+        skip_usage_tracking: bool = False,
+        *,
+        allow_multiple_choices: bool = True,
+        **kwargs: Any,
     ) -> ChatCompletionResponse:
         message_payloads = [message.to_dict() for message in messages]
         logger.debug(
@@ -202,6 +213,8 @@ class ModelFacade:
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
+        if not allow_multiple_choices:
+            kwargs = self._drop_multi_choice_request_fields(kwargs)
         try:
             request = self._build_chat_completion_request(message_payloads, kwargs)
             response = self._client.completion(request)
@@ -223,7 +236,12 @@ class ModelFacade:
                 )
 
     async def acompletion(
-        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
+        self,
+        messages: list[ChatMessage],
+        skip_usage_tracking: bool = False,
+        *,
+        allow_multiple_choices: bool = True,
+        **kwargs: Any,
     ) -> ChatCompletionResponse:
         message_payloads = [message.to_dict() for message in messages]
         logger.debug(
@@ -232,6 +250,8 @@ class ModelFacade:
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
+        if not allow_multiple_choices:
+            kwargs = self._drop_multi_choice_request_fields(kwargs)
         try:
             request = self._build_chat_completion_request(message_payloads, kwargs)
             response = await self._client.acompletion(request)
@@ -289,6 +309,7 @@ class ModelFacade:
                 prompt.
             parser (func(str) -> Any): A function applied to the LLM response which processes
                 an LLM response into some output object. Default: identity function.
+            multi_modal_context: Optional list of image, audio, or video context blocks.
             tool_alias (str | None): Optional tool configuration alias. When provided,
                 the model may call permitted tools from the configured MCP providers.
                 The alias must reference a ToolConfig registered in the MCPRegistry.
@@ -320,7 +341,11 @@ class ModelFacade:
         tool_schemas = None
         tool_call_turns = 0
         total_tool_calls = 0
-        curr_num_correction_steps = 0
+        # Counts parse attempts within the current conversation (initial attempt + corrections).
+        # The first parse is attempt 1, so `parse_attempts <= max_correction_steps` permits exactly
+        # `max_correction_steps` corrections after the initial attempt before falling through to
+        # restart-or-raise. Reset to 0 on each conversation restart.
+        parse_attempts = 0
         curr_num_restarts = 0
 
         mcp_facade = self._get_mcp_facade(tool_alias)
@@ -337,12 +362,14 @@ class ModelFacade:
 
         while True:
             completion_kwargs = dict(kwargs)
+            completion_kwargs.pop("allow_multiple_choices", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
 
             completion_response = self.completion(
                 messages,
                 skip_usage_tracking=skip_usage_tracking,
+                allow_multiple_choices=False,
                 **completion_kwargs,
             )
 
@@ -367,7 +394,7 @@ class ModelFacade:
             response = (completion_response.message.content or "").strip()
             reasoning_trace = completion_response.message.reasoning_content
             messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
-            curr_num_correction_steps += 1
+            parse_attempts += 1
 
             try:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
@@ -379,12 +406,12 @@ class ModelFacade:
                         exc,
                     ) from exc
 
-                if curr_num_correction_steps <= max_correction_steps:
+                if parse_attempts <= max_correction_steps:
                     # Add user message with error for correction
                     messages.append(ChatMessage.as_user(content=str(get_exception_primary_cause(exc))))
 
                 elif curr_num_restarts < max_conversation_restarts:
-                    curr_num_correction_steps = 0
+                    parse_attempts = 0
                     curr_num_restarts += 1
                     messages = deepcopy(restart_checkpoint)
                     tool_call_turns = checkpoint_tool_call_turns
@@ -425,7 +452,8 @@ class ModelFacade:
         tool_schemas = None
         tool_call_turns = 0
         total_tool_calls = 0
-        curr_num_correction_steps = 0
+        # See `generate` for a description of the parse-attempts counter semantics.
+        parse_attempts = 0
         curr_num_restarts = 0
 
         mcp_facade = self._get_mcp_facade(tool_alias)
@@ -441,12 +469,14 @@ class ModelFacade:
 
         while True:
             completion_kwargs = dict(kwargs)
+            completion_kwargs.pop("allow_multiple_choices", None)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
 
             completion_response = await self.acompletion(
                 messages,
                 skip_usage_tracking=skip_usage_tracking,
+                allow_multiple_choices=False,
                 **completion_kwargs,
             )
 
@@ -469,7 +499,7 @@ class ModelFacade:
             response = (completion_response.message.content or "").strip()
             reasoning_trace = completion_response.message.reasoning_content
             messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
-            curr_num_correction_steps += 1
+            parse_attempts += 1
 
             try:
                 output_obj = parser(response)
@@ -481,11 +511,11 @@ class ModelFacade:
                         exc,
                     ) from exc
 
-                if curr_num_correction_steps <= max_correction_steps:
+                if parse_attempts <= max_correction_steps:
                     messages.append(ChatMessage.as_user(content=str(get_exception_primary_cause(exc))))
 
                 elif curr_num_restarts < max_conversation_restarts:
-                    curr_num_correction_steps = 0
+                    parse_attempts = 0
                     curr_num_restarts += 1
                     messages = deepcopy(restart_checkpoint)
                     tool_call_turns = checkpoint_tool_call_turns
@@ -598,7 +628,7 @@ class ModelFacade:
 
         Args:
             prompt: The prompt for image generation
-            multi_modal_context: Optional list of image contexts for multi-modal generation.
+            multi_modal_context: Optional list of image, audio, or video contexts for multi-modal generation.
                 Only used with autoregressive models via chat completions API.
             skip_usage_tracking: Whether to skip usage tracking
             **kwargs: Additional arguments to pass to the model
@@ -657,7 +687,7 @@ class ModelFacade:
 
         Args:
             prompt: The prompt for image generation
-            multi_modal_context: Optional list of image contexts for multi-modal generation.
+            multi_modal_context: Optional list of image, audio, or video contexts for multi-modal generation.
                 Only used with autoregressive models via chat completions API.
             skip_usage_tracking: Whether to skip usage tracking
             **kwargs: Additional arguments to pass to the model
@@ -708,6 +738,23 @@ class ModelFacade:
         await self._client.aclose()
 
     # --- private helpers ---
+
+    @staticmethod
+    def _drop_multi_choice_request_fields(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Remove request controls that would make a single-result API discard choices."""
+        sanitized = dict(kwargs)
+        sanitized.pop("n", None)
+
+        extra_body = sanitized.get("extra_body")
+        if isinstance(extra_body, dict) and "n" in extra_body:
+            extra_body = dict(extra_body)
+            extra_body.pop("n", None)
+            if extra_body:
+                sanitized["extra_body"] = extra_body
+            else:
+                sanitized.pop("extra_body", None)
+
+        return sanitized
 
     def _get_mcp_facade(self, tool_alias: str | None) -> MCPFacade | None:
         if tool_alias is None:
@@ -809,6 +856,8 @@ class ModelFacade:
             token_usage = TokenUsageStats(
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens or 0,
+                reasoning_tokens=usage.reasoning_tokens,
+                reasoning_token_count_source=usage.reasoning_token_count_source,
             )
 
         self._usage_stats.extend(

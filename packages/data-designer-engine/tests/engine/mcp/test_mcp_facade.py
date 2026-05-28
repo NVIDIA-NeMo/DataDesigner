@@ -122,6 +122,40 @@ def test_process_completion_with_tool_calls(
     assert messages[1].tool_call_id == "call-1"
 
 
+def test_process_completion_preserves_multimodal_tool_result_content(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_mcp_facade: MCPFacade,
+    mock_completion_response_single_tool: ChatCompletionResponse,
+) -> None:
+    """Tool result messages can carry multimodal content blocks unchanged."""
+
+    multimodal_result = [
+        {"type": "text", "text": "Screenshot:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+        {"type": "text", "text": "Use the chart title."},
+    ]
+
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
+        return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
+
+    def mock_call_tools(
+        calls: list[tuple[Any, str, dict[str, Any]]],
+        *,
+        timeout_sec: float | None = None,
+    ) -> list[MCPToolResult]:
+        return [MCPToolResult(content=multimodal_result)]
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
+
+    messages = stub_mcp_facade.process_completion_response(mock_completion_response_single_tool)
+
+    assert len(messages) == 2
+    assert messages[1].role == "tool"
+    assert messages[1].tool_call_id == "call-1"
+    assert messages[1].content == multimodal_result
+
+
 def test_process_completion_preserves_content(
     stub_mcp_facade: MCPFacade,
     mock_completion_response_no_tools: ChatCompletionResponse,

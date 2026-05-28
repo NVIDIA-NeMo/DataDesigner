@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
-from data_designer.engine.models.clients.parsing import extract_usage
+from data_designer.config.models import Modality
+from data_designer.config.utils.media_helpers import (
+    get_media_base64_context,
+    get_media_url_context,
+    parse_base64_data_uri,
+)
+from data_designer.engine.models.clients.parsing import extract_usage, fill_reasoning_token_count_from_content
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
     ChatCompletionRequest,
@@ -17,7 +22,24 @@ from data_designer.engine.models.clients.types import (
 )
 
 _DEFAULT_MAX_TOKENS = 4096
-_DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
+# Include canonical blocks from *Context.get_contexts and provider-specific
+# blocks that users may author directly in templates or tool-result content.
+_UNSUPPORTED_MEDIA_BLOCK_MODALITIES: dict[str, str] = {
+    "audio": "audio",
+    "audio_url": "audio",
+    "input_audio": "audio",
+    "video": "video",
+    "video_url": "video",
+    "input_video": "video",
+}
+
+
+class UnsupportedAnthropicMediaBlockError(ValueError):
+    """Raised when a canonical media block cannot be translated to Anthropic."""
+
+    def __init__(self, modality: str) -> None:
+        self.modality = modality
+        super().__init__(f"Anthropic adapter does not support {modality} context blocks.")
 
 
 def merge_system_parts(parts: list[str | list[dict[str, Any]]]) -> str | list[dict[str, Any]]:
@@ -100,6 +122,7 @@ def parse_anthropic_response(response_json: dict[str, Any]) -> ChatCompletionRes
     usage: Usage | None = None
     if raw_usage:
         usage = extract_usage(raw_usage)
+        usage = fill_reasoning_token_count_from_content(usage, message.reasoning_content)
 
     return ChatCompletionResponse(message=message, usage=usage, raw=response_json)
 
@@ -195,6 +218,12 @@ def translate_content_blocks(content: Any) -> list[dict[str, Any]]:
         if isinstance(block, dict) and block.get("type") == "image_url":
             translated.append(translate_image_url_block(block))
             continue
+        if isinstance(block, dict) and block.get("type") == "image":
+            translated.append(translate_canonical_image_block(block))
+            continue
+        block_type = block.get("type") if isinstance(block, dict) else None
+        if isinstance(block_type, str) and block_type in _UNSUPPORTED_MEDIA_BLOCK_MODALITIES:
+            raise UnsupportedAnthropicMediaBlockError(_UNSUPPORTED_MEDIA_BLOCK_MODALITIES[block_type])
         # Anthropic rejects empty text blocks — drop them.
         if isinstance(block, dict) and block.get("type") == "text" and not block.get("text"):
             continue
@@ -325,18 +354,27 @@ def translate_image_url_block(block: dict[str, Any]) -> dict[str, Any]:
 
     url = image_url.get("url", "")
 
-    match = _DATA_URI_RE.match(url)
-    if match:
-        return {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": match.group("media_type"),
-                "data": match.group("data"),
-            },
-        }
+    parsed = parse_base64_data_uri(url)
+    if parsed is not None:
+        media_type, data = parsed
+        return get_media_base64_context(Modality.IMAGE.value, media_type, data)
 
-    return {
-        "type": "image",
-        "source": {"type": "url", "url": url},
-    }
+    return get_media_url_context(Modality.IMAGE.value, url)
+
+
+def translate_canonical_image_block(block: dict[str, Any]) -> dict[str, Any]:
+    source = block.get("source")
+    if not isinstance(source, dict):
+        raise ValueError(f"Canonical image block must include a source object, got: {block!r}")
+
+    source_type = source.get("type")
+    if source_type == "url":
+        return get_media_url_context(Modality.IMAGE.value, source.get("url", ""))
+    if source_type == "base64":
+        media_type = source.get("media_type")
+        data = source.get("data")
+        if not isinstance(media_type, str) or not isinstance(data, str):
+            raise ValueError(f"Canonical image base64 source must include media_type and data, got: {source!r}")
+        return get_media_base64_context(Modality.IMAGE.value, media_type, data)
+
+    raise ValueError(f"Unsupported canonical image source type {source_type!r}")

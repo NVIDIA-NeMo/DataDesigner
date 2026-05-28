@@ -131,3 +131,97 @@ def test_data_designer_config_constraint_missing_rhs_raises_validation_error() -
                 ],
             }
         )
+
+
+def test_subcategory_parent_must_be_a_sampler_column() -> None:
+    with pytest.raises(ValueError, match=r"Subcategory column 'ski_category'.*'llm-text' column"):
+        DataDesignerConfig.model_validate(
+            {
+                "columns": [
+                    {
+                        "name": "package_type",
+                        "column_type": "llm-text",
+                        "prompt": "describe a package",
+                        "model_alias": "default",
+                    },
+                    {
+                        "name": "ski_category",
+                        "column_type": "sampler",
+                        "sampler_type": "subcategory",
+                        "params": {
+                            "category": "package_type",
+                            "values": {"basic": ["a"], "premium": ["b"]},
+                        },
+                    },
+                ]
+            }
+        )
+
+
+def test_subcategory_parent_as_category_sampler_is_valid() -> None:
+    config = DataDesignerConfig.model_validate(
+        {
+            "columns": [
+                {
+                    "name": "package_type",
+                    "column_type": "sampler",
+                    "sampler_type": "category",
+                    "params": {"values": ["basic", "premium"]},
+                },
+                {
+                    "name": "ski_category",
+                    "column_type": "sampler",
+                    "sampler_type": "subcategory",
+                    "params": {
+                        "category": "package_type",
+                        "values": {"basic": ["a"], "premium": ["b"]},
+                    },
+                },
+            ]
+        }
+    )
+    assert len(config.columns) == 2
+
+
+def test_subcategory_parent_must_be_a_category_sampler() -> None:
+    with pytest.raises(ValueError, match=r"sampler_type='uniform'.*sampler_type='category'"):
+        DataDesignerConfig.model_validate(
+            {
+                "columns": [
+                    {
+                        "name": "package_type",
+                        "column_type": "sampler",
+                        "sampler_type": "uniform",
+                        "params": {"low": 0, "high": 1},
+                    },
+                    {
+                        "name": "ski_category",
+                        "column_type": "sampler",
+                        "sampler_type": "subcategory",
+                        "params": {
+                            "category": "package_type",
+                            "values": {"basic": ["a"], "premium": ["b"]},
+                        },
+                    },
+                ]
+            }
+        )
+
+
+def test_subcategory_parent_missing_defers_to_schema_validator() -> None:
+    config = DataDesignerConfig.model_validate(
+        {
+            "columns": [
+                {
+                    "name": "ski_category",
+                    "column_type": "sampler",
+                    "sampler_type": "subcategory",
+                    "params": {
+                        "category": "does_not_exist",
+                        "values": {"basic": ["a"]},
+                    },
+                },
+            ]
+        }
+    )
+    assert len(config.columns) == 1

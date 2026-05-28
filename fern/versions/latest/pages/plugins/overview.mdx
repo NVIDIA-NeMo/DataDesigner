@@ -1,0 +1,81 @@
+---
+title: "Data Designer Plugins"
+description: "Extend Data Designer with custom column generators, seed readers, and processors."
+position: 1
+---
+
+Plugins let you add new object types to Data Designer without modifying the core library. Once installed, plugins behave like native Data Designer objects: they use the same declarative config patterns, builder APIs, discovery flow, and runtime execution paths as the built-in objects.
+
+## Supported plugin types
+
+Data Designer supports three plugin types:
+
+- **Column generator plugins**: Custom column types you pass to the config builder's `add_column` method.
+- **Seed reader plugins**: Custom seed dataset readers that let you load data from new sources, such as databases, cloud storage, or custom file formats.
+- **Processor plugins**: Custom processors that transform data before batches, after batches, or after generation completes. Pass them to the config builder's `add_processor` method.
+
+## How do you use plugins?
+
+A Data Designer plugin is just a Python package configured with an [entry point](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata) that points to a Data Designer `Plugin` object. Once installed, plugins are automatically discovered and ready to use — no additional registration or configuration needed.
+
+Use the Data Designer CLI to discover and install published plugin packages from catalogs. See [Discover Plugins](/plugins/discover) for the catalog workflow. See the [example plugin](/plugins/example-plugin) for a complete authoring walkthrough, or jump to [FileSystemSeedReader Plugins](/plugins/filesystemseedreader-plugins) for filesystem-backed seed reader authoring.
+
+## How do you create plugins?
+
+Creating a plugin involves three main steps:
+
+### 1. Implement the Plugin Components
+
+Each plugin has three components, and we recommend organizing them into separate files within a plugin subdirectory:
+
+- **`config.py`** -- Configuration class defining user-facing parameters
+    - Column generator plugins: inherit from `SingleColumnConfig` with a `column_type` discriminator
+    - Seed reader plugins: inherit from `SeedSource` with a `seed_type` discriminator
+    - Processor plugins: inherit from `ProcessorConfig` with a `processor_type` discriminator
+- **`impl.py`** -- Implementation class containing the core logic
+    - Column generator plugins: inherit from `ColumnGeneratorFullColumn` or `ColumnGeneratorCellByCell`
+    - Seed reader plugins: inherit from `SeedReader` or `FileSystemSeedReader` for directory-backed sources
+    - Processor plugins: inherit from `Processor` and override callback methods (`process_before_batch`, `process_after_batch`, `process_after_generation`)
+- **`plugin.py`** -- A `Plugin` instance that connects the config and implementation classes
+
+### 2. Package Your Plugin
+
+- Set up a Python package with `pyproject.toml`
+- Register your plugin using entry points under `data_designer.plugins`
+- Define dependencies (including `data-designer`)
+
+### 3. Install and Test Locally
+
+- Install your plugin locally with `uv pip install -e .` (editable mode)
+- No publishing required — your plugin is usable immediately after a local install
+- Iterate on your plugin code with fast feedback
+
+### 4. Share Your Plugin (Optional)
+
+- Publish to PyPI, another package index, or a direct package reference when you want others outside your environment to install the plugin
+- Add the package to a plugin catalog so users can discover and install it through `data-designer plugin`
+
+**Example entry point for a processor plugin:**
+
+```toml
+[project.entry-points."data_designer.plugins"]
+my-processor = "my_plugin.plugin:my_processor_plugin"
+```
+
+Where `my_processor_plugin` is a `Plugin` instance with `plugin_type=PluginType.PROCESSOR`:
+
+```python
+from data_designer.plugins.plugin import Plugin, PluginType
+
+my_processor_plugin = Plugin(
+    config_qualified_name="my_plugin.config.MyProcessorConfig",
+    impl_qualified_name="my_plugin.impl.MyProcessor",
+    plugin_type=PluginType.PROCESSOR,
+)
+```
+
+**Ready to get started?**
+
+- See the [Example Plugin](/plugins/example-plugin) for a column generator walkthrough
+- See [FileSystemSeedReader Plugins](/plugins/filesystemseedreader-plugins) for filesystem-backed seed reader plugins
+- See the [Markdown Section Seed Reader recipe](/recipes/plugin-development/markdown-section-seed-reader-plugin) for a runnable single-file `1:N` filesystem reader example

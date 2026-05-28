@@ -48,6 +48,15 @@ try:
 except userdata.SecretNotFoundError:
     os.environ["NVIDIA_API_KEY"] = getpass.getpass("Enter your NVIDIA API key: ")"""
 
+COLAB_INJECT_METADATA = "nemo_colab_inject"
+
+
+def mark_colab_injected(cell: NotebookNode) -> NotebookNode:
+    """Mark cells generated only for Colab."""
+    cell.metadata[COLAB_INJECT_METADATA] = True
+    return cell
+
+
 # Per-file try/except snippets appended into the standard NVIDIA_API_KEY cell
 # so additional API keys share the same imports rather than producing a
 # duplicate-imports cell. The snippets are joined with blank lines.
@@ -74,20 +83,20 @@ def create_colab_setup_cells(
 ) -> list[NotebookNode]:
     """Create the Colab-specific setup cells to inject before imports."""
     cells = []
-    cells += [new_markdown_cell(source=COLAB_SETUP_MARKDOWN)]
+    cells += [mark_colab_injected(new_markdown_cell(source=COLAB_SETUP_MARKDOWN))]
 
     install_cell = COLAB_INSTALL_CELL
     if additional_dependencies:
         install_cell += f" {additional_dependencies}"
-    cells += [new_code_cell(source=install_cell)]
+    cells += [mark_colab_injected(new_code_cell(source=install_cell))]
 
     api_key_cell = COLAB_API_KEY_CELL
     if additional_api_key_blocks:
         api_key_cell = "\n\n".join([api_key_cell, *additional_api_key_blocks])
-    cells += [new_code_cell(source=api_key_cell)]
+    cells += [mark_colab_injected(new_code_cell(source=api_key_cell))]
 
     if additional_setup_cell_sources:
-        cells += [new_code_cell(source=src) for src in additional_setup_cell_sources]
+        cells += [mark_colab_injected(new_code_cell(source=src)) for src in additional_setup_cell_sources]
 
     return cells
 
@@ -137,7 +146,7 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
     processed_cells = cells[:import_idx] + colab_cells + cells[import_idx:]
 
     badge_source = COLAB_BADGE_TEMPLATE.format(filename=f"{source_path.stem}.ipynb")
-    notebook.cells = [new_markdown_cell(source=badge_source)] + processed_cells
+    notebook.cells = [mark_colab_injected(new_markdown_cell(source=badge_source))] + processed_cells
     return notebook
 
 

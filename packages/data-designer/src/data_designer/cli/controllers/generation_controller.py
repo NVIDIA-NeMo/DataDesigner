@@ -16,6 +16,7 @@ from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_b
 from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_sample_records_pager
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
+from data_designer.engine.storage.artifact_storage import ResumeMode
 from data_designer.interface import DataDesigner
 from data_designer.logging import LOG_INDENT
 
@@ -116,6 +117,7 @@ class GenerationController:
         num_records: int,
         dataset_name: str,
         artifact_path: str | None,
+        resume: ResumeMode = ResumeMode.NEVER,
         output_format: str | None = None,
     ) -> None:
         """Load config, create a full dataset, and save results to disk.
@@ -125,6 +127,7 @@ class GenerationController:
             num_records: Number of records to generate.
             dataset_name: Name for the generated dataset folder.
             artifact_path: Path where generated artifacts will be stored, or None for default.
+            resume: Controls how interrupted runs are handled.
             output_format: If set, export the dataset to a single file in this format after
                 generation. One of 'jsonl', 'csv', 'parquet'.
         """
@@ -145,6 +148,7 @@ class GenerationController:
                 config_builder,
                 num_records=num_records,
                 dataset_name=dataset_name,
+                resume=resume,
             )
         except Exception as e:
             print_error(f"Dataset creation failed: {e}")

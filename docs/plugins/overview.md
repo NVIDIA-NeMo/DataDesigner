@@ -6,13 +6,13 @@ Plugins let you add new object types to Data Designer without modifying the core
 
 Data Designer supports three plugin types:
 
-- **Column generator plugins**: Custom [column generators](../code_reference/engine/column_generators.md) you pass to the config builder's [add_column](../code_reference/config/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_column) method.
-- **Seed reader plugins**: Custom [seed readers](../code_reference/engine/seed_readers.md) that load data from new sources, such as databases, cloud storage, or custom file formats.
-- **Processor plugins**: Custom [processor implementations](../code_reference/engine/processors.md) configured by processor config objects that transform data before batches, after batches, or after generation completes. Pass them to the config builder's [add_processor](../code_reference/config/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_processor) method.
+- **Column generator plugins**: Custom column types you pass to the config builder's `add_column` method.
+- **Seed reader plugins**: Custom seed readers that load data from new sources, such as databases, cloud storage, or custom file formats.
+- **Processor plugins**: Custom processor implementations that transform data before batches, after batches, or after generation completes. Pass them to the config builder's `add_processor` method.
 
 ## Use an Installed Plugin
 
-Plugin packages register their `Plugin` objects through Python package [entry points](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata). Data Designer discovers installed plugin entry points automatically, so no extra registration code is required. Simply install the plugin package and use its new object types in your Data Designer workflow.
+Plugin packages register their `Plugin` objects through Python package [entry points](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata). Data Designer discovers installed plugin entry points automatically, so no extra registration code is required. Once a plugin package is installed, use its new object types in your Data Designer workflow.
 
 If you install a plugin after `data_designer` has already been imported, restart the Python process so plugin discovery can rebuild from the new entry points.
 
@@ -22,7 +22,7 @@ For implementation instructions across all plugin types, see the [Build Your Own
 
 ## Find Plugins
 
-NVIDIA-maintained plugin packages live in the [DataDesignerPlugins](https://github.com/NVIDIA-NeMo/DataDesignerPlugins) repository. See [Available Plugins](available.md) for lists of first-party and community-contributed plugins.
+Use the Data Designer CLI to discover and install published plugin packages from catalogs. See [Discover Plugins](discover.md) for the catalog workflow, first-party plugin documentation, and source links.
 
 ## Discovery troubleshooting
 

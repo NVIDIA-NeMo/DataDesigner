@@ -70,6 +70,19 @@ The repository includes skills for common development tasks. These are located i
 
 ---
 
+## Documentation Changes
+
+Data Designer is migrating from MkDocs to Fern over several releases. Until the migration is complete, keep both docs builds working.
+
+- Edit docs content in `docs/`.
+- Edit tutorial notebooks in `docs/notebook_source/*.py`.
+- Use `make serve-docs-locally` to preview the legacy MkDocs site.
+- Use `make check-fern-docs` to regenerate local Fern artifacts and validate the Fern site.
+- Fern release publishing snapshots versioned docs into the CI-managed `docs-website` branch automatically.
+- Do not commit generated notebook artifacts.
+
+---
+
 ## Commit Messages
 
 - Use imperative mood ("add feature" not "added feature")

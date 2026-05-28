@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from data_designer.config.utils.image_helpers import decode_base64_image, detect_image_format, validate_image
+from data_designer.config.utils.media_helpers import decode_base64_image, detect_image_format, validate_image
 from data_designer.config.utils.type_helpers import StrEnum
 
 IMAGES_SUBDIR = "images"

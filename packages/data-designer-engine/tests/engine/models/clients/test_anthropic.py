@@ -401,11 +401,12 @@ def test_completion_excludes_openai_specific_params() -> None:
         frequency_penalty=0.5,
         presence_penalty=0.5,
         seed=42,
+        n=4,
     )
     client.completion(request)
 
     payload = sync_mock.post.call_args.kwargs["json"]
-    for field in ("response_format", "frequency_penalty", "presence_penalty", "seed"):
+    for field in ("response_format", "frequency_penalty", "presence_penalty", "seed", "n"):
         assert field not in payload, f"{field!r} should be excluded from Anthropic payload"
 
 
@@ -552,6 +553,32 @@ def test_completion_preserves_non_image_content_blocks() -> None:
     content = payload["messages"][0]["content"]
     assert content[0] == {"type": "text", "text": "Hello"}
     assert content[1] == {"type": "custom_block", "data": "something"}
+
+
+@pytest.mark.parametrize("modality", ["audio", "video"])
+def test_completion_rejects_audio_video_context_as_unsupported(modality: str) -> None:
+    sync_mock = make_mock_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": modality, "source": {"type": "url", "url": "https://example.com/media"}},
+                    {"type": "text", "text": "Describe this."},
+                ],
+            },
+        ],
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY
+    assert modality in exc_info.value.message
+    sync_mock.post.assert_not_called()
 
 
 def test_completion_passes_string_content_unchanged() -> None:

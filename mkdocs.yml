@@ -20,6 +20,7 @@ nav:
       - Custom Columns: concepts/custom_columns.md
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
+      - Workflow Chaining: concepts/workflow-chaining.md
       - Person Sampling: concepts/person_sampling.md
       - Traces: concepts/traces.md
       - Tool Use & MCP:
@@ -72,38 +73,12 @@ nav:
       - Overview: plugins/overview.md
       - Build Your Own: plugins/build_your_own.md
       - Using Models: plugins/models.md
-      - Available Plugins: plugins/available.md
-  - Code Reference:
-      - Overview: code_reference/index.md
-      # Keep module reference pages ordered alphabetically by nav label within each package group.
-      - Config:
-          - Overview: code_reference/config/index.md
-          - analysis: code_reference/config/analysis.md
-          - column_configs: code_reference/config/column_configs.md
-          - config_builder: code_reference/config/config_builder.md
-          - data_designer_config: code_reference/config/data_designer_config.md
-          - mcp: code_reference/config/mcp.md
-          - models: code_reference/config/models.md
-          - plugins: code_reference/config/plugins.md
-          - processors: code_reference/config/processors.md
-          - run_config: code_reference/config/run_config.md
-          - sampler_params: code_reference/config/sampler_params.md
-          - seeds: code_reference/config/seeds.md
-          - validator_params: code_reference/config/validator_params.md
-      - Engine:
-          - Overview: code_reference/engine/index.md
-          - column_generators: code_reference/engine/column_generators.md
-          - mcp: code_reference/engine/mcp.md
-          - processors: code_reference/engine/processors.md
-          - seed_readers: code_reference/engine/seed_readers.md
-      - Interface:
-          - Overview: code_reference/interface/index.md
-          - data_designer: code_reference/interface/data_designer.md
-          - errors: code_reference/interface/errors.md
-          - results: code_reference/interface/results.md
+      - Discover Plugins: plugins/discover.md
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - Retriever SDG Plugin: devnotes/posts/retrieval-sdg-toolkit.md
+      - Have It Your Way: devnotes/posts/have-it-your-way.md
       - VLM Long Document Understanding: devnotes/posts/vlm-long-document-understanding.md
       - Push Datasets to Hugging Face Hub: devnotes/posts/push-datasets-to-hugging-face-hub.md
       - "Text-to-SQL for Nemotron Super": devnotes/posts/text-to-sql.md
@@ -154,9 +129,6 @@ extra:
     default: latest
 
 watch:
-  - packages/data-designer-config/src/data_designer
-  - packages/data-designer-engine/src/data_designer
-  - packages/data-designer/src/data_designer
   - docs/
 
 plugins:
@@ -179,28 +151,9 @@ plugins:
         include_source: True
         ignore:
           - "assets/recipes/**/*.py"
-  - mkdocstrings:
-      handlers:
-          python:
-              paths:
-                  - packages/data-designer-config/src
-                  - packages/data-designer-engine/src
-                  - packages/data-designer/src
-              options:
-                  show_symbol_type_heading: true
-                  show_symbol_type_toc: true
-                  show_root_toc_entry: true
-                  show_object_full_path: false
-                  filters: ["!^_"]
-                  docstring_options:
-                      ignore_init_summary: false
-                  merge_init_into_class: true
-                  docstring_section_style: table
-                  summary: true
 
 extra_css:
   - css/style.css
-  - css/mkdocstrings.css
 
 extra_javascript:
   - js/toc-toggle.js

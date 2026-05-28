@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
-from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenCountSource, TokenUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.logging import LOG_INDENT
 
@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from data_designer.engine.models.clients.retry import RetryConfig
-    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
     ModelFacadeFactory = Callable[
         [ModelConfig, SecretResolver, ModelProviderRegistry, RetryConfig | None],
@@ -25,6 +25,18 @@ if TYPE_CHECKING:
     ]
 
 logger = logging.getLogger(__name__)
+
+
+def format_reasoning_token_count(reasoning_token_count: int, source: TokenCountSource | str | None) -> str:
+    if source == TokenCountSource.ESTIMATED or source == TokenCountSource.ESTIMATED.value:
+        return f"{reasoning_token_count} (estimated)"
+    return str(reasoning_token_count)
+
+
+def get_token_count_delta(current: int | None, previous: int | None) -> int | None:
+    if current is None:
+        return None
+    return current - (previous or 0)
 
 
 class ModelRegistry:
@@ -35,13 +47,13 @@ class ModelRegistry:
         model_provider_registry: ModelProviderRegistry,
         model_configs: list[ModelConfig] | None = None,
         model_facade_factory: ModelFacadeFactory | None = None,
-        throttle_manager: ThrottleManager | None = None,
+        request_admission: AdaptiveRequestAdmissionController | None = None,
         retry_config: RetryConfig | None = None,
     ) -> None:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_facade_factory = model_facade_factory
-        self._throttle_manager = throttle_manager
+        self._request_admission = request_admission
         self._retry_config = retry_config
         self._model_configs: dict[str, ModelConfig] = {}
         self._models: dict[str, ModelFacade] = {}
@@ -56,8 +68,8 @@ class ModelRegistry:
         return self._models
 
     @property
-    def throttle_manager(self) -> ThrottleManager | None:
-        return self._throttle_manager
+    def request_admission(self) -> AdaptiveRequestAdmissionController | None:
+        return self._request_admission
 
     @property
     def retry_config(self) -> RetryConfig | None:
@@ -115,9 +127,17 @@ class ModelRegistry:
             output_tokens = token_usage["output_tokens"]
             total_tokens = token_usage["total_tokens"]
             tokens_per_second = stats["tokens_per_second"]
-            logger.info(
-                f"{LOG_INDENT}tokens: input={input_tokens}, output={output_tokens}, total={total_tokens}, tps={tokens_per_second}"
-            )
+            token_parts = [f"input={input_tokens}", f"output={output_tokens}"]
+            if (reasoning_token_count := token_usage.get("reasoning_tokens")) is not None:
+                formatted_reasoning_token_count = format_reasoning_token_count(
+                    reasoning_token_count,
+                    token_usage.get("reasoning_token_count_source"),
+                )
+                token_parts.append(f"reasoning={formatted_reasoning_token_count}")
+            token_parts.extend([f"total={total_tokens}", f"tps={tokens_per_second}"])
+            logger.info(f"{LOG_INDENT}tokens: {', '.join(token_parts)}")
+            if token_usage.get("reasoning_token_count_source") == TokenCountSource.ESTIMATED.value:
+                logger.info(f"{LOG_INDENT}reasoning token count estimated with tiktoken")
 
             request_usage = stats["request_usage"]
             successful_requests = request_usage["successful_requests"]
@@ -160,14 +180,31 @@ class ModelRegistry:
             prev = snapshot.get(model_name)
             delta_input = current.token_usage.input_tokens - (prev.token_usage.input_tokens if prev else 0)
             delta_output = current.token_usage.output_tokens - (prev.token_usage.output_tokens if prev else 0)
+            delta_reasoning_token_count = get_token_count_delta(
+                current.token_usage.reasoning_tokens,
+                prev.token_usage.reasoning_tokens if prev else None,
+            )
             delta_successful = current.request_usage.successful_requests - (
                 prev.request_usage.successful_requests if prev else 0
             )
             delta_failed = current.request_usage.failed_requests - (prev.request_usage.failed_requests if prev else 0)
 
-            if delta_input > 0 or delta_output > 0 or delta_successful > 0 or delta_failed > 0:
+            if (
+                delta_input > 0
+                or delta_output > 0
+                or (delta_reasoning_token_count is not None and delta_reasoning_token_count > 0)
+                or delta_successful > 0
+                or delta_failed > 0
+            ):
                 deltas[model_name] = ModelUsageStats(
-                    token_usage=TokenUsageStats(input_tokens=delta_input, output_tokens=delta_output),
+                    token_usage=TokenUsageStats(
+                        input_tokens=delta_input,
+                        output_tokens=delta_output,
+                        reasoning_tokens=delta_reasoning_token_count,
+                        reasoning_token_count_source=current.token_usage.reasoning_token_count_source
+                        if delta_reasoning_token_count is not None
+                        else None,
+                    ),
                     request_usage=RequestUsageStats(successful_requests=delta_successful, failed_requests=delta_failed),
                 )
         return deltas
@@ -178,10 +215,9 @@ class ModelRegistry:
         This is a coarse upper bound: it sums over *all* registered aliases,
         including those not referenced by the current generator set, and does
         not deduplicate aliases sharing a ``(provider_name, model_id)`` key.
-        The result is used to size the scheduler's LLM-wait semaphore, which
-        is a memory-safety cap — oversizing wastes a few coroutine slots but
-        does not affect correctness because the ``ThrottleManager`` enforces
-        the real per-key limit.
+        The result is used to size scheduler task-stage model admission, which
+        is a memory-safety cap. Concrete provider/model request capacity is
+        enforced by request admission at model-call time.
         """
         return sum(mc.inference_parameters.max_parallel_requests for mc in self._model_configs.values())
 
@@ -314,8 +350,8 @@ class ModelRegistry:
             self._model_provider_registry,
             self._retry_config,
         )
-        if self._throttle_manager is not None:
-            self._throttle_manager.register(
+        if self._request_admission is not None:
+            self._request_admission.register(
                 provider_name=facade.model_provider_name,
                 model_id=model_config.model,
                 alias=model_config.alias,

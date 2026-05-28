@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10 - 3.13](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/350+_Billion-Tokens_Generated-76b900.svg?logo=nvidia&logoColor=white)
+[![Python 3.10 - 3.14](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13_|_3.14-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/400+_Billion-Tokens_Generated-76b900.svg?logo=nvidia&logoColor=white)
 
 **Generate high-quality synthetic datasets from scratch or using your own seed data.**
 
@@ -110,6 +110,12 @@ preview.display_sample_record()
 - **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/model-configs/)** – Configure custom models and providers
 - **[Person Sampling](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/)** – Learn how to sample realistic person data with demographic attributes
 
+### 📝 Documentation transition
+
+Data Designer is gradually moving documentation from MkDocs to Fern. During the transition, maintainers publish both docs builds for a few releases so the Fern site can mature without losing the existing MkDocs release archive.
+
+Contributors should keep editing the existing docs sources under `docs/`. Tutorial notebook source lives in `docs/notebook_source/*.py`; generated notebooks and Fern artifacts are not the source of truth.
+
 ### 🔧 Configure models via CLI
 
 ```bash
@@ -141,7 +147,7 @@ This repository supports agent-assisted development — see [CONTRIBUTING.md](CO
 
 ## Telemetry
 
-Data Designer collects telemetry to help us improve the library for developers. This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community. 
+Data Designer collects telemetry to help us improve the library for developers. This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community.
 
 Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and-privacy)**
 

@@ -223,3 +223,35 @@ def test_checkpoint_calls_on_complete_when_all_rows_dropped() -> None:
 
     callback.assert_called_once_with(None)
     storage.write_batch_to_parquet_file.assert_not_called()
+
+
+def test_initial_actual_num_records() -> None:
+    """initial_actual_num_records pre-seeds the actual_num_records counter."""
+    storage = _mock_artifact_storage()
+    storage.write_batch_to_parquet_file.return_value = "/fake/path.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake/final.parquet"
+
+    mgr = RowGroupBufferManager(storage, initial_actual_num_records=10)
+    mgr.init_row_group(0, 3)
+    mgr.update_batch(0, "col", ["a", "b", "c"])
+    mgr.checkpoint_row_group(0)
+
+    assert mgr.actual_num_records == 13
+
+
+def test_initial_total_num_batches_reflected_in_metadata() -> None:
+    """initial_total_num_batches pre-seeds the batch counter used by write_metadata."""
+    storage = _mock_artifact_storage()
+    storage.write_batch_to_parquet_file.return_value = "/fake/path.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake/final.parquet"
+
+    mgr = RowGroupBufferManager(storage, initial_actual_num_records=5, initial_total_num_batches=2)
+    mgr.init_row_group(2, 2)
+    mgr.update_batch(2, "col", ["x", "y"])
+    mgr.checkpoint_row_group(2)
+
+    mgr.write_metadata(target_num_records=9, buffer_size=3)
+
+    written = storage.write_metadata.call_args[0][0]
+    assert written["num_completed_batches"] == 3  # 2 initial + 1 new
+    assert written["actual_num_records"] == 7  # 5 initial + 2 new

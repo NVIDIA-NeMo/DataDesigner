@@ -32,6 +32,24 @@ update `baselines` with current values and `known_issues` with new findings.
 
 ## Instructions
 
+### Turn budget
+
+This suite must finish before the `max_turns` limit. Do not attempt a
+repo-wide test audit in one run.
+
+1. Read runner memory.
+2. Write `/tmp/audit-{{suite}}.md` immediately with the required headings and
+   empty tables. If the run is interrupted later, the workflow must still have
+   a usable partial report.
+3. Use targeted searches to find candidates, then read only the files needed
+   to verify a specific finding.
+4. Stop after either:
+   - 20 tool calls
+   - 2 new findings in a section
+   - all sections have been sampled
+5. Finalize the report, update runner memory, and stop. If no new findings
+   were verified, replace the report with `NO_FINDINGS`.
+
 ### 1. Test-to-source coverage mapping
 
 Map source files to their corresponding test files:
@@ -208,7 +226,7 @@ without at least one provider configured. Stick to config-layer checks
 (`DataDesignerConfigBuilder.build()`, column type resolution) which do
 not require providers.
 
-**API reference** for writing checks:
+**Useful imports** for writing checks:
 
 ```python
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -317,9 +335,29 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 If no findings in any category, write `NO_FINDINGS` on the first line instead.
 
+## Fix phase
+
+**This suite has no fix phase.** All categories — coverage gaps, hollow
+tests, import perf regressions, smoke check failures, test isolation
+violations — stay report-only.
+
+Rationale: the categories that look mechanical (rewriting hollow
+`assert ... is not None` checks, adding missing test files, fixing
+test-isolation violations) all require inferring intent or authoring new
+code. The audit phase only commits to *flagging* these conservatively;
+turning that into authored test changes is beyond the "self-evident"
+bar in `_fix-policy.md`.
+
+A future revision may add **test-isolation violations** (config tests
+importing engine, engine tests importing interface) as an eligible fix
+category — those are mechanical (replace the cross-boundary import with
+a test-local equivalent or fixture). Add only after `code-quality` (the
+other inference-heavy suite) has its draft-PR landing rate proven and
+`draft_until_proven` flipped to `false`.
+
 ## Constraints
 
-- Do not modify any test files. This is a read-only audit.
+- This recipe is fully read-only — do not modify any files at all.
 - Do not run the full test suite or coverage tool. Analysis is based on
   file structure and static inspection, not execution.
 - Be conservative with hollow test detection. Only flag tests you've read

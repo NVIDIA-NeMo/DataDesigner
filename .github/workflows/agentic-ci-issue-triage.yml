@@ -56,7 +56,7 @@ jobs:
 
           if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 \
+              --max-time 30 \
               -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
               -H "Content-Type: application/json" \
               -H "x-api-key: ${ANTHROPIC_API_KEY}" \
@@ -80,6 +80,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -o pipefail
+          rm -f /tmp/issue-triage-report.md /tmp/issue-triage-report-*.md /tmp/claude-triage-log.txt
 
           RUNNER_CTX=$(cat .agents/recipes/_runner.md)
           RECIPE_BODY=$(cat .agents/recipes/issue-triage/recipe.md \
@@ -97,46 +98,80 @@ jobs:
         continue-on-error: true
 
       - name: Fallback post if agent did not post
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TRACKING_ISSUE: ${{ vars.ISSUE_TRIAGE_TRACKING_ISSUE }}
         run: |
-          if [ ! -s "/tmp/issue-triage-report.md" ]; then
+          # Collect report parts. Numbered files (multi-part) take precedence;
+          # fall back to the unsuffixed file for single-part runs.
+          shopt -s nullglob
+          PARTS=(/tmp/issue-triage-report-*.md)
+          shopt -u nullglob
+          if [ ${#PARTS[@]} -eq 0 ] && [ -s /tmp/issue-triage-report.md ]; then
+            PARTS=(/tmp/issue-triage-report.md)
+          fi
+          if [ ${#PARTS[@]} -eq 0 ]; then
             echo "::warning::Triage report not created by agent."
             exit 0
           fi
+          mapfile -t PARTS < <(printf '%s\n' "${PARTS[@]}" | sort -V)
+          EXPECTED_PARTS=${#PARTS[@]}
 
-          # Check if the agent already posted/updated the comment.
-          MARKER="<!-- agentic-ci-issue-triage -->"
-          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
-            --jq "[.[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER}\"))] | last | .id" \
-            2>/dev/null || echo "")
-
-          REPORT=$(cat /tmp/issue-triage-report.md)
-
-          # Only post if the report marker is not already in a recent comment
-          # with today's date (agent already posted).
+          # Skip fallback only if every expected part identity (i/N) appears
+          # in a today-dated bot comment. Identity-based, not count-based:
+          # a duplicate post of one part should not mask a missing other.
+          # The pre-`capture()` `test()` guard is required: jq `capture()`
+          # raises an error on non-matching input, which would truncate the
+          # stream if any unrelated today-dated bot comment lacks the
+          # triage marker (e.g. from another automated workflow).
           TODAY=$(date -u +%Y-%m-%d)
-          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
-            EXISTING_BODY=$(gh api "repos/${{ github.repository }}/issues/comments/${EXISTING}" --jq '.body')
-            if echo "$EXISTING_BODY" | grep -q "$TODAY"; then
-              echo "Agent already posted today's report. Skipping fallback."
-              exit 0
-            fi
-            # Update existing comment.
-            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/${EXISTING}" \
-              -f body="$REPORT"
-            echo "Updated existing triage comment."
-          else
-            gh issue comment "$TRACKING_ISSUE" --body-file /tmp/issue-triage-report.md
-            echo "Posted new triage comment."
+          if ! SEEN_PARTS=$(gh api "repos/${{ github.repository }}/issues/${TRACKING_ISSUE}/comments" \
+              --paginate \
+              --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${TODAY}\")) | select(.body | test(\"agentic-ci-issue-triage:[0-9]+/${EXPECTED_PARTS}\")) | .body | capture(\"agentic-ci-issue-triage:(?<i>[0-9]+)/${EXPECTED_PARTS}\") | .i" \
+              2>/dev/null | sort -u); then
+            echo "::warning::Could not inspect existing triage comments; treating all generated parts as missing."
+            SEEN_PARTS=""
           fi
+
+          MISSING=()
+          for i in $(seq 1 "${EXPECTED_PARTS}"); do
+            if ! echo "${SEEN_PARTS}" | grep -qx "${i}"; then
+              MISSING+=("${i}")
+            fi
+          done
+
+          if [ ${#MISSING[@]} -eq 0 ]; then
+            echo "All ${EXPECTED_PARTS} parts already posted today (identities: $(echo "${SEEN_PARTS}" | tr '\n' ',' | sed 's/,$//')). Skipping fallback."
+            exit 0
+          fi
+
+          if [ -n "${SEEN_PARTS}" ]; then
+            echo "::warning::Posting only missing parts ${MISSING[*]} of ${EXPECTED_PARTS}; the agent already posted parts $(echo "${SEEN_PARTS}" | tr '\n' ',' | sed 's/,$//')."
+          fi
+
+          for i in "${MISSING[@]}"; do
+            PART="${PARTS[$((i-1))]}"
+            gh issue comment "$TRACKING_ISSUE" --body-file "$PART"
+            echo "Posted part ${i}: ${PART}"
+          done
 
       - name: Write job summary
         if: always()
+        shell: bash
         run: |
-          if [ -s "/tmp/issue-triage-report.md" ]; then
-            cat /tmp/issue-triage-report.md >> "$GITHUB_STEP_SUMMARY"
+          shopt -s nullglob
+          PARTS=(/tmp/issue-triage-report-*.md)
+          shopt -u nullglob
+          if [ ${#PARTS[@]} -eq 0 ] && [ -s /tmp/issue-triage-report.md ]; then
+            PARTS=(/tmp/issue-triage-report.md)
+          fi
+          if [ ${#PARTS[@]} -gt 0 ]; then
+            mapfile -t PARTS < <(printf '%s\n' "${PARTS[@]}" | sort -V)
+            for PART in "${PARTS[@]}"; do
+              cat "${PART}" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+            done
           else
             echo "No triage report was generated." >> "$GITHUB_STEP_SUMMARY"
           fi

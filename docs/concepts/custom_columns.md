@@ -191,5 +191,4 @@ Mocking only `generate()` will silently no-op under the async engine because the
 
 ## See Also
 
-- [Column Configs Reference](../code_reference/config/column_configs.md)
 - [Plugins Overview](../plugins/overview.md)

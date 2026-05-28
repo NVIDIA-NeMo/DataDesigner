@@ -3,6 +3,7 @@
 # ==============================================================================
 
 REPO_PATH := $(shell pwd)
+PRE_COMMIT ?= .venv/bin/pre-commit
 
 # Package directories
 CONFIG_PKG := packages/data-designer-config
@@ -23,7 +24,7 @@ INTERFACE_TESTS := $(INTERFACE_PKG)/tests
 define install-pre-commit-hooks
 	@if [ ! -f $(REPO_PATH)/.git/hooks/pre-commit ]; then \
 		echo "🪝 Installing pre-commit hooks..."; \
-		uv run pre-commit install; \
+		$(PRE_COMMIT) install; \
 	else \
 		echo "👍 Pre-commit hooks already installed"; \
 	fi
@@ -41,7 +42,7 @@ help:
 	@echo "📦 Installation (uv workspace - all packages in editable mode):"
 	@echo "  install                   - Install all packages (config → engine → interface)"
 	@echo "  install-dev               - Install all packages + dev tools (pytest, etc.)"
-	@echo "  install-dev-notebooks     - Install all packages + dev + notebook tools"
+	@echo "  install-dev-notebooks     - Install all packages + dev + docs + notebook tools"
 	@echo "  install-dev-recipes       - Install all packages + dev + recipe dependencies"
 	@echo ""
 	@echo "🧪 Testing (all packages):"
@@ -77,7 +78,16 @@ help:
 	@echo "  show-versions             - Show versions of all packages"
 	@echo "  convert-execute-notebooks - Convert notebooks from .py to .ipynb using jupytext (USE_CACHE=1 to skip unchanged)"
 	@echo "  generate-colab-notebooks  - Generate Colab-compatible notebooks"
-	@echo "  serve-docs-locally        - Serve documentation locally"
+	@echo "  generate-fern-notebooks   - Convert docs/notebook_source/*.py → fern/components/notebooks/{json,ts}"
+	@echo "  generate-fern-notebooks-with-outputs - Full pipeline: execute notebooks (needs API key), colabify, convert to Fern"
+	@echo "  install-docs-deps        - Install docs and notebook dependencies"
+	@echo "  prepare-fern-release VERSION=X.Y.Z - Add or refresh Fern version files for release preview"
+	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
+	@echo "  prepare-fern-docs         - Generate local Fern artifacts"
+	@echo "  check-fern-docs           - Generate local Fern artifacts and run fern check"
+	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
+	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
+	@echo "  serve-docs-locally        - Serve legacy MkDocs documentation locally"
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
@@ -146,10 +156,10 @@ install-dev:
 install-dev-notebooks:
 	@echo "📦 Installing DataDesigner workspace with notebook dependencies..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
-	@echo "   Groups: dev + notebooks (Jupyter, jupytext, etc.)"
-	uv sync --all-packages --group dev --group notebooks
+	@echo "   Groups: dev + docs + notebooks (Jupyter, jupytext, etc.)"
+	uv sync --all-packages --group dev --group docs --group notebooks
 	$(call install-pre-commit-hooks)
-	@echo "✅ Dev + notebooks installation complete!"
+	@echo "✅ Dev + docs + notebooks installation complete!"
 	@echo ""
 	@echo "💡 Run 'make test-run-tutorials' to test notebook tutorials"
 
@@ -455,31 +465,121 @@ update-license-headers:
 # DOCUMENTATION
 # ==============================================================================
 
+# Pin docs setup to a Python version covered by all docs/notebook deps. We
+# default to 3.13 to match the published docs builds; override with
+# DOCS_PYTHON_VERSION=... to test on another interpreter.
+DOCS_PYTHON_VERSION ?= 3.13
+DOCS_PYTHON ?= .venv/bin/python
+DOCS_JUPYTEXT ?= .venv/bin/jupytext
+DOCS_MKDOCS ?= .venv/bin/mkdocs
+FERN_VERSION ?= $(shell jq -r .version fern/fern.config.json)
+FERN ?= npx -y fern-api@$(FERN_VERSION)
+
+# Route urllib/requests/httpx through certifi's CA bundle. Necessary when uv
+# resolves $(DOCS_PYTHON_VERSION) to a python.org installer build, which ships without
+# populated CA certs (notebook 3 downloads a CSV over HTTPS at exec time).
+DOCS_CERTS = SSL_CERT_FILE=$$($(DOCS_PYTHON) -c "import certifi; print(certifi.where())") \
+             REQUESTS_CA_BUNDLE=$$($(DOCS_PYTHON) -c "import certifi; print(certifi.where())")
+
+install-docs-deps:
+	@echo "📦 Installing docs dependencies (Python $(DOCS_PYTHON_VERSION))..."
+	uv sync --python $(DOCS_PYTHON_VERSION) --all-packages --group docs --group notebooks
+
 serve-docs-locally:
-	@echo "📝 Building and serving docs..."
-	uv sync --group docs
-	uv run mkdocs serve --livereload
+	@$(MAKE) install-docs-deps
+	@echo "📝 Building and serving docs (Python $(DOCS_PYTHON_VERSION))..."
+	$(DOCS_MKDOCS) serve --livereload
+
+prepare-fern-release:
+ifndef VERSION
+	$(error VERSION is required, e.g. make prepare-fern-release VERSION=0.5.10)
+endif
+	$(DOCS_PYTHON) fern/scripts/fern-release-version.py prepare --version $(VERSION) $(if $(FORCE),--force,)
+
+check-fern-release-version:
+ifndef VERSION
+	$(error VERSION is required, e.g. make check-fern-release-version VERSION=0.5.10)
+endif
+	$(DOCS_PYTHON) fern/scripts/fern-release-version.py check --version $(VERSION) $(if $(REQUIRE_LATEST),--require-latest-matches-release,)
+
+prepare-fern-docs: generate-fern-notebooks
+	@echo "✅ Fern local artifacts ready"
+
+check-fern-docs: prepare-fern-docs
+	cd fern && $(FERN) check
+
+check-fern-docs-locally:
+	@$(MAKE) install-docs-deps
+	@$(MAKE) check-fern-docs
+	@echo "✅ Fern docs check complete"
+
+serve-fern-docs-locally:
+	@$(MAKE) install-docs-deps
+	@$(MAKE) prepare-fern-docs
+	cd fern && PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true $(FERN) docs dev
 
 convert-execute-notebooks:
 ifeq ($(USE_CACHE),1)
 	@echo "📓 Converting Python tutorials to notebooks (with caching)..."
-	@bash docs/scripts/build_notebooks_cached.sh
+	@$(DOCS_CERTS) DOCS_JUPYTEXT=$(DOCS_JUPYTEXT) bash docs/scripts/build_notebooks_cached.sh
 else
-	@echo "📓 Converting Python tutorials to notebooks and executing..."
+	@echo "📓 Converting Python tutorials to notebooks and executing ($(DOCS_PYTHON))..."
+	@rm -rf docs/notebooks
 	@mkdir -p docs/notebooks
 	cp docs/notebook_source/_README.md docs/notebooks/README.md
 	cp docs/notebook_source/_pyproject.toml docs/notebooks/pyproject.toml
-	uv run --all-packages --group notebooks --group docs jupytext --to ipynb --execute docs/notebook_source/*.py
-	mv docs/notebook_source/*.ipynb docs/notebooks/
-	rm -r docs/notebook_source/artifacts
-	rm docs/notebook_source/*.csv
-	@echo "✅ Notebooks created in docs/notebooks/"
+	@$(DOCS_CERTS) bash -c '\
+		failed=""; \
+		for f in docs/notebook_source/*.py; do \
+			[ -f "$$f" ] || continue; \
+			echo "▶ executing $$f"; \
+			$(DOCS_JUPYTEXT) --to ipynb --execute "$$f" || failed="$$failed\n   • $$f"; \
+		done; \
+		for f in docs/notebook_source/*.ipynb; do [ -f "$$f" ] && mv "$$f" docs/notebooks/; done; \
+		rm -rf docs/notebook_source/artifacts; \
+		rm -f docs/notebook_source/*.csv; \
+		if [ -n "$$failed" ]; then \
+			echo ""; \
+			echo "❌ Some notebooks failed (often missing API keys for image/audio providers)."; \
+			printf "   Failed:%b\n" "$$failed"; \
+			exit 1; \
+		fi'
+	@echo "✅ Notebooks executed under docs/notebooks/"
 endif
 
 generate-colab-notebooks:
-	@echo "📓 Generating Colab-compatible notebooks..."
-	uv run --group docs python docs/scripts/generate_colab_notebooks.py
+	@echo "📓 Generating Colab-compatible notebooks ($(DOCS_PYTHON))..."
+	$(DOCS_PYTHON) docs/scripts/generate_colab_notebooks.py
 	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
+
+generate-fern-notebooks:
+	@echo "📓 Converting notebooks to Fern format for NotebookViewer ($(DOCS_PYTHON))..."
+	@mkdir -p fern/components/notebooks
+	@failed=; tmp_dir=$$(mktemp -d); trap 'rm -rf "$$tmp_dir"' EXIT; \
+	for src in docs/notebook_source/*.py; do \
+		[ -f "$$src" ] || continue; \
+		name=$$(basename "$$src" .py); \
+		if [ -f "docs/notebooks/$$name.ipynb" ]; then \
+			input="docs/notebooks/$$name.ipynb"; \
+			source_label="notebook"; \
+		else \
+			input="$$tmp_dir/$$name.ipynb"; \
+			source_label="source"; \
+			$(DOCS_JUPYTEXT) --to ipynb --output "$$input" "$$src" >/dev/null || failed=1; \
+		fi; \
+		if [ ! -f "$$input" ]; then \
+			echo "❌ Missing notebook input for $$name: $$input"; \
+			failed=1; \
+			continue; \
+		fi; \
+		echo "   $$name ($$source_label)"; \
+		$(DOCS_PYTHON) fern/scripts/ipynb-to-fern-json.py "$$input" -o fern/components/notebooks/$$name.json || failed=1; \
+	done; \
+	if [ -n "$$failed" ]; then exit 1; fi
+	@echo "✅ Fern notebooks created in fern/components/notebooks/"
+
+generate-fern-notebooks-with-outputs: convert-execute-notebooks generate-colab-notebooks generate-fern-notebooks
+	@echo "✅ Full notebook pipeline complete (executed → colab → fern)"
 
 # ==============================================================================
 # PERFORMANCE
@@ -627,16 +727,16 @@ clean-test-coverage:
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
         build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
-        check-license-headers \
+        check-fern-docs check-fern-docs-locally check-fern-release-version check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \
         format format-check format-check-config format-check-engine format-check-interface \
         format-config format-engine format-interface \
-        generate-colab-notebooks help \
-        install install-dev install-dev-notebooks install-dev-recipes \
+        generate-colab-notebooks generate-fern-notebooks generate-fern-notebooks-with-outputs help \
+        install install-dev install-dev-notebooks install-dev-recipes install-docs-deps \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
-        perf-import perf-import-runtime publish serve-docs-locally show-versions \
+        perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-docs-locally serve-fern-docs-locally show-versions \
         health-checks \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
         test-interface test-interface-isolated test-isolated \

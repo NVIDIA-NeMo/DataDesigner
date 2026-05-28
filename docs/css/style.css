@@ -86,12 +86,12 @@ div.output_subarea pre,
     width: 10rem !important;
 }
 
-/* Hide right sidebar (TOC) by default, JavaScript will show it on Code Reference pages */
+/* Hide right sidebar (TOC) by default, JavaScript will show it on Concepts and Plugins pages */
 .md-sidebar.md-sidebar--secondary {
     display: none !important;
 }
 
-/* Show TOC on Code Reference pages (controlled by JavaScript) */
+/* Show TOC on selected pages (controlled by JavaScript) */
 body.show-toc .md-sidebar.md-sidebar--secondary {
     display: block !important;
 }
@@ -122,6 +122,58 @@ h1 {
 h2 {
     margin-top: 0.2rem !important;
     margin-bottom: 0.2rem !important;
+}
+
+.md-typeset .devnote-dek {
+    border-left: 0.18rem solid #76B900;
+    color: var(--md-default-fg-color);
+    font-size: 1.05rem;
+    font-weight: 500;
+    line-height: 1.45;
+    margin: 0.6rem 0 1rem;
+    padding-left: 0.8rem;
+}
+
+.md-typeset img.devnote-float-right,
+.md-typeset img.devnote-section-graphic {
+    background: var(--md-default-bg-color);
+    border: 0.05rem solid var(--md-default-fg-color--lightest);
+    border-radius: 0.3rem;
+    box-shadow: 0 0.25rem 0.8rem rgb(0 0 0 / 18%);
+}
+
+.md-typeset img.devnote-float-right {
+    float: right;
+    width: min(42%, 28rem);
+    max-width: 100%;
+    height: auto;
+    margin: 0 0 0.7rem 1rem;
+}
+
+.md-typeset img.devnote-section-graphic {
+    float: right;
+    width: min(38%, 24rem);
+    max-width: 100%;
+    height: auto;
+    margin: 0.1rem 0 0.7rem 1rem;
+}
+
+.md-typeset .devnote-clear {
+    clear: right;
+}
+
+.md-post--excerpt .devnote-hide-in-index {
+    display: none;
+}
+
+@media screen and (max-width: 60em) {
+    .md-typeset img.devnote-float-right,
+    .md-typeset img.devnote-section-graphic {
+        float: none;
+        display: block;
+        width: 100%;
+        margin: 1rem 0;
+    }
 }
 
 /* Define the company grid layout */

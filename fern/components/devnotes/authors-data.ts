@@ -1,0 +1,90 @@
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/** Author data — keep in sync with .authors.yml */
+
+export interface Author {
+  name: string;
+  description: string;
+  avatar: string;
+}
+
+export const authors: Record<string, Author> = {
+  amanoel: {
+    name: "Andre Manoel",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/165937436?v=4",
+  },
+  nvidia: {
+    name: "NVIDIA NeMo Data Designer Team",
+    description: "NeMo Data Designer Core Team",
+    avatar: "https://avatars.githubusercontent.com/u/1728152?s=200&v=4",
+  },
+  sthan: {
+    name: "Steve Han",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/150830061?v=4",
+  },
+  oliverholworthy: {
+    name: "Oliver Holworthy",
+    description: "Machine Learning Engineer at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/1216955?v=4",
+  },
+  dcorneil: {
+    name: "Dane Corneil",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/4678597?v=4",
+  },
+  etramel: {
+    name: "Eric Tramel",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/1223539?v=4",
+  },
+  kthadaka: {
+    name: "Kirit Thadaka",
+    description: "Product Manager at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/8190572?v=4",
+  },
+  dnathawani: {
+    name: "Dhruv Nathawani",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/128275431?v=4",
+  },
+  ymeyer: {
+    name: "Yev Meyer",
+    description: "Principal Research Scientist at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/11296522?v=4",
+  },
+  mvansegbroeck: {
+    name: "Maarten Van Segbroeck",
+    description: "Director of Research at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/67658125?v=4",
+  },
+  jgreco: {
+    name: "Johnny Greco",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/10998105?v=4",
+  },
+  nmulepati: {
+    name: "Nabin Mulepati",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/5551931?v=4",
+  },
+  trintamaki: {
+    name: "Tuomas Rintamaki",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/143676174?v=4",
+  },
+  nvilia: {
+    name: "Ilia Karmanov",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/130559691?v=4",
+  },
+  davanstrien: {
+    name: "Daniel van Strien",
+    description: "Machine Learning Librarian at Hugging Face",
+    avatar: "https://avatars.githubusercontent.com/u/8995957?v=4",
+  },
+};

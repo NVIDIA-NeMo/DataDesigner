@@ -5,25 +5,46 @@ from __future__ import annotations
 
 import importlib.metadata
 import sys
+from typing import TextIO
 
 import typer
 
 from data_designer.cli.agent_command_defs import AGENT_COMMANDS
 from data_designer.cli.lazy_group import create_lazy_typer_group
 from data_designer.cli.runtime import ensure_cli_default_model_settings
+from data_designer.config.utils.constants import DATA_DESIGNER_PACKAGE_NAME
 
 _CMD = "data_designer.cli.commands"
-_PACKAGE_NAME = "data-designer"
+
+
+def should_show_update_notice(stream: TextIO | None = None) -> bool:
+    stream = sys.stdout if stream is None else stream
+    return stream.isatty()
 
 
 def _version_callback(value: bool) -> None:
     if not value:
         return
     try:
-        typer.echo(importlib.metadata.version(_PACKAGE_NAME))
+        installed_version = importlib.metadata.version(DATA_DESIGNER_PACKAGE_NAME)
     except importlib.metadata.PackageNotFoundError:
-        typer.echo(f"Unable to resolve installed {_PACKAGE_NAME} package version.", err=True)
+        typer.echo(f"Unable to resolve installed {DATA_DESIGNER_PACKAGE_NAME} package version.", err=True)
         raise typer.Exit(1) from None
+
+    typer.echo(installed_version)
+    if not should_show_update_notice():
+        raise typer.Exit()
+
+    try:
+        # The update CTA is opportunistic; version output should stay usable if lookup fails.
+        from data_designer.cli.ui import print_update_notice
+        from data_designer.cli.version_notice import get_update_notice
+
+        notice = get_update_notice(installed_version)
+        if notice is not None:
+            print_update_notice(notice.latest_version, notice.upgrade_command)
+    except (ImportError, OSError, RuntimeError, ValueError):
+        pass
     raise typer.Exit()
 
 
@@ -120,6 +141,84 @@ download_app = typer.Typer(
     no_args_is_help=True,
 )
 
+# Create plugin command group
+plugin_app = typer.Typer(
+    name="plugin",
+    help="Discover, install, and uninstall Data Designer plugin packages from catalogs",
+    cls=create_lazy_typer_group(
+        {
+            "list": {
+                "module": f"{_CMD}.plugin",
+                "attr": "list_command",
+                "help": "List plugin packages from a catalog",
+            },
+            "search": {
+                "module": f"{_CMD}.plugin",
+                "attr": "search_command",
+                "help": "Search plugin packages from a catalog",
+            },
+            "info": {
+                "module": f"{_CMD}.plugin",
+                "attr": "info_command",
+                "help": "Show plugin package metadata and install strategy",
+            },
+            "install": {
+                "module": f"{_CMD}.plugin",
+                "attr": "install_command",
+                "help": "Install a plugin package and verify declared runtime entry points",
+            },
+            "uninstall": {
+                "module": f"{_CMD}.plugin",
+                "attr": "uninstall_command",
+                "help": "Uninstall a plugin package and verify declared runtime entry points are removed",
+            },
+            "installed": {
+                "module": f"{_CMD}.plugin",
+                "attr": "installed_command",
+                "help": "List installed plugin packages and their runtime plugins",
+            },
+        }
+    ),
+    no_args_is_help=True,
+)
+
+
+@plugin_app.callback()
+def plugin_callback(
+    catalog: str | None = typer.Option(
+        None,
+        "--catalog",
+        help="Plugin catalog alias to use for commands that read package metadata.",
+    ),
+) -> None:
+    _ = catalog
+
+
+plugin_catalog_app = typer.Typer(
+    name="catalog",
+    help="Manage plugin catalog aliases",
+    cls=create_lazy_typer_group(
+        {
+            "list": {
+                "module": f"{_CMD}.plugin",
+                "attr": "catalog_list_command",
+                "help": "List configured plugin catalogs",
+            },
+            "add": {
+                "module": f"{_CMD}.plugin",
+                "attr": "catalog_add_command",
+                "help": "Add a plugin catalog alias",
+            },
+            "remove": {
+                "module": f"{_CMD}.plugin",
+                "attr": "catalog_remove_command",
+                "help": "Remove a plugin catalog alias",
+            },
+        }
+    ),
+    no_args_is_help=True,
+)
+
 _AGENT_CMD = f"{_CMD}.agent"
 
 
@@ -146,10 +245,12 @@ agent_state_app = typer.Typer(
 )
 
 agent_app.add_typer(agent_state_app, name="state")
+plugin_app.add_typer(plugin_catalog_app, name="catalog")
 
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup")
 app.add_typer(download_app, name="download", rich_help_panel="Setup")
+app.add_typer(plugin_app, name="plugin", rich_help_panel="Setup")
 app.add_typer(agent_app, name="agent", rich_help_panel="Agent")
 
 
