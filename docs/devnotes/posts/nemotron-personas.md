@@ -163,7 +163,7 @@ config_builder.add_column(
         params=dd.PersonSamplerParams(
             locale="en_US",                  # or ja_JP, en_IN, fr_FR, ko_KR, pt_BR, en_SG, hi_Deva_IN, hi_Latn_IN
             age_range=[18, 114],
-            with_synthetic_personas=True,    # exposes Big Five + cultural background + hobbies + career_goals + ...
+            with_synthetic_personas=True,    # exposes Big Five + persona attributes
         ),
         drop=True,
     )
@@ -206,17 +206,23 @@ config_builder.add_column(
 Based on a person with the following profile:
 
 Name: {{ first_name }} {{ middle_name if middle_name else '' }} {{ last_name }}
-Age: {{ age }}, Sex: {{ sex }}, Occupation: {{ occupation }}
+Sex: {{ sex }}
+Age: {{ age }}
+...
+Occupation: {{ occupation }}
 Location: {{ city }}, {{ state }}, {{ county }}
 
 Personality profile:
 - {{ openness.description }}
-- {{ conscientiousness.description }}
-- {{ extraversion.description }}
-- {{ agreeableness.description }}
+- ...
 - {{ neuroticism.description }}
 
-Generate the cultural_background, skills_and_expertise, career_goals_and_ambitions, and hobbies_and_interests fields.
+Generate the following detailed persona attributes:
+- cultural_background
+- ...
+- hobbies_and_interests_list
+
+When generating attributes, make sure to incorporate the influences suggested by the personality profile description.
 """,
         output_format=PersonaAttributes,
         model_alias=MODEL_ALIAS,
@@ -237,15 +243,15 @@ The final stage is a second structured-output LLM call that synthesizes everythi
 
 ```python
 class Personas(BaseModel):
-    professional_persona: str = Field(description="...primary field of work, key professional skills...")
-    finance_persona: str = Field(description="...spending habits, relationship with money...")
-    healthcare_persona: str = Field(description="...specific health conditions, patient behavior...")
-    sports_persona: str = Field(description="...athletic interests, fitness approach, specific teams...")
-    arts_persona: str = Field(description="...engagement with creative expression, specific artists...")
-    travel_persona: str = Field(description="...travel interests, planning style, specific destinations...")
-    culinary_persona: str = Field(description="...food preferences, specific dishes and ingredients...")
-    concise_persona: str = Field(description="One-sentence essence of the person, including quirks.")
-    detailed_persona: str = Field(description="Paragraph-length descriptive narrative.")
+    professional_persona: str = Field(description="A one-sentence persona description including primary field of work, key professional skills...")
+    finance_persona: str = Field(description="A one-sentence persona characterization of spending habits, relationship with money, saving and investment habits...")
+    healthcare_persona: str = Field(description="A one-sentence persona description of very specific health conditions ... and their typical behavior as a patient...")
+    sports_persona: str = Field(description="A one-sentence persona description of athletic interests, seasonal sports, and their approach to fitness and exercise...")
+    arts_persona: str = Field(description="A one-sentence persona characterization of engagement with creative expression, artistic appreciation, cultural activities...")
+    travel_persona: str = Field(description="A one-sentence persona capturing travel interests and style, including planning preferences...")
+    culinary_persona: str = Field(description="A one-sentence persona description of food/cuisine preferences, cooking skill level...")
+    concise_persona: str = Field(description="A one-sentence description capturing the essence of this person's unique perspective and approach to life...")
+    detailed_persona: str = Field(description="A paragraph describing persona's cultural background, skills, goals, and interests...")
 
 
 config_builder.add_column(
@@ -257,15 +263,20 @@ Based on a person with the following persona attributes and profile:
 
 Age: {{ age }}
 Cultural background: {{ cultural_background }}
-Hobbies and interests: {{ hobbies_and_interests }}
-Skills and expertise: {{ skills_and_expertise }}
-Career goals and ambitions: {{ career_goals_and_ambitions }}
+{{ 'Hobbies and interests: ' + hobbies_and_interests if age >= 6 else '' }}
+{{ 'Skills and expertise: ' + skills_and_expertise if age >= 16 else '' }}
+{{ 'Career goals and ambitions: ' + career_goals_and_ambitions if age >= 16 else '' }}
 
 Personality profile:
 - {{ openness.description }}
 - ...
+- {{ neuroticism.description }}
 
-Generate self-contained persona descriptions per the schema.
+Generate the following self-contained persona descriptions that capture how persona attributes and profile combine to create a unique individual's perspective and approach to various facets of life.
+
+- professional_persona
+- ...
+- detailed_persona
 """,
         output_format=Personas,
         model_alias=MODEL_ALIAS,

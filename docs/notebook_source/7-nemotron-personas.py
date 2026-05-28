@@ -512,7 +512,7 @@ Each persona should be very specific, not a generic/bland description. Do not sh
 Here are examples of how each persona description may begin:
 "An aspiring musician..."
 "A renowned machine learning researcher..."
-"A neonatal nurse with decades of experince..."
+"A neonatal nurse with decades of experience..."
 "An urban planner with a passion..."
 """
 
@@ -601,7 +601,7 @@ Each persona should be very specific, not a generic/bland description. Do not sh
 Here are examples of how each description may begin:
 "An aspiring musician..."
 "A renowned machine learning researcher..."
-"A neonatal nurse with decades of experince..."
+"A neonatal nurse with decades of experience..."
 "An urban planner with a passion..."
 """,
         output_format=Personas,
