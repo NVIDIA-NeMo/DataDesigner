@@ -1,14 +1,16 @@
 ---
-date: 2026-05-28
-authors:
-  - dnathawani
+title: "Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles"
+description: ""
 ---
 
-# **Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles**
+import { Authors } from "@/components/Authors";
 
-Models behave differently based on how a question is phrased --- a "cynical senior dev" and a "curious student" get different answers to the same problem. Using NeMo Data Designer, we built a pipeline that generates hundreds of diverse prompt preambles with controlled variation across tone, strictness, verbosity, and answer format, then validates each one for compliance. These preambles feed into a YAML-driven training mixture pipeline that prepends diverse instructions to existing SFT data at scale. This approach is now used in Nemotron training mixtures to address the prompt-format brittleness observed in internal testing.
+<Authors ids={["dnathawani"]} />
 
-<!-- more -->
+
+Models behave differently based on how a question is phrased \- a "cynical senior dev" and a "curious student" get different answers to the same problem. Using NeMo Data Designer, we built a pipeline that generates hundreds of diverse prompt preambles with controlled variation across tone, strictness, verbosity, and answer format, then validates each one for compliance. These preambles feed into a YAML-driven training mixture pipeline that prepends diverse instructions to existing SFT data at scale. This approach is now used in Nemotron training mixtures to address the prompt-format brittleness observed in internal testing.
+
+{/* more */}
 
 ---
 
@@ -48,7 +50,7 @@ A prompt to an LLM typically has three distinct components: the **preamble** (hi
  └──────────────────────────────────────────────────────────────┘
 ```
 
-The preamble and format instruction (green) are the parts we can vary freely without changing the problem. The problem itself (red) comes from the source dataset and stays fixed. When models are trained on data with only one preamble style and one format instruction, they become brittle --- they can solve the problem, but small wording changes cause them to misformat their response, triggering scoring failures.
+The preamble and format instruction (green) are the parts we can vary freely without changing the problem. The problem itself (red) comes from the source dataset and stays fixed. When models are trained on data with only one preamble style and one format instruction, they become brittle \- they can solve the problem, but small wording changes cause them to misformat their response, triggering scoring failures.
 
 When we evaluated early Nemotron checkpoints on internal STEM benchmarks with varied prompt phrasings, we observed accuracy swings of **up to 15 percentage points** depending solely on how the question was phrased:
 
@@ -58,11 +60,11 @@ When we evaluated early Nemotron checkpoints on internal STEM benchmarks with va
 "Which of the following is true?"  → 74% accuracy
 ```
 
-Same questions. Same model. Same knowledge. Different scores. This is a well-documented phenomenon across the industry --- models overfit to the prompt format seen during training.
+Same questions. Same model. Same knowledge. Different scores. This is a well-documented phenomenon across the industry \- models overfit to the prompt format seen during training.
 
-The root cause is straightforward: **the training data lacks prompt diversity**. If every STEM MCQ in your SFT dataset starts with "Answer the following question and place your answer in \boxed{}", the model learns that specific format perfectly but becomes brittle to anything else.
+The root cause is straightforward: **the training data lacks prompt diversity**. If every STEM MCQ in your SFT dataset starts with "Answer the following question and place your answer in \\boxed\{\}", the model learns that specific format perfectly but becomes brittle to anything else.
 
-The fix is equally simple in principle --- expose the model to the same problems with many different phrasings --- but doing this manually at the scale of thousands of training examples is impractical. We need preambles that span a wide diversity space:
+The fix is equally simple in principle \- expose the model to the same problems with many different phrasings \- but doing this manually at the scale of thousands of training examples is impractical. We need preambles that span a wide diversity space:
 
 - **Sentence types:** imperative ("Select the answer"), interrogative ("Which option is correct?"), declarative ("The correct answer is to be placed in...")
 - **Tones:** formal, neutral, concise, encouraging, strict
@@ -70,7 +72,7 @@ The fix is equally simple in principle --- expose the model to the same problems
 - **Verbosity:** one-liners vs. detailed multi-sentence instructions
 - **Answer formats:** `\boxed{}`, `\boxed{LETTER}`, `Answer: A/B/C/D`, `((X))`, `<final_answer>X</final_answer>`, and dozens more
 
-Covering the full combinatorial space of these dimensions manually is intractable --- and this is exactly the kind of structured diversity problem that synthetic data generation is designed to solve. Data Designer's sampler-driven approach lets us define the diversity *dimensions* declaratively, and the framework handles the *combinatorics* at scale, generating thousands of validated preamble variations that no human annotator could match.
+Covering the full combinatorial space of these dimensions manually is intractable \- and this is exactly the kind of structured diversity problem that synthetic data generation is designed to solve. Data Designer's sampler-driven approach lets us define the diversity *dimensions* declaratively, and the framework handles the *combinatorics* at scale, generating thousands of validated preamble variations that no human annotator could match.
 
 ---
 
@@ -425,7 +427,7 @@ The appendix ships **10 distinct format templates** spanning `\boxed{}`, bracket
 - **For SFT:** The paraphrased format instructions add diversity to the training data. The model sees the same problem with many different answer format requirements, building robustness.
 - **For RL:** The paired regex lets the reward function extract the answer from model output regardless of which format was requested. The RL environment (e.g., NeMo-Gym) uses the regex to verify correctness without brittle string matching.
 
-The preamble (generic instruction) and format instruction (answer format) are generated as separate LLM columns, then composed into a final `user_prompt` with the `{problem}` placeholder arranged in one of 8 placement orders (P + F + {problem}, {problem} + P + F, etc.). This separation lets you vary each dimension independently and prevents positional overfitting.
+The preamble (generic instruction) and format instruction (answer format) are generated as separate LLM columns, then composed into a final `user_prompt` with the `{problem}` placeholder arranged in one of 8 placement orders (`P + F + {problem}`, `{problem} + P + F`, etc.). This separation lets you vary each dimension independently and prevents positional overfitting.
 
 ---
 
@@ -441,7 +443,7 @@ The preamble (generic instruction) and format instruction (answer format) are ge
 
 5. **Regex-paired templates unify SFT and RL.** The same format templates serve double duty: paraphrased instructions add SFT diversity, while the paired regex enables RL reward parsing. One pipeline, both training paradigms.
 
-6. **Majority percentage controls the tradeoff.** Setting `majority_percentage: 25` means the model sees the canonical format 25% of the time and diverse variations 75% of the time. This ratio was tuned empirically --- too much diversity degrades canonical-format performance; too little doesn't build robustness.
+6. **Majority percentage controls the tradeoff.** Setting `majority_percentage: 25` means the model sees the canonical format 25% of the time and diverse variations 75% of the time. This ratio was tuned empirically \- too much diversity degrades canonical-format performance; too little doesn't build robustness.
 
 ---
 
