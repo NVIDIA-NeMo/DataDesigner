@@ -254,26 +254,29 @@ data_designer = DataDesigner()
 # >
 # > When `SAMPLE_FROM_SDG_PGM = False` (default), we sample personal details and OCEAN traits from Data Designer's `PersonSampler` against the NGC-hosted Nemotron-Personas dataset (`PersonSamplerParams(locale=personas_locale, with_synthetic_personas=True)`).
 # >
-# > When `SAMPLE_FROM_SDG_PGM = True`, persons are generated from a custom Probabilistic Graphical Model via [NeMo SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs), and the OCEAN helpers from Section 2 layer the personality traits on top. **This branch is currently a TODO** — see the cell below for the eventual integration shape.
+# > When `SAMPLE_FROM_SDG_PGM = True`, persons are generated from a custom Probabilistic Graphical Model via [NeMo SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs), and the OCEAN helpers from Section 2 layer the personality traits on top. **This branch is a hook** — bring your own `PGMGenerator` subclass (see the [`us_person` example](https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person) and the cell below for the integration shape).
 # >
 # > To switch locales, change `personas_locale` in the Section 1 verify cell (and run `data-designer download personas --locale <code>` for the new locale first). All downstream prompts work unchanged across locales.
 
 # %%
 # Toggle the source of the base "person" record.
 #   False (default) -- sample from the NGC-hosted Nemotron-Personas-USA artifact.
-#   True            -- generate persons from a custom PGM via SDG-PGMs (TODO; see below).
+#   True            -- generate persons from a custom PGM via SDG-PGMs (hook; see below).
 SAMPLE_FROM_SDG_PGM = False
 
 # %%
 config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 
 if SAMPLE_FROM_SDG_PGM:
-    # TODO: Generate the base person record from a custom Probabilistic Graphical Model
-    # using NeMo SDG-PGMs (https://github.com/NVIDIA-NeMo/SDG-PGMs), then layer the OCEAN
-    # Big-Five helpers above on top. This matches the original four-stage Nemotron-Personas
-    # pipeline (Stage 1 = OCEAN helpers, Stage 2 = PGM demographics).
+    # Build the base person record via a custom Probabilistic Graphical Model using
+    # NeMo SDG-PGMs (https://github.com/NVIDIA-NeMo/SDG-PGMs), then layer the OCEAN
+    # Big-Five helpers from Section 2 on top. This matches the original four-stage
+    # Nemotron-Personas pipeline (Stage 1 = OCEAN helpers, Stage 2 = PGM demographics).
     #
-    # The integration is approximately:
+    # See the worked us_person example for a complete PGMGenerator subclass:
+    # https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person
+    #
+    # The integration shape:
     #
     #     from data_designer_plugins.pgm_generator_plugin import PGMGeneratorPluginConfig
     #     ocean_df = generate_ocean_traits(NUM_RECORDS)                # Stage 1 (OCEAN)
@@ -288,8 +291,10 @@ if SAMPLE_FROM_SDG_PGM:
     #         )
     #     )
     raise NotImplementedError(
-        "SDG-PGMs path is not implemented in this notebook yet. "
-        "See https://github.com/NVIDIA-NeMo/SDG-PGMs for the open-sourced library."
+        "SDG-PGMs path is a hook in this notebook -- bring your own PGMGenerator subclass. "
+        "See https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person for a worked subclass "
+        "and https://github.com/NVIDIA-NeMo/SDG-PGMs/blob/main/src/data_designer_plugins/pgm_generator_plugin.py "
+        "for the column-generator interface."
     )
 
 # Default path: sample synthetic personal details + OCEAN traits from the NGC-hosted asset.

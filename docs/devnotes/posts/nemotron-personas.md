@@ -170,7 +170,7 @@ config_builder.add_column(
 )
 ```
 
-`{{ person.openness.description }}`, `{{ person.occupation }}`, `{{ person.county }}` all become available to downstream Jinja templates immediately. See the [Person Sampling docs](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) for the full setup walkthrough (NGC API key + `data-designer download personas --locale en_US`).
+`{{ person.openness.description }}`, `{{ person.occupation }}`, `{{ person.district }}` all become available to downstream Jinja templates immediately. See the [Person Sampling docs](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/) for the full setup walkthrough (NGC API key + `data-designer download personas --locale en_US`).
 
 !!! tip "Bring your own region: SDG-PGMs is open source"
     For new locales without a released artifact — or for teams that need full control over the demographic distributions — the underlying engine, **SDG-PGMs**, was just open-sourced as [NVIDIA-NeMo/SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs):
@@ -366,7 +366,7 @@ A few lines of Pydantic + one LLM column + a couple of expression columns and th
 
 ### Going deeper: build a brand-new locale
 
-For locales without an NGC-hosted Nemotron-Personas dataset, the build path is open. The OCEAN Big-Five helpers ship in the tutorial repo (Stage 1 of the original pipeline), and [NeMo SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs) provides the framework for building your own demographic PGM (Stage 2) — collect aggregate statistical distributions, declare a `PGMGenerator` subclass, and drop it into Data Designer via the bundled `PGMGeneratorPluginConfig`. The downstream LLM stages (3 and 4) are locale-agnostic; they just need the right language in the prompts. The tutorial leaves a `SAMPLE_FROM_SDG_PGM = True` toggle in place as the integration point.
+For locales without an NGC-hosted Nemotron-Personas dataset, the build path is open. The OCEAN Big-Five helpers ship in the tutorial repo (Stage 1 of the original pipeline), and [NeMo SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs) provides the framework for building your own demographic PGM (Stage 2) — collect aggregate statistical distributions, declare a `PGMGenerator` subclass (the [`us_person` example](https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person) is a working blueprint), and plug it into Data Designer via SDG-PGMs's [`PGMGeneratorPluginConfig`](https://github.com/NVIDIA-NeMo/SDG-PGMs/blob/main/src/data_designer_plugins/pgm_generator_plugin.py) column generator. The downstream LLM stages (3 and 4) are locale-agnostic; they just need the right language in the prompts. The tutorial leaves a `SAMPLE_FROM_SDG_PGM = True` toggle in place as the integration point.
 
 ---
 
