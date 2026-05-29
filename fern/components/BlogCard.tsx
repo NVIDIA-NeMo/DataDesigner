@@ -175,7 +175,7 @@ const BLOG_CARD_CSS = `
   transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 }
 .blog-card:hover {
-  border-color: #76b900;
+  border-color: var(--accent, #76b900); /* theme accent, falls back to NVIDIA green */
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(118, 185, 0, 0.08);
 }
@@ -185,6 +185,8 @@ const BLOG_CARD_CSS = `
   background: var(--grayscale-3, rgba(128, 128, 128, 0.06));
   overflow: hidden;
 }
+/* Reset prose margins on the wrappers Fern injects around <img> (e.g. the rmiz
+   click-to-zoom <span> shells), which otherwise push the image off the card top. */
 .blog-card__media > *,
 .blog-card__media > * > * {
   display: block;
@@ -201,6 +203,8 @@ const BLOG_CARD_CSS = `
   display: block;
   margin: 0 !important;
 }
+/* Defeat Fern's auto-injected click-to-zoom (rmiz): the whole card is already a
+   link, so clicks should navigate, not open a lightbox. */
 .blog-card__media [data-rmiz],
 .blog-card__media [data-rmiz-content],
 .blog-card__media img {
@@ -296,6 +300,7 @@ const BLOG_CARD_CSS = `
 export function BlogGrid({ children }: { children: ReactNode }) {
   return (
     <div className="blog-grid">
+      {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
       <style dangerouslySetInnerHTML={{ __html: BLOG_CARD_CSS }} />
       {children}
     </div>

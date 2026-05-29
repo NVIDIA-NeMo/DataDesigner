@@ -137,6 +137,16 @@ component (`BlogCard`, `Authors`, `NotebookViewer`, `MetricsTable`,
 `<style dangerouslySetInnerHTML>` tag in its render output. When you add product
 styling, put it in the component that uses it — do not add a `css:` entry.
 
+`dangerouslySetInnerHTML` is safe here because every injected stylesheet is a
+static string literal defined at module scope — no user/MDX content is
+interpolated. `BlogGrid` injects once for the whole grid; the leaf components
+(`Authors`, `MetricsTable`, `TrajectoryViewer`, `BadgeLinks`) re-emit their
+`<style>` per instance. Duplicate identical `<style>` tags are harmless (the
+browser dedupes the rules), so injection is intentionally unconditional — a
+render-time guard (`document.getElementById`, a module flag) would risk an SSR
+hydration mismatch. If per-instance duplication ever matters, revisit once Fern
+supports React's `<style precedence>` hoisting.
+
 ## Common commands
 
 Primary local commands:

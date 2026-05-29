@@ -257,6 +257,7 @@ export const TrajectoryViewer = ({
 }: TrajectoryViewerProps) => {
   const content = (
     <div className="trajectory-viewer">
+      {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
       <style dangerouslySetInnerHTML={{ __html: TRAJECTORY_VIEWER_CSS }} />
       <div className="trajectory-viewer__question">
         <strong>Q:</strong> {question}

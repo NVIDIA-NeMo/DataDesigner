@@ -126,6 +126,7 @@ export const MetricsTable = ({
 
   return (
     <div className="metrics-table-wrapper">
+      {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
       <style dangerouslySetInnerHTML={{ __html: METRICS_TABLE_CSS }} />
       <table className="metrics-table">
         <thead>

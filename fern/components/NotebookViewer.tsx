@@ -57,9 +57,11 @@ const NOTEBOOK_VIEWER_CSS = `
 .notebook-viewer {
   margin: 1.5rem 0;
 }
+/* Colab banner — uses Fern's .fern-button styling */
 .notebook-viewer__colab-banner {
   margin-bottom: 1rem;
 }
+/* Render the Colab link as a button, not a green prose link */
 .notebook-viewer__colab-link,
 .notebook-viewer__colab-link:hover,
 .notebook-viewer__colab-link:visited,
@@ -97,6 +99,7 @@ const NOTEBOOK_VIEWER_CSS = `
 .notebook-viewer__cell--markdown .notebook-viewer__markdown p {
   margin: 0.5rem 0;
 }
+/* Code block line numbers (Fern structure) — gutter + content */
 .fern-scroll-area-viewport .code-block-line-gutter {
   padding-right: 1rem;
   padding-left: 1rem;
@@ -549,6 +552,7 @@ export const NotebookViewer = ({
 
   return (
     <div className="notebook-viewer">
+      {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
       <style dangerouslySetInnerHTML={{ __html: NOTEBOOK_VIEWER_CSS }} />
       {colabUrl && (
         <div className="notebook-viewer__colab-banner">

@@ -76,6 +76,7 @@ export const Authors = ({ ids }: AuthorsProps) => {
 
   return (
     <div className="devnote-authors">
+      {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
       <style dangerouslySetInnerHTML={{ __html: AUTHORS_CSS }} />
       {validAuthors.map((author, i) => (
         <div key={i} className="devnote-authors__item">

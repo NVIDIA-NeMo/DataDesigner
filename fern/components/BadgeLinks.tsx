@@ -46,6 +46,7 @@ export function BadgeLinks({ badges }: { badges: BadgeItem[] }) {
       className="badge-links"
       style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
     >
+      {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
       <style dangerouslySetInnerHTML={{ __html: BADGE_LINKS_CSS }} />
       {badges.map((b) => (
         <a key={b.href} href={b.href} target="_blank" rel="noreferrer">
