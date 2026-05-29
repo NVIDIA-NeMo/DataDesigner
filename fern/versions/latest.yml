@@ -145,6 +145,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Prompt Sensitivity
+        path: ./latest/pages/devnotes/posts/prompt-sensitivity.mdx
       - page: Retriever SDG Toolkit
         path: ./latest/pages/devnotes/posts/retriever-sdg-toolkit.mdx
       - page: Designing Nemotron-Personas

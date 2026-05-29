@@ -77,6 +77,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - Prompt Sensitivity: devnotes/posts/prompt-sensitivity.md
       - Retriever SDG Plugin: devnotes/posts/retrieval-sdg-toolkit.md
       - Designing Nemotron-Personas: devnotes/posts/nemotron-personas.md
       - Have It Your Way: devnotes/posts/have-it-your-way.md

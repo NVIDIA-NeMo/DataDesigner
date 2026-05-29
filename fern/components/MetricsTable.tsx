@@ -23,6 +23,54 @@
  *   />
  */
 
+/**
+ * Table styles, injected by the component rather than loaded via docs.yml `css:`.
+ * `css` is theme-owned, so under `global-theme: nvidia` a local `css:` list is
+ * dropped at publish — styling has to ship with the component. See fern/docs.yml.
+ */
+const METRICS_TABLE_CSS = `
+.metrics-table-wrapper {
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.metrics-table th,
+.metrics-table td {
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  padding: 0.6rem 0.85rem;
+  text-align: left;
+}
+.metrics-table th {
+  background: rgba(0, 0, 0, 0.05);
+  font-weight: 600;
+}
+.dark .metrics-table th {
+  background: rgba(255, 255, 255, 0.07);
+}
+.metrics-table__row--alt td {
+  background: rgba(0, 0, 0, 0.02);
+}
+.dark .metrics-table__row--alt td {
+  background: rgba(255, 255, 255, 0.03);
+}
+.metrics-table td.metrics-table__cell--best {
+  font-weight: 700;
+  background: rgba(76, 175, 80, 0.12) !important;
+  color: #1b5e20;
+}
+.dark .metrics-table td.metrics-table__cell--best {
+  background: rgba(76, 175, 80, 0.18) !important;
+  color: #a5d6a7;
+}
+`;
+
 export interface MetricsTableProps {
   headers: string[];
   rows: (string | number)[][];
@@ -78,6 +126,8 @@ export const MetricsTable = ({
 
   return (
     <div className="metrics-table-wrapper">
+      {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
+      <style dangerouslySetInnerHTML={{ __html: METRICS_TABLE_CSS }} />
       <table className="metrics-table">
         <thead>
           <tr>
