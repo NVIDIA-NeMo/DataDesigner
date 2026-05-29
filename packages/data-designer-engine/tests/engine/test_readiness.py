@@ -7,11 +7,11 @@ from unittest.mock import Mock
 
 import pytest
 
-import data_designer.engine.readiness as readiness_mod
 from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
+from data_designer.engine import flags
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.readiness import run_readiness_check
@@ -21,11 +21,10 @@ from data_designer.engine.readiness import run_readiness_check
 def _force_sync_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin readiness tests to the sync engine.
 
-    The async path branches on ``readiness_mod.DATA_DESIGNER_ASYNC_ENGINE``;
-    pinning to sync lets us assert against ``run_health_check`` directly
-    without standing up an event loop.
+    Lets us assert against ``run_health_check`` directly without standing up
+    an event loop.
     """
-    monkeypatch.setattr(readiness_mod, "DATA_DESIGNER_ASYNC_ENGINE", False)
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", False)
 
 
 def _build_columns(*, model_configs, llm_columns: list[tuple[str, str]] = (), include_sampler: bool = True):

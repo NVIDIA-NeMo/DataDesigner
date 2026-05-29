@@ -22,9 +22,9 @@ cannot drift from the workload-startup gate.
 from __future__ import annotations
 
 import logging
-import os
 from typing import TYPE_CHECKING, Sequence
 
+from data_designer.engine import flags
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 
@@ -33,10 +33,6 @@ if TYPE_CHECKING:
     from data_designer.engine.resources.resource_provider import ResourceProvider
 
 logger = logging.getLogger(__name__)
-
-# Mirrors the flag in ``dataset_builders.dataset_builder``. Read at import
-# time so tests can monkeypatch it on this module to exercise either engine.
-DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
 
 # Match the timeout the dataset builder's startup gate has always used.
 _MODEL_HEALTH_CHECK_TIMEOUT_SECONDS = 180
@@ -85,7 +81,7 @@ def _run_model_health_check(
     if not model_aliases:
         return
 
-    if DATA_DESIGNER_ASYNC_ENGINE:
+    if flags.DATA_DESIGNER_ASYNC_ENGINE:
         # Defer the async-engine imports to here so users on the legacy sync
         # engine never pay the import cost. Mirrors the gating in
         # ``dataset_builders.dataset_builder``.

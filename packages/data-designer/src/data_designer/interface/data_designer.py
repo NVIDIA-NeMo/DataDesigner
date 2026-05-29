@@ -37,9 +37,10 @@ from data_designer.config.utils.constants import (
     MODEL_PROVIDERS_FILE_PATH,
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
+from data_designer.engine import flags
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.dataset_builder import DATA_DESIGNER_ASYNC_ENGINE, DatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
@@ -754,7 +755,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         from inside the sync engine. Match the client mode to the actual engine
         choice so the fallback path is functional.
         """
-        if not DATA_DESIGNER_ASYNC_ENGINE:
+        if not flags.DATA_DESIGNER_ASYNC_ENGINE:
             # Deliberate opt-out via env var. Surface the deprecation so users
             # know the sync path is going away. Mirror the ``allow_resize`` shape
             # in ``_resolve_async_compatibility``: emit both a ``logger.warning``

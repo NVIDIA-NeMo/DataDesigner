@@ -28,6 +28,7 @@ from data_designer.config.processors import (
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.version import get_library_version
+from data_designer.engine import flags
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     ColumnGeneratorWithModel,
@@ -83,12 +84,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Async engine is the default execution path. Set ``DATA_DESIGNER_ASYNC_ENGINE=0``
-# to opt back into the legacy sync engine for one transitional release; the sync
-# path is scheduled for removal afterwards.
-DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
+# The async-engine flag now lives in ``data_designer.engine.flags`` so the
+# engine, the public interface, and the readiness module can share one source
+# of truth. Always read ``flags.DATA_DESIGNER_ASYNC_ENGINE`` rather than caching
+# a local copy so monkeypatches in tests are visible.
 
-if DATA_DESIGNER_ASYNC_ENGINE:
+if flags.DATA_DESIGNER_ASYNC_ENGINE:
     import asyncio
 
     from data_designer.engine.dataset_builders.async_scheduler import (
@@ -194,7 +195,7 @@ class DatasetBuilder:
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
-        self._use_async: bool = DATA_DESIGNER_ASYNC_ENGINE
+        self._use_async: bool = flags.DATA_DESIGNER_ASYNC_ENGINE
         # Structured signal: set by _build_async if the scheduler hit early shutdown.
         # Stays at defaults for sync-engine and successful async runs. Reset at
         # the start of each public run path so reused builder instances don't
@@ -386,7 +387,7 @@ class DatasetBuilder:
                 "start a new generation run."
             )
 
-        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
         if self._use_async:
             self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
         elif resume == ResumeMode.ALWAYS:
@@ -666,7 +667,7 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
         if self._use_async:
             dataset = self._build_async_preview(generators, num_records)
         else:

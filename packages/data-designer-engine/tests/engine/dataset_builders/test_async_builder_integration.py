@@ -273,10 +273,10 @@ def test_prepare_async_run_uses_compact_plan_for_large_fresh_runs(monkeypatch: p
 
 def test_sync_path_unaffected_by_async_engine_flag() -> None:
     """DATA_DESIGNER_ASYNC_ENGINE=0 keeps the sync path unchanged."""
-    import data_designer.engine.dataset_builders.dataset_builder as builder_mod
+    from data_designer.engine import flags
 
-    assert hasattr(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE")
-    assert isinstance(builder_mod.DATA_DESIGNER_ASYNC_ENGINE, bool)
+    assert hasattr(flags, "DATA_DESIGNER_ASYNC_ENGINE")
+    assert isinstance(flags.DATA_DESIGNER_ASYNC_ENGINE, bool)
 
 
 # -- Test execution graph integration with real column configs -----------------

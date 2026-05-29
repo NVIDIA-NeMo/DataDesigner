@@ -38,6 +38,7 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
+from data_designer.engine import flags
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
     SeedReaderError,
@@ -449,7 +450,7 @@ def test_resolve_client_concurrency_mode_matches_engine_choice(
     (``allow_resize=True``) does not double-warn here; the builder layer
     emits its own warning when the run actually executes.
     """
-    monkeypatch.setattr(dd_mod, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
     builder = _builder_with_allow_resize() if with_allow_resize else DataDesignerConfigBuilder()
     if not with_allow_resize:
         builder.add_column(
