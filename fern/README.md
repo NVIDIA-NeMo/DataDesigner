@@ -2,10 +2,6 @@
 
 This folder is the Fern Docs build for NeMo Data Designer. The site currently deploys to **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`**; [`docs.yml`](docs.yml) also declares the future `docs.nvidia.com/nemo/datadesigner` custom domain.
 
-## Theme
-
-NVIDIA branding (logo, favicon, colors, fonts, footer, base CSS/JS, layout) is inherited from the canonical NVIDIA Fern global theme via `global-theme: nvidia` in [`docs.yml`](docs.yml). The theme source of truth lives in [NVIDIA/fern-components](https://github.com/NVIDIA/fern-components) — change shared branding there and re-upload it, **not** in this repo. This repo only keeps DataDesigner-specific overrides: the `logo.href`/`right-text`, the GitHub navbar link, and product CSS for its custom MDX components (`main.css`, `styles/*.css`).
-
 ## Migration phase
 
 Data Designer is moving from MkDocs to Fern over several releases. During that transition:
@@ -104,10 +100,10 @@ Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages
 ```
 fern/
 ├── README.md                  ← this file
-├── docs.yml                   ← title, global-theme, versions:, redirects, custom domain
+├── docs.yml                   ← title, colors, versions:, redirects, custom domain
 ├── fern.config.json           ← organization, fern-api version pin
-├── main.css                   ← DataDesigner-specific CSS (NVIDIA branding comes from the global theme)
-├── assets/                    ← recipe assets, devnote post images (logo/favicon come from the global theme)
+├── main.css                   ← bundled NVIDIA theme CSS
+├── assets/                    ← logos, favicon, recipe assets, devnote post images
 ├── images/                    ← /images/* references from MDX (mirror of docs/images)
 ├── styles/                    ← component-level CSS (notebook-viewer, authors, metrics-table, …)
 ├── components/                ← React components used by MDX
@@ -116,7 +112,7 @@ fern/
 │   ├── MetricsTable.tsx       ← benchmark tables w/ best-value highlight
 │   ├── TrajectoryViewer.tsx   ← multi-turn tool-call traces
 │   ├── ExpandableCode.tsx     ← collapsible code (currently unused — Fern SSR has issues)
-│   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx
+│   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx, CustomFooter.tsx
 │   ├── notebooks/             ← gitignored per-tutorial *.json + *.ts output
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
