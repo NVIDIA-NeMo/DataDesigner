@@ -17,6 +17,7 @@ from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.engine.storage.artifact_storage import ResumeMode
+from data_designer.errors import DataDesignerError
 from data_designer.interface import DataDesigner
 from data_designer.logging import LOG_INDENT
 
@@ -130,6 +131,9 @@ class GenerationController:
         try:
             data_designer = DataDesigner()
             data_designer.check_models(config_builder)
+        except DataDesignerError as e:
+            print_error(f"Model health check failed ({type(e).__name__}): {e}")
+            raise typer.Exit(code=1)
         except Exception as e:
             print_error(f"Model health check failed: {e}")
             raise typer.Exit(code=1)

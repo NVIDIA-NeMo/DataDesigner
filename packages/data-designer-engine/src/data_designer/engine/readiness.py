@@ -22,7 +22,8 @@ cannot drift from the workload-startup gate.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Sequence
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from data_designer.engine import flags
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
@@ -107,8 +108,7 @@ def _run_mcp_tool_health_check(
     column_configs: Sequence[ColumnConfigT],
     resource_provider: ResourceProvider,
 ) -> None:
-    # Tool aliases are only meaningful on LLM-generated column configs; the
-    # filter here matches the (now-removed) ``DatasetBuilder.llm_generated_column_configs``.
+    # Tool aliases are only meaningful on model-generated column configs.
     tool_aliases = sorted(
         {
             config.tool_alias

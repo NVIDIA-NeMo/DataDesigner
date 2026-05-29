@@ -31,6 +31,9 @@ def check_models_command(
         # Check models referenced by a YAML config
         data-designer check-models my_config.yaml
 
+        # Check models referenced by a remote config URL
+        data-designer check-models https://example.com/my_config.yaml
+
         # Check models referenced by a Python module
         data-designer check-models my_config.py
     """

@@ -34,7 +34,6 @@ from data_designer.engine.column_generators.generators.base import (
     ColumnGeneratorWithModel,
     GenerationStrategy,
 )
-from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.context import current_row_group, current_row_group_start_offset
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
@@ -276,10 +275,6 @@ class DatasetBuilder:
     @functools.cached_property
     def single_column_config_by_name(self) -> dict[str, ColumnConfigT]:
         return {config.name: config for config in self.single_column_configs}
-
-    @functools.cached_property
-    def llm_generated_column_configs(self) -> list[ColumnConfigT]:
-        return [config for config in self.single_column_configs if column_type_is_model_generated(config.column_type)]
 
     def build(
         self,

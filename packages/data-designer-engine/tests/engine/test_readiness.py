@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock
+from collections.abc import Sequence
+from unittest.mock import Mock, patch
 
 import pytest
 
 from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
+from data_designer.config.models import ModelConfig
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.engine import flags
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
@@ -27,7 +30,12 @@ def _force_sync_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", False)
 
 
-def _build_columns(*, model_configs, llm_columns: list[tuple[str, str]] = (), include_sampler: bool = True):
+def _build_columns(
+    *,
+    model_configs: list[ModelConfig],
+    llm_columns: Sequence[tuple[str, str]] = (),
+    include_sampler: bool = True,
+) -> list[ColumnConfigT]:
     """Build a ``DataDesignerConfig`` and return its (already-flat) column configs.
 
     ``llm_columns`` is a list of ``(name, model_alias)`` pairs. ``include_sampler``
@@ -231,3 +239,131 @@ def test_run_readiness_check_no_models_no_tools_is_noop(
 
     stub_resource_provider.model_registry.run_health_check.assert_not_called()
     mock_mcp_registry.run_health_check.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Column-type coverage
+# ---------------------------------------------------------------------------
+
+
+def test_run_readiness_check_collects_image_model_aliases(
+    stub_resource_provider,
+    stub_model_configs,
+) -> None:
+    """Image-generation columns contribute their model aliases like LLM columns do.
+
+    The dataset builder dispatches probes by ``model_generation_type`` inside
+    ``ModelRegistry.run_health_check``; readiness is generation-type-agnostic
+    and must surface every alias regardless of column kind.
+    """
+    from data_designer.config.column_configs import ImageColumnConfig
+
+    stub_resource_provider.model_registry.run_health_check = Mock()
+    stub_resource_provider.mcp_registry = None
+
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    builder.add_column(SamplerColumnConfig(name="seed_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
+    builder.add_column(LLMTextColumnConfig(name="caption", prompt="x", model_alias="stub-text"))
+    builder.add_column(ImageColumnConfig(name="picture", prompt="y", model_alias="stub-image"))
+
+    run_readiness_check(builder.build().columns, stub_resource_provider)
+
+    stub_resource_provider.model_registry.run_health_check.assert_called_once()
+    (called_aliases,), _ = stub_resource_provider.model_registry.run_health_check.call_args
+    assert set(called_aliases) == {"stub-text", "stub-image"}
+
+
+def test_run_readiness_check_passes_skip_flagged_aliases_to_registry(
+    stub_resource_provider,
+    stub_model_configs,
+) -> None:
+    """Readiness does not pre-filter ``skip_health_check=True`` aliases.
+
+    The skip decision lives in ``ModelRegistry.run_health_check`` (covered by
+    ``test_model_registry``). Readiness's contract is "pass every referenced
+    alias through and let the registry decide" — verified here so future edits
+    don't accidentally start filtering at this layer.
+    """
+    stub_resource_provider.model_registry.run_health_check = Mock()
+    stub_resource_provider.mcp_registry = None
+
+    columns = _build_columns(
+        model_configs=stub_model_configs,
+        llm_columns=[("col", "stub-text")],
+    )
+
+    run_readiness_check(columns, stub_resource_provider)
+
+    stub_resource_provider.model_registry.run_health_check.assert_called_once_with(["stub-text"])
+
+
+# ---------------------------------------------------------------------------
+# Async dispatch
+# ---------------------------------------------------------------------------
+
+
+def test_run_readiness_check_dispatches_to_async_registry_under_async_engine(
+    stub_resource_provider,
+    stub_model_configs,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the async engine is selected, model probes route through ``arun_health_check``.
+
+    The autouse fixture pins sync; this test overrides for the async path so the
+    branch in ``readiness._run_model_health_check`` gets coverage.
+    """
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
+    stub_resource_provider.model_registry.arun_health_check = Mock()
+    stub_resource_provider.mcp_registry = None
+
+    columns = _build_columns(
+        model_configs=stub_model_configs,
+        llm_columns=[("col", "stub-text")],
+    )
+
+    # ``run_coroutine_threadsafe`` returns a Future; we want the readiness wrapper
+    # to call ``.result(timeout=...)`` on it, so install a Mock future whose
+    # ``.result`` returns ``None`` (success).
+    sentinel_future = Mock()
+    sentinel_future.result.return_value = None
+
+    fake_loop = Mock()
+
+    with (
+        patch("data_designer.engine.readiness.ensure_async_engine_loop", return_value=fake_loop, create=True),
+        patch("asyncio.run_coroutine_threadsafe", return_value=sentinel_future) as mock_submit,
+    ):
+        run_readiness_check(columns, stub_resource_provider)
+
+    # The async coroutine was created from arun_health_check and submitted to the loop.
+    stub_resource_provider.model_registry.arun_health_check.assert_called_once_with(["stub-text"])
+    mock_submit.assert_called_once()
+    sentinel_future.result.assert_called_once_with(timeout=180)
+
+
+def test_run_readiness_check_cancels_future_and_reraises_on_timeout(
+    stub_resource_provider,
+    stub_model_configs,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 180-second timeout cancels the future and re-raises ``TimeoutError``."""
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
+    stub_resource_provider.model_registry.arun_health_check = Mock()
+    stub_resource_provider.mcp_registry = None
+
+    columns = _build_columns(
+        model_configs=stub_model_configs,
+        llm_columns=[("col", "stub-text")],
+    )
+
+    sentinel_future = Mock()
+    sentinel_future.result.side_effect = TimeoutError()
+
+    with (
+        patch("data_designer.engine.readiness.ensure_async_engine_loop", return_value=Mock(), create=True),
+        patch("asyncio.run_coroutine_threadsafe", return_value=sentinel_future),
+        pytest.raises(TimeoutError),
+    ):
+        run_readiness_check(columns, stub_resource_provider)
+
+    sentinel_future.cancel.assert_called_once()
