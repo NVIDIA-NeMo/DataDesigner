@@ -100,19 +100,18 @@ Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages
 ```
 fern/
 ├── README.md                  ← this file
-├── docs.yml                   ← title, colors, versions:, redirects, custom domain
+├── docs.yml                   ← global-theme, versions:, redirects, custom domain
 ├── fern.config.json           ← organization, fern-api version pin
-├── main.css                   ← bundled NVIDIA theme CSS
-├── assets/                    ← logos, favicon, recipe assets, devnote post images
+├── assets/                    ← recipe assets, devnote post images
 ├── images/                    ← /images/* references from MDX (mirror of docs/images)
-├── styles/                    ← component-level CSS (notebook-viewer, authors, metrics-table, …)
 ├── components/                ← React components used by MDX
 │   ├── NotebookViewer.tsx     ← renders converted .ipynb cells
 │   ├── Authors.tsx            ← devnote bylines (uses devnotes/authors-data.ts)
 │   ├── MetricsTable.tsx       ← benchmark tables w/ best-value highlight
 │   ├── TrajectoryViewer.tsx   ← multi-turn tool-call traces
 │   ├── ExpandableCode.tsx     ← collapsible code (currently unused — Fern SSR has issues)
-│   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx, CustomFooter.tsx
+│   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx
+│   │     ↑ each component injects its own CSS via a <style> tag (see "Styling" below)
 │   ├── notebooks/             ← gitignored per-tutorial *.json + *.ts output
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
@@ -121,6 +120,22 @@ fern/
     ├── latest.yml             ← authoring navigation tree
     └── latest/pages/          ← authoring MDX content
 ```
+
+## Branding & styling
+
+NVIDIA branding (logo, favicon, colors, fonts, footer, base CSS/JS, layout) is
+inherited from the canonical [NVIDIA Fern global theme](https://github.com/NVIDIA/fern-components)
+via `global-theme: nvidia` in `docs.yml`. To change branding, change it there and
+re-upload the theme — not here.
+
+**Product styles ship inside the MDX components, not via `docs.yml` `css:`.** `css`
+is a theme-owned field: under `global-theme`, Fern replaces it with the theme's
+stylesheets at publish, so a local `css:` list is silently dropped (this is what
+broke the dev-notes in #713 and was hotfixed by the #715 revert). Each kit
+component (`BlogCard`, `Authors`, `NotebookViewer`, `MetricsTable`,
+`TrajectoryViewer`, `BadgeLinks`) therefore injects its own CSS through a
+`<style dangerouslySetInnerHTML>` tag in its render output. When you add product
+styling, put it in the component that uses it — do not add a `css:` entry.
 
 ## Common commands
 

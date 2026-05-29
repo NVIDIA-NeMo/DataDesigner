@@ -34,6 +34,9 @@ SKIP_NAMES = {
     "site",
 }
 PUBLISH_METADATA_PATH = Path("fern/publish-metadata.json")
+# Dev-note kit components carry their own CSS (injected via a <style> tag), so no
+# stylesheet files are copied here — `css` is a theme-owned field and any local
+# `css:` list is dropped under `global-theme: nvidia`. See fern/docs.yml.
 FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/assets",
     "fern/components/Authors.tsx",
@@ -41,10 +44,6 @@ FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/components/MetricsTable.tsx",
     "fern/components/TrajectoryViewer.tsx",
     "fern/components/devnotes",
-    "fern/styles/authors.css",
-    "fern/styles/blog-card.css",
-    "fern/styles/metrics-table.css",
-    "fern/styles/trajectory-viewer.css",
 ]
 RETIRED_REFERENCE_CLEAN_PAGE_PATHS = [
     "concepts/columns.mdx",

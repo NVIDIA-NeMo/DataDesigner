@@ -150,6 +150,154 @@ export function BlogCard({
   );
 }
 
+/**
+ * Product CSS for the blog index, injected by <BlogGrid> rather than loaded via
+ * docs.yml `css:`. `css` is a theme-owned field, so under `global-theme: nvidia`
+ * Fern drops any local `css:` list at publish — styling has to travel with the
+ * component instead. See the note in fern/docs.yml.
+ */
+const BLOG_CARD_CSS = `
+.blog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+  margin: 1.5rem 0 2rem;
+}
+.blog-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid var(--grayscale-a5, rgba(128, 128, 128, 0.18));
+  background: var(--grayscale-1, transparent);
+  overflow: hidden;
+  text-decoration: none !important;
+  color: inherit !important;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.blog-card:hover {
+  border-color: #76b900;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(118, 185, 0, 0.08);
+}
+.blog-card__media {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  background: var(--grayscale-3, rgba(128, 128, 128, 0.06));
+  overflow: hidden;
+}
+.blog-card__media > *,
+.blog-card__media > * > * {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.blog-card__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  margin: 0 !important;
+}
+.blog-card__media [data-rmiz],
+.blog-card__media [data-rmiz-content],
+.blog-card__media img {
+  pointer-events: none;
+}
+.blog-card__placeholder {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.blog-card__placeholder::before {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  background:
+    radial-gradient(ellipse 60% 50% at 30% 30%, rgba(255, 255, 255, 0.18), transparent 60%),
+    radial-gradient(ellipse 40% 35% at 75% 80%, rgba(0, 0, 0, 0.22), transparent 55%);
+  pointer-events: none;
+}
+.blog-card__monogram {
+  position: relative;
+  font-size: clamp(3.5rem, 9vw, 5rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  font-family: -apple-system, system-ui, sans-serif;
+  line-height: 1;
+}
+.blog-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.125rem 1.125rem;
+  flex: 1;
+}
+.blog-card__date {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--grayscale-9, #6b7280);
+}
+.blog-card__title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--grayscale-12, inherit);
+}
+.blog-card__description {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--grayscale-11, #4b5563);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.blog-card__byline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--grayscale-a4, rgba(128, 128, 128, 0.1));
+}
+.blog-card__avatars {
+  display: flex;
+  align-items: center;
+}
+.blog-card__avatar {
+  border-radius: 999px;
+  border: 2px solid var(--grayscale-1, #fff);
+  margin-left: -6px;
+  background: var(--grayscale-3, #ddd);
+}
+.blog-card__avatar:first-child {
+  margin-left: 0;
+}
+.blog-card__authors {
+  font-size: 0.8125rem;
+  color: var(--grayscale-10, #6b7280);
+  font-weight: 500;
+}
+`;
+
 export function BlogGrid({ children }: { children: ReactNode }) {
-  return <div className="blog-grid">{children}</div>;
+  return (
+    <div className="blog-grid">
+      <style dangerouslySetInnerHTML={{ __html: BLOG_CARD_CSS }} />
+      {children}
+    </div>
+  );
 }
