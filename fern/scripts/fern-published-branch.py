@@ -34,6 +34,10 @@ SKIP_NAMES = {
     "site",
 }
 PUBLISH_METADATA_PATH = Path("fern/publish-metadata.json")
+FERN_ROOT_CONFIG_PATHS = [
+    "fern/docs.yml",
+    "fern/fern.config.json",
+]
 FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/assets",
     "fern/components/Authors.tsx",
@@ -204,6 +208,12 @@ def copy_path(source: Path, target: Path) -> None:
         shutil.copy2(source, target)
 
 
+def copy_required_path(source: Path, target: Path) -> None:
+    if not source.exists():
+        raise PublishedBranchError(f"Missing required source path: {source}")
+    copy_path(source, target)
+
+
 def clear_published_tree(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for path in root.iterdir():
@@ -317,6 +327,14 @@ def materialize_version_nav_pages(published_root: Path) -> None:
             nav.write_text("".join(lines))
 
 
+def sync_fern_root_config(source_root: Path, published_root: Path) -> None:
+    preserved_versions_block = normalize_latest_display_name(versions_block(published_root / "fern" / "docs.yml"))
+    for rel_path in FERN_ROOT_CONFIG_PATHS:
+        copy_required_path(source_root / rel_path, published_root / rel_path)
+    restore_versions_block(published_root / "fern" / "docs.yml", preserved_versions_block)
+    validate_redirect_targets(published_root)
+
+
 def sync_source(args: argparse.Namespace) -> int:
     source_root = Path(args.source_root)
     published_root = Path(args.published_root)
@@ -382,6 +400,8 @@ def patch_devnotes(args: argparse.Namespace) -> int:
         raise PublishedBranchError(f"Missing {source_nav}")
     if not target_nav.exists():
         raise PublishedBranchError(f"Missing {target_nav}; publish a Fern release snapshot first")
+
+    sync_fern_root_config(source_root, published_root)
 
     for rel_path in FERN_DEVNOTE_SUPPORT_PATHS:
         copy_path(source_root / rel_path, published_root / rel_path)
