@@ -1144,6 +1144,7 @@ class DatasetBuilder:
             num_records=num_records,
             buffer_size=buffer_size,
             row_group_start_offsets=row_group_start_offsets,
+            initial_completed_records=initial_actual_num_records,
             progress_interval=self._resource_provider.run_config.progress_interval,
             progress_bar=self._resource_provider.run_config.progress_bar,
             request_pressure_provider=self._resource_provider.model_registry.request_admission,

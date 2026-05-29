@@ -171,6 +171,7 @@ class AsyncTaskScheduler:
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
         run_id: str | None = None,
         row_group_start_offsets: dict[int, int] | None = None,
+        initial_completed_records: int = 0,
         adaptive_row_group_admission: bool = False,
         adaptive_row_group_initial_target: int = 1,
         request_pressure_provider: RequestPressureSnapshotProvider | None = None,
@@ -297,6 +298,8 @@ class AsyncTaskScheduler:
         self._max_model_task_admission = max_model_task_admission
         self._num_records = num_records
         self._buffer_size = buffer_size
+        self._scheduled_records = sum(size for _, size in row_groups)
+        self._initial_completed_records = initial_completed_records
         self._observed_max_row_groups_in_flight = 0
         self._observed_max_task_leases_by_resource: dict[str, int] = {}
         self._observed_max_queued_by_group: dict[str, int] = {}
@@ -355,6 +358,7 @@ class AsyncTaskScheduler:
                 total_records=task_counts[col],
                 label=f"column '{col}'",
                 quiet=True,
+                initial_completed=self._initial_completed_records,
             )
 
         if not trackers:
@@ -1030,7 +1034,7 @@ class AsyncTaskScheduler:
 
         with self._progress_bar or contextlib.nullcontext():
             if self._reporter:
-                self._reporter.log_start(num_row_groups=num_rgs)
+                self._reporter.log_start(num_row_groups=num_rgs, scheduled_records=self._scheduled_records)
 
             self._emit_scheduler_event("scheduler_job_started", diagnostics=self._scheduler_job_diagnostics())
             self._emit_scheduler_health_snapshot("start")

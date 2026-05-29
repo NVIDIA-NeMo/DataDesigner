@@ -41,7 +41,9 @@ from data_designer.engine.dataset_builders.scheduling.completion import Completi
 from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionLease
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
+from data_designer.engine.dataset_builders.utils.async_progress_reporter import AsyncProgressReporter
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
+from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -1109,6 +1111,29 @@ async def test_scheduler_eager_row_drop_skips_downstream_of_failed_column() -> N
     assert scheduler._reporter._trackers["fail_col"].failed == 2
     assert scheduler._reporter._trackers["downstream"].skipped == 2
     assert scheduler._reporter._trackers["downstream"].completed == 2
+
+
+def test_resume_progress_reporter_starts_from_completed_records(caplog: pytest.LogCaptureFixture) -> None:
+    """Resume progress should include persisted records while logging only remaining scheduled work."""
+    trackers = {
+        "cell_a": ProgressTracker(total_records=1000, label="column 'cell_a'", quiet=True, initial_completed=252),
+        "cell_b": ProgressTracker(total_records=1000, label="column 'cell_b'", quiet=True, initial_completed=252),
+    }
+    completed, total, _success, _failed, _skipped, _pct, rate, _emoji = trackers["cell_a"].get_snapshot(elapsed=1.0)
+    assert completed == 252
+    assert total == 1000
+    assert rate == 0.0
+
+    trackers["cell_a"].record_success()
+    completed, _total, _success, _failed, _skipped, _pct, rate, _emoji = trackers["cell_a"].get_snapshot(elapsed=1.0)
+    assert completed == 253
+    assert rate == 1.0
+
+    reporter = AsyncProgressReporter(trackers)
+    with caplog.at_level(logging.INFO):
+        reporter.log_start(num_row_groups=2, scheduled_records=128)
+
+    assert "256 tasks across 2 row group(s)" in caplog.text
 
 
 @pytest.mark.asyncio(loop_scope="session")
