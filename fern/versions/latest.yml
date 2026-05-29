@@ -145,12 +145,12 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Designing Nemotron-Personas
+        path: ./latest/pages/devnotes/posts/nemotron-personas.mdx
       - page: Prompt Sensitivity
         path: ./latest/pages/devnotes/posts/prompt-sensitivity.mdx
       - page: Retriever SDG Toolkit
         path: ./latest/pages/devnotes/posts/retriever-sdg-toolkit.mdx
-      - page: Designing Nemotron-Personas
-        path: ./latest/pages/devnotes/posts/nemotron-personas.mdx
       - page: Have It Your Way
         path: ./latest/pages/devnotes/posts/have-it-your-way.mdx
       - page: VLM Long Document Understanding
