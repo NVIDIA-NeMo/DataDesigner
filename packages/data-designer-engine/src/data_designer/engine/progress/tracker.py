@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from data_designer.logging import LOG_INDENT, RandomEmoji
 
 if TYPE_CHECKING:
-    from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
+    from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class ProgressTracker:
         log_interval_percent: int = 10,
         *,
         quiet: bool = False,
-        progress_bar: StickyProgressBar | None = None,
+        progress_bar: TerminalThroughputPanel | None = None,
         progress_bar_key: str | None = None,
     ):
         self.total_records = total_records
@@ -103,8 +103,16 @@ class ProgressTracker:
     def log_final(self) -> None:
         """Log final progress summary."""
         with self.lock:
-            if self._bar is not None:
-                self._bar.remove_bar(self._bar_key)
+            if self._bar is not None and self._bar.is_active:
+                self._bar.update(
+                    self._bar_key,
+                    completed=self.completed,
+                    success=self.success,
+                    failed=self.failed,
+                    skipped=self.skipped,
+                    force=True,
+                )
+                return
             if self.completed > 0:
                 self._log_progress_unlocked()
 
@@ -143,6 +151,7 @@ class ProgressTracker:
                 completed=self.completed,
                 success=self.success,
                 failed=self.failed,
+                skipped=self.skipped,
             )
             return
 

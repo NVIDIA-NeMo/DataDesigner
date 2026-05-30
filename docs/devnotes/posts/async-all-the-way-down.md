@@ -254,7 +254,7 @@ from data_designer.interface import DataDesigner
 
 dd = DataDesigner()
 dd.set_run_config(RunConfig(
-    progress_bar=True,
+    display_tui=True,
 ))
 result = dd.create(
     config_builder=config,

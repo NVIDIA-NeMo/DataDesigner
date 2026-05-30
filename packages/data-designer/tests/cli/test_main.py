@@ -177,6 +177,42 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
         artifact_path=None,
         resume=ResumeMode.NEVER,
         output_format=None,
+        tui=None,
+    )
+
+
+@patch("data_designer.cli.commands.create.GenerationController")
+def test_app_dispatches_create_tui_flags(mock_controller_cls: Mock) -> None:
+    """The create command parses --tui/--no-tui into the TUI override."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    result = runner.invoke(app, ["create", "config.yaml", "--no-tui"])
+
+    assert result.exit_code == 0
+    mock_controller.run_create.assert_called_once_with(
+        config_source="config.yaml",
+        num_records=DEFAULT_NUM_RECORDS,
+        dataset_name="dataset",
+        artifact_path=None,
+        resume=ResumeMode.NEVER,
+        output_format=None,
+        tui=False,
+    )
+
+    mock_controller.reset_mock()
+
+    result = runner.invoke(app, ["create", "config.yaml", "--tui"])
+
+    assert result.exit_code == 0
+    mock_controller.run_create.assert_called_once_with(
+        config_source="config.yaml",
+        num_records=DEFAULT_NUM_RECORDS,
+        dataset_name="dataset",
+        artifact_path=None,
+        resume=ResumeMode.NEVER,
+        output_format=None,
+        tui=True,
     )
 
 

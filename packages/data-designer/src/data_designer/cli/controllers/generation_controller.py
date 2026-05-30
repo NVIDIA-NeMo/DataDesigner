@@ -119,6 +119,7 @@ class GenerationController:
         artifact_path: str | None,
         resume: ResumeMode = ResumeMode.NEVER,
         output_format: str | None = None,
+        tui: bool | None = None,
     ) -> None:
         """Load config, create a full dataset, and save results to disk.
 
@@ -130,6 +131,8 @@ class GenerationController:
             resume: Controls how interrupted runs are handled.
             output_format: If set, export the dataset to a single file in this format after
                 generation. One of 'jsonl', 'csv', 'parquet'.
+            tui: If set, overrides the active RunConfig display_tui setting for this
+                create invocation's terminal UI.
         """
         config_builder = self._load_config(config_source)
 
@@ -144,6 +147,8 @@ class GenerationController:
 
         try:
             data_designer = DataDesigner(artifact_path=resolved_artifact_path)
+            if tui is not None:
+                data_designer.set_run_config(data_designer.run_config.model_copy(update={"display_tui": tui}))
             results = data_designer.create(
                 config_builder,
                 num_records=num_records,

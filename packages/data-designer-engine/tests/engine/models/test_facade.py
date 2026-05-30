@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from data_designer.engine.context import current_generation_column
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
@@ -28,6 +29,7 @@ from data_designer.engine.models.errors import (
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import TokenCountSource
+from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_stub_completion_response
 
@@ -342,6 +344,53 @@ def test_completion_tracks_reasoning_tokens_without_changing_output_tokens(
     assert token_usage.reasoning_tokens == 3
     assert token_usage.reasoning_token_count_source == TokenCountSource.PROVIDER
     assert token_usage.total_tokens == 18
+
+
+def test_completion_emits_token_usage_event(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    events: list[TokenUsageEvent] = []
+    unsubscribe = subscribe_token_usage(events.append)
+    stub_model_client.completion.return_value = ChatCompletionResponse(
+        message=AssistantMessage(content="ok"),
+        usage=Usage(input_tokens=10, output_tokens=8),
+    )
+    token = current_generation_column.set("intent_label")
+
+    try:
+        stub_model_facade.completion([ChatMessage.as_user("hi")])
+    finally:
+        current_generation_column.reset(token)
+        unsubscribe()
+
+    assert len(events) == 1
+    assert events[0].model_alias == stub_model_facade.model_alias
+    assert events[0].model_name == stub_model_facade.model_name
+    assert events[0].input_tokens == 10
+    assert events[0].output_tokens == 8
+    assert events[0].column == "intent_label"
+
+
+def test_completion_emits_token_usage_event_when_only_output_tokens_are_reported(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    events: list[TokenUsageEvent] = []
+    unsubscribe = subscribe_token_usage(events.append)
+    stub_model_client.completion.return_value = ChatCompletionResponse(
+        message=AssistantMessage(content="ok"),
+        usage=Usage(output_tokens=8),
+    )
+
+    try:
+        stub_model_facade.completion([ChatMessage.as_user("hi")])
+    finally:
+        unsubscribe()
+
+    assert len(events) == 1
+    assert events[0].input_tokens == 0
+    assert events[0].output_tokens == 8
 
 
 def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:

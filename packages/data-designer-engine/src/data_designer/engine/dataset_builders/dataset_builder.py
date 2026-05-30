@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import functools
 import json
@@ -42,7 +43,6 @@ from data_designer.engine.dataset_builders.utils.config_compiler import compile_
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
@@ -51,10 +51,11 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
     restore_skip_metadata,
     strip_skip_metadata_from_records,
 )
-from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
+from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel
+from data_designer.engine.progress.tracker import ProgressTracker
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import (
@@ -100,6 +101,23 @@ PRESERVE_DROPPED_COLUMNS_METADATA_KEY = "preserve_dropped_columns"
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
     return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+
+def _await_async_scheduler_result(future: concurrent.futures.Future[Any], scheduler: Any) -> None:
+    try:
+        future.result()
+    except KeyboardInterrupt:
+        request_cancel = getattr(scheduler, "request_cancel", None)
+        if callable(request_cancel):
+            request_cancel()
+        future.cancel()
+        try:
+            future.result()
+        except concurrent.futures.CancelledError:
+            pass
+        except Exception:
+            logger.debug("Async scheduler raised while cancelling after KeyboardInterrupt", exc_info=True)
+        raise
 
 
 class _ConfigCompatibility(StrEnum):
@@ -639,7 +657,7 @@ class DatasetBuilder:
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            future.result()
+            _await_async_scheduler_result(future, scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown
@@ -935,7 +953,7 @@ class DatasetBuilder:
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            future.result()
+            _await_async_scheduler_result(future, scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown
@@ -1080,7 +1098,7 @@ class DatasetBuilder:
             num_records=num_records,
             buffer_size=buffer_size,
             progress_interval=self._resource_provider.run_config.progress_interval,
-            progress_bar=self._resource_provider.run_config.progress_bar,
+            display_tui=self._resource_provider.run_config.display_tui,
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
             request_pressure_advisory=True,
         )
@@ -1363,7 +1381,7 @@ class DatasetBuilder:
         self,
         generator: ColumnGeneratorWithModelRegistry,
         max_workers: int,
-        progress_bar: StickyProgressBar | None = None,
+        progress_bar: TerminalThroughputPanel | None = None,
     ) -> tuple[ProgressTracker, dict[str, Any]]:
         if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
@@ -1431,7 +1449,7 @@ class DatasetBuilder:
     def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-        bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        bar = TerminalThroughputPanel() if self._resource_provider.run_config.display_tui else None
         can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
@@ -1455,7 +1473,7 @@ class DatasetBuilder:
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-        bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
+        bar = TerminalThroughputPanel() if self._resource_provider.run_config.display_tui else None
         can_skip = self._column_can_skip(generator.config.name)
         with bar or contextlib.nullcontext():
             progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)

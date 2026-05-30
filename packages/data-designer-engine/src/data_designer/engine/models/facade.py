@@ -16,6 +16,7 @@ from data_designer.config.utils.constants import (
     OPENROUTER_PROVIDER_NAME,
 )
 from data_designer.config.utils.media_helpers import is_image_diffusion_model
+from data_designer.engine.context import current_generation_column
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.types import (
@@ -42,7 +43,9 @@ from data_designer.engine.models.usage import (
     RequestUsageStats,
     TokenUsageStats,
 )
+from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
+from data_designer.engine.observability import runtime_correlation_provider
 
 if TYPE_CHECKING:
     from data_designer.engine.mcp.facade import MCPFacade
@@ -852,9 +855,9 @@ class ModelFacade:
             return
 
         token_usage = None
-        if usage is not None and usage.input_tokens is not None:
+        if usage is not None and (usage.input_tokens is not None or usage.output_tokens is not None):
             token_usage = TokenUsageStats(
-                input_tokens=usage.input_tokens,
+                input_tokens=usage.input_tokens or 0,
                 output_tokens=usage.output_tokens or 0,
                 reasoning_tokens=usage.reasoning_tokens,
                 reasoning_token_count_source=usage.reasoning_token_count_source,
@@ -864,3 +867,18 @@ class ModelFacade:
             token_usage=token_usage,
             request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
         )
+        if token_usage is not None:
+            correlation = runtime_correlation_provider.current()
+            column = current_generation_column.get()
+            if column is None and correlation is not None:
+                column = correlation.task_column
+            emit_token_usage_event(
+                TokenUsageEvent(
+                    model_alias=self.model_alias,
+                    model_name=self.model_name,
+                    input_tokens=token_usage.input_tokens,
+                    output_tokens=token_usage.output_tokens,
+                    column=column,
+                    correlation=correlation,
+                )
+            )
