@@ -1,12 +1,10 @@
 ---
 title: "Designing Nemotron-Personas: Multi-Locale Synthetic Personas Powering Nemotron Training"
 description: "How the Nemotron-Personas HF collection is built with NeMo Data Designer, how it shows up across Nemotron post-training, and how to reproduce or customize the pipeline for your own use case."
-slug: nemotron-personas
 ---
 
 import { Authors } from "@/components/Authors";
-
-# Designing Nemotron-Personas: Multi-Locale Synthetic Personas Powering Nemotron Training
+import { Figure } from "@/components/Figure";
 
 <Authors ids={["ymeyer", "dcorneil"]} />
 
@@ -16,11 +14,13 @@ The [Nemotron-Personas HF collection](https://huggingface.co/collections/nvidia/
 
 > **Want to dive straight into code?** Open the [tutorial notebook in Colab](https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb) — or read on for the full story.
 
-<div style={{ textAlign: "center" }}>
-  <img src="/assets/nemotron-personas/nemotron-personas-world-map.png" alt="Nemotron-Personas collection" width="900" />
-  <br />
-  <em>The Nemotron-Personas collection at a glance: seven countries, nine language variants, ~53M personas grounded in real demographic and geographic distributions.</em>
-</div>
+<Figure
+  src="/assets/nemotron-personas/nemotron-personas-world-map.png"
+  alt="Nemotron-Personas collection"
+  width={900}
+>
+  The growing Nemotron-Personas collection powering Nemotron model training. Multi-locale synthetic personas grounded in real demographic, geographic, and personality-trait distributions.
+</Figure>
 
 ---
 
@@ -88,9 +88,13 @@ The same persona-seeding pattern that powers tool-use rollouts also powers the b
 
 Across all locales, the construction pipeline is the same four-stage shape (the regional adaptations live in the seed distributions, the language of the prompts, and which locale-specific fields get added). NeMo Data Designer orchestrates the pipeline as a column DAG:
 
-<div style={{ textAlign: "center" }}>
-  <img src="/assets/nemotron-personas/nemotron_persona_via_ndd.png" alt="Pipeline overview: PGM demographics + OCEAN traits seed two stages of structured-output LLM generation" width="600" />
-</div>
+<Figure
+  src="/assets/nemotron-personas/nemotron_persona_via_ndd.png"
+  alt="Pipeline overview: PGM demographics + OCEAN traits seed two stages of structured-output LLM generation"
+  width={600}
+>
+  The compound-AI pipeline behind Nemotron-Personas. Multiple models (PGM, OCEAN, LLM A, LLM B) work together to produce internally-coherent and diverse synthetic personas that mirror real-world demographic, geographic, and personality-trait distributions.
+</Figure>
 
 ### Stage 1: OCEAN Big-Five sampling
 
@@ -174,9 +178,13 @@ For new locales without a released artifact — or for teams that need full cont
 
 With OCEAN traits and demographic grounding in hand, the pipeline calls a reasoning LLM with a single `LLMStructuredColumnConfig` that materializes six rich attribute fields in one shot via a Pydantic schema:
 
-<div style={{ textAlign: "center" }}>
-  <img src="/assets/nemotron-personas/nemotron_persona_via_ndd_step_2.png" alt="Stage 3: Persona attributes via structured outputs" width="600" />
-</div>
+<Figure
+  src="/assets/nemotron-personas/nemotron_persona_via_ndd_step_2.png"
+  alt="Stage 3: Persona attributes via structured outputs"
+  width={600}
+>
+  Stage 3: a single <code>LLMStructuredColumnConfig</code> call materializes six persona-attribute fields (cultural background, skills, career goals, hobbies, plus list variants) from the PGM + OCEAN seed.
+</Figure>
 
 ```python
 from pydantic import BaseModel, Field
@@ -230,9 +238,13 @@ The system prompt forces internal consistency ("attributes that are internally c
 
 The final stage is a second structured-output LLM call that synthesizes everything above into nine cohesive persona descriptions: `professional_persona`, `finance_persona`, `healthcare_persona`, `sports_persona`, `arts_persona`, `travel_persona`, `culinary_persona`, `concise_persona`, and a paragraph-length `detailed_persona`.
 
-<div style={{ textAlign: "center" }}>
-  <img src="/assets/nemotron-personas/nemotron_persona_via_ndd_step_3.png" alt="Stage 4: Persona prose synthesis" width="600" />
-</div>
+<Figure
+  src="/assets/nemotron-personas/nemotron_persona_via_ndd_step_3.png"
+  alt="Stage 4: Persona prose synthesis"
+  width={600}
+>
+  Stage 4: a second structured-output LLM call synthesizes nine cohesive persona descriptions spanning professional, finance, healthcare, lifestyle, and creative dimensions.
+</Figure>
 
 ```python
 class Personas(BaseModel):

@@ -1,5 +1,5 @@
 ---
-date: 2026-05-07
+date: 2026-06-04
 authors:
   - ymeyer
   - dcorneil
@@ -25,7 +25,7 @@ The [Nemotron-Personas HF collection](https://huggingface.co/collections/nvidia/
 <p align="center">
   <img src="assets/nemotron-personas/nemotron-personas-world-map.png" alt="Nemotron-Personas collection" width="900" />
   <br>
-  <em>The Nemotron-Personas collection at a glance: seven countries, nine language variants, ~53M personas grounded in real demographic and geographic distributions.</em>
+  <em class="nvidia-green">The growing Nemotron-Personas collection powering Nemotron model training. Multi-locale synthetic personas grounded in real demographic, geographic, and personality-trait distributions.</em>
 </p>
 
 ---
@@ -98,6 +98,8 @@ Across all locales, the construction pipeline is the same four-stage shape (the 
 
 <p align="center">
   <img src="assets/nemotron-personas/nemotron_persona_via_ndd.png" alt="Pipeline overview: PGM demographics + OCEAN traits seed two stages of structured-output LLM generation" width="600" />
+  <br>
+  <em class="nvidia-green">The compound-AI pipeline behind Nemotron-Personas. Multiple models (PGM, OCEAN, LLM A, LLM B) work together to produce internally-coherent and diverse synthetic personas that mirror real-world demographic, geographic, and personality-trait distributions.</em>
 </p>
 
 ### Stage 1: OCEAN Big-Five sampling
@@ -183,6 +185,8 @@ With OCEAN traits and demographic grounding in hand, the pipeline calls a reason
 
 <p align="center">
   <img src="assets/nemotron-personas/nemotron_persona_via_ndd_step_2.png" alt="Stage 3: Persona attributes via structured outputs" width="600" />
+  <br>
+  <em class="nvidia-green">Stage 3: a single <code>LLMStructuredColumnConfig</code> call materializes six persona-attribute fields (cultural background, skills, career goals, hobbies, plus list variants) from the PGM + OCEAN seed.</em>
 </p>
 
 ```python
@@ -239,6 +243,8 @@ The final stage is a second structured-output LLM call that synthesizes everythi
 
 <p align="center">
   <img src="assets/nemotron-personas/nemotron_persona_via_ndd_step_3.png" alt="Stage 4: Persona prose synthesis" width="600" />
+  <br>
+  <em class="nvidia-green">Stage 4: a second structured-output LLM call synthesizes nine cohesive persona descriptions spanning professional, finance, healthcare, lifestyle, and creative dimensions.</em>
 </p>
 
 ```python

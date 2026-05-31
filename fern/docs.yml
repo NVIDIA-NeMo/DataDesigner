@@ -307,12 +307,14 @@ redirects:
     destination: "/nemo/datadesigner/plugins/example-plugin"
   # Dev Notes: mkdocs-material blog plugin URL shape.
   # Section title "Dev Notes" -> /dev-notes; intermediate posts/ directory dropped.
-  # Most posts kept their filename slug, but two were retitled during migration
+  # Most posts kept their filename slug, but three were retitled during migration
   # so their Fern page-title slug differs from the legacy filename:
   - source: "/nemo/datadesigner/devnotes/posts/text-to-sql"
     destination: "/nemo/datadesigner/dev-notes/text-to-sql-for-nemotron-super"
   - source: "/nemo/datadesigner/devnotes/posts/rqa"
     destination: "/nemo/datadesigner/dev-notes/rqa-dataset"
+  - source: "/nemo/datadesigner/devnotes/posts/nemotron-personas"
+    destination: "/nemo/datadesigner/dev-notes/designing-nemotron-personas"
   - source: "/nemo/datadesigner/devnotes/posts/:slug"
     destination: "/nemo/datadesigner/dev-notes/:slug"
   - source: "/nemo/datadesigner/devnotes/:slug"
