@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from data_designer.cli.repositories.persona_repository import PersonaRepository
-from data_designer.cli.services.download_service import DownloadService
+from data_designer.cli.services.download_service import DownloadService, NgcConfigError
 from data_designer.cli.ui import (
     confirm_action,
     console,
@@ -73,6 +73,13 @@ class DownloadController:
         if not selected_locales:
             print_info("No locales selected")
             return
+
+        if not dry_run:
+            try:
+                self.service.ensure_ngc_config_exists()
+            except NgcConfigError as e:
+                print_error(str(e))
+                return
 
         # Show what will be downloaded
         console.print()
@@ -192,6 +199,12 @@ class DownloadController:
             print_error(f"NGC CLI error: {e}")
             return False
 
+        except NgcConfigError as e:
+            console.print()
+            print_error(f"✗ Failed to download Nemotron-Persona dataset for {locale}")
+            print_error(str(e))
+            return False
+
         except Exception as e:
             console.print()
             print_error(f"✗ Failed to download Nemotron-Persona dataset for {locale}")
@@ -214,6 +227,6 @@ def check_ngc_cli_with_instructions() -> bool:
     print_text("To download the Nemotron-Personas datasets, follow these steps:")
     print_text(f"    1. Create an NVIDIA NGC account: {NGC_URL}")
     print_text(f"    2. Install the NGC CLI: {NGC_CLI_INSTALL_URL}")
-    print_text("    3. Following the install instructions to set up the NGC CLI")
+    print_text("    3. Run 'ngc config set' to create a default NGC CLI config file")
     print_text("    4. Run 'data-designer download personas'")
     return False
