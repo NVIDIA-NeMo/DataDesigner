@@ -67,19 +67,19 @@ class DownloadController:
         if not dry_run and not check_ngc_cli_with_instructions():
             return
 
-        # Determine which locales to download
-        selected_locales = self._determine_locales(locales, all_locales)
-
-        if not selected_locales:
-            print_info("No locales selected")
-            return
-
         if not dry_run:
             try:
                 self.service.ensure_ngc_config_exists()
             except NgcConfigError as e:
                 print_error(str(e))
                 return
+
+        # Determine which locales to download
+        selected_locales = self._determine_locales(locales, all_locales)
+
+        if not selected_locales:
+            print_info("No locales selected")
+            return
 
         # Show what will be downloaded
         console.print()

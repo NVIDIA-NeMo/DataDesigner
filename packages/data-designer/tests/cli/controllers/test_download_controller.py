@@ -224,7 +224,7 @@ def test_run_personas_ngc_config_not_available(
     """Test run_personas exits early when the default NGC config is missing."""
     controller.service.ngc_config_path = controller.config_dir / ".ngc" / "missing"
 
-    controller.run_personas(locales=["en_US"], all_locales=False)
+    controller.run_personas(locales=None, all_locales=False)
 
     mock_check_ngc.assert_called_once()
     mock_print_error.assert_called_once()
