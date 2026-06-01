@@ -63,6 +63,7 @@ redirects:
     )
     write_text(source_root / "fern" / "fern.config.json", '{"organization": "nvidia", "version": "5.41.1"}\n')
     write_text(source_root / "fern" / "assets" / "current-devnote-asset.png", "new asset")
+    write_text(source_root / "fern" / "components" / "Figure.tsx", "export const Figure = () => null;\n")
     write_text(
         source_root / "fern" / "versions" / "latest.yml",
         """navigation:
@@ -125,5 +126,8 @@ redirects:
         '{"organization": "nvidia", "version": "5.41.1"}\n'
     )
     assert (published_root / "fern" / "assets" / "current-devnote-asset.png").read_text() == "new asset"
+    assert (published_root / "fern" / "components" / "Figure.tsx").read_text() == (
+        "export const Figure = () => null;\n"
+    )
     assert not (published_root / "fern" / "assets" / "published-only-asset.png").exists()
     assert (published_root / "fern" / "versions" / "latest" / "pages" / "devnotes" / "posts" / "new-note.mdx").exists()
