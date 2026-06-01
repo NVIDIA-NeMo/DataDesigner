@@ -1,0 +1,5179 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/nemotron-personas/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/palette-favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Nemotron personas - NeMo Data Designer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CFira+Code:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Fira Code"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../css/style.css">
+    
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#designing-nemotron-personas-multi-locale-synthetic-personas-powering-nemotron-training" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You're not viewing the latest version.
+  <a href="../../..">
+    <strong>Click here to go to latest.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            NeMo Data Designer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Nemotron personas
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7M9 21v-1h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1m3-17a5 5 0 0 0-5 5c0 2.05 1.23 3.81 3 4.58V16h4v-2.42c1.77-.77 3-2.53 3-4.58a5 5 0 0 0-5-5"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7M9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" hidden>
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    NeMo Data Designer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/seed-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seed Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/agent-rollout-ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Rollout Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Models
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/default-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Default Model Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure with the CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/custom-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Model Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/model-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/model-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/inference-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inference Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/custom_columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/validators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/person_sampling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Person Sampling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/traces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Traces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_10" id="__nav_2_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Use & MCP
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tool Use & MCP
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/tool_use_and_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/mcp-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/tool-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/enabling-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enabling Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/configure-mcp-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/mcp/safety-and-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety & Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/architecture-and-performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/deployment-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../notebooks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/1-the-basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured Outputs, Jinja Expressions, and Conditional Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seeding with an External Dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/4-providing-images-as-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providing Images as Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/5-generating-images/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generating Images
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/6-editing-images-with-image-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Image-to-Image Editing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Recipes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/cards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipe Cards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Generation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/text_to_python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to Python
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/enterprise_text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Super Text to SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugin Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/plugin_development/markdown_seed_reader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Markdown Section Seed Reader Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QA and Chat
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    QA and Chat
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/qa_and_chat/product_info_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Product Info QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/qa_and_chat/multi_turn_chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Turn Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trace Ingestion
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Trace Ingestion
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/trace_ingestion/agent_rollout_distillation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Rollout Trace Distillation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP and Tool Use
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MCP and Tool Use
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/basic_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic MCP Tool Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/pdf_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PDF Document QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/mcp_and_tooluse/search_agent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Super Search Agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VLM Long-Document Understanding
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    VLM Long-Document Understanding
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/seed_dataset_preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seed Dataset Preparation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/nemotron_parse_ocr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron Parse OCR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/text_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text QA from OCR Transcripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/page_classification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Page Classification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/visual_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/single_page_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Single-Page QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/multi_page_windowed_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Page Windowed QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/whole_document_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whole-Document QA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/vlm_long_doc/frontier_judge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frontier Judge QA Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/build_your_own/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build Your Own
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/discover/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discover Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../code_reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../code_reference/config/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Config
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/column_configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    column_configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/config_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config_builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/data_designer_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data_designer_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/run_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    run_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/sampler_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sampler_params
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/seeds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    seeds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/config/validator_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validator_params
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../code_reference/engine/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engine
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Engine
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/engine/column_generators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    column_generators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/engine/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/engine/processors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/engine/seed_readers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    seed_readers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../code_reference/interface/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interface
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_4" id="__nav_6_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Interface
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/interface/data_designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data_designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/interface/errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code_reference/interface/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dev Notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron personas
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron personas
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-grounded-synthetic-personas-matter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why grounded synthetic personas matter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nemotron-personas-inside-nemotron-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nemotron-Personas inside Nemotron training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Nemotron-Personas inside Nemotron training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#long-context-samples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Long-context samples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#general-purpose-tool-use-rollouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        General-purpose tool-use rollouts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#synthetic-formal-logic-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Synthetic formal-logic data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sensitive-safety-category-refusals-sscr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sensitive-safety-category-refusals (SSCR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#general-chat-and-instruction-following" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        General chat and instruction following
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-theyre-built-a-four-stage-compound-ai-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How they're built: a four-stage compound-AI pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How they&#39;re built: a four-stage compound-AI pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stage-1-ocean-big-five-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 1: OCEAN Big-Five sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-2-demographically-grounded-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 2: Demographically-grounded sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-3-persona-attributes-via-structured-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 3: Persona attributes via structured outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-4-persona-descriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 4: Persona descriptions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-your-own-the-customization-story" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building your own: the customization story
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building your own: the customization story">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#going-deeper-build-a-brand-new-locale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Going deeper: build a brand-new locale
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#try-it-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try it yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#closing-thoughts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Closing thoughts
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../retriever-sdg-toolkit-from-documents-to-training-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retriever SDG Plugin: Turn Your Documents Into Retriever Training Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../have-it-your-way-customizing-data-designer-with-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Have It Your Way: Customizing Data Designer with Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training-a-vlm-to-understand-long-documents-an-iterative-sdg-story/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training a VLM to Understand Long Documents: An Iterative SDG Story
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../push-datasets-to-hugging-face-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push Datasets to Hugging Face Hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../async-all-the-way-down/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Async All the Way Down
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../owning-the-model-stack-adaptive-concurrency-ftw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Owning the Model Stack: Adaptive Concurrency FTW!
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data-designer-got-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Designer Got Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../search-agent-sft-data-teaching-llms-to-browse-the-web/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Search Agent SFT Data: Teaching LLMs to Browse the Web
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../structured-outputs-for-nemotron-teaching-models-to-produce-valid-json-yaml-and-xml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deep-research-trajectories-with-nemo-data-designer-and-mcp-tool-use/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Research Trajectories with NeMo Data Designer and MCP Tool Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../designing-data-designer-why-sdg-is-a-systems-problem/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing Data Designer: Why SDG Is a Systems Problem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graduate-level-science-reasoning-data-with-nemo-data-designer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graduate-Level Science Reasoning Data with NeMo Data Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_17" id="__nav_7_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archive
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Archive
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+    
+  
+  
+    <li class="md-nav__item">
+      <a href="../archive/2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2026
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-grounded-synthetic-personas-matter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why grounded synthetic personas matter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nemotron-personas-inside-nemotron-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nemotron-Personas inside Nemotron training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Nemotron-Personas inside Nemotron training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#long-context-samples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Long-context samples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#general-purpose-tool-use-rollouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        General-purpose tool-use rollouts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#synthetic-formal-logic-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Synthetic formal-logic data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sensitive-safety-category-refusals-sscr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sensitive-safety-category-refusals (SSCR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#general-chat-and-instruction-following" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        General chat and instruction following
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-theyre-built-a-four-stage-compound-ai-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How they're built: a four-stage compound-AI pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How they&#39;re built: a four-stage compound-AI pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stage-1-ocean-big-five-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 1: OCEAN Big-Five sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-2-demographically-grounded-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 2: Demographically-grounded sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-3-persona-attributes-via-structured-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 3: Persona attributes via structured outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-4-persona-descriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 4: Persona descriptions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-your-own-the-customization-story" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building your own: the customization story
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building your own: the customization story">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#going-deeper-build-a-brand-new-locale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Going deeper: build a brand-new locale
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#try-it-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try it yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#closing-thoughts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Closing thoughts
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+  <div class="md-content md-content--post" data-md-component="content">
+    <div class="md-sidebar md-sidebar--post" data-md-component="sidebar" data-md-type="navigation">
+      <div class="md-sidebar__scrollwrap">
+        <div class="md-sidebar__inner md-post">
+          <nav class="md-nav md-nav--primary">
+            <div class="md-post__back">
+              <div class="md-nav__title md-nav__container">
+                <a href="../" class="md-nav__link">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+                  <span class="md-ellipsis">
+                    Back to index
+                  </span>
+                </a>
+              </div>
+            </div>
+            
+              <div class="md-post__authors md-typeset">
+                
+                  <div class="md-profile md-post__profile">
+                    <span class="md-author md-author--long">
+                      <img src="https://avatars.githubusercontent.com/u/11296522?v=4" alt="Yev Meyer">
+                    </span>
+                    <span class="md-profile__description">
+                      <strong>
+                        
+                          Yev Meyer
+                        
+                      </strong>
+                      <br>
+                      Principal Research Scientist at NVIDIA
+                    </span>
+                  </div>
+                
+                  <div class="md-profile md-post__profile">
+                    <span class="md-author md-author--long">
+                      <img src="https://avatars.githubusercontent.com/u/4678597?v=4" alt="Dane Corneil">
+                    </span>
+                    <span class="md-profile__description">
+                      <strong>
+                        
+                          Dane Corneil
+                        
+                      </strong>
+                      <br>
+                      Researcher at NVIDIA
+                    </span>
+                  </div>
+                
+              </div>
+            
+            <ul class="md-post__meta md-nav__list">
+              <li class="md-nav__item md-nav__item--section">
+                <div class="md-post__title">
+                  <span class="md-ellipsis">
+                    Metadata
+                  </span>
+                </div>
+                <nav class="md-nav">
+                  <ul class="md-nav__list">
+                    <li class="md-nav__item">
+                      <div class="md-nav__link">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 19H5V8h14m-3-7v2H8V1H6v2H5c-1.11 0-2 .89-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-1V1m-1 11h-5v5h5z"/></svg>
+                        <time datetime="2026-06-01 00:00:00+00:00" class="md-ellipsis">June 1, 2026</time>
+                      </div>
+                    </li>
+                    
+                    
+                    
+                      
+                      <li class="md-nav__item">
+                        <div class="md-nav__link">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 20a8 8 0 0 0 8-8 8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8m0-18a10 10 0 0 1 10 10 10 10 0 0 1-10 10C6.47 22 2 17.5 2 12A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7z"/></svg>
+                          <span class="md-ellipsis">
+                            
+                              13 min read
+                            
+                          </span>
+                        </div>
+                      </li>
+                    
+                  </ul>
+                </nav>
+              </li>
+            </ul>
+            
+          </nav>
+          
+        </div>
+      </div>
+    </div>
+    <article class="md-content__inner md-typeset">
+      
+        
+  
+
+
+
+  
+  
+
+
+<style>
+/* Scoped to this dev note only: smaller fenced-code-block font for the long Pydantic + prompt examples. */
+.md-typeset pre,
+.md-typeset pre > code,
+.md-typeset .highlight pre {
+    font-size: 0.72em !important;
+}
+</style>
+
+<h1 id="designing-nemotron-personas-multi-locale-synthetic-personas-powering-nemotron-training"><strong>Designing Nemotron-Personas: Multi-Locale Synthetic Personas Powering Nemotron Training</strong></h1>
+<p>The <a href="https://huggingface.co/collections/nvidia/nemotron-personas">Nemotron-Personas HF collection</a> is a growing family of multilingual, region-specific synthetic persona datasets (currently covering seven countries and nine language variants with roughly <strong>53 million personas</strong> in total), each grounded in real-world demographic and geographic distributions. Behind every dataset is the same <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a> compound-AI pipeline, adapted per region. And while the public release is a useful artifact in its own right, what's less visible is just how much these personas show up in <strong><a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf">Nemotron model training itself</a></strong>: seeding long-context samples, tool-use rollouts, formal-logic data, safety refusals, and general chat. This post pulls back the curtain on both halves of that story: how the collection is built, and how it is used.</p>
+<!-- more -->
+
+<blockquote>
+<p><strong>Want to dive straight into code?</strong> Open the <a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb">tutorial notebook in Colab</a> — or read on for the full story.</p>
+</blockquote>
+<p align="center">
+  <img src="assets/nemotron-personas/nemotron-personas-world-map.png" alt="Nemotron-Personas collection" width="900" />
+  <br>
+  <em class="nvidia-green">The growing Nemotron-Personas collection powering Nemotron model training. Multi-locale synthetic personas grounded in real demographic, geographic, and personality-trait distributions.</em>
+</p>
+
+<hr />
+<h2 id="why-grounded-synthetic-personas-matter"><strong>Why grounded synthetic personas matter</strong></h2>
+<p>It's easy to underestimate what a really good persona seed buys you. Three angles worth keeping in mind:</p>
+<ol>
+<li>
+<p><strong>Distributional faithfulness for sovereign AI.</strong> Models trained on synthetic data that doesn't reflect the actual demographics of a region inherit subtle biases: over-representing some groups, under-representing others, getting cultural context wrong. For sovereign-AI work, this matters a lot. Grounding personas in census + administrative data closes that gap before the LLM ever sees the data.</p>
+</li>
+<li>
+<p><strong>Diversity that random sampling can't produce.</strong> "Generate 10,000 customer queries" with no seed and an LLM will give you 10,000 variations on the same handful of latent personas. Conditioning each query on a distinct, demographically-grounded persona forces the model to span the actual population it'll be deployed against — the conscientious 62-year-old retired electrician in Pittsburgh, the 24-year-old graduate student in Bengaluru, the elementary-school teacher in Lille. Each yields a meaningfully different prompt.</p>
+</li>
+<li>
+<p><strong>Reusable seed material.</strong> Once a persona has a name, a demographic profile, an OCEAN vector, and a coherent backstory, <em>any</em> downstream pipeline can attach to it: a tool-use environment, a long-context construction, a safety-refusal template, a roleplay scenario. The collection acts as a library — generate the personas once, reuse them across training stages.</p>
+</li>
+</ol>
+<hr />
+<h2 id="nemotron-personas-inside-nemotron-training"><strong>Nemotron-Personas inside Nemotron training</strong></h2>
+<p>The <a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf">Nemotron 3 Super Technical Report</a> shows just how foundational these personas have become. They're a <em>seeding primitive</em> used across many post-training stages.</p>
+<h3 id="long-context-samples">Long-context samples</h3>
+<p>Long-context training data is hard to source. You need genuinely long, coherent sequences that aren't just concatenations of unrelated documents. Persona records, by virtue of being self-contained narratives with rich attributes, concatenate cleanly:</p>
+<blockquote>
+<p><em>"We also construct long-context samples by concatenating records from <a href="https://huggingface.co/datasets/nvidia/Nemotron-Personas-USA">Nemotron-Personas-USA</a> to reach the required sequence length."</em></p>
+<p>— <a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf">Nemotron 3 Super Technical Report</a></p>
+</blockquote>
+<p>Each persona is internally coherent (the OCEAN traits inform the cultural background, which informs the career goals, which informs the professional persona, etc.), and across personas the records are independent — exactly the right shape to pack into long sequences.</p>
+<h3 id="general-purpose-tool-use-rollouts">General-purpose tool-use rollouts</h3>
+<p>Tool-use trajectories require a <em>user</em> with a goal, not just a tool set. The Super pipeline uses a dual-LLM setup where one LLM plays the user and another plays the agent:</p>
+<blockquote>
+<p><em>"The User-LLM is seeded with the selected tool set, a persona sampled from <a href="https://huggingface.co/datasets/nvidia/Nemotron-Personas-USA">Nemotron-Personas-USA</a>..."</em></p>
+<p>— <a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf">Nemotron 3 Super Technical Report</a></p>
+</blockquote>
+<p>Seeding the user side with a real persona is what makes the rollouts feel like authentic conversations — the user's goals, communication style, and frustration patterns all flow from their underlying attributes. The agent has to handle the variance that real users actually produce, not the narrow band of "well-behaved benchmark user" prompts.</p>
+<p>A closely related approach was used to build <strong>Nemotron-Nano-9B-v2-Japanese</strong>, NVIDIA's Japanese small language model that ranks <strong>#1 on the Nejumi LLM Leaderboard</strong>. The Japanese instruction-following + general-chat data was seeded by <a href="https://huggingface.co/datasets/nvidia/Nemotron-Personas-Japan">Nemotron-Personas-Japan</a>, with prompts and assistant responses anchored to Japanese-grounded personas. A Japanese persona collection, generated by a localized DD pipeline, becomes the seeding layer for a Japanese model that beats the leaderboard.</p>
+<p>The same template is being used across the family — instruction-following and general-chat data going into Nemotron Nano v3 and Super v3 follows the same persona-seeded recipe.</p>
+<h3 id="synthetic-formal-logic-data">Synthetic formal-logic data</h3>
+<p>Even abstract reasoning data benefits from persona conditioning:</p>
+<blockquote>
+<p><em>"We introduced variability into the generated scenarios, premises, and formulas by incorporating random personas, letters, and/or logic connective (i.e., ∧, ∨, ⊃, ≡, ∼) into the prompt."</em></p>
+<p>— <a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf">Nemotron 3 Super Technical Report</a></p>
+</blockquote>
+<p>Formal-logic problems become more diverse — and more transferable — when the surface scenario shifts. A propositional-logic puzzle about an elementary teacher planning a field trip exercises the same underlying inference as one about a credit-counselor evaluating a loan, but the lexical surface looks completely different. Persona-driven scenario variation breaks the model out of the canonical "Alice and Bob" rut that plagues most synthetic formal-logic datasets.</p>
+<h3 id="sensitive-safety-category-refusals-sscr">Sensitive-safety-category-refusals (SSCR)</h3>
+<p>The SSCR dataset — used in Nemotron's safety blend — leverages Nemotron-Personas as seed data when constructing prompts that require refusal across sensitive categories. Personas matter here because real-world adversarial / sensitive prompts come from all kinds of users; grounding the synthetic prompts in demographically diverse personas ensures the trained refusal behavior generalizes across user populations rather than overfitting to a narrow band of "obviously suspicious" phrasings. SSCR is included in the broader <strong>nemotron-safety-blend</strong>.</p>
+<h3 id="general-chat-and-instruction-following">General chat and instruction following</h3>
+<p>The same persona-seeding pattern that powers tool-use rollouts also powers the broader general-chat and instruction-following data that flows into Nemotron Nano v3 and Super v3. A chat or instruction sample is a function of <em>who</em> is asking — their goals, their constraints, their communication style — and personas are how the pipeline encodes "who."</p>
+<hr />
+<h2 id="how-theyre-built-a-four-stage-compound-ai-pipeline"><strong>How they're built: a four-stage compound-AI pipeline</strong></h2>
+<p>Across all locales, the construction pipeline is the same four-stage shape (the regional adaptations live in the seed distributions, the language of the prompts, and which locale-specific fields get added). NeMo Data Designer orchestrates the pipeline as a column DAG:</p>
+<p align="center">
+  <img src="assets/nemotron-personas/nemotron_persona_via_ndd.png" alt="Pipeline overview: PGM demographics + OCEAN traits seed two stages of structured-output LLM generation" width="600" />
+  <br>
+  <em class="nvidia-green">The compound-AI pipeline behind Nemotron-Personas. Multiple models (PGM, OCEAN, LLM A, LLM B) work together to produce internally-coherent and diverse synthetic personas that mirror real-world demographic, geographic, and personality-trait distributions.</em>
+</p>
+
+<h3 id="stage-1-ocean-big-five-sampling">Stage 1: OCEAN Big-Five sampling</h3>
+<p>OCEAN (<a href="https://en.wikipedia.org/wiki/Big_Five_personality_traits">Big Five personality traits</a>) is the most empirically grounded model of human personality. For each persona we sample five trait T-scores (μ = 50, σ = 10, clipped to [20, 80]), bucket each into a coarse label, and attach a prose description grounded in the personality literature. Working at the description level (rather than raw scores) is what makes the downstream LLM stages produce nuanced, internally-consistent narratives — "highly conscientious" vs "highly extraverted" reads very differently to an LLM than <code>t_score=72</code>.</p>
+<p>The score-to-label mapping is shared across all five traits:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">T-score</th>
+<th style="text-align: left;">Label</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">20 – 34</td>
+<td style="text-align: left;">very low</td>
+</tr>
+<tr>
+<td style="text-align: center;">35 – 44</td>
+<td style="text-align: left;">low</td>
+</tr>
+<tr>
+<td style="text-align: center;">45 – 54</td>
+<td style="text-align: left;">average</td>
+</tr>
+<tr>
+<td style="text-align: center;">55 – 64</td>
+<td style="text-align: left;">high</td>
+</tr>
+<tr>
+<td style="text-align: center;">65 – 80</td>
+<td style="text-align: left;">very high</td>
+</tr>
+</tbody>
+</table>
+<p>Each (trait, label) pair maps to a curated description that captures how that level of the trait actually manifests. A representative slice of the <strong>openness</strong> mapping:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Label</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">very low</td>
+<td style="text-align: left;"><em>"Strongly prefers routine and the familiar. Traditional in thinking and values practicality over abstract ideas."</em></td>
+</tr>
+<tr>
+<td style="text-align: left;">low</td>
+<td style="text-align: left;"><em>"Generally prefers structure and predictability. Tends to be practical and focused on immediate realities."</em></td>
+</tr>
+<tr>
+<td style="text-align: left;">average</td>
+<td style="text-align: left;"><em>"Balances curiosity with practicality. Appreciates both new ideas and established methods."</em></td>
+</tr>
+<tr>
+<td style="text-align: left;">high</td>
+<td style="text-align: left;"><em>"Curious and appreciative of art, new ideas, and varied experiences. Open to unconventional thinking."</em></td>
+</tr>
+<tr>
+<td style="text-align: left;">very high</td>
+<td style="text-align: left;"><em>"Highly imaginative and intellectually curious. Strongly drawn to novelty, art, and abstract concepts."</em></td>
+</tr>
+</tbody>
+</table>
+<p>The other four traits each have their own 5-row description table tuned to their domain (conscientiousness around organization vs spontaneity, extraversion around social energy, agreeableness around cooperation, neuroticism around emotional reactivity). The result is that one sampled persona arrives at Stage 3 with a structured personality block:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="p">{</span>
+  <span class="s2">&quot;openness&quot;</span><span class="p">:</span>          <span class="p">{</span><span class="s2">&quot;t_score&quot;</span><span class="p">:</span> <span class="mi">67</span><span class="p">,</span> <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="s2">&quot;high&quot;</span><span class="p">,</span>      <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Curious and appreciative of art...&quot;</span><span class="p">},</span>
+  <span class="s2">&quot;conscientiousness&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;t_score&quot;</span><span class="p">:</span> <span class="mi">72</span><span class="p">,</span> <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="s2">&quot;very high&quot;</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Exceptionally organized...&quot;</span><span class="p">},</span>
+  <span class="s2">&quot;extraversion&quot;</span><span class="p">:</span>      <span class="p">{</span><span class="s2">&quot;t_score&quot;</span><span class="p">:</span> <span class="mi">41</span><span class="p">,</span> <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="s2">&quot;low&quot;</span><span class="p">,</span>       <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Generally reserved...&quot;</span><span class="p">},</span>
+  <span class="s2">&quot;agreeableness&quot;</span><span class="p">:</span>     <span class="p">{</span><span class="s2">&quot;t_score&quot;</span><span class="p">:</span> <span class="mi">55</span><span class="p">,</span> <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="s2">&quot;average&quot;</span><span class="p">,</span>   <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Generally cooperative...&quot;</span><span class="p">},</span>
+  <span class="s2">&quot;neuroticism&quot;</span><span class="p">:</span>       <span class="p">{</span><span class="s2">&quot;t_score&quot;</span><span class="p">:</span> <span class="mi">38</span><span class="p">,</span> <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="s2">&quot;low&quot;</span><span class="p">,</span>       <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Emotionally stable...&quot;</span><span class="p">},</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>…which the downstream LLM prompts reference directly via Jinja templates:</p>
+<div class="language-jinja highlight"><pre><span></span><code><span class="x">Personality profile:</span>
+<span class="x">- </span><span class="cp">{{</span> <span class="nv">openness.description</span> <span class="cp">}}</span>
+<span class="x">- </span><span class="cp">{{</span> <span class="nv">conscientiousness.description</span> <span class="cp">}}</span>
+<span class="x">- </span><span class="cp">{{</span> <span class="nv">extraversion.description</span> <span class="cp">}}</span>
+<span class="x">- </span><span class="cp">{{</span> <span class="nv">agreeableness.description</span> <span class="cp">}}</span>
+<span class="x">- </span><span class="cp">{{</span> <span class="nv">neuroticism.description</span> <span class="cp">}}</span>
+</code></pre></div>
+<h3 id="stage-2-demographically-grounded-sampling">Stage 2: Demographically-grounded sampling</h3>
+<p>This is the engine of regional fidelity. For each locale, the goal is to produce a demographic record whose attributes correlate with each other the way real populations do — age × education × occupation × marital status × geography, with locale-specific extensions. Naive independent sampling produces nonsensical records (3-year-old surgeon married for 30 years living alone in Singapore); the released artifact pulls from <a href="https://en.wikipedia.org/wiki/Graphical_model">Probabilistic Graphical Models</a> trained on real statistical distributions (census tables, administrative records, public surveys) so the correlations are statistically faithful.</p>
+<p><strong>The simplest path to seed your own pipeline today</strong> is to consume the released NGC-hosted Nemotron-Personas dataset directly via Data Designer's built-in <code>PersonSampler</code>. This gives you the full demographic + OCEAN block from a verified PGM-grounded source without rebuilding anything yourself. One <code>SamplerColumnConfig</code> is enough:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">data_designer.config</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dd</span>
+
+<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">SamplerColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;person&quot;</span><span class="p">,</span>
+        <span class="n">sampler_type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">PERSON</span><span class="p">,</span>
+        <span class="n">params</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">PersonSamplerParams</span><span class="p">(</span>
+            <span class="n">locale</span><span class="o">=</span><span class="s2">&quot;en_US&quot;</span><span class="p">,</span>                  <span class="c1"># or ja_JP, en_IN, fr_FR, ko_KR, pt_BR, en_SG, hi_Deva_IN, hi_Latn_IN</span>
+            <span class="n">age_range</span><span class="o">=</span><span class="p">[</span><span class="mi">18</span><span class="p">,</span> <span class="mi">114</span><span class="p">],</span>
+            <span class="n">with_synthetic_personas</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>    <span class="c1"># exposes Big Five + persona attributes</span>
+        <span class="p">),</span>
+        <span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><code>{{ person.openness.description }}</code>, <code>{{ person.occupation }}</code>, <code>{{ person.district }}</code> all become available to downstream Jinja templates immediately. See the <a href="https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/">Person Sampling docs</a> for the full setup walkthrough (NGC API key + <code>data-designer download personas --locale en_US</code>).</p>
+<div class="admonition tip">
+<p class="admonition-title">Bring your own region: SDG-PGMs is open source</p>
+<p>For new locales without a released artifact — or for teams that need full control over the demographic distributions — the underlying engine, <strong>SDG-PGMs</strong>, was just open-sourced as <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs">NVIDIA-NeMo/SDG-PGMs</a>:</p>
+</div>
+<blockquote>
+<p><em>"Together with Data Designer, SDG-PGMs helps power the Nemotron-Personas HF collection — multilingual, region-specific synthetic persona datasets for sovereign AI development. The USA dataset alone contains 6M personas grounded in US Census data, with realistic demographic correlations across age, sex, geography, education, marital status, and 560+ occupations."</em></p>
+</blockquote>
+<h3 id="stage-3-persona-attributes-via-structured-outputs">Stage 3: Persona attributes via structured outputs</h3>
+<p>With OCEAN traits and demographic grounding in hand, the pipeline calls a reasoning LLM with a single <code>LLMStructuredColumnConfig</code> that materializes six rich attribute fields in one shot via a Pydantic schema:</p>
+<p align="center">
+  <img src="assets/nemotron-personas/nemotron_persona_via_ndd_step_2.png" alt="Stage 3: Persona attributes via structured outputs" width="600" />
+  <br>
+  <em class="nvidia-green">Stage 3: a single <code>LLMStructuredColumnConfig</code> call materializes six persona-attribute fields (cultural background, skills, career goals, hobbies, plus list variants) from the PGM + OCEAN seed.</em>
+</p>
+
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">PersonaAttributes</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">cultural_background</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Description of the person&#39;s cultural background&quot;</span><span class="p">)</span>
+    <span class="n">skills_and_expertise</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Description of the person&#39;s skills and expertise&quot;</span><span class="p">)</span>
+    <span class="n">skills_and_expertise_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;List of the person&#39;s skills and expertise&quot;</span><span class="p">)</span>
+    <span class="n">career_goals_and_ambitions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Description of the person&#39;s career goals and ambitions&quot;</span><span class="p">)</span>
+    <span class="n">hobbies_and_interests</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Description of the person&#39;s hobbies and interests&quot;</span><span class="p">)</span>
+    <span class="n">hobbies_and_interests_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;List of the person&#39;s hobbies and interests&quot;</span><span class="p">)</span>
+
+
+<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMStructuredColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;persona_attributes&quot;</span><span class="p">,</span>
+        <span class="n">system_prompt</span><span class="o">=</span><span class="n">PERSONA_ATTRIBUTES_SYSTEM_PROMPT</span><span class="p">,</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s2">Based on a person with the following profile:</span>
+
+<span class="s2">Name: {{ first_name }} {{ middle_name if middle_name else &#39;&#39; }} {{ last_name }}</span>
+<span class="s2">Sex: {{ sex }}</span>
+<span class="s2">Age: {{ age }}</span>
+<span class="s2">...</span>
+<span class="s2">Occupation: {{ occupation }}</span>
+<span class="s2">Location: {{ city }}, {{ state }}, {{ county }}</span>
+
+<span class="s2">Personality profile:</span>
+<span class="s2">- {{ openness.description }}</span>
+<span class="s2">- ...</span>
+<span class="s2">- {{ neuroticism.description }}</span>
+
+<span class="s2">Generate the following detailed persona attributes:</span>
+<span class="s2">- cultural_background</span>
+<span class="s2">- ...</span>
+<span class="s2">- hobbies_and_interests_list</span>
+
+<span class="s2">When generating attributes, make sure to incorporate the influences suggested by the personality profile description.</span>
+<span class="s2">&quot;&quot;&quot;</span><span class="p">,</span>
+        <span class="n">output_format</span><span class="o">=</span><span class="n">PersonaAttributes</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
+        <span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>The system prompt forces internal consistency ("attributes that are internally consistent and logically connected to the base persona details"), cultural sensitivity ("avoid stereotypes while acknowledging cultural influences"), and specificity ("create specific, detailed responses rather than generic ones"). Pydantic schema enforcement means every record's attributes parse cleanly downstream.</p>
+<h3 id="stage-4-persona-descriptions">Stage 4: Persona descriptions</h3>
+<p>The final stage is a second structured-output LLM call that synthesizes everything above into nine cohesive persona descriptions: <code>professional_persona</code>, <code>finance_persona</code>, <code>healthcare_persona</code>, <code>sports_persona</code>, <code>arts_persona</code>, <code>travel_persona</code>, <code>culinary_persona</code>, <code>concise_persona</code>, and a paragraph-length <code>detailed_persona</code>.</p>
+<p align="center">
+  <img src="assets/nemotron-personas/nemotron_persona_via_ndd_step_3.png" alt="Stage 4: Persona prose synthesis" width="600" />
+  <br>
+  <em class="nvidia-green">Stage 4: a second structured-output LLM call synthesizes nine cohesive persona descriptions spanning professional, finance, healthcare, lifestyle, and creative dimensions.</em>
+</p>
+
+<div class="language-python highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Personas</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">professional_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A one-sentence persona description including primary field of work, key professional skills...&quot;</span><span class="p">)</span>
+    <span class="n">finance_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A one-sentence persona characterization of spending habits, relationship with money, saving and investment habits...&quot;</span><span class="p">)</span>
+    <span class="n">healthcare_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A one-sentence persona description of very specific health conditions ... and their typical behavior as a patient...&quot;</span><span class="p">)</span>
+    <span class="n">sports_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A one-sentence persona description of athletic interests, seasonal sports, and their approach to fitness and exercise...&quot;</span><span class="p">)</span>
+    <span class="n">arts_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A one-sentence persona characterization of engagement with creative expression, artistic appreciation, cultural activities...&quot;</span><span class="p">)</span>
+    <span class="n">travel_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A one-sentence persona capturing travel interests and style, including planning preferences...&quot;</span><span class="p">)</span>
+    <span class="n">culinary_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A one-sentence persona description of food/cuisine preferences, cooking skill level...&quot;</span><span class="p">)</span>
+    <span class="n">concise_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A one-sentence description capturing the essence of this person&#39;s unique perspective and approach to life...&quot;</span><span class="p">)</span>
+    <span class="n">detailed_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A paragraph describing persona&#39;s cultural background, skills, goals, and interests...&quot;</span><span class="p">)</span>
+
+
+<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMStructuredColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;personas&quot;</span><span class="p">,</span>
+        <span class="n">system_prompt</span><span class="o">=</span><span class="n">PERSONA_SYSTEM_PROMPT</span><span class="p">,</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s2">Based on a person with the following persona attributes and profile:</span>
+
+<span class="s2">Age: {{ age }}</span>
+<span class="s2">Cultural background: {{ cultural_background }}</span>
+<span class="s2">{{ &#39;Hobbies and interests: &#39; + hobbies_and_interests if age &gt;= 6 else &#39;&#39; }}</span>
+<span class="s2">{{ &#39;Skills and expertise: &#39; + skills_and_expertise if age &gt;= 16 else &#39;&#39; }}</span>
+<span class="s2">{{ &#39;Career goals and ambitions: &#39; + career_goals_and_ambitions if age &gt;= 16 else &#39;&#39; }}</span>
+
+<span class="s2">Personality profile:</span>
+<span class="s2">- {{ openness.description }}</span>
+<span class="s2">- ...</span>
+<span class="s2">- {{ neuroticism.description }}</span>
+
+<span class="s2">Generate the following self-contained persona descriptions that capture how persona attributes and profile combine to create a unique individual&#39;s perspective and approach to various facets of life.</span>
+
+<span class="s2">- professional_persona</span>
+<span class="s2">- ...</span>
+<span class="s2">- detailed_persona</span>
+<span class="s2">&quot;&quot;&quot;</span><span class="p">,</span>
+        <span class="n">output_format</span><span class="o">=</span><span class="n">Personas</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
+        <span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>The system prompt contains explicit guardrails: include the name in every description, never directly mention cultural heritage (infuse it implicitly through practices and traditions), and always take age into account. The LLM does the synthesis; Pydantic does the validation; Data Designer's DAG executes the whole thing in parallel across millions of records.</p>
+<hr />
+<h2 id="building-your-own-the-customization-story"><strong>Building your own: the customization story</strong></h2>
+<p>The released artifact is the <em>general-purpose</em> collection. In practice, most downstream pipelines that use these personas extend them in some way. NeMo Data Designer makes that trivial: the same <code>LLMStructuredColumnConfig</code> + <code>ExpressionColumnConfig</code> pattern that builds the released schema can be used to layer on any custom dimension you need.</p>
+<p>The accompanying <a href="#try-it-yourself">Data Designer Tutorial: Reproducing &amp; Customizing Nemotron-Personas</a> walks through a concrete example. After reproducing the released schema with a <code>PersonSampler</code> against the NGC-hosted dataset, the tutorial adds a custom <code>tech_persona</code> dimension with two new fields: a prose description of the persona's relationship with technology, plus a list of specific tech tools they use:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">data_designer.config</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TechPersona</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">tech_persona</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+        <span class="n">description</span><span class="o">=</span><span class="p">(</span>
+            <span class="s2">&quot;A 2-3 sentence description of this person&#39;s relationship with technology: &quot;</span>
+            <span class="s2">&quot;comfort with AI/digital tools, level of tech adoption, preferred devices, &quot;</span>
+            <span class="s2">&quot;and one specific way technology shapes their daily routine.&quot;</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">tech_tools</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+        <span class="n">description</span><span class="o">=</span><span class="p">(</span>
+            <span class="s2">&quot;List of 4-6 specific tech tools, apps, services, or devices this person uses regularly. &quot;</span>
+            <span class="s2">&quot;Each entry should be a concrete named product, not a generic category.&quot;</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+
+<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">dd</span><span class="o">.</span><span class="n">LLMStructuredColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;custom_persona&quot;</span><span class="p">,</span>
+        <span class="n">system_prompt</span><span class="o">=</span><span class="p">(</span>
+            <span class="s2">&quot;You write nuanced, specific tech-relationship personas grounded in demographic &quot;</span>
+            <span class="s2">&quot;and psychometric attributes. Avoid generic platitudes; ground every claim in the &quot;</span>
+            <span class="s2">&quot;person&#39;s age, occupation, personality, and lifestyle.&quot;</span>
+        <span class="p">),</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s2">Based on a person with the following persona profile:</span>
+
+<span class="s2">Name: {{ first_name }} {{ last_name }}, Age: {{ age }}, Occupation: {{ occupation }}</span>
+<span class="s2">Cultural background: {{ cultural_background }}</span>
+<span class="s2">Career goals: {{ career_goals_and_ambitions }}</span>
+<span class="s2">Hobbies: {{ hobbies_and_interests }}</span>
+
+<span class="s2">Personality profile:</span>
+<span class="s2">- {{ openness.description }}</span>
+<span class="s2">- {{ conscientiousness.description }}</span>
+<span class="s2">- {{ extraversion.description }}</span>
+<span class="s2">- {{ agreeableness.description }}</span>
+<span class="s2">- {{ neuroticism.description }}</span>
+
+<span class="s2">Generate the `tech_persona` and `tech_tools` fields per the schema.</span>
+<span class="s2">&quot;&quot;&quot;</span><span class="p">,</span>
+        <span class="n">output_format</span><span class="o">=</span><span class="n">TechPersona</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
+        <span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">dd</span><span class="o">.</span><span class="n">ExpressionColumnConfig</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;tech_persona&quot;</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="s2">&quot;{{ custom_persona.tech_persona }}&quot;</span><span class="p">))</span>
+<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">dd</span><span class="o">.</span><span class="n">ExpressionColumnConfig</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;tech_tools&quot;</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="s2">&quot;{{ custom_persona.tech_tools }}&quot;</span><span class="p">))</span>
+</code></pre></div>
+<p>A representative output from the tutorial run:</p>
+<div class="language-text highlight"><pre><span></span><code>tech_persona  Megan pragmatically adopts mainstream tech, seamlessly weaving AI assistants
+              into her lesson planning while preferring her well-worn iPad over flashier
+              gadgets; technology shapes her workflow most when she&#39;s grading assignments
+              on Sunday evenings.
+tech_tools    [&#39;MacBook Air&#39;, &#39;iPad Pro 12.9&#39;, &#39;iPhone 14&#39;, &#39;Google Classroom&#39;,
+               &#39;Microsoft OneNote&#39;, &#39;ChatGPT&#39;]
+</code></pre></div>
+<p>A few lines of Pydantic + one LLM column + a couple of expression columns and the released schema picks up two brand-new domain-specific fields. The same pattern scales: a healthcare provider extends with <code>medical_history_persona</code> and <code>insurance_persona</code>; a media company extends with <code>media_consumption_persona</code> and <code>subscription_stack</code>; a financial-services team extends with <code>investment_persona</code> and <code>risk_tolerance_persona</code>. The PGM-grounded base record stays the seed; everything else is one schema away.</p>
+<h3 id="going-deeper-build-a-brand-new-locale">Going deeper: build a brand-new locale</h3>
+<p>For locales without an NGC-hosted Nemotron-Personas dataset, the build path is open. The OCEAN Big-Five helpers ship in the tutorial repo (Stage 1 of the original pipeline), and <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs">NeMo SDG-PGMs</a> provides the framework for building your own demographic PGM (Stage 2) — collect aggregate statistical distributions, declare a <code>PGMGenerator</code> subclass (the <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person"><code>us_person</code> example</a> is a working blueprint), and plug it into Data Designer via SDG-PGMs's <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs/blob/main/src/data_designer_plugins/pgm_generator_plugin.py"><code>PGMGeneratorPluginConfig</code></a> column generator. The downstream LLM stages (3 and 4) are locale-agnostic; they just need the right language in the prompts. The tutorial leaves a <code>SAMPLE_FROM_SDG_PGM = True</code> toggle in place as the integration point.</p>
+<hr />
+<h2 id="try-it-yourself"><strong>Try it yourself</strong></h2>
+<p>The full reproduction-and-customization tutorial covers every detail in this post end-to-end, from the NGC dataset bootstrap through the toy custom-persona example.</p>
+<p><a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a></p>
+<p>Switching locales is a one-liner: change <code>personas_locale = "en_US"</code> to any of <code>en_IN</code>, <code>en_SG</code>, <code>fr_FR</code>, <code>hi_Deva_IN</code>, <code>hi_Latn_IN</code>, <code>ja_JP</code>, <code>ko_KR</code>, <code>pt_BR</code> (and run <code>data-designer download personas --locale &lt;code&gt;</code> once for the new locale). Everything downstream stays the same.</p>
+<hr />
+<h2 id="closing-thoughts"><strong>Closing thoughts</strong></h2>
+<p>The headline number on the <a href="https://huggingface.co/collections/nvidia/nemotron-personas">Nemotron-Personas HF collection</a> is the persona count, but the real story is that <strong>a single, modular, locale-adaptable pipeline produces seed material that recurs throughout Nemotron's training stack</strong>. Long-context construction, tool-use rollouts, formal-logic variability, safety refusals, instruction-following data — all of them lean on the same underlying primitive. Building the right primitive once means many downstream pipelines stop being one-off projects.</p>
+<p>If you're building region-specific synthetic data for your own model, the path is clear: take a locale's released artifact, layer your domain-specific dimensions on top with a few lines of Data Designer config, and you have a custom dataset that inherits all the demographic grounding the original artifact carries.</p>
+<hr />
+<p><strong>Key Resources:</strong></p>
+<ul>
+<li><strong>Nemotron-Personas HF collection:</strong> <a href="https://huggingface.co/collections/nvidia/nemotron-personas">huggingface.co/collections/nvidia/nemotron-personas</a></li>
+<li><strong>NeMo Data Designer:</strong> <a href="https://github.com/NVIDIA-NeMo/DataDesigner">github.com/NVIDIA-NeMo/DataDesigner</a></li>
+<li><strong>NeMo SDG-PGMs:</strong> <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs">github.com/NVIDIA-NeMo/SDG-PGMs</a></li>
+<li><strong>Nemotron 3 Super Technical Report:</strong> <a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf">research.nvidia.com/labs/nemotron/.../NVIDIA-Nemotron-3-Super-Technical-Report.pdf</a></li>
+<li><strong>Person Sampling in Data Designer:</strong> <a href="https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/">nvidia-nemo.github.io/DataDesigner/.../person_sampling</a></li>
+<li><strong>Related dev notes:</strong> <a href="../designing-data-designer-why-sdg-is-a-systems-problem/">Designing Data Designer: Why SDG Is a Systems Problem</a>, <a href="../engineering-an-enterprise-grade-text-to-sql-dataset-with-nemo-data-designer/">Engineering an Enterprise-Grade Text-to-SQL Dataset</a>, <a href="../push-datasets-to-hugging-face-hub/">Push Datasets to Hugging Face Hub</a></li>
+</ul>
+<hr />
+<p><em>Want to learn more about NeMo Data Designer? Check out our <a href="https://nvidia-nemo.github.io/DataDesigner/">documentation</a> and start building your own region-specific synthetic persona datasets today.</em></p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+  
+
+
+
+      
+    </article>
+  </div>
+
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+        
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: Dev Notes">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Dev Notes
+              </div>
+            </div>
+          </a>
+        
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.path", "navigation.footer", "navigation.indexes", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../js/toc-toggle.js"></script>
+      
+    
+  </body>
+</html>

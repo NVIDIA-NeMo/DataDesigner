@@ -14,7 +14,7 @@
         <link rel="prev" href="../code_reference/interface/results/">
       
       
-        <link rel="next" href="mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles/">
+        <link rel="next" href="nemotron-personas/">
       
       
         
@@ -3571,6 +3571,8 @@
       
         
       
+        
+      
     
     
     
@@ -3618,6 +3620,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="nemotron-personas/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nemotron personas
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -4031,10 +4061,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_16" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_17" >
         
           
-          <label class="md-nav__link" for="__nav_7_16" id="__nav_7_16_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7_17" id="__nav_7_17_label" tabindex="0">
             
   
   
@@ -4052,8 +4082,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_16_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_16">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_17">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -4133,6 +4163,17 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#nemotron-personas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nemotron personas
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles" class="md-nav__link">
@@ -4233,17 +4274,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#search-agent-sft-data-teaching-llms-to-browse-the-web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Search Agent SFT Data: Teaching LLMs to Browse the Web
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -4260,6 +4290,60 @@
 <p>Welcome to NeMo Data Designer Dev Notes! Here you'll find in-depth guides, tutorials, and insights about synthetic data generation.</p>
 <!-- Dev notes will automatically appear below -->
       </header>
+      
+        <article class="md-post md-post--excerpt">
+  <header class="md-post__header">
+    
+      <nav class="md-post__authors md-typeset">
+        
+          <span class="md-author">
+            <img src="https://avatars.githubusercontent.com/u/11296522?v=4" alt="Yev Meyer">
+          </span>
+        
+      </nav>
+    
+    <div class="md-post__meta md-meta">
+      <ul class="md-meta__list">
+        <li class="md-meta__item">
+          <time datetime="2026-06-01 00:00:00+00:00">June 1, 2026</time></li>
+        
+        
+          
+          <li class="md-meta__item">
+            
+              13 min read
+            
+          </li>
+        
+        
+      </ul>
+      
+    </div>
+  </header>
+  <div class="md-post__content md-typeset">
+    <h2 id="nemotron-personas"><a class="toclink" href="nemotron-personas/">Nemotron personas</a></h2>
+<style>
+/* Scoped to this dev note only: smaller fenced-code-block font for the long Pydantic + prompt examples. */
+.md-typeset pre,
+.md-typeset pre > code,
+.md-typeset .highlight pre {
+    font-size: 0.72em !important;
+}
+</style>
+
+<h2 id="designing-nemotron-personas-multi-locale-synthetic-personas-powering-nemotron-training"><a class="toclink" href="nemotron-personas/#designing-nemotron-personas-multi-locale-synthetic-personas-powering-nemotron-training"><strong>Designing Nemotron-Personas: Multi-Locale Synthetic Personas Powering Nemotron Training</strong></a></h2>
+<p>The <a href="https://huggingface.co/collections/nvidia/nemotron-personas">Nemotron-Personas HF collection</a> is a growing family of multilingual, region-specific synthetic persona datasets (currently covering seven countries and nine language variants with roughly <strong>53 million personas</strong> in total), each grounded in real-world demographic and geographic distributions. Behind every dataset is the same <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a> compound-AI pipeline, adapted per region. And while the public release is a useful artifact in its own right, what's less visible is just how much these personas show up in <strong><a href="https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf">Nemotron model training itself</a></strong>: seeding long-context samples, tool-use rollouts, formal-logic data, safety refusals, and general chat. This post pulls back the curtain on both halves of that story: how the collection is built, and how it is used.</p>
+
+    
+      <nav class="md-post__action">
+        <a href="nemotron-personas/">
+          Continue reading
+        </a>
+      </nav>
+    
+    
+  </div>
+</article>
       
         <article class="md-post md-post--excerpt">
   <header class="md-post__header">
@@ -4664,50 +4748,6 @@ Nah. Call <code>.push_to_hub()</code> and you've got a live dataset page on Hugg
   </div>
 </article>
       
-        <article class="md-post md-post--excerpt">
-  <header class="md-post__header">
-    
-      <nav class="md-post__authors md-typeset">
-        
-          <span class="md-author">
-            <img src="https://avatars.githubusercontent.com/u/128275431?v=4" alt="Dhruv Nathawani">
-          </span>
-        
-      </nav>
-    
-    <div class="md-post__meta md-meta">
-      <ul class="md-meta__list">
-        <li class="md-meta__item">
-          <time datetime="2026-03-12 00:00:00+00:00">March 12, 2026</time></li>
-        
-        
-          
-          <li class="md-meta__item">
-            
-              19 min read
-            
-          </li>
-        
-        
-      </ul>
-      
-    </div>
-  </header>
-  <div class="md-post__content md-typeset">
-    <h2 id="search-agent-sft-data-teaching-llms-to-browse-the-web"><a class="toclink" href="search-agent-sft-data-teaching-llms-to-browse-the-web/"><strong>Search Agent SFT Data: Teaching LLMs to Browse the Web</strong></a></h2>
-<p>Training search agents requires trajectory data --- the full multi-turn interaction showing how a model searches, reads, reasons, and answers. We built a four-stage pipeline that generates synthetic search trajectories from Wikidata knowledge graph paths, converts them into BrowseComp-style riddles using NeMo Data Designer, generates multi-step search rollouts with live web search via Tavily, and post-processes the results into SFT-ready training data.</p>
-
-    
-      <nav class="md-post__action">
-        <a href="search-agent-sft-data-teaching-llms-to-browse-the-web/">
-          Continue reading
-        </a>
-      </nav>
-    
-    
-  </div>
-</article>
-      
       
         
           
@@ -4752,13 +4792,13 @@ Nah. Call <code>.push_to_hub()</code> and you've got a live dataset page on Hugg
         
         
           
-          <a href="mitigating-prompt-sensitivity-manufacturing-robustness-through-diverse-preambles/" class="md-footer__link md-footer__link--next" aria-label="Next: Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles">
+          <a href="nemotron-personas/" class="md-footer__link md-footer__link--next" aria-label="Next: Nemotron personas">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Mitigating Prompt Sensitivity: Manufacturing Robustness Through Diverse Preambles
+                Nemotron personas
               </div>
             </div>
             <div class="md-footer__button md-icon">
