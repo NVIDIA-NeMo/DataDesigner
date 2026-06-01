@@ -145,9 +145,7 @@ class FairTaskQueue:
         first_tasks_by_group: dict[TaskGroupKey, SchedulableTask] = {}
         first_group_specs: dict[TaskGroupKey, TaskGroupSpec] = {}
 
-        for key, queue in self._queues.items():
-            if self._queued_by_group.get(key, 0) <= 0:
-                continue
+        for key in self._queued_by_group:
             first = self._first_valid_item(key)
             if first is None:
                 continue
@@ -157,18 +155,14 @@ class FairTaskQueue:
 
         return QueueView(
             queued_total=len(self._queued),
-            queued_by_group={key: count for key, count in self._queued_by_group.items() if count > 0},
+            queued_by_group=dict(self._queued_by_group),
             queued_resource_demand_by_group={
-                key: {resource: count for resource, count in value.items() if count > 0}
-                for key, value in self._queued_resource_demand_by_group.items()
-                if self._queued_by_group.get(key, 0) > 0
+                key: dict(value) for key, value in self._queued_resource_demand_by_group.items()
             },
             first_candidate_resources_by_group=first_by_group,
             first_candidate_tasks_by_group=first_tasks_by_group,
             first_candidate_group_specs_by_group=first_group_specs,
-            queued_peer_demand_by_resource={
-                resource: count for resource, count in self._queued_peer_demand_by_resource.items() if count > 0
-            },
+            queued_peer_demand_by_resource=dict(self._queued_peer_demand_by_resource),
         )
 
     def _activate_group(self, key: TaskGroupKey) -> None:
