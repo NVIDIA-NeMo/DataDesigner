@@ -6,7 +6,7 @@ In this folder you can find all our tutorial notebooks in `.py` format. They can
 make convert-execute-notebooks
 ```
 
-from the root of the repository. This will not only convert but also execute all of the notebooks -- for that to work, make sure you went through our [Quick Start](https://nvidia-nemo.github.io/DataDesigner/quick-start/) and have API keys set. A new folder `docs/notebooks` will be created, including `README.md` and `pyproject.toml` files.
+from the root of the repository. This will not only convert but also execute all of the notebooks -- for that to work, make sure you went through our [Quick Start](https://nvidia-nemo.github.io/DataDesigner/latest/quick-start/) and have API keys set. A new folder `docs/notebooks` will be created, including `README.md` and `pyproject.toml` files.
 
 Alternatively, you can use Jupytext directly
 

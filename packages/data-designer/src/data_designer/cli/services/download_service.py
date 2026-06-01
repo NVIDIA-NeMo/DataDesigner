@@ -12,18 +12,44 @@ from pathlib import Path
 from data_designer.cli.repositories.persona_repository import PersonaRepository
 
 
+class NgcConfigError(RuntimeError):
+    """Raised when the NGC CLI default config file is missing."""
+
+
 class DownloadService:
     """Business logic for downloading assets via NGC CLI."""
 
-    def __init__(self, config_dir: Path, persona_repository: PersonaRepository):
+    config_dir: Path
+    managed_assets_dir: Path
+    ngc_config_path: Path
+    persona_repository: PersonaRepository
+
+    def __init__(
+        self,
+        config_dir: Path,
+        persona_repository: PersonaRepository,
+        ngc_config_path: Path | None = None,
+    ) -> None:
         self.config_dir = config_dir
         self.managed_assets_dir = config_dir / "managed-assets" / "datasets"
+        self.ngc_config_path = ngc_config_path if ngc_config_path is not None else Path.home() / ".ngc" / "config"
         self.persona_repository = persona_repository
 
     def get_available_locales(self) -> dict[str, str]:
         """Get dictionary of available persona locales (locale code -> locale code)."""
         locales = self.persona_repository.list_all()
         return {locale.code: locale.code for locale in locales}
+
+    def ensure_ngc_config_exists(self) -> None:
+        """Raise an actionable error when the default NGC CLI config is missing."""
+        if self.ngc_config_path.is_file():
+            return
+
+        raise NgcConfigError(
+            f"NGC CLI config file not found at {self.ngc_config_path}. "
+            "Run 'ngc config set' to create a default config file, then rerun "
+            "'data-designer download personas'."
+        )
 
     def download_persona_dataset(self, locale: str) -> Path:
         """Download persona dataset for a specific locale using NGC CLI and move to managed assets.
@@ -36,12 +62,14 @@ class DownloadService:
 
         Raises:
             ValueError: If locale is invalid
+            NgcConfigError: If the default NGC CLI config file does not exist
             subprocess.CalledProcessError: If NGC CLI command fails
         """
         locale_obj = self.persona_repository.get_by_code(locale)
         if not locale_obj:
             raise ValueError(f"Invalid locale: {locale}")
 
+        self.ensure_ngc_config_exists()
         self.managed_assets_dir.mkdir(parents=True, exist_ok=True)
 
         # Use temporary directory for download
@@ -53,8 +81,6 @@ class DownloadService:
                 "resource",
                 "download-version",
                 f"nvidia/nemotron-personas/{locale_obj.dataset_name}",
-                "--org",
-                "nvidia",
                 "--dest",
                 temp_dir,
             ]
