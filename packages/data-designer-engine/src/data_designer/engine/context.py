@@ -5,9 +5,14 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 
-# Set by the async scheduler before executing each task.
+# Set per row group by both engines: the async scheduler sets it before each
+# task executes, and the sync engine's ``_run_batch`` sets it for each batch.
 # Value: (current_rg_index, total_rg_count) or None.
 current_row_group: ContextVar[tuple[int, int] | None] = ContextVar("current_row_group", default=None)
+
+# Set while generating a row group. The value is the row group's planned start
+# offset in the full dataset, including row groups skipped during resume.
+current_row_group_start_offset: ContextVar[int | None] = ContextVar("current_row_group_start_offset", default=None)
 
 
 def format_row_group_tag() -> str:
