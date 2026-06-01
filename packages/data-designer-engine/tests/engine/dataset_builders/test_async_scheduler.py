@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import tracemalloc
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
@@ -37,6 +38,7 @@ from data_designer.engine.column_generators.generators.custom import CustomColum
 from data_designer.engine.context import current_row_group_start_offset
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
+from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionLease
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
@@ -425,6 +427,44 @@ def _make_storage() -> MagicMock:
     return storage
 
 
+def test_scheduler_preparation_memory_stays_bounded_for_million_row_groups() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+
+    tracemalloc.start()
+    try:
+        row_groups = CompactRowGroupPlan.fresh(num_records=2_000_000, buffer_size=2)
+        tracker = CompletionTracker.with_graph(graph, row_groups)
+        scheduler = AsyncTaskScheduler(
+            generators=generators,
+            graph=graph,
+            tracker=tracker,
+            row_groups=row_groups,
+            num_records=2_000_000,
+            buffer_size=2,
+        )
+        _current, peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert len(row_groups) == 1_000_000
+    assert row_groups.scheduled_total_rows == 2_000_000
+    assert scheduler._scheduled_records == 2_000_000
+    assert peak_bytes < 5 * 1024 * 1024
+
+
 def _seed_plus_cell_setup(
     cell_generator: ColumnGenerator,
     num_records: int,
@@ -589,7 +629,12 @@ async def test_scheduler_sets_row_group_start_offsets_for_generators() -> None:
     configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
     strategies = {"seed": GenerationStrategy.FULL_COLUMN}
     generators = {"seed": _OffsetSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
-    row_groups = [(1, 1), (3, 1)]
+    row_groups = CompactRowGroupPlan.resume(
+        original_target=4,
+        num_records=4,
+        buffer_size=1,
+        completed_ids={0, 2},
+    )
 
     graph = ExecutionGraph.create(configs, strategies)
     tracker = CompletionTracker.with_graph(graph, row_groups)
@@ -602,7 +647,6 @@ async def test_scheduler_sets_row_group_start_offsets_for_generators() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_manager,
-        row_group_start_offsets={1: 1, 3: 3},
     )
     await scheduler.run()
 
