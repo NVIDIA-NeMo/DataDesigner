@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,18 +10,29 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from data_designer.cli.controllers.download_controller import DownloadController
+from data_designer.cli.services.download_service import NgcConfigError
+
+
+def _create_ngc_config(controller: DownloadController, tmp_path: Path) -> None:
+    ngc_config_path = tmp_path / ".ngc" / "config"
+    ngc_config_path.parent.mkdir(parents=True, exist_ok=True)
+    ngc_config_path.touch()
+    controller.service.ngc_config_path = ngc_config_path
 
 
 @pytest.fixture
 def controller(tmp_path: Path) -> DownloadController:
     """Create a controller instance for testing."""
-    return DownloadController(tmp_path)
+    controller = DownloadController(tmp_path)
+    _create_ngc_config(controller, tmp_path)
+    return controller
 
 
 @pytest.fixture
 def controller_with_datasets(tmp_path: Path) -> DownloadController:
     """Create a controller instance with existing datasets."""
     controller = DownloadController(tmp_path)
+    _create_ngc_config(controller, tmp_path)
     # Create managed assets directory with sample parquet files
     managed_assets_dir = tmp_path / "managed-assets" / "datasets"
     managed_assets_dir.mkdir(parents=True, exist_ok=True)
@@ -195,6 +208,32 @@ def test_run_personas_ngc_cli_not_available(
     mock_check_ngc.assert_called_once()
 
 
+@patch.object(DownloadController, "_download_locale")
+@patch("data_designer.cli.controllers.download_controller.confirm_action")
+@patch("data_designer.cli.controllers.download_controller.select_multiple_with_arrows")
+@patch("data_designer.cli.controllers.download_controller.print_error")
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
+def test_run_personas_ngc_config_not_available(
+    mock_check_ngc: MagicMock,
+    mock_print_error: MagicMock,
+    mock_select: MagicMock,
+    mock_confirm: MagicMock,
+    mock_download: MagicMock,
+    controller: DownloadController,
+) -> None:
+    """Test run_personas exits early when the default NGC config is missing."""
+    controller.service.ngc_config_path = controller.config_dir / ".ngc" / "missing"
+
+    controller.run_personas(locales=None, all_locales=False)
+
+    mock_check_ngc.assert_called_once()
+    mock_print_error.assert_called_once()
+    assert "ngc config set" in mock_print_error.call_args.args[0]
+    mock_select.assert_not_called()
+    mock_confirm.assert_not_called()
+    mock_download.assert_not_called()
+
+
 def test_check_ngc_cli_available_with_version() -> None:
     """Test check_ngc_cli_with_instructions displays version when NGC CLI is available."""
     from data_designer.cli.controllers.download_controller import check_ngc_cli_with_instructions
@@ -282,6 +321,18 @@ def test_download_locale_subprocess_error(controller: DownloadController) -> Non
         controller.service,
         "download_persona_dataset",
         side_effect=subprocess.CalledProcessError(1, "ngc"),
+    ):
+        result = controller._download_locale("en_US")
+
+    assert result is False
+
+
+def test_download_locale_ngc_config_error(controller: DownloadController) -> None:
+    """Test _download_locale handles missing NGC config errors."""
+    with patch.object(
+        controller.service,
+        "download_persona_dataset",
+        side_effect=NgcConfigError("Run 'ngc config set'"),
     ):
         result = controller._download_locale("en_US")
 
