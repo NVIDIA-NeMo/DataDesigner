@@ -45,6 +45,7 @@ FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/assets",
     "fern/components/Authors.tsx",
     "fern/components/BlogCard.tsx",
+    "fern/components/Figure.tsx",
     "fern/components/MetricsTable.tsx",
     "fern/components/TrajectoryViewer.tsx",
     "fern/components/devnotes",
