@@ -90,14 +90,17 @@ To download the Nemotron-Personas datasets from NGC, you will need to obtain an 
 2. **NGC CLI**: [NGC CLI](https://org.ngc.nvidia.com/setup/installers/cli)
 
 
-#### Step 1: Set Your NGC API Key
+#### Step 1: Create the default NGC CLI config
+
+Configure the NGC CLI with your API key. When prompted, paste the API key you obtained from NGC. This creates the default `~/.ngc/config` file that Data Designer checks before downloading persona datasets.
+
 ```bash
-export NGC_API_KEY="your-ngc-api-key-here"
+ngc config set
 ```
 
 #### Step 2 (option 1): Download Nemotron-Personas Datasets via the Data Designer CLI
 
-Once you have the NGC CLI and your NGC API key set up, you can download the datasets via the Data Designer CLI.
+Once you have configured the NGC CLI, you can download the datasets via the Data Designer CLI.
 
 You can pass the locales you want to download as arguments to the CLI command:
 ```bash
@@ -111,7 +114,7 @@ data-designer download personas
 
 #### Step 2 (option 2): Download Nemotron-Personas Datasets Directly
 
-Use the NGC CLI to download the datasets:
+Use the configured NGC CLI to download the datasets:
 ```bash
 # For Nemotron-Personas USA
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_us"
