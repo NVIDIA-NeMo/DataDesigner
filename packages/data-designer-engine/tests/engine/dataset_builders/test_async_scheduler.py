@@ -34,13 +34,16 @@ from data_designer.engine.column_generators.generators.base import (
     FromScratchColumnGenerator,
 )
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
+from data_designer.engine.context import current_row_group_start_offset
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionLease
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
+from data_designer.engine.dataset_builders.utils.async_progress_reporter import AsyncProgressReporter
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
+from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -563,6 +566,88 @@ async def test_scheduler_multiple_row_groups() -> None:
     assert tracker.is_row_group_complete(2, 1, ["seed", "cell_out"])
 
 
+class _OffsetSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+    """Synthetic seed generator that emits ``[offset, offset + n)`` for a row group."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return data
+
+    def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        offset = current_row_group_start_offset.get()
+        assert offset is not None
+        return lazy.pd.DataFrame({"seed": list(range(offset, offset + num_records))})
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_sets_row_group_start_offsets_for_generators() -> None:
+    """Ordered generators can seek by planned row-group offset during async resume."""
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": _OffsetSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+    row_groups = [(1, 1), (3, 1)]
+
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = _make_storage()
+    buffer_manager = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        row_group_start_offsets={1: 1, 3: 3},
+    )
+    await scheduler.run()
+
+    assert buffer_manager.get_row(1, 0)["seed"] == 1
+    assert buffer_manager.get_row(3, 0)["seed"] == 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_auto_computes_row_group_start_offsets_for_fresh_runs() -> None:
+    """Fresh async runs (no caller-supplied offsets) auto-derive offsets from row-group sizes.
+
+    This locks in the per-row-group seek behavior for ordered generators on fresh
+    runs. Previously the scheduler relied on a single shared seed reader whose
+    state advanced under a stateful lock; now each row group seeks to its own
+    planned offset, which is parallel-safe and order-independent.
+    """
+    provider = _mock_provider()
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": _OffsetSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+    row_groups = [(0, 2), (1, 2), (2, 1)]  # non-aligned last group exercises offset accumulation
+
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    storage = _make_storage()
+    buffer_manager = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        # row_group_start_offsets intentionally omitted — scheduler should derive
+        # {0: 0, 1: 2, 2: 4} from the row-group sizes.
+    )
+    await scheduler.run()
+
+    assert buffer_manager.get_row(0, 0)["seed"] == 0
+    assert buffer_manager.get_row(0, 1)["seed"] == 1
+    assert buffer_manager.get_row(1, 0)["seed"] == 2
+    assert buffer_manager.get_row(1, 1)["seed"] == 3
+    assert buffer_manager.get_row(2, 0)["seed"] == 4
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_non_retryable_failure_drops_row() -> None:
     """Non-retryable failure drops the row."""
@@ -1026,6 +1111,29 @@ async def test_scheduler_eager_row_drop_skips_downstream_of_failed_column() -> N
     assert scheduler._reporter._trackers["fail_col"].failed == 2
     assert scheduler._reporter._trackers["downstream"].skipped == 2
     assert scheduler._reporter._trackers["downstream"].completed == 2
+
+
+def test_resume_progress_reporter_starts_from_completed_records(caplog: pytest.LogCaptureFixture) -> None:
+    """Resume progress should include persisted records while logging only remaining scheduled work."""
+    trackers = {
+        "cell_a": ProgressTracker(total_records=1000, label="column 'cell_a'", quiet=True, initial_completed=252),
+        "cell_b": ProgressTracker(total_records=1000, label="column 'cell_b'", quiet=True, initial_completed=252),
+    }
+    completed, total, _success, _failed, _skipped, _pct, rate, _emoji = trackers["cell_a"].get_snapshot(elapsed=1.0)
+    assert completed == 252
+    assert total == 1000
+    assert rate == 0.0
+
+    trackers["cell_a"].record_success()
+    completed, _total, _success, _failed, _skipped, _pct, rate, _emoji = trackers["cell_a"].get_snapshot(elapsed=1.0)
+    assert completed == 253
+    assert rate == 1.0
+
+    reporter = AsyncProgressReporter(trackers)
+    with caplog.at_level(logging.INFO):
+        reporter.log_start(num_row_groups=2, scheduled_records=128)
+
+    assert "256 tasks across 2 row group(s)" in caplog.text
 
 
 @pytest.mark.asyncio(loop_scope="session")
