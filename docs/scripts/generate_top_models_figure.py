@@ -3,7 +3,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "matplotlib>=3.9,<4",
+#     "matplotlib==3.9.4",
 # ]
 # ///
 """Regenerate the "Top Model Usage" telemetry figure.
@@ -39,17 +39,18 @@ import csv
 import shutil
 from pathlib import Path
 
-import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 
 # Repo root is two levels up from docs/scripts/.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = REPO_ROOT / "docs" / "scripts" / "top-model-usage.csv"
-# Every tracked copy of the figure; first entry is the canonical render target.
+# Tracked copies of the figure; first entry is the canonical render target.
+# docs/images/ is what the README renders; fern/images/ is Fern's mirror for
+# /images/* references.
 TARGETS = (
     REPO_ROOT / "docs" / "images" / "top-models.png",
-    REPO_ROOT / "fern" / "assets" / "images" / "top-models.png",
     REPO_ROOT / "fern" / "images" / "top-models.png",
 )
 
@@ -79,13 +80,16 @@ def load_rows(csv_path: Path) -> list[tuple[str, float, float]]:
     return rows
 
 
-def select_font() -> None:
-    """Prefer a Helvetica-family face; fall back to the matplotlib default."""
-    available = {f.name for f in fm.fontManager.ttflist}
-    for fam in ("Helvetica Neue", "Helvetica", "Arial"):
-        if fam in available:
-            rcParams["font.family"] = fam
-            break
+def configure_matplotlib() -> None:
+    """Pin rendering to deterministic settings so the asset is reproducible.
+
+    Forces the Agg backend and matplotlib's bundled DejaVu Sans face rather than
+    opportunistically selecting a system Helvetica/Arial. Combined with the
+    pinned matplotlib version in the script metadata, this keeps the checked-in
+    PNG byte-reproducible across machines and CI.
+    """
+    plt.switch_backend("Agg")
+    rcParams["font.family"] = "DejaVu Sans"
     rcParams["font.size"] = 13
 
 
@@ -182,12 +186,13 @@ def render(rows: list[tuple[str, float, float]], out_path: Path) -> None:
     ax.set_xlim(0, xmax * 1.13)
     ax.set_ylim(-1.3, n + 0.8)
 
-    xticks = [0, 100, 200, 300, 400, 500, 600, 700]
-    ax.set_xticks(xticks)
-    ax.set_xticklabels([f"{t}B" if t else "0" for t in xticks], color=AXIS, fontsize=11)
+    # Derive ticks from the data so the axis stays sane as totals grow; fmt()
+    # promotes B -> T automatically, so the labels never need hand-editing.
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=8, steps=[1, 2, 2.5, 5, 10]))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _pos: "0" if v <= 0 else fmt(v * B)))
     ax.tick_params(axis="y", length=0, pad=10)
-    ax.tick_params(axis="x", colors=AXIS, length=0, pad=8)
-    ax.set_xlabel("Tokens processed (billions)", color=AXIS, fontsize=12.5, labelpad=12)
+    ax.tick_params(axis="x", colors=AXIS, length=0, pad=8, labelsize=11)
+    ax.set_xlabel("Tokens processed", color=AXIS, fontsize=12.5, labelpad=12)
 
     ax.xaxis.grid(True, color=GRID, alpha=0.07, linewidth=1, zorder=0)
     ax.set_axisbelow(True)
@@ -263,7 +268,7 @@ def main() -> None:
     parser.add_argument("--csv", type=Path, default=DEFAULT_CSV, help=f"Telemetry export CSV (default: {DEFAULT_CSV})")
     args = parser.parse_args()
 
-    select_font()
+    configure_matplotlib()
     rows = load_rows(args.csv)
 
     primary, *mirrors = TARGETS
