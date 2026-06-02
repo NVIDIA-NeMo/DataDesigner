@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers who need to create high-quality synthetic datasets for training, evaluation, or testing purposes. <br>
+Developers and engineers who need to create high-quality synthetic datasets from scratch or from seed data for training, evaluation, or testing purposes. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -27,7 +27,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Skill Output: <br>
 **Output Type(s):** [Code, Files] <br>
-**Output Format:** [Python scripts with PEP 723 inline metadata] <br>
+**Output Format:** [Python script with PEP 723 inline metadata] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
@@ -38,7 +38,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 4 evaluation tasks with 2 attempts per task through NVSkills-Eval (external profile, pass threshold 50%). <br>
+Evaluated against 4 evaluation tasks with 2 attempts per task; pass threshold 50%. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,10 +63,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 97% (+20%) | 86% (+2%) |
-| Discoverability | 2 | 87% (+56%) | 67% (+2%) |
-| Effectiveness | 2 | 100% (+0%) | 94% (-6%) |
-| Efficiency | 2 | 70% (+50%) | 58% (+4%) |
+| Correctness | 2 | 97% (+8%) | 84% (+0%) |
+| Discoverability | 2 | 86% (+28%) | 69% (+4%) |
+| Effectiveness | 2 | 97% (-3%) | 97% (+7%) |
+| Efficiency | 2 | 64% (+19%) | 62% (+9%) |
 
 ## Skill Version(s): <br>
 v0.6.1 (source: git tag) <br>

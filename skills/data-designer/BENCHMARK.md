@@ -49,16 +49,16 @@ The benchmark included 4 recorded Tier 3 trials, but the source evaluation datas
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 97% (+20%) | 86% (+2%) |
-| Discoverability | 2 | 87% (+56%) | 67% (+2%) |
-| Effectiveness | 2 | 100% (+0%) | 94% (-6%) |
-| Efficiency | 2 | 70% (+50%) | 58% (+4%) |
+| Correctness | 2 | 97% (+8%) | 84% (+0%) |
+| Discoverability | 2 | 86% (+28%) | 69% (+4%) |
+| Effectiveness | 2 | 97% (-3%) | 97% (+7%) |
+| Efficiency | 2 | 64% (+19%) | 62% (+9%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 16 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 14 total findings.
 
 Top findings:
 
