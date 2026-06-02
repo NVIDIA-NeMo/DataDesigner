@@ -17,7 +17,7 @@ In this mode, make reasonable design decisions autonomously based on the dataset
   - The structure of any structured output columns.
   - Briefly state the key decisions you made so the user can course-correct if needed.
 4. **Plan** — Determine columns, samplers, processors, validators, and other dataset features needed.
-5. **Build** — Write the Python script with `load_config_builder()` (see Output Template in SKILL.md).
+5. **Build** — Write the Python script with `load_config_builder()` returning a `DataDesignerConfigBuilder` (see Output Template in SKILL.md).
 6. **Validate** — Run `data-designer validate <path>`. Address any warnings or errors and re-validate until it passes.
 7. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
   - Note the sample records directory printed by the `data-designer preview` command
