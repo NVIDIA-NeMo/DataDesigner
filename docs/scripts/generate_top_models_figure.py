@@ -10,12 +10,11 @@
 
 Renders the ranked input-vs-output token breakdown shown in the README's
 "Top models (YTD)" section, styled to match the Data Designer devnote charts
-(near-black canvas, NVIDIA-green duotone). The same PNG is written to every
-tracked copy so the README and Fern docs site stay in sync:
+(near-black canvas, NVIDIA-green duotone). The same PNG is written to both
+tracked copies so the README and Fern docs site stay in sync:
 
-    docs/images/top-models.png
-    fern/assets/images/top-models.png
-    fern/images/top-models.png
+    docs/images/top-models.png    (rendered by the README)
+    fern/images/top-models.png    (Fern's /images/* mirror)
 
 The source telemetry export lives at docs/scripts/top-model-usage.csv with
 columns: model name, input (context) tokens, output (generated) tokens, plus a
