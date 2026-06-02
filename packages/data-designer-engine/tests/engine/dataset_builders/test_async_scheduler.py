@@ -49,6 +49,7 @@ from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
     ModelInternalServerError,
     ModelRateLimitError,
+    ModelRequestAdmissionTimeoutError,
     ModelTimeoutError,
 )
 from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
@@ -1500,7 +1501,7 @@ async def test_rate_limit_errors_do_not_trigger_early_shutdown() -> None:
 @pytest.mark.asyncio(loop_scope="session")
 async def test_preserved_429_retries_after_unrelated_early_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     """Early shutdown must not turn rate-limited deferred work into dropped rows."""
-    monkeypatch.setattr(async_scheduler_module, "RATE_LIMIT_RESALVAGE_BACKOFF_S", 0)
+    monkeypatch.setattr(async_scheduler_module, "RETRYABLE_RESALVAGE_BACKOFF_S", 0)
     cell = MockRateLimitThenNonRetryableGenerator(
         config=_expr_config("cell_out"),
         resource_provider=_mock_provider(),
@@ -2671,41 +2672,71 @@ async def test_scheduler_429_beyond_salvage_cap_is_delayed_not_dropped() -> None
     assert not any(tracker.is_dropped(0, row_index) for row_index in range(num_records))
     assert scheduler._deferred == []
     assert scheduler._deferred_errors == {}
-    assert scheduler._rate_limit_preservation_counts == {}
-    assert scheduler._rate_limit_preservation_log_state == {}
+    assert scheduler._preserved_retryable_counts == {}
+    assert scheduler._preserved_retryable_log_state == {}
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_paces_sustained_429_resalvage(
+async def test_scheduler_request_admission_timeout_beyond_salvage_cap_is_delayed_not_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local request-admission timeouts may outlast salvage rounds without becoming row drops."""
+    provider = _mock_provider()
+    monkeypatch.setattr(async_scheduler_module, "RETRYABLE_RESALVAGE_BACKOFF_S", 0)
+    config = ExpressionColumnConfig(name="llm_col", expr="'x'", dtype="str")
+    generator = MockRetryableErrorGenerator(
+        config=config,
+        resource_provider=provider,
+        error_factory=lambda: ModelRequestAdmissionTimeoutError("request admission queue timeout"),
+        retryable_failures=3,
+    )
+    graph = ExecutionGraph.create([config], {"llm_col": GenerationStrategy.CELL_BY_CELL})
+    row_groups = [(0, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators={"llm_col": generator},
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        salvage_max_rounds=1,
+    )
+    await asyncio.wait_for(scheduler.run(), timeout=5.0)
+
+    assert tracker.is_row_group_complete(0, 1, ["llm_col"])
+    assert not tracker.is_dropped(0, 0)
+    assert generator._calls == 4
+    assert scheduler._deferred == []
+    assert scheduler._deferred_errors == {}
+
+
+@pytest.mark.parametrize("retryable_kind", ["rate_limit", "request_admission_timeout"])
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_paces_sustained_preserved_retryable_resalvage(
+    retryable_kind: str,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Pure 429 loops should wait between salvage cycles instead of spinning CPU-bound."""
+    """Preserved retryable loops should wait between salvage cycles instead of spinning CPU-bound."""
     provider = _mock_provider()
-    configs = [
-        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
-        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
-    ]
-    strategies = {
-        "seed": GenerationStrategy.FULL_COLUMN,
-        "llm_col": GenerationStrategy.CELL_BY_CELL,
-    }
-    rate_limited = MockLLMBoundRateLimitGenerator(
-        config=_expr_config("llm_col"),
-        resource_provider=provider,
-        rate_limit_failures=10_000,
+    retrying_generator = (
+        MockLLMBoundRateLimitGenerator(
+            config=_expr_config("cell_out"),
+            resource_provider=provider,
+            rate_limit_failures=10_000,
+        )
+        if retryable_kind == "rate_limit"
+        else MockRetryableErrorGenerator(
+            config=_expr_config("cell_out"),
+            resource_provider=provider,
+            error_factory=lambda: ModelRequestAdmissionTimeoutError("request admission queue timeout"),
+            retryable_failures=10_000,
+        )
     )
-    generators: dict[str, ColumnGenerator] = {
-        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "llm_col": rate_limited,
-    }
-    graph = ExecutionGraph.create(configs, strategies)
-    row_groups = [(0, 1)]
-    tracker = CompletionTracker.with_graph(graph, row_groups)
-    storage = MagicMock()
-    storage.dataset_name = "test"
-    storage.get_file_paths.return_value = {}
-    buffer_mgr = RowGroupBufferManager(storage)
+    generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(
+        retrying_generator,
+        num_records=1,
+    )
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
@@ -2731,24 +2762,24 @@ async def test_scheduler_paces_sustained_429_resalvage(
         second_wait_started.set()
         await block_second_wait.wait()
 
-    monkeypatch.setattr(scheduler, "_wait_before_rate_limit_resalvage", controlled_resalvage_wait)
+    monkeypatch.setattr(scheduler, "_wait_before_retryable_resalvage", controlled_resalvage_wait)
 
     with caplog.at_level(logging.INFO, logger=async_scheduler_module.__name__):
         run_task = asyncio.create_task(scheduler.run())
         try:
             await asyncio.wait_for(first_wait_started.wait(), timeout=5.0)
-            calls_after_preserve = rate_limited._calls
+            calls_after_preserve = retrying_generator._calls
             for _ in range(5):
                 await asyncio.sleep(0)
 
-            assert rate_limited._calls == calls_after_preserve
+            assert retrying_generator._calls == calls_after_preserve
             assert not run_task.done()
 
             release_first_wait.set()
             await asyncio.wait_for(second_wait_started.wait(), timeout=5.0)
 
             assert wait_calls == 2
-            assert rate_limited._calls > calls_after_preserve
+            assert retrying_generator._calls > calls_after_preserve
         finally:
             run_task.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -2765,38 +2796,21 @@ async def test_scheduler_paces_sustained_429_resalvage(
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_only_preserves_429_when_retryable_errors_exhaust(
+async def test_scheduler_drops_non_preserved_retryable_errors_when_salvage_exhausts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Exhausted non-429 retryable errors keep the existing drop behavior."""
+    """Exhausted retryable errors are dropped unless they are explicitly preserved."""
     provider = _mock_provider()
-    monkeypatch.setattr(async_scheduler_module, "RATE_LIMIT_RESALVAGE_BACKOFF_S", 0)
-    configs = [
-        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
-        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
-    ]
-    strategies = {
-        "seed": GenerationStrategy.FULL_COLUMN,
-        "llm_col": GenerationStrategy.CELL_BY_CELL,
-    }
+    monkeypatch.setattr(async_scheduler_module, "RETRYABLE_RESALVAGE_BACKOFF_S", 0)
     mixed = MockMixedRetryableGenerator(
-        config=_expr_config("llm_col"),
+        config=_expr_config("cell_out"),
         resource_provider=provider,
         rate_limit_failures=3,
     )
-    generators: dict[str, ColumnGenerator] = {
-        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "llm_col": mixed,
-    }
-    graph = ExecutionGraph.create(configs, strategies)
-    row_groups = [(0, 2)]
-    tracker = CompletionTracker.with_graph(graph, row_groups)
-    storage = MagicMock()
-    storage.dataset_name = "test"
-    storage.get_file_paths.return_value = {}
-    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
-    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
-    buffer_mgr = RowGroupBufferManager(storage)
+    generators, graph, row_groups, tracker, buffer_mgr, _storage = _seed_plus_cell_setup(
+        mixed,
+        num_records=2,
+    )
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
@@ -2808,14 +2822,14 @@ async def test_scheduler_only_preserves_429_when_retryable_errors_exhaust(
 
     await scheduler.run()
 
-    assert tracker.is_row_group_complete(0, 2, ["seed", "llm_col"])
+    assert tracker.is_row_group_complete(0, 2, ["seed", "cell_out"])
     assert not tracker.is_dropped(0, 0)
     assert tracker.is_dropped(0, 1)
-    assert buffer_mgr.get_row(0, 0)["llm_col"] == "mixed_ok_0"
+    assert buffer_mgr.get_row(0, 0)["cell_out"] == "mixed_ok_0"
     assert scheduler._deferred == []
     assert scheduler._deferred_errors == {}
-    assert scheduler._rate_limit_preservation_counts == {}
-    assert scheduler._rate_limit_preservation_log_state == {}
+    assert scheduler._preserved_retryable_counts == {}
+    assert scheduler._preserved_retryable_log_state == {}
 
 
 def test_scheduler_rejects_zero_salvage_rounds() -> None:
@@ -2833,7 +2847,14 @@ def test_scheduler_rejects_zero_salvage_rounds() -> None:
         )
 
 
-def test_rate_limit_resalvage_delay_uses_request_cooldown() -> None:
+@pytest.mark.parametrize(
+    "error",
+    [
+        ModelRateLimitError("429 Too Many Requests"),
+        ModelRequestAdmissionTimeoutError("request admission queue timeout"),
+    ],
+)
+def test_retryable_resalvage_delay_uses_request_cooldown(error: Exception) -> None:
     """Scheduler-level pacing should respect request-admission cooldown when available."""
     provider = _mock_provider()
     config = ExpressionColumnConfig(name="llm_col", expr="'x'", dtype="str")
@@ -2884,9 +2905,9 @@ def test_rate_limit_resalvage_delay_uses_request_cooldown() -> None:
         request_pressure_provider=PressureProvider(),
     )
     scheduler._deferred = [task]
-    scheduler._deferred_errors[task] = ModelRateLimitError("429 Too Many Requests")
+    scheduler._deferred_errors[task] = error
 
-    assert scheduler._rate_limit_resalvage_delay_seconds() == pytest.approx(0.25)
+    assert scheduler._retryable_resalvage_delay_seconds() == pytest.approx(0.25)
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -3085,23 +3106,67 @@ class SlowModelBoundCellGenerator(SlowCellGenerator):
         *args: Any,
         provider_name: str = "provider",
         model_id: str = "model",
+        request_weight: int = 1,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._provider_name = provider_name
         self._model_id = model_id
+        self._request_weight = request_weight
 
     def get_scheduling_metadata(self) -> SchedulingMetadata:
         return SchedulingMetadata.model(
             self._provider_name,
             self._model_id,
             "chat",
-            weight=1,
+            weight=self._request_weight,
         )
 
 
+class GatedRequestAdmissionCellGenerator(SlowModelBoundCellGenerator):
+    """Model-bound generator that holds initial request-admission leases."""
+
+    def __init__(
+        self,
+        *args: Any,
+        request_admission: AdaptiveRequestAdmissionController,
+        hold_until_active: int,
+        provider_name: str = "provider",
+        model_id: str = "model",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, provider_name=provider_name, model_id=model_id, **kwargs)
+        self._request_admission = request_admission
+        self._hold_until_active = hold_until_active
+        self._resource = RequestResourceKey(provider_name, model_id, RequestDomain.CHAT)
+        self._started_count = 0
+        self._active_leases = 0
+        self.initial_leases_acquired: asyncio.Event = asyncio.Event()
+        self.release_held_leases: asyncio.Event = asyncio.Event()
+
+    async def agenerate(self, data: dict) -> dict:
+        item = RequestAdmissionItem(self._resource, RequestGroupSpec(self._resource))
+        lease = await self._request_admission.acquire_async(item)
+        self._started_count += 1
+        started_index = self._started_count
+        self._active_leases += 1
+        if self._active_leases >= self._hold_until_active:
+            self.initial_leases_acquired.set()
+        try:
+            if started_index <= self._hold_until_active:
+                await self.release_held_leases.wait()
+            data[self.config.name] = f"gated_{started_index}"
+            return data
+        finally:
+            self._active_leases = max(0, self._active_leases - 1)
+            self._request_admission.release(lease, RequestReleaseOutcome(kind="success"))
+
+
 class _StaticRequestPressureProvider:
-    def __init__(self, snapshots: dict[RequestResourceKey, RequestPressureSnapshot]) -> None:
+    def __init__(
+        self,
+        snapshots: dict[RequestResourceKey, RequestPressureSnapshot],
+    ) -> None:
         self._snapshots = snapshots
 
     @property
@@ -3114,7 +3179,7 @@ class _StaticRequestPressureProvider:
     def snapshots(self) -> dict[RequestResourceKey, RequestPressureSnapshot]:
         return dict(self._snapshots)
 
-    def global_snapshot(self, provider: str, model: str) -> None:
+    def global_snapshot(self, _provider: str, _model: str) -> None:
         return None
 
     def global_snapshots(self) -> dict[ProviderModelKey, object]:
@@ -3145,6 +3210,44 @@ def _pressure_snapshot(
         last_outcome=None,
         leak_diagnostics={},
     )
+
+
+def _build_queued_model_pressure_scheduler(
+    *,
+    column: str = "pressured",
+    provider_name: str = "provider-a",
+    model_id: str = "model-a",
+    queued_rows: int = 5,
+    request_pressure_provider: Any,
+    scheduler_event_sink: InMemoryAdmissionEventSink | None = None,
+) -> AsyncTaskScheduler:
+    provider = _mock_provider()
+    config = LLMTextColumnConfig(name=column, prompt="A", model_alias=MODEL_ALIAS)
+    graph = ExecutionGraph.create([config], {column: GenerationStrategy.CELL_BY_CELL})
+    row_groups = [(0, queued_rows)]
+    generator = SlowModelBoundCellGenerator(
+        config=_expr_config(column),
+        resource_provider=provider,
+        provider_name=provider_name,
+        model_id=model_id,
+        delay=30.0,
+    )
+    scheduler = AsyncTaskScheduler(
+        generators={column: generator},
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        request_pressure_provider=request_pressure_provider,
+        request_pressure_advisory=True,
+        scheduler_event_sink=scheduler_event_sink,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=queued_rows, pre_batch_done=True, in_flight_count=0)
+    tasks = tuple(
+        scheduler._schedulable_task(Task(column=column, row_group=0, row_index=row_index, task_type="cell"))
+        for row_index in range(queued_rows)
+    )
+    scheduler._fair_queue.enqueue(tasks)
+    return scheduler
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -3768,7 +3871,7 @@ def test_scheduler_request_pressure_advisory_prefers_pressure_open_peer() -> Non
         request_pressure_advisory=True,
         scheduler_event_sink=(sink := InMemoryAdmissionEventSink()),
     )
-    scheduler._rg_states[0] = SimpleNamespace(size=1, pre_batch_done=True)
+    scheduler._rg_states[0] = SimpleNamespace(size=1, pre_batch_done=True, in_flight_count=0)
     pressured = scheduler._schedulable_task(Task(column="pressured", row_group=0, row_index=0, task_type="cell"))
     open_task = scheduler._schedulable_task(Task(column="open", row_group=0, row_index=0, task_type="cell"))
     scheduler._fair_queue.enqueue((pressured, open_task))
@@ -3785,39 +3888,85 @@ def test_scheduler_request_pressure_advisory_prefers_pressure_open_peer() -> Non
 
 
 def test_scheduler_request_pressure_advisory_preserves_liveness_when_all_candidates_pressured() -> None:
-    provider = _mock_provider()
-    configs = [LLMTextColumnConfig(name="pressured", prompt="A", model_alias=MODEL_ALIAS)]
-    strategies = {"pressured": GenerationStrategy.CELL_BY_CELL}
-    generators: dict[str, ColumnGenerator] = {
-        "pressured": SlowModelBoundCellGenerator(
-            config=_expr_config("pressured"),
-            resource_provider=provider,
-            provider_name="provider-a",
-            model_id="model-a",
-        ),
-    }
-    graph = ExecutionGraph.create(configs, strategies)
-    tracker = CompletionTracker.with_graph(graph, [(0, 1)])
     pressured_key = RequestResourceKey("provider-a", "model-a", RequestDomain.CHAT)
     pressure = _StaticRequestPressureProvider(
         {pressured_key: _pressure_snapshot(pressured_key, current_limit=1, in_flight=1, waiters=1)}
     )
-    scheduler = AsyncTaskScheduler(
-        generators=generators,
-        graph=graph,
-        tracker=tracker,
-        row_groups=[(0, 1)],
+    scheduler = _build_queued_model_pressure_scheduler(
+        queued_rows=1,
         request_pressure_provider=pressure,
-        request_pressure_advisory=True,
     )
-    scheduler._rg_states[0] = SimpleNamespace(size=1, pre_batch_done=True)
-    pressured = scheduler._schedulable_task(Task(column="pressured", row_group=0, row_index=0, task_type="cell"))
-    scheduler._fair_queue.enqueue((pressured,))
 
     selection = scheduler._fair_queue.select_next(scheduler._is_dispatch_eligible)
 
     assert selection is not None
     assert selection.item.payload.column == "pressured"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_request_resource_admission_avoids_creating_waiters() -> None:
+    provider = _mock_provider()
+    sink = InMemoryAdmissionEventSink()
+    resource = RequestResourceKey("provider-a", "model-a", RequestDomain.CHAT)
+    request_admission = AdaptiveRequestAdmissionController(
+        RequestAdmissionConfig(
+            initial_limits={resource: 4},
+            default_queue_wait_timeout_seconds=0.02,
+        ),
+        event_sink=sink,
+    )
+    request_admission.register(
+        provider_name="provider-a",
+        model_id="model-a",
+        alias="primary",
+        max_parallel_requests=4,
+    )
+    config = LLMTextColumnConfig(name="pressured", prompt="A", model_alias=MODEL_ALIAS)
+    generator = GatedRequestAdmissionCellGenerator(
+        config=_expr_config("pressured"),
+        resource_provider=provider,
+        request_admission=request_admission,
+        hold_until_active=3,
+        provider_name="provider-a",
+        model_id="model-a",
+        request_weight=4,
+    )
+    graph = ExecutionGraph.create([config], {"pressured": GenerationStrategy.CELL_BY_CELL})
+    row_groups = [(0, 6)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators={"pressured": generator},
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        request_pressure_provider=request_admission,
+        request_pressure_advisory=True,
+        scheduler_event_sink=sink,
+    )
+
+    run_task = asyncio.create_task(scheduler.run())
+    try:
+        await asyncio.wait_for(generator.initial_leases_acquired.wait(), timeout=5.0)
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        waiters = sum(snapshot.waiters for snapshot in request_admission.pressure.snapshots().values())
+        assert waiters == 0
+        assert len(scheduler._in_flight) == 3
+
+        generator.release_held_leases.set()
+        await asyncio.wait_for(run_task, timeout=5.0)
+    finally:
+        if not run_task.done():
+            run_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await run_task
+
+    assert tracker.is_row_group_complete(0, 6, ["pressured"])
+    assert not any(tracker.is_dropped(0, row_index) for row_index in range(6))
+    assert not any(event.event_kind == "request_wait_timeout" for event in sink.request_events)
 
 
 # -- Skip / conditional generation tests (async engine) -----------------------

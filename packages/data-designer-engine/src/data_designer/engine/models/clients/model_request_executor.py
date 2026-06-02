@@ -121,12 +121,7 @@ class ModelRequestExecutor(ModelClient):
         try:
             lease = self._request_admission.acquire_sync(item)
         except RequestAdmissionError as exc:
-            raise ProviderError(
-                kind=ProviderErrorKind.TIMEOUT,
-                message=str(exc),
-                provider_name=self._provider_name,
-                model_name=self._model_id,
-            ) from exc
+            raise self._provider_error_from_request_admission(exc) from exc
         try:
             self._emit_model_event("model_request_started", item=item, lease=lease)
             result = call()
@@ -169,12 +164,7 @@ class ModelRequestExecutor(ModelClient):
         try:
             lease = await self._request_admission.acquire_async(item)
         except RequestAdmissionError as exc:
-            raise ProviderError(
-                kind=ProviderErrorKind.TIMEOUT,
-                message=str(exc),
-                provider_name=self._provider_name,
-                model_name=self._model_id,
-            ) from exc
+            raise self._provider_error_from_request_admission(exc) from exc
         except asyncio.CancelledError:
             raise
         try:
@@ -216,7 +206,7 @@ class ModelRequestExecutor(ModelClient):
     def _should_retry(self, exc: ProviderError, attempt: int) -> bool:
         if attempt >= self._max_attempts() - 1:
             return False
-        if isinstance(exc.__cause__, RequestAdmissionError):
+        if exc.kind == ProviderErrorKind.REQUEST_ADMISSION_TIMEOUT:
             return False
         if exc.kind == ProviderErrorKind.RATE_LIMIT:
             return False
@@ -248,6 +238,19 @@ class ModelRequestExecutor(ModelClient):
         else:
             outcome = RequestReleaseOutcome(kind="provider_failure")
         self._request_admission.release(lease, outcome)
+
+    def _provider_error_from_request_admission(self, exc: RequestAdmissionError) -> ProviderError:
+        kind = (
+            ProviderErrorKind.REQUEST_ADMISSION_TIMEOUT
+            if exc.decision.reason == "queue_timeout"
+            else ProviderErrorKind.TIMEOUT
+        )
+        return ProviderError(
+            kind=kind,
+            message=str(exc),
+            provider_name=self._provider_name,
+            model_name=self._model_id,
+        )
 
     def _item(self, domain: RequestDomain) -> RequestAdmissionItem:
         resolved = self._resource_resolver.resolve(
