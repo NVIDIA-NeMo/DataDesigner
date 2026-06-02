@@ -28,6 +28,11 @@ from data_designer.engine.capacity import (
 from data_designer.engine.context import current_row_group, current_row_group_start_offset
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.row_group_plan import (
+    RowGroupInput,
+    RowGroupPlanLike,
+    normalize_row_group_plan,
+)
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.scheduling.queue import (
     FairTaskQueue,
@@ -152,7 +157,7 @@ class AsyncTaskScheduler:
         generators: dict[str, ColumnGenerator],
         graph: ExecutionGraph,
         tracker: CompletionTracker,
-        row_groups: list[tuple[int, int]],
+        row_groups: RowGroupInput,
         buffer_manager: RowGroupBufferManager | None = None,
         *,
         max_concurrent_row_groups: int = 3,
@@ -176,7 +181,6 @@ class AsyncTaskScheduler:
         progress_bar: bool = False,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
         run_id: str | None = None,
-        row_group_start_offsets: dict[int, int] | None = None,
         initial_completed_records: int = 0,
         adaptive_row_group_admission: bool = False,
         adaptive_row_group_initial_target: int = 1,
@@ -186,7 +190,7 @@ class AsyncTaskScheduler:
         self._generators = generators
         self._graph = graph
         self._tracker = tracker
-        self._row_groups = row_groups
+        self._row_groups: RowGroupPlanLike = normalize_row_group_plan(row_groups)
         self._buffer_manager = buffer_manager
 
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
@@ -298,17 +302,12 @@ class AsyncTaskScheduler:
         self._first_non_retryable_error: Exception | None = None
         self._fatal_worker_error: BaseException | None = None
 
-        # Pre-compute row-group sizes for O(1) lookup
-        self._rg_size_map: dict[int, int] = dict(row_groups)
-        self._rg_start_offset_map: dict[int, int] = row_group_start_offsets or self._build_row_group_start_offsets(
-            row_groups
-        )
         self._max_concurrent_row_groups = max_concurrent_row_groups
         self._max_in_flight_tasks = max_in_flight_tasks
         self._max_model_task_admission = max_model_task_admission
         self._num_records = num_records
         self._buffer_size = buffer_size
-        self._scheduled_records = sum(size for _, size in row_groups)
+        self._scheduled_records = self._row_groups.scheduled_total_rows
         self._initial_completed_records = initial_completed_records
         self._observed_max_row_groups_in_flight = 0
         self._observed_max_task_leases_by_resource: dict[str, int] = {}
@@ -340,15 +339,6 @@ class AsyncTaskScheduler:
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
         self._progress_bar = StickyProgressBar() if progress_bar else None
         self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
-
-    @staticmethod
-    def _build_row_group_start_offsets(row_groups: list[tuple[int, int]]) -> dict[int, int]:
-        offsets: dict[int, int] = {}
-        next_offset = 0
-        for rg_id, rg_size in row_groups:
-            offsets[rg_id] = next_offset
-            next_offset += rg_size
-        return offsets
 
     def _setup_async_progress_reporter(
         self,
@@ -543,7 +533,6 @@ class AsyncTaskScheduler:
         }
 
     def _scheduler_job_diagnostics(self) -> dict[str, object]:
-        row_group_sizes = [size for _rg_id, size in self._row_groups]
         strategies = {column: self._graph.get_strategy(column).value for column in self._graph.columns}
         task_count_by_strategy = Counter(strategies.values())
         return {
@@ -551,9 +540,9 @@ class AsyncTaskScheduler:
             "num_records": self._num_records,
             "buffer_size": self._buffer_size,
             "row_group_count": len(self._row_groups),
-            "row_group_total_rows": sum(row_group_sizes),
-            "row_group_min_size": min(row_group_sizes, default=0),
-            "row_group_max_size": max(row_group_sizes, default=0),
+            "row_group_total_rows": self._row_groups.scheduled_total_rows,
+            "row_group_min_size": self._row_groups.row_group_min_size,
+            "row_group_max_size": self._row_groups.row_group_max_size,
             "graph_column_count": len(self._graph.columns),
             "graph_root_columns": tuple(self._graph.get_root_columns()),
             "graph_depth": len(self._graph.get_longest_dependency_chain()),
@@ -884,8 +873,7 @@ class AsyncTaskScheduler:
     def _max_admitted_rows_guardrail(self) -> int:
         if self._num_records > 0 and self._buffer_size > 0:
             return min(self._num_records, max(3 * self._buffer_size, 8192))
-        total_rows = sum(size for _rg_id, size in self._row_groups)
-        return max(1, total_rows)
+        return max(1, self._row_groups.scheduled_total_rows)
 
     async def _wait_for_row_group_admission_capacity(self, row_group_size: int) -> None:
         while True:
@@ -1569,7 +1557,7 @@ class AsyncTaskScheduler:
         seed_cols = self._seed_cols
         if not seed_cols:
             return
-        num_rgs = len(self._rg_size_map)
+        num_rgs = len(self._row_groups)
         width = len(str(num_rgs))
         logger.info(f"🚀 ({rg_id + 1:0{width}d}/{num_rgs}) Dispatching with {rg_size} records")
         seen_instances: set[int] = set()
@@ -1593,7 +1581,7 @@ class AsyncTaskScheduler:
         """Core task execution logic."""
         num_rgs = len(self._row_groups)
         token = current_row_group.set((task.row_group, num_rgs))
-        start_offset_token = current_row_group_start_offset.set(self._rg_start_offset_map.get(task.row_group))
+        start_offset_token = current_row_group_start_offset.set(self._get_rg_start_offset(task.row_group))
         group = lease.item.group
         identity_hash = hashlib.sha1("\0".join(group.key.identity).encode()).hexdigest()[:16]
         correlation_token = runtime_correlation_provider.set(
@@ -1987,9 +1975,15 @@ class AsyncTaskScheduler:
 
     def _get_rg_size(self, row_group: int) -> int:
         try:
-            return self._rg_size_map[row_group]
+            return self._row_groups.row_group_size(row_group)
         except KeyError:
             raise ValueError(f"Unknown row group: {row_group}") from None
+
+    def _get_rg_start_offset(self, row_group: int) -> int | None:
+        try:
+            return self._row_groups.row_group_start_offset(row_group)
+        except KeyError:
+            return None
 
     def task_admission_snapshot(self) -> object:
         """Return the current scheduler task-admission snapshot for diagnostics."""
