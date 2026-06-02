@@ -4,16 +4,27 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import ItemsView
 
 from data_designer.engine.dataset_builders.scheduling.queue import FairTaskQueue, QueueView
 from data_designer.engine.dataset_builders.scheduling.resources import (
     SchedulableTask,
+    SchedulerResourceKey,
     SchedulerResourceRequest,
     TaskGroupKey,
     TaskGroupSpec,
     stable_task_id,
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
+
+
+class _FailIfScannedAmounts(dict[SchedulerResourceKey, int]):
+    locked: bool = False
+
+    def items(self) -> ItemsView[SchedulerResourceKey, int]:
+        if self.locked:
+            raise AssertionError("QueueView should use incremental accounting for non-candidate tasks.")
+        return super().items()
 
 
 def _task(column: str, row_index: int) -> Task:
@@ -118,14 +129,25 @@ def test_select_next_uses_scheduler_eligibility_callback() -> None:
 
 def test_enqueue_is_idempotent_by_task_id() -> None:
     queue = FairTaskQueue()
-    item = _item("a", 0)
+    group = _group("a")
+    task = _task("a", 0)
+    item = SchedulableTask(
+        task_id=stable_task_id(task),
+        payload=task,
+        group=group,
+        resource_request=SchedulerResourceRequest({"submission": 1, "llm_wait": 2}),
+    )
 
     first = queue.enqueue([item])
     second = queue.enqueue([item])
+    view = queue.view()
 
     assert first == (item.task_id,)
     assert second == ()
-    assert queue.view().queued_total == 1
+    assert view.queued_total == 1
+    assert view.queued_by_group == {group.key: 1}
+    assert view.queued_resource_demand_by_group == {group.key: {"submission": 1, "llm_wait": 2}}
+    assert view.queued_peer_demand_by_resource == {"submission": 1, "llm_wait": 2}
 
 
 def test_discard_where_removes_matching_tasks() -> None:
@@ -157,3 +179,63 @@ def test_queue_view_exposes_group_and_resource_demand() -> None:
     assert view.queued_by_group[group.key] == 1
     assert view.queued_resource_demand_by_group[group.key]["llm_wait"] == 1
     assert view.first_candidate_resources_by_group[group.key]["submission"] == 1
+
+
+def test_queue_view_updates_incremental_accounting_after_removals() -> None:
+    queue = FairTaskQueue()
+    first_group = _group("a")
+    second_group = _group("b")
+    first = SchedulableTask(
+        task_id=stable_task_id(_task("a", 0)),
+        payload=_task("a", 0),
+        group=first_group,
+        resource_request=SchedulerResourceRequest({"submission": 1, "llm_wait": 2}),
+    )
+    second = SchedulableTask(
+        task_id=stable_task_id(_task("b", 0)),
+        payload=_task("b", 0),
+        group=second_group,
+        resource_request=SchedulerResourceRequest({"submission": 1, "llm_wait": 3}),
+    )
+    third = SchedulableTask(
+        task_id=stable_task_id(_task("b", 1)),
+        payload=_task("b", 1),
+        group=second_group,
+        resource_request=SchedulerResourceRequest({"submission": 1, "local": 1}),
+    )
+    queue.enqueue([first, second, third])
+
+    queue.discard(first.task_id)
+    committed = _select_and_commit(queue)
+
+    assert committed == second
+    view = queue.view()
+    assert view.queued_total == 1
+    assert first_group.key not in view.queued_by_group
+    assert view.queued_by_group == {second_group.key: 1}
+    assert view.queued_resource_demand_by_group == {second_group.key: {"submission": 1, "local": 1}}
+    assert view.queued_peer_demand_by_resource == {"submission": 1, "local": 1}
+
+
+def test_queue_view_uses_incremental_accounting_for_non_candidate_tasks() -> None:
+    queue = FairTaskQueue()
+    group = _group("a")
+    first = _item("a", 0, group)
+    amounts = _FailIfScannedAmounts({"submission": 1})
+    task = _task("a", 1)
+    second = SchedulableTask(
+        task_id=stable_task_id(task),
+        payload=task,
+        group=group,
+        resource_request=SchedulerResourceRequest(amounts),
+    )
+    queue.enqueue([first, second])
+    amounts.locked = True
+
+    view = queue.view()
+
+    assert view.queued_total == 2
+    assert view.queued_by_group == {group.key: 2}
+    assert view.queued_resource_demand_by_group == {group.key: {"submission": 2}}
+    assert view.first_candidate_resources_by_group == {group.key: {"submission": 1}}
+    assert view.queued_peer_demand_by_resource == {"submission": 2}
