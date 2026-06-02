@@ -38,6 +38,12 @@ from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.context import current_row_group, current_row_group_start_offset
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.row_group_plan import (
+    CompactRowGroupPlan,
+    RowGroupInput,
+    RowGroupPlanLike,
+    normalize_row_group_plan,
+)
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
@@ -125,16 +131,11 @@ class RowGroupResumePlan:
 
     Attributes:
         total_row_groups: Total row group count for the full target (original + extension).
-        remaining_row_groups: ``(rg_id, rg_size)`` for groups not yet on disk, in id order.
-        row_group_start_offsets: ``rg_id -> planned start offset`` for the remaining
-            groups, computed from the original plan so completed-group sizes are
-            preserved (offsets are not recomputed from the remaining list, which
-            would shift them when there are holes).
+        remaining_row_groups: lazy plan of ``(rg_id, rg_size)`` for groups not yet on disk, in id order.
     """
 
     total_row_groups: int
-    remaining_row_groups: list[tuple[int, int]]
-    row_group_start_offsets: dict[int, int]
+    remaining_row_groups: CompactRowGroupPlan
 
 
 def build_row_group_resume_plan(
@@ -160,32 +161,20 @@ def build_row_group_resume_plan(
         completed_ids: Row-group IDs already persisted on disk.
 
     Returns:
-        A ``RowGroupResumePlan`` whose ``row_group_start_offsets`` are taken from
-        the full original plan, so the offset for ``rg_id`` is the same whether
-        or not earlier groups have completed. This is what lets ordered seed
-        generators seek to the correct row when resuming with holes.
+        A ``RowGroupResumePlan`` whose remaining row-group plan preserves full
+        original offsets, so the offset for ``rg_id`` is the same whether or not
+        earlier groups have completed. This is what lets ordered seed generators
+        seek to the correct row when resuming with holes.
     """
-    num_original_groups = -(-original_target // buffer_size)
-    extension_records = num_records - original_target
-    total_row_groups = num_original_groups + -(-extension_records // buffer_size)
-
-    def _rg_size(rg_id: int) -> int:
-        if rg_id < num_original_groups:
-            return min(buffer_size, original_target - rg_id * buffer_size)
-        ext_group_idx = rg_id - num_original_groups
-        return min(buffer_size, extension_records - ext_group_idx * buffer_size)
-
-    all_start_offsets: dict[int, int] = {}
-    next_offset = 0
-    for rg_id in range(total_row_groups):
-        all_start_offsets[rg_id] = next_offset
-        next_offset += _rg_size(rg_id)
-
-    remaining_row_groups = [(rg_id, _rg_size(rg_id)) for rg_id in range(total_row_groups) if rg_id not in completed_ids]
+    remaining_row_groups = CompactRowGroupPlan.resume(
+        original_target=original_target,
+        num_records=num_records,
+        buffer_size=buffer_size,
+        completed_ids=completed_ids,
+    )
     return RowGroupResumePlan(
-        total_row_groups=total_row_groups,
+        total_row_groups=remaining_row_groups.total_row_groups,
         remaining_row_groups=remaining_row_groups,
-        row_group_start_offsets={rg_id: all_start_offsets[rg_id] for rg_id, _ in remaining_row_groups},
     )
 
 
@@ -571,6 +560,13 @@ class DatasetBuilder:
                 "(you may extend the dataset beyond the original target). "
                 "Use resume=ResumeMode.NEVER to start a new run."
             )
+        original_target_num_records = metadata.get("original_target_num_records", target_num_records)
+        if original_target_num_records > target_num_records:
+            raise DatasetGenerationError(
+                "🛑 Cannot resume: metadata.json has original_target_num_records="
+                f"{original_target_num_records}, which is greater than target_num_records={target_num_records}. "
+                "Start a fresh run with resume=ResumeMode.NEVER, or restore a valid metadata.json."
+            )
 
         meta_buffer_size = metadata.get("buffer_size")
         if meta_buffer_size != buffer_size:
@@ -593,7 +589,7 @@ class DatasetBuilder:
             actual_num_records=actual_num_records,
             buffer_size=buffer_size,
             target_num_records=target_num_records,
-            original_target_num_records=metadata.get("original_target_num_records", target_num_records),
+            original_target_num_records=original_target_num_records,
             completed_row_groups=completed_row_groups,
         )
 
@@ -916,8 +912,7 @@ class DatasetBuilder:
         settings = self._resource_provider.run_config
         trace_enabled = _is_async_trace_enabled(settings)
 
-        precomputed_row_groups: list[tuple[int, int]] | None = None
-        row_group_start_offsets: dict[int, int] | None = None
+        precomputed_row_groups: RowGroupInput | None = None
         initial_actual_num_records = 0
         initial_total_num_batches = 0
         original_target = num_records  # immutable original target; overridden on resume
@@ -944,7 +939,9 @@ class DatasetBuilder:
                 buffer_size=buffer_size,
                 completed_ids=completed_ids,
             )
-            if len(completed_ids) >= resume_plan.total_row_groups:
+            remaining_row_group_count = len(resume_plan.remaining_row_groups)
+            completed_row_group_count = resume_plan.total_row_groups - remaining_row_group_count
+            if remaining_row_group_count == 0:
                 logger.warning(
                     "⚠️ Dataset is already complete — all row groups were found in the existing artifact "
                     "directory. Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
@@ -952,12 +949,11 @@ class DatasetBuilder:
                 return False
 
             logger.info(
-                f"▶️ Resuming async run: {len(completed_ids)} of {resume_plan.total_row_groups} row group(s) already "
-                f"complete ({initial_actual_num_records} records), skipping them."
+                f"▶️ Resuming async run: {completed_row_group_count} of {resume_plan.total_row_groups} row group(s) "
+                f"already complete ({initial_actual_num_records} records), skipping them."
             )
 
             precomputed_row_groups = resume_plan.remaining_row_groups
-            row_group_start_offsets = resume_plan.row_group_start_offsets
 
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
@@ -982,7 +978,6 @@ class DatasetBuilder:
             disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
             precomputed_row_groups=precomputed_row_groups,
-            row_group_start_offsets=row_group_start_offsets,
             initial_actual_num_records=initial_actual_num_records,
             initial_total_num_batches=initial_total_num_batches,
         )
@@ -1051,8 +1046,7 @@ class DatasetBuilder:
         shutdown_error_window: int = 10,
         disable_early_shutdown: bool = False,
         trace: bool = False,
-        precomputed_row_groups: list[tuple[int, int]] | None = None,
-        row_group_start_offsets: dict[int, int] | None = None,
+        precomputed_row_groups: RowGroupInput | None = None,
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
@@ -1078,16 +1072,9 @@ class DatasetBuilder:
             gen.log_pre_generation()
 
         if precomputed_row_groups is not None:
-            row_groups = precomputed_row_groups
+            row_groups: RowGroupPlanLike = normalize_row_group_plan(precomputed_row_groups)
         else:
-            row_groups = []
-            remaining = num_records
-            rg_id = 0
-            while remaining > 0:
-                size = min(buffer_size, remaining)
-                row_groups.append((rg_id, size))
-                remaining -= size
-                rg_id += 1
+            row_groups = CompactRowGroupPlan.fresh(num_records=num_records, buffer_size=buffer_size)
 
         tracker = CompletionTracker.with_graph(graph, row_groups)
         buffer_manager = RowGroupBufferManager(
@@ -1143,7 +1130,6 @@ class DatasetBuilder:
             trace=trace,
             num_records=num_records,
             buffer_size=buffer_size,
-            row_group_start_offsets=row_group_start_offsets,
             initial_completed_records=initial_actual_num_records,
             progress_interval=self._resource_provider.run_config.progress_interval,
             progress_bar=self._resource_provider.run_config.progress_bar,

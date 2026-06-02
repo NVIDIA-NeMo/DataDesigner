@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import tracemalloc
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
@@ -31,6 +32,7 @@ from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
+from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
 from data_designer.engine.models.errors import (
     FormattedLLMErrorMessage,
     ModelGenerationValidationFailureError,
@@ -1876,6 +1878,26 @@ def test_build_resume_raises_when_num_records_below_original_target(
         builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
 
+def test_build_resume_raises_when_original_target_metadata_exceeds_target(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """resume=ALWAYS rejects corrupt metadata where original_target exceeds target."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=10,
+        original_target_num_records=20,
+        buffer_size=2,
+        num_completed_batches=2,
+        actual_num_records=4,
+    )
+    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
+
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
+    with pytest.raises(DatasetGenerationError, match="original_target_num_records=20.*target_num_records=10"):
+        builder.build(num_records=10, resume=ResumeMode.ALWAYS)
+
+
 def test_build_resume_allows_larger_num_records(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
     """resume=ALWAYS succeeds when num_records > original target (extending the dataset)."""
     dataset_dir = tmp_path / "dataset"
@@ -2436,8 +2458,58 @@ def test_row_group_resume_plan_keeps_original_offsets_for_remaining_groups() -> 
     )
 
     assert plan.total_row_groups == 4
-    assert plan.remaining_row_groups == [(1, 1), (3, 1)]
-    assert plan.row_group_start_offsets == {1: 1, 3: 3}
+    assert not isinstance(plan.remaining_row_groups, list)
+    assert list(plan.remaining_row_groups) == [(1, 1), (3, 1)]
+    assert plan.remaining_row_groups.row_group_start_offset(1) == 1
+    assert plan.remaining_row_groups.row_group_start_offset(3) == 3
+
+
+def test_compact_row_group_plan_rejects_negative_extension() -> None:
+    with pytest.raises(ValueError, match="num_records must be greater than or equal to original_target"):
+        CompactRowGroupPlan.resume(
+            original_target=10,
+            num_records=8,
+            buffer_size=2,
+            completed_ids=set(),
+        )
+
+
+def test_row_group_resume_plan_tracks_completed_ids_at_half_complete_boundary() -> None:
+    plan = CompactRowGroupPlan.resume(
+        original_target=12,
+        num_records=12,
+        buffer_size=2,
+        completed_ids={1, 2, 4},
+    )
+
+    assert getattr(plan, "_filter_includes_scheduled") is False
+    assert getattr(plan, "_scheduled_ids") is None
+    assert list(plan) == [(0, 2), (3, 2), (5, 2)]
+    assert plan.scheduled_total_rows == 6
+    assert plan.row_group_start_offset(5) == 10
+    with pytest.raises(KeyError):
+        plan.row_group_size(1)
+
+
+def test_row_group_resume_plan_stays_sparse_when_almost_complete() -> None:
+    completed_ids = set(range(999_998))
+
+    tracemalloc.start()
+    try:
+        plan = CompactRowGroupPlan.resume(
+            original_target=2_000_000,
+            num_records=2_000_000,
+            buffer_size=2,
+            completed_ids=completed_ids,
+        )
+        remaining = list(plan)
+        current_bytes, _peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert remaining == [(999_998, 2), (999_999, 2)]
+    assert plan.scheduled_total_rows == 4
+    assert current_bytes < 5 * 1024 * 1024
 
 
 def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_group(
@@ -2667,7 +2739,7 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
                             builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # Only rg_id=1 remains; rg_id=0 and rg_id=2 are already on disk
-    assert captured["precomputed_row_groups"] == [(1, 2)]
+    assert list(captured["precomputed_row_groups"]) == [(1, 2)]
 
 
 def test_build_async_resume_extension_non_aligned_row_group_sizes(
@@ -2712,7 +2784,7 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
                             builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
     # rg_id=3 should have 2 records (7-5=2 extension records, buffer_size=2), not 1
-    assert captured["precomputed_row_groups"] == [(3, 2)]
+    assert list(captured["precomputed_row_groups"]) == [(3, 2)]
 
 
 def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(

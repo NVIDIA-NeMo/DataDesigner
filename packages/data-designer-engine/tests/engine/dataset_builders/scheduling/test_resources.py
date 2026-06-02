@@ -21,9 +21,15 @@ def test_scheduler_resource_request_defaults_to_submission() -> None:
     assert request.amounts == {"submission": 1}
 
 
-def test_scheduler_resource_request_rejects_unknown_resource() -> None:
-    with pytest.raises(ValueError, match="Unknown scheduler resource key"):
-        SchedulerResourceRequest({"gpu": 1})  # type: ignore[arg-type]
+def test_scheduler_resource_request_accepts_dynamic_resource_keys() -> None:
+    request = SchedulerResourceRequest({"request:nvidia/nemotron": 1})
+
+    assert request.amounts == {"request:nvidia/nemotron": 1}
+
+
+def test_scheduler_resource_request_rejects_empty_resource_key() -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        SchedulerResourceRequest({"": 1})
 
 
 def test_scheduler_resource_request_rejects_non_positive_amounts() -> None:

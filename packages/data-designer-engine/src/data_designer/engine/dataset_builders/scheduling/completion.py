@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
+from data_designer.engine.dataset_builders.row_group_plan import (
+    RowGroupInput,
+    RowGroupPlanLike,
+    normalize_row_group_plan,
+)
 from data_designer.engine.dataset_builders.scheduling.resources import stable_task_id
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task
 
@@ -44,16 +49,16 @@ class CompletionTracker:
         self._dropped: dict[int, set[int]] = defaultdict(set)
 
         self._graph: ExecutionGraph | None = None
-        self._row_group_sizes: dict[int, int] = {}
+        self._row_group_plan: RowGroupPlanLike | None = None
         self._batch_complete: dict[int, set[str]] = defaultdict(set)
         self._frontier: set[Task] = set()
 
     @classmethod
-    def with_graph(cls, graph: ExecutionGraph, row_groups: list[tuple[int, int]]) -> CompletionTracker:
+    def with_graph(cls, graph: ExecutionGraph, row_groups: RowGroupInput) -> CompletionTracker:
         """Create a frontier-enabled tracker backed by an execution graph."""
         tracker = cls()
         tracker._graph = graph
-        tracker._row_group_sizes = dict(row_groups)
+        tracker._row_group_plan = normalize_row_group_plan(row_groups)
         return tracker
 
     def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> FrontierDelta:
@@ -106,7 +111,7 @@ class CompletionTracker:
         """Check if *column* has been fully completed for *row_group_index*."""
         if column in self._batch_complete.get(row_group_index, set()):
             return True
-        rg_size = self._row_group_sizes.get(row_group_index, 0)
+        rg_size = self._row_group_size_or_default(row_group_index, default=0)
         if rg_size == 0:
             return False
         completed = self._completed.get(row_group_index, {}).get(column, set())
@@ -190,7 +195,9 @@ class CompletionTracker:
         if self._graph is None:
             raise RuntimeError("This method requires a graph to be set.")
         for col in self._graph.get_root_columns():
-            for rg_id, rg_size in self._row_group_sizes.items():
+            if self._row_group_plan is None:
+                raise RuntimeError("This method requires row groups to be set.")
+            for rg_id, rg_size in self._row_group_plan:
                 self.add_root_tasks(rg_id, rg_size, columns=(col,))
 
     def add_root_tasks(
@@ -244,7 +251,7 @@ class CompletionTracker:
         rg_completed = self._completed.get(row_group, {})
         rg_dropped = self._dropped.get(row_group, set())
         rg_batch_complete = self._batch_complete.get(row_group, set())
-        rg_size = self._row_group_sizes[row_group]
+        rg_size = self._row_group_size(row_group)
 
         for down in sorted(self._graph.get_downstream_columns(column)):
             batch_ups, cell_ups = self._graph.split_upstream_by_strategy(down)
@@ -295,7 +302,7 @@ class CompletionTracker:
         rg_completed = self._completed.get(row_group, {})
         rg_dropped = self._dropped.get(row_group, set())
         rg_batch_complete = self._batch_complete.get(row_group, set())
-        rg_size = self._row_group_sizes[row_group]
+        rg_size = self._row_group_size(row_group)
 
         for col in self._graph.get_topological_order():
             if self._graph.get_strategy(col) != GenerationStrategy.FULL_COLUMN:
@@ -338,8 +345,20 @@ class CompletionTracker:
         """Validate row-group id in graph-enabled mode and return its expected size."""
         if self._graph is None:
             return None
-        expected = self._row_group_sizes.get(row_group)
-        if expected is None:
-            known = sorted(self._row_group_sizes)
-            raise ValueError(f"Unknown row_group {row_group}. Known row_groups: {known}")
-        return expected
+        if self._row_group_plan is None:
+            raise RuntimeError("This method requires row groups to be set.")
+        if not self._row_group_plan.has_row_group(row_group):
+            raise ValueError(
+                f"Unknown row_group {row_group}. Known row_groups: {self._row_group_plan.describe_known_row_groups()}"
+            )
+        return self._row_group_plan.row_group_size(row_group)
+
+    def _row_group_size(self, row_group: int) -> int:
+        if self._row_group_plan is None:
+            raise RuntimeError("This method requires row groups to be set.")
+        return self._row_group_plan.row_group_size(row_group)
+
+    def _row_group_size_or_default(self, row_group: int, *, default: int) -> int:
+        if self._row_group_plan is None or not self._row_group_plan.has_row_group(row_group):
+            return default
+        return self._row_group_plan.row_group_size(row_group)
