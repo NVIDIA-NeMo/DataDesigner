@@ -153,11 +153,11 @@ Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and
 
 ### Top models (YTD)
 
-Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–5/1/2026:
+Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–6/1/2026:
 
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
-_Last updated on May 1, 2026_
+_Last updated on June 1, 2026_
 
 ---
 
