@@ -4,7 +4,7 @@ description: Use when the user wants to create a dataset, generate synthetic dat
 argument-hint: [describe the dataset you want to generate]
 license: Apache-2.0
 metadata:
-  owner: nemo-platform
+  owner: DataDesigner
 ---
 
 # Before You Start
