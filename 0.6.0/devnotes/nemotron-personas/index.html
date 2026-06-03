@@ -4725,7 +4725,7 @@
 <!-- more -->
 
 <blockquote>
-<p><strong>Want to dive straight into code?</strong> Open the <a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb">tutorial notebook in Colab</a> — or read on for the full story.</p>
+<p><strong>Want to dive straight into code?</strong> Open the <a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb">companion Colab notebook</a> — or read on for the full story.</p>
 </blockquote>
 <p align="center">
   <img src="assets/nemotron-personas/nemotron-personas-world-map.png" alt="Nemotron-Personas collection" width="900" />
@@ -5000,7 +5000,7 @@
 <hr />
 <h2 id="building-your-own-the-customization-story"><strong>Building your own: the customization story</strong></h2>
 <p>The released artifact is the <em>general-purpose</em> collection. In practice, most downstream pipelines that use these personas extend them in some way. NeMo Data Designer makes that trivial: the same <code>LLMStructuredColumnConfig</code> + <code>ExpressionColumnConfig</code> pattern that builds the released schema can be used to layer on any custom dimension you need.</p>
-<p>The accompanying <a href="#try-it-yourself">Data Designer Tutorial: Reproducing &amp; Customizing Nemotron-Personas</a> walks through a concrete example. After reproducing the released schema with a <code>PersonSampler</code> against the NGC-hosted dataset, the tutorial adds a custom <code>tech_persona</code> dimension with two new fields: a prose description of the persona's relationship with technology, plus a list of specific tech tools they use:</p>
+<p>The accompanying <a href="#try-it-yourself">companion Colab notebook</a> walks through a concrete example. After reproducing the released schema with a <code>PersonSampler</code> against the NGC-hosted dataset, the notebook adds a custom <code>tech_persona</code> dimension with two new fields: a prose description of the persona's relationship with technology, plus a list of specific tech tools they use:</p>
 <div class="language-python highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">data_designer.config</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dd</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
 
@@ -5055,7 +5055,7 @@
 <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">dd</span><span class="o">.</span><span class="n">ExpressionColumnConfig</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;tech_persona&quot;</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="s2">&quot;{{ custom_persona.tech_persona }}&quot;</span><span class="p">))</span>
 <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">dd</span><span class="o">.</span><span class="n">ExpressionColumnConfig</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;tech_tools&quot;</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="s2">&quot;{{ custom_persona.tech_tools }}&quot;</span><span class="p">))</span>
 </code></pre></div>
-<p>A representative output from the tutorial run:</p>
+<p>A representative output from the Colab run:</p>
 <div class="language-text highlight"><pre><span></span><code>tech_persona  Megan pragmatically adopts mainstream tech, seamlessly weaving AI assistants
               into her lesson planning while preferring her well-worn iPad over flashier
               gadgets; technology shapes her workflow most when she&#39;s grading assignments
@@ -5065,10 +5065,10 @@ tech_tools    [&#39;MacBook Air&#39;, &#39;iPad Pro 12.9&#39;, &#39;iPhone 14&#3
 </code></pre></div>
 <p>A few lines of Pydantic + one LLM column + a couple of expression columns and the released schema picks up two brand-new domain-specific fields. The same pattern scales: a healthcare provider extends with <code>medical_history_persona</code> and <code>insurance_persona</code>; a media company extends with <code>media_consumption_persona</code> and <code>subscription_stack</code>; a financial-services team extends with <code>investment_persona</code> and <code>risk_tolerance_persona</code>. The PGM-grounded base record stays the seed; everything else is one schema away.</p>
 <h3 id="going-deeper-build-a-brand-new-locale">Going deeper: build a brand-new locale</h3>
-<p>For locales without an NGC-hosted Nemotron-Personas dataset, the build path is open. The OCEAN Big-Five helpers ship in the tutorial repo (Stage 1 of the original pipeline), and <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs">NeMo SDG-PGMs</a> provides the framework for building your own demographic PGM (Stage 2) — collect aggregate statistical distributions, declare a <code>PGMGenerator</code> subclass (the <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person"><code>us_person</code> example</a> is a working blueprint), and plug it into Data Designer via SDG-PGMs's <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs/blob/main/src/data_designer_plugins/pgm_generator_plugin.py"><code>PGMGeneratorPluginConfig</code></a> column generator. The downstream LLM stages (3 and 4) are locale-agnostic; they just need the right language in the prompts. The tutorial leaves a <code>SAMPLE_FROM_SDG_PGM = True</code> toggle in place as the integration point.</p>
+<p>For locales without an NGC-hosted Nemotron-Personas dataset, the build path is open. The OCEAN Big-Five helpers ship in the companion Colab notebook (Stage 1 of the original pipeline), and <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs">NeMo SDG-PGMs</a> provides the framework for building your own demographic PGM (Stage 2) — collect aggregate statistical distributions, declare a <code>PGMGenerator</code> subclass (the <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person"><code>us_person</code> example</a> is a working blueprint), and plug it into Data Designer via SDG-PGMs's <a href="https://github.com/NVIDIA-NeMo/SDG-PGMs/blob/main/src/data_designer_plugins/pgm_generator_plugin.py"><code>PGMGeneratorPluginConfig</code></a> column generator. The downstream LLM stages (3 and 4) are locale-agnostic; they just need the right language in the prompts. The notebook leaves a <code>SAMPLE_FROM_SDG_PGM = True</code> toggle in place as the integration point.</p>
 <hr />
 <h2 id="try-it-yourself"><strong>Try it yourself</strong></h2>
-<p>The full reproduction-and-customization tutorial covers every detail in this post end-to-end, from the NGC dataset bootstrap through the toy custom-persona example.</p>
+<p>The companion Colab notebook covers every detail in this post end-to-end, from the NGC dataset bootstrap through the toy custom-persona example.</p>
 <p><a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a></p>
 <p>Switching locales is a one-liner: change <code>personas_locale = "en_US"</code> to any of <code>en_IN</code>, <code>en_SG</code>, <code>fr_FR</code>, <code>hi_Deva_IN</code>, <code>hi_Latn_IN</code>, <code>ja_JP</code>, <code>ko_KR</code>, <code>pt_BR</code> (and run <code>data-designer download personas --locale &lt;code&gt;</code> once for the new locale). Everything downstream stays the same.</p>
 <hr />
