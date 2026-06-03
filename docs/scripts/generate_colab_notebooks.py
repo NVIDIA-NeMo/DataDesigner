@@ -57,23 +57,12 @@ def mark_colab_injected(cell: NotebookNode) -> NotebookNode:
     return cell
 
 
-# Per-file try/except snippets appended into the standard NVIDIA_API_KEY cell
-# so additional API keys share the same imports rather than producing a
-# duplicate-imports cell. The snippets are joined with blank lines.
-NGC_API_KEY_BLOCK = """\
-try:
-    os.environ["NGC_API_KEY"] = userdata.get("NGC_API_KEY")
-except userdata.SecretNotFoundError:
-    os.environ["NGC_API_KEY"] = getpass.getpass("Enter your NGC API key: ")"""
-
 # Optional per-file Colab setup cells, injected immediately after the standard
 # install + NVIDIA_API_KEY cells. Currently unused; left in place so future
 # tutorials can register additional one-shot Colab bootstrap cells.
 ADDITIONAL_SETUP_CELLS: dict[str, list[str]] = {}
 
-ADDITIONAL_API_KEY_BLOCKS: dict[str, list[str]] = {
-    "7-nemotron-personas.py": [NGC_API_KEY_BLOCK],
-}
+ADDITIONAL_API_KEY_BLOCKS: dict[str, list[str]] = {}
 
 
 def create_colab_setup_cells(
