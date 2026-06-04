@@ -2795,15 +2795,7 @@ def test_if_possible_incompatible_config_does_not_overwrite_existing_dataset(stu
         builder.data_designer_config.fingerprint()["config_hash_version"],
     )
 
-    # Simulate incompatible config and mock out all I/O so build() does not actually generate data
-    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
-        with patch.object(builder_mod, "run_readiness_check"):
-            with patch.object(builder, "_write_builder_config"):
-                with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
-                    with patch.object(builder.batch_manager, "start"):
-                        with patch.object(builder.batch_manager, "finish"):
-                            with patch.object(builder._processor_runner, "run_after_generation"):
-                                final_path = builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+    final_path = builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
 
     # artifact_storage.resume must be downgraded to NEVER so resolved_dataset_name uses NEVER semantics
     assert storage.resume == ResumeMode.NEVER
@@ -2841,14 +2833,7 @@ def test_if_possible_incompatible_config_refreshes_media_storage_path(stub_resou
         builder.data_designer_config.fingerprint()["config_hash_version"],
     )
 
-    with patch.object(builder, "_check_resume_config_compatibility", return_value=_ConfigCompatibility.INCOMPATIBLE):
-        with patch.object(builder_mod, "run_readiness_check"):
-            with patch.object(builder, "_write_builder_config"):
-                with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
-                    with patch.object(builder.batch_manager, "start"):
-                        with patch.object(builder.batch_manager, "finish"):
-                            with patch.object(builder._processor_runner, "run_after_generation"):
-                                builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+    builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
 
     new_media_base = storage.media_storage.base_path
     assert new_media_base != original_media_base, (
@@ -2869,14 +2854,7 @@ def test_if_possible_starts_fresh_when_no_existing_directory(stub_resource_provi
     Fix: return False when the dataset directory itself is absent.
     """
     builder, storage = _make_sampler_only_builder(stub_resource_provider, tmp_path)
-
-    with patch.object(builder_mod, "run_readiness_check"):
-        with patch.object(builder, "_write_builder_config"):
-            with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
-                with patch.object(builder.batch_manager, "start"):
-                    with patch.object(builder.batch_manager, "finish"):
-                        with patch.object(builder._processor_runner, "run_after_generation"):
-                            final_path = builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+    final_path = builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
 
     assert storage.resume == ResumeMode.NEVER
     assert final_path.exists()
@@ -2896,14 +2874,7 @@ def test_if_possible_starts_fresh_when_directory_is_empty(stub_resource_provider
     dataset_dir.mkdir()  # empty — no files written yet
 
     builder, storage = _make_sampler_only_builder(stub_resource_provider, tmp_path)
-
-    with patch.object(builder_mod, "run_readiness_check"):
-        with patch.object(builder, "_write_builder_config"):
-            with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
-                with patch.object(builder.batch_manager, "start"):
-                    with patch.object(builder.batch_manager, "finish"):
-                        with patch.object(builder._processor_runner, "run_after_generation"):
-                            final_path = builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
+    final_path = builder.build(num_records=2, resume=ResumeMode.IF_POSSIBLE)
 
     assert storage.resume == ResumeMode.NEVER
     assert final_path.exists()
