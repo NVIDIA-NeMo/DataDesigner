@@ -76,7 +76,7 @@ class DataDesignerDatasetProfiler:
             logger.info(f"{LOG_INDENT}{c.get_column_emoji()} column: '{c.name}'")
             column_statistics.append(
                 get_column_statistics_calculator(c.column_type)(
-                    column_config_with_df=ColumnConfigWithDataFrame(column_config=c, df=dataset)
+                    column_config_with_df=self._create_column_config_with_df(c, dataset)
                 ).calculate()
             )
 
@@ -86,7 +86,7 @@ class DataDesignerDatasetProfiler:
             applicable_column_types = profiler.get_applicable_column_types()
             for c in self.config.column_configs:
                 if c.column_type in applicable_column_types:
-                    params = ColumnConfigWithDataFrame(column_config=c, df=dataset)
+                    params = self._create_column_config_with_df(c, dataset)
                     column_profiles.append(profiler.profile(params))
             if len(column_profiles) == 0:
                 logger.warning(
@@ -126,6 +126,17 @@ class DataDesignerDatasetProfiler:
     def _create_column_profiler(self, profiler_config: ColumnProfilerConfigT) -> ColumnProfiler:
         return self.registry.column_profilers.get_for_config_type(type(profiler_config))(
             config=profiler_config, resource_provider=self.resource_provider
+        )
+
+    def _create_column_config_with_df(
+        self,
+        column_config: ColumnConfigT,
+        dataset: pd.DataFrame,
+    ) -> ColumnConfigWithDataFrame:
+        return ColumnConfigWithDataFrame(
+            column_config=column_config,
+            df=dataset,
+            jinja_rendering_engine=self.resource_provider.run_config.jinja_rendering_engine,
         )
 
     def _validate_column_profiler_configs(self) -> None:

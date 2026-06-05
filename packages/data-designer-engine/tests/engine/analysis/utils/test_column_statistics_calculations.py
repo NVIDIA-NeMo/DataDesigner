@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from itertools import cycle
+from unittest.mock import patch
 
 import pytest
 
@@ -16,6 +17,7 @@ from data_designer.config.analysis.column_statistics import (
     NumericalDistribution,
 )
 from data_designer.config.column_configs import LLMTextColumnConfig
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.config.utils.numerical_helpers import prepare_number_for_reporting
 from data_designer.engine.analysis.utils.column_statistics_calculations import (
     calculate_column_distribution,
@@ -186,6 +188,46 @@ def test_calculate_input_token_stats(mock_prompt_renderer_render, stub_column_co
     assert result["input_tokens_mean"] == MissingValue.CALCULATION_FAILED
     assert result["input_tokens_stddev"] == MissingValue.CALCULATION_FAILED
     assert result["input_tokens_median"] == MissingValue.CALCULATION_FAILED
+
+
+@pytest.mark.parametrize(
+    ("prompt", "messages", "expected_token_count"),
+    [
+        ("Joined: {{ messages | join('-') }}", ["Hello", "World"], 4),
+        ("Trajectory: {{ messages }}", "x" * 512_001, 10),
+    ],
+)
+def test_calculate_input_token_stats_respects_native_jinja_engine(
+    prompt: str,
+    messages: list[str] | str,
+    expected_token_count: int,
+) -> None:
+    column_config = LLMTextColumnConfig(
+        name="test_column",
+        prompt=prompt,
+        system_prompt="System prompt",
+        model_alias="test_model_alias",
+    )
+    df = lazy.pd.DataFrame(
+        {
+            "test_column": ["response"],
+            "messages": [messages],
+        }
+    )
+
+    with patch(
+        "data_designer.engine.analysis.utils.column_statistics_calculations.count_text_tokens",
+        return_value=expected_token_count,
+    ):
+        result = calculate_input_token_stats(
+            column_config,
+            df,
+            jinja_rendering_engine=JinjaRenderingEngine.NATIVE,
+        )
+
+    assert result["input_tokens_mean"] == float(expected_token_count)
+    assert result["input_tokens_median"] == float(expected_token_count)
+    assert result["input_tokens_stddev"] == 0.0
 
 
 def test_calculate_output_token_stats(stub_column_config, stub_df_responses):
