@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import builtins
 from dataclasses import dataclass
 
 import pytest
@@ -14,7 +15,10 @@ from data_designer.config.column_configs import (
     SamplerColumnConfig,
 )
 from data_designer.config.sampler_params import SamplerType
-from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker
+from data_designer.engine.dataset_builders.scheduling.completion import (
+    MAX_RELEASED_ROW_GROUP_SUMMARY_RANGES,
+    CompletionTracker,
+)
 from data_designer.engine.dataset_builders.scheduling.resources import stable_task_id
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -86,6 +90,16 @@ def test_mark_cell_complete_raises_on_unknown_row_group(ready_ctx: ReadyTasksFix
         ready_ctx.tracker.mark_cell_complete("question", row_group=999, row_index=0)
 
 
+def test_mark_cell_complete_raises_on_out_of_range_row_index(ready_ctx: ReadyTasksFixture) -> None:
+    with pytest.raises(ValueError, match="row_index out of range"):
+        ready_ctx.tracker.mark_cell_complete("question", row_group=0, row_index=3)
+
+
+def test_drop_row_raises_on_out_of_range_row_index(ready_ctx: ReadyTasksFixture) -> None:
+    with pytest.raises(ValueError, match="row_index out of range"):
+        ready_ctx.tracker.drop_row(row_group=0, row_index=3)
+
+
 # -- is_all_complete -----------------------------------------------------------
 
 
@@ -133,6 +147,8 @@ def test_drop_row() -> None:
     assert tracker.is_dropped(0, 2)
     assert not tracker.is_dropped(0, 0)
     assert not tracker.is_dropped(1, 2)
+    assert tracker.dropped_row_count(0, 3) == 1
+    assert tracker.dropped_row_count(0, 2) == 0
 
 
 # -- is_row_group_complete --------------------------------------------------
@@ -151,6 +167,24 @@ def test_row_group_incomplete() -> None:
     tracker.mark_row_range_complete("col_a", 0, 3)
 
     assert not tracker.is_row_group_complete(0, 3, ["col_a", "col_b"])
+
+
+def test_row_group_incomplete_with_out_of_range_cell_completion() -> None:
+    tracker = CompletionTracker()
+    tracker.mark_cell_complete("col_a", 0, 0)
+    tracker.mark_cell_complete("col_a", 0, 1)
+    tracker.mark_cell_complete("col_a", 0, 99)
+
+    assert not tracker.is_column_complete_for_rg("col_a", 0)
+    assert not tracker.is_row_group_complete(0, 3, ["col_a"])
+
+
+def test_row_group_incomplete_when_batch_marker_size_mismatches() -> None:
+    tracker = CompletionTracker()
+    tracker.mark_row_range_complete("col_a", 0, 2)
+
+    assert tracker.is_row_group_complete(0, 2, ["col_a"])
+    assert not tracker.is_row_group_complete(0, 3, ["col_a"])
 
 
 def test_row_group_complete_with_dropped_rows() -> None:
@@ -172,6 +206,272 @@ def test_row_group_not_complete_missing_non_dropped() -> None:
     # row 2 is not dropped and not complete
 
     assert not tracker.is_row_group_complete(0, 3, ["col_a", "col_b"])
+
+
+def test_release_row_group_clears_heavy_state_and_preserves_summary(ready_ctx: ReadyTasksFixture) -> None:
+    tracker = ready_ctx.tracker
+    tracker.mark_row_range_complete("topic", 0, 3)
+    tracker.mark_cell_complete("question", 0, 0)
+    tracker.mark_cell_complete("question", 0, 2)
+    tracker.drop_row(0, 1)
+    tracker.mark_row_range_complete("score", 0, 3)
+
+    tracker.release_row_group(0, 3, ["topic", "question", "score"])
+
+    assert tracker._completed == {}
+    assert tracker._dropped == {}
+    assert tracker._batch_complete == {}
+    assert tracker.ready_frontier() == ()
+    assert tracker.is_row_group_complete(0, 3, ["topic", "question", "score"])
+    assert tracker.is_dropped(0, 1)
+    assert tracker.dropped_row_count(0, 3) == 1
+    assert tracker.is_complete(SliceRef("question", 0, 0))
+    assert not tracker.is_complete(SliceRef("question", 0, 1))
+    assert tracker.is_complete(SliceRef("score", 0, 1))
+    assert tracker.is_complete(SliceRef("score", 0, None))
+    assert not tracker.is_complete(SliceRef("question", 0, None))
+
+
+def test_release_row_group_merges_clean_summaries_into_one_range() -> None:
+    graph = _build_simple_graph()
+    tracker = CompletionTracker.with_graph(graph, [(rg_id, 3) for rg_id in range(4)])
+
+    for row_group in range(4):
+        tracker.mark_row_range_complete("topic", row_group, 3)
+        for row_index in range(3):
+            tracker.mark_cell_complete("question", row_group, row_index)
+        tracker.mark_row_range_complete("score", row_group, 3)
+        tracker.release_row_group(row_group, 3, ["topic", "question", "score"])
+
+    assert tracker._completed == {}
+    assert tracker._dropped == {}
+    assert tracker._batch_complete == {}
+    assert tracker._released_row_groups == {}
+    assert len(tracker._released_range_summaries) == 1
+    assert tracker.dropped_row_count(2, 3) == 0
+    assert tracker.is_row_group_complete(2, 3, ["topic", "question", "score"])
+    assert tracker.is_complete(SliceRef("question", 2, 1))
+    assert tracker.is_complete(SliceRef("score", 2, None))
+
+    delta = tracker.add_root_tasks(1, 3)
+
+    assert [task.row_group for task in delta.added] == [1]
+    assert [(start, end) for start, end, _released in tracker._released_range_summaries] == [(0, 0), (2, 3)]
+    assert not tracker.is_row_group_complete(1, 3, ["topic", "question", "score"])
+    assert tracker.is_row_group_complete(2, 3, ["topic", "question", "score"])
+
+
+def test_release_row_group_preserves_fragmented_clean_ranges_compactly() -> None:
+    graph = _build_simple_graph()
+    tracker = CompletionTracker.with_graph(graph, [(rg_id, 3) for rg_id in range(8)])
+
+    for row_group in (0, 2, 4, 6):
+        tracker.mark_row_range_complete("topic", row_group, 3)
+        tracker.mark_row_range_complete("score", row_group, 3)
+        tracker.release_row_group(row_group, 3, ["topic", "score"])
+
+    assert [(start, end) for start, end, _released in tracker._released_range_summaries] == [
+        (0, 0),
+        (2, 2),
+        (4, 4),
+        (6, 6),
+    ]
+
+    tracker.mark_row_range_complete("topic", 7, 3)
+
+    assert [(start, end) for start, end, _released in tracker._released_range_summaries] == [
+        (0, 0),
+        (2, 2),
+        (4, 4),
+        (6, 6),
+    ]
+
+    tracker.mark_row_range_complete("topic", 1, 3)
+    tracker.mark_row_range_complete("score", 1, 3)
+    tracker.release_row_group(1, 3, ["topic", "score"])
+
+    assert [(start, end) for start, end, _released in tracker._released_range_summaries] == [
+        (0, 2),
+        (4, 4),
+        (6, 6),
+    ]
+
+
+def test_release_row_group_stores_dropped_rows_as_survivor_ranges_when_smaller() -> None:
+    graph = _build_simple_graph()
+    tracker = CompletionTracker.with_graph(graph, [(0, 10)])
+    tracker.mark_row_range_complete("topic", 0, 10)
+    tracker.mark_row_range_complete("score", 0, 10)
+    for row_index in range(9):
+        tracker.drop_row(0, row_index)
+
+    tracker.release_row_group(0, 10, ["topic", "score"])
+
+    released = tracker._released_row_group(0)
+    assert released is not None
+    assert released.rows.stores_survivors
+    assert released.rows.intervals == ((9, 9),)
+    assert tracker._released_row_groups == {}
+    assert len(tracker._released_range_summaries) == 1
+    assert tracker.dropped_row_count(0, 10) == 9
+    assert tracker.is_dropped(0, 0)
+    assert not tracker.is_dropped(0, 9)
+
+
+def test_release_row_group_merges_dropped_summaries_into_one_range() -> None:
+    graph = _build_simple_graph()
+    tracker = CompletionTracker.with_graph(graph, [(row_group, 3) for row_group in range(4)])
+
+    for row_group in range(4):
+        tracker.mark_row_range_complete("topic", row_group, 3)
+        tracker.mark_row_range_complete("score", row_group, 3)
+        tracker.drop_row(row_group, 1)
+        tracker.release_row_group(row_group, 3, ["topic", "score"])
+
+    assert tracker._released_row_groups == {}
+    assert [(start, end) for start, end, _released in tracker._released_range_summaries] == [(0, 3)]
+    assert tracker.dropped_row_count(2, 3) == 1
+    assert tracker.is_dropped(2, 1)
+    assert not tracker.is_dropped(2, 0)
+    assert tracker.is_row_group_complete(2, 3, ["topic", "score"])
+
+    delta = tracker.add_root_tasks(1, 3)
+
+    assert [task.row_group for task in delta.added] == [1]
+    assert [(start, end) for start, end, _released in tracker._released_range_summaries] == [(0, 0), (2, 3)]
+    assert not tracker.is_row_group_complete(1, 3, ["topic", "score"])
+
+
+def test_release_row_group_bounds_fragmented_dropped_row_summary() -> None:
+    graph = _build_simple_graph()
+    row_group_size = 10_000
+    tracker = CompletionTracker.with_graph(graph, [(0, row_group_size)])
+
+    tracker.mark_row_range_complete("topic", 0, row_group_size)
+    tracker.mark_row_range_complete("score", 0, row_group_size)
+    for row_index in range(0, row_group_size, 2):
+        tracker.drop_row(0, row_index)
+
+    tracker.release_row_group(0, row_group_size, ["topic", "score"])
+
+    released = tracker._released_row_group(0)
+    assert released is not None
+    assert not released.rows.exact
+    assert released.rows.intervals == ()
+    assert tracker._released_row_groups == {}
+    assert len(tracker._released_range_summaries) == 1
+    assert tracker.dropped_row_count(0, row_group_size) == row_group_size // 2
+    assert tracker.is_row_group_complete(0, row_group_size, ["topic", "score"])
+    assert tracker.is_complete(SliceRef("topic", 0, 0))
+
+
+def test_release_row_group_aggregates_first_fragmented_drop_without_sort(monkeypatch: pytest.MonkeyPatch) -> None:
+    graph = _build_simple_graph()
+    row_group_size = 1_000_000
+    tracker = CompletionTracker.with_graph(graph, [(0, row_group_size)])
+
+    tracker.mark_row_range_complete("topic", 0, row_group_size)
+    tracker.mark_row_range_complete("score", 0, row_group_size)
+    tracker._dropped[0] = set(range(0, row_group_size, 2))
+
+    def fail_sorted(*_args: object, **_kwargs: object) -> list[object]:
+        raise AssertionError("fragmented released rows should aggregate without sorting every dropped row")
+
+    monkeypatch.setattr(builtins, "sorted", fail_sorted)
+
+    tracker.release_row_group(0, row_group_size, ["topic", "score"])
+
+    released = tracker._released_row_group(0)
+    assert released is not None
+    assert not released.rows.exact
+    assert released.rows.intervals == ()
+    assert tracker._released_exact_row_interval_count == 0
+    assert tracker.dropped_row_count(0, row_group_size) == row_group_size // 2
+
+
+def test_release_row_group_keeps_large_contiguous_dropped_split_exact() -> None:
+    graph = _build_simple_graph()
+    row_group_size = 10_000
+    tracker = CompletionTracker.with_graph(graph, [(0, row_group_size)])
+
+    tracker.mark_row_range_complete("topic", 0, row_group_size)
+    tracker.mark_row_range_complete("score", 0, row_group_size)
+    for row_index in range(row_group_size // 2):
+        tracker.drop_row(0, row_index)
+
+    tracker.release_row_group(0, row_group_size, ["topic", "score"])
+
+    released = tracker._released_row_group(0)
+    assert released is not None
+    assert released.rows.exact
+    assert released.rows.intervals == ((0, 4_999),)
+    assert tracker.dropped_row_count(0, row_group_size) == row_group_size // 2
+    assert tracker.is_dropped(0, 0)
+    assert tracker.is_dropped(0, 4_999)
+    assert not tracker.is_dropped(0, 5_000)
+
+
+def test_release_row_group_bounds_exact_dropped_row_summaries_across_run() -> None:
+    graph = _build_simple_graph()
+    row_group_size = 8_192
+    tracker = CompletionTracker.with_graph(graph, [(0, row_group_size), (1, row_group_size)])
+
+    for row_group in (0, 1):
+        tracker.mark_row_range_complete("topic", row_group, row_group_size)
+        tracker.mark_row_range_complete("score", row_group, row_group_size)
+        for row_index in range(0, row_group_size, 2):
+            tracker.drop_row(row_group, row_index)
+        for row_index in range(1, row_group_size, 2):
+            tracker.mark_cell_complete("question", row_group, row_index)
+        tracker.release_row_group(row_group, row_group_size, ["topic", "question", "score"])
+
+    first = tracker._released_row_group(0)
+    second = tracker._released_row_group(1)
+    assert first is not None
+    assert second is not None
+    assert first.rows.exact
+    assert len(first.rows.intervals) == 4_096
+    assert not second.rows.exact
+    assert second.rows.intervals == ()
+    assert tracker.dropped_row_count(0, row_group_size) == row_group_size // 2
+    assert tracker.dropped_row_count(1, row_group_size) == row_group_size // 2
+    assert tracker.is_row_group_complete(1, row_group_size, ["topic", "question", "score"])
+    assert tracker.is_complete(SliceRef("question", 1, 1))
+
+
+def test_release_row_group_bounds_alternating_summary_ranges() -> None:
+    graph = _build_simple_graph()
+    row_group_count = MAX_RELEASED_ROW_GROUP_SUMMARY_RANGES + 16
+    tracker = CompletionTracker.with_graph(graph, [(row_group, 8) for row_group in range(row_group_count)])
+
+    for row_group in range(row_group_count):
+        tracker.mark_row_range_complete("topic", row_group, 8)
+        tracker.mark_row_range_complete("score", row_group, 8)
+        tracker.drop_row(row_group, row_group % 8)
+        tracker.release_row_group(row_group, 8, ["topic", "score"])
+
+    assert len(tracker._released_range_summaries) == MAX_RELEASED_ROW_GROUP_SUMMARY_RANGES
+    assert tracker._released_row_group(0) is None
+    assert tracker.is_row_group_complete(row_group_count - 1, 8, ["topic", "score"])
+    assert tracker.dropped_row_count(row_group_count - 1, 8) == 1
+
+
+def test_reopened_released_row_groups_keep_summary_ranges_bounded() -> None:
+    graph = _build_simple_graph()
+    row_group_count = MAX_RELEASED_ROW_GROUP_SUMMARY_RANGES * 2 + 1
+    tracker = CompletionTracker.with_graph(graph, [(row_group, 3) for row_group in range(row_group_count)])
+
+    for row_group in range(row_group_count):
+        tracker.mark_row_range_complete("topic", row_group, 3)
+        tracker.mark_row_range_complete("score", row_group, 3)
+        tracker.release_row_group(row_group, 3, ["topic", "score"])
+
+    assert len(tracker._released_range_summaries) == 1
+
+    for row_group in range(1, row_group_count, 2):
+        tracker.add_root_tasks(row_group, 3)
+
+    assert len(tracker._released_range_summaries) <= MAX_RELEASED_ROW_GROUP_SUMMARY_RANGES
 
 
 # -- get_ready_tasks --------------------------------------------------------
@@ -301,6 +601,19 @@ def test_drop_row_unblocks_full_column_downstream(ready_ctx: ReadyTasksFixture) 
     assert score_tasks[0] in delta.added
 
 
+def test_cached_remaining_cell_count_updates_after_drop(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+    assert not ready_ctx.tracker.is_row_group_complete(0, 3, ["topic", "question", "score"])
+    assert ready_ctx.tracker._remaining_cell_rows[0]["question"] == 3
+
+    ready_ctx.tracker.mark_cell_complete("question", 0, 0)
+    ready_ctx.tracker.mark_cell_complete("question", 0, 1)
+    delta = ready_ctx.tracker.drop_row(0, 2)
+
+    assert ready_ctx.tracker._remaining_cell_rows[0]["question"] == 0
+    assert Task(column="score", row_group=0, row_index=None, task_type="batch") in delta.added
+
+
 def test_get_ready_tasks_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFixture) -> None:
     ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
     ready_ctx.tracker.mark_cell_complete("question", 0, 0)
@@ -326,6 +639,20 @@ def test_get_ready_tasks_full_column_ready_when_all_cells_done(ready_ctx: ReadyT
     assert score_tasks[0].task_type == "batch"
     assert delta is not None
     assert delta.added == (score_tasks[0],)
+
+
+def test_cached_remaining_cell_count_updates_after_completion(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+    assert not ready_ctx.tracker.is_column_complete_for_rg("question", 0)
+    assert ready_ctx.tracker._remaining_cell_rows[0]["question"] == 3
+
+    delta = None
+    for ri in range(3):
+        delta = ready_ctx.tracker.mark_cell_complete("question", 0, ri)
+
+    assert ready_ctx.tracker._remaining_cell_rows[0]["question"] == 0
+    assert delta is not None
+    assert delta.added == (Task(column="score", row_group=0, row_index=None, task_type="batch"),)
 
 
 def test_get_ready_tasks_multiple_row_groups() -> None:

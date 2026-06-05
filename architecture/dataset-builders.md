@@ -130,7 +130,7 @@ DatasetBuilder.build()
   → collect TaskTraces, emit telemetry
 ```
 
-Row-group admission is fixed by default in the dataset-builder path: the configured row-group concurrency is the hard in-flight cap. The scheduler also has an internal adaptive row-group mode for direct use that only raises a soft target up to that cap; it is additive ramp-up, not AIMD shrink/recovery behavior.
+Row-group admission is fixed by default in the dataset-builder path: the default row-group concurrency is the hard in-flight cap. Public async runs can override that horizon with `RunConfig.row_group_admission`. Fixed mode uses `max_concurrent_row_groups` as the hard in-flight cap. The historical default fixed horizon remains row-group-count-only, while widened fixed horizons derive an active-row guard when `max_admitted_rows` is omitted. Adaptive mode starts from `adaptive_initial_target` and only raises a soft target up to that cap; it is additive ramp-up, not AIMD shrink/recovery behavior. Adaptive mode also derives an active-row guard when `max_admitted_rows` is omitted, and rejects row groups above that guard, so wide row groups cannot silently admit unbounded active state.
 
 When request admission is available, async scheduling may use request-pressure snapshots as a read-only advisory during fair-queue selection. A request-pressured task can be skipped for an eligible peer without mutating request-admission state; provider/model/domain request limits remain owned by request admission.
 

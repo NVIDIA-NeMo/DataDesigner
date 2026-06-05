@@ -43,6 +43,7 @@ class RowGroupAdmission:
     target_in_flight: int | None = None
     observed_max_target: int | None = None
     max_admitted_rows: int | None = None
+    max_admitted_rows_source: CapacityValueSource | None = None
     blocked_reasons: Mapping[str, int] = field(default_factory=dict)
 
 

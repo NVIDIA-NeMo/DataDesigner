@@ -25,6 +25,7 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.run_config import RowGroupAdmissionMode
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.version import get_library_version
@@ -1106,6 +1107,13 @@ class DatasetBuilder:
 
         max_in_flight_tasks = self._resource_provider.run_config.max_in_flight_tasks
         max_model_task_admission = max_in_flight_tasks
+        row_group_admission = self._resource_provider.run_config.row_group_admission
+        row_group_admission_mode = RowGroupAdmissionMode(row_group_admission.mode)
+        adaptive_row_group_initial_target = 1
+        if row_group_admission_mode == RowGroupAdmissionMode.ADAPTIVE:
+            adaptive_row_group_initial_target = row_group_admission.adaptive_initial_target
+            if adaptive_row_group_initial_target is None:
+                raise ValueError("adaptive_initial_target must be normalized for adaptive row-group admission.")
 
         scheduler = AsyncTaskScheduler(
             generators=gen_map,
@@ -1113,6 +1121,7 @@ class DatasetBuilder:
             tracker=tracker,
             row_groups=row_groups,
             buffer_manager=buffer_manager,
+            max_concurrent_row_groups=row_group_admission.max_concurrent_row_groups,
             max_in_flight_tasks=max_in_flight_tasks,
             max_model_task_admission=max_model_task_admission,
             on_finalize_row_group=on_finalize_row_group,
@@ -1135,6 +1144,10 @@ class DatasetBuilder:
             progress_bar=self._resource_provider.run_config.progress_bar,
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
             request_pressure_advisory=True,
+            adaptive_row_group_admission=row_group_admission_mode == RowGroupAdmissionMode.ADAPTIVE,
+            adaptive_row_group_initial_target=adaptive_row_group_initial_target,
+            max_admitted_rows=row_group_admission.max_admitted_rows,
+            row_group_admission_source="run_config",
         )
         return scheduler, buffer_manager
 

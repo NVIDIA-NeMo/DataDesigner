@@ -8,8 +8,12 @@ from pydantic import ValidationError
 
 import data_designer.config as dd
 from data_designer.config.run_config import (
+    MAX_ROW_GROUP_ADMISSION_HORIZON,
+    MAX_ROW_GROUP_ADMITTED_ROWS,
     JinjaRenderingEngine,
     RequestAdmissionTuningConfig,
+    RowGroupAdmissionConfig,
+    RowGroupAdmissionMode,
     RunConfig,
     ThrottleConfig,
 )
@@ -142,8 +146,145 @@ def test_run_config_accepts_request_admission_tuning_dict() -> None:
     assert run_config.request_admission.startup_ramp_seconds == 10.0
 
 
+def test_run_config_exposes_default_row_group_admission_policy() -> None:
+    run_config = RunConfig()
+
+    assert run_config.row_group_admission is not None
+    assert RowGroupAdmissionMode(run_config.row_group_admission.mode) == RowGroupAdmissionMode.FIXED
+    assert run_config.row_group_admission.max_concurrent_row_groups == 3
+    assert run_config.row_group_admission.adaptive_initial_target is None
+    assert run_config.row_group_admission.max_admitted_rows is None
+
+
+def test_run_config_exports_row_group_admission_public_caps() -> None:
+    assert dd.MAX_ROW_GROUP_ADMISSION_HORIZON == MAX_ROW_GROUP_ADMISSION_HORIZON
+    assert dd.MAX_ROW_GROUP_ADMITTED_ROWS == MAX_ROW_GROUP_ADMITTED_ROWS
+
+
+def test_run_config_accepts_row_group_admission_tuning() -> None:
+    run_config = RunConfig(
+        row_group_admission=RowGroupAdmissionConfig(
+            mode=RowGroupAdmissionMode.ADAPTIVE,
+            max_concurrent_row_groups=8,
+            adaptive_initial_target=2,
+            max_admitted_rows=4096,
+        )
+    )
+
+    assert run_config.row_group_admission is not None
+    assert RowGroupAdmissionMode(run_config.row_group_admission.mode) == RowGroupAdmissionMode.ADAPTIVE
+    assert run_config.row_group_admission.max_concurrent_row_groups == 8
+    assert run_config.row_group_admission.adaptive_initial_target == 2
+    assert run_config.row_group_admission.max_admitted_rows == 4096
+
+
+def test_row_group_admission_config_normalizes_adaptive_initial_target() -> None:
+    row_group_admission = RowGroupAdmissionConfig(mode=RowGroupAdmissionMode.ADAPTIVE)
+
+    assert row_group_admission.adaptive_initial_target == 1
+
+
+def test_run_config_accepts_fixed_row_group_admission_row_budget() -> None:
+    run_config = RunConfig(row_group_admission=RowGroupAdmissionConfig(max_admitted_rows=2048))
+
+    assert RowGroupAdmissionMode(run_config.row_group_admission.mode) == RowGroupAdmissionMode.FIXED
+    assert run_config.row_group_admission.max_admitted_rows == 2048
+
+
+def test_run_config_accepts_row_group_admission_dict() -> None:
+    run_config = RunConfig(
+        row_group_admission={
+            "mode": "adaptive",
+            "max_concurrent_row_groups": 5,
+            "adaptive_initial_target": 3,
+        }
+    )
+
+    assert run_config.row_group_admission is not None
+    assert RowGroupAdmissionMode(run_config.row_group_admission.mode) == RowGroupAdmissionMode.ADAPTIVE
+    assert run_config.row_group_admission.max_concurrent_row_groups == 5
+    assert run_config.row_group_admission.adaptive_initial_target == 3
+
+
+def test_row_group_admission_config_rejects_invalid_adaptive_target() -> None:
+    with pytest.raises(ValidationError, match="adaptive_initial_target must not exceed max_concurrent_row_groups"):
+        RowGroupAdmissionConfig(
+            mode=RowGroupAdmissionMode.ADAPTIVE,
+            max_concurrent_row_groups=2,
+            adaptive_initial_target=3,
+        )
+
+
+def test_row_group_admission_config_rejects_adaptive_only_fields_in_fixed_mode() -> None:
+    with pytest.raises(ValidationError, match="adaptive_initial_target applies only"):
+        RowGroupAdmissionConfig(adaptive_initial_target=1)
+
+
+def test_row_group_admission_config_rejects_unsafe_public_caps() -> None:
+    with pytest.raises(ValidationError, match="max_concurrent_row_groups"):
+        RowGroupAdmissionConfig(max_concurrent_row_groups=65)
+
+    with pytest.raises(ValidationError, match="max_admitted_rows"):
+        RowGroupAdmissionConfig(max_admitted_rows=1_000_001)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"max_concurrent_row_groups": 0},
+        {"mode": RowGroupAdmissionMode.ADAPTIVE, "adaptive_initial_target": 0},
+        {"max_admitted_rows": 0},
+    ],
+)
+def test_row_group_admission_config_rejects_non_positive_values(kwargs: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        RowGroupAdmissionConfig(**kwargs)
+
+
+def test_run_config_rejects_row_group_admission_row_budget_below_buffer_size() -> None:
+    with pytest.raises(ValidationError, match="row_group_admission.max_admitted_rows must be at least buffer_size"):
+        RunConfig(
+            buffer_size=1000,
+            row_group_admission=RowGroupAdmissionConfig(max_admitted_rows=999),
+        )
+
+
+def test_run_config_rejects_adaptive_row_group_size_above_public_row_guard() -> None:
+    with pytest.raises(ValidationError, match="derived active-row guard requires buffer_size"):
+        RunConfig(
+            buffer_size=MAX_ROW_GROUP_ADMITTED_ROWS + 1,
+            row_group_admission=RowGroupAdmissionConfig(mode=RowGroupAdmissionMode.ADAPTIVE),
+        )
+
+
+def test_run_config_rejects_widened_fixed_row_group_size_above_public_row_guard() -> None:
+    with pytest.raises(ValidationError, match="derived active-row guard requires buffer_size"):
+        RunConfig(
+            buffer_size=MAX_ROW_GROUP_ADMITTED_ROWS + 1,
+            row_group_admission=RowGroupAdmissionConfig(max_concurrent_row_groups=4),
+        )
+
+
+def test_run_config_allows_fixed_row_group_size_above_public_row_guard_by_default() -> None:
+    run_config = RunConfig(buffer_size=MAX_ROW_GROUP_ADMITTED_ROWS + 1)
+
+    assert RowGroupAdmissionMode(run_config.row_group_admission.mode) == RowGroupAdmissionMode.FIXED
+    assert run_config.row_group_admission.max_admitted_rows is None
+
+
+def test_row_group_admission_config_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError, match="row_group_horizon"):
+        RowGroupAdmissionConfig(row_group_horizon=3)
+
+
 def test_request_admission_tuning_config_is_exported_from_config_package() -> None:
     assert dd.RequestAdmissionTuningConfig is RequestAdmissionTuningConfig
+
+
+def test_row_group_admission_config_is_exported_from_config_package() -> None:
+    assert dd.MAX_ROW_GROUP_ADMITTED_ROWS == MAX_ROW_GROUP_ADMITTED_ROWS
+    assert dd.RowGroupAdmissionConfig is RowGroupAdmissionConfig
+    assert dd.RowGroupAdmissionMode is RowGroupAdmissionMode
 
 
 def test_deprecated_throttle_config_is_exported_from_config_package() -> None:

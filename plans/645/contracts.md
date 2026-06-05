@@ -477,6 +477,12 @@ CapacityValue[T]:
 RowGroupAdmission:
   row_group_concurrency: CapacityValue[int]
   observed_in_flight: int | None
+  mode: fixed | adaptive
+  target_in_flight: int
+  observed_max_target: int
+  max_admitted_rows: int | None
+  max_admitted_rows_source: default | run_config | dataset_builder | model_metadata | engine_internal_config | adapter_config | environment | runtime_snapshot | benchmark_override | None
+  blocked_reasons: Mapping[str, int]
 
 ProviderModelStaticCap:
   cap: int
