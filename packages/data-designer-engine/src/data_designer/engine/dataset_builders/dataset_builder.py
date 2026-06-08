@@ -35,6 +35,7 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
+from data_designer.engine.context import current_row_group, current_row_group_start_offset
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
@@ -70,7 +71,7 @@ if TYPE_CHECKING:
 
     from data_designer.config.run_config import RunConfig
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
-    from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
+    from data_designer.engine.dataset_builders.scheduling.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
@@ -84,19 +85,18 @@ if DATA_DESIGNER_ASYNC_ENGINE:
     import asyncio
 
     from data_designer.engine.dataset_builders.async_scheduler import (
-        DEFAULT_TASK_POOL_SIZE,
-        GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER,
         AsyncTaskScheduler,
     )
+    from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
     from data_designer.engine.dataset_builders.utils.async_concurrency import (
         AsyncConcurrentExecutor,
         ensure_async_engine_loop,
     )
-    from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
     from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
 
 _CLIENT_VERSION: str = get_library_version()
+PRESERVE_DROPPED_COLUMNS_METADATA_KEY = "preserve_dropped_columns"
 
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
@@ -117,6 +117,76 @@ class _ResumeState:
     target_num_records: int
     original_target_num_records: int
     completed_row_groups: dict[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class RowGroupResumePlan:
+    """Plan describing the row groups left to generate when resuming an async run.
+
+    Attributes:
+        total_row_groups: Total row group count for the full target (original + extension).
+        remaining_row_groups: ``(rg_id, rg_size)`` for groups not yet on disk, in id order.
+        row_group_start_offsets: ``rg_id -> planned start offset`` for the remaining
+            groups, computed from the original plan so completed-group sizes are
+            preserved (offsets are not recomputed from the remaining list, which
+            would shift them when there are holes).
+    """
+
+    total_row_groups: int
+    remaining_row_groups: list[tuple[int, int]]
+    row_group_start_offsets: dict[int, int]
+
+
+def build_row_group_resume_plan(
+    *,
+    original_target: int,
+    num_records: int,
+    buffer_size: int,
+    completed_ids: set[int],
+) -> RowGroupResumePlan:
+    """Compute the remaining row-group plan for an async resume.
+
+    Original groups are immutable: their per-group sizes were fixed by the first
+    run's ``original_target_num_records`` and ``buffer_size``. Any extension
+    (``num_records > original_target``) always adds new groups beyond the
+    original count — ``ceil(num_records/buffer_size)`` would give the wrong
+    total when the original run was non-aligned and the extension fits in the
+    last original group's slack.
+
+    Args:
+        original_target: Target record count from the first run (immutable).
+        num_records: Current target record count (may extend ``original_target``).
+        buffer_size: Records per row group.
+        completed_ids: Row-group IDs already persisted on disk.
+
+    Returns:
+        A ``RowGroupResumePlan`` whose ``row_group_start_offsets`` are taken from
+        the full original plan, so the offset for ``rg_id`` is the same whether
+        or not earlier groups have completed. This is what lets ordered seed
+        generators seek to the correct row when resuming with holes.
+    """
+    num_original_groups = -(-original_target // buffer_size)
+    extension_records = num_records - original_target
+    total_row_groups = num_original_groups + -(-extension_records // buffer_size)
+
+    def _rg_size(rg_id: int) -> int:
+        if rg_id < num_original_groups:
+            return min(buffer_size, original_target - rg_id * buffer_size)
+        ext_group_idx = rg_id - num_original_groups
+        return min(buffer_size, extension_records - ext_group_idx * buffer_size)
+
+    all_start_offsets: dict[int, int] = {}
+    next_offset = 0
+    for rg_id in range(total_row_groups):
+        all_start_offsets[rg_id] = next_offset
+        next_offset += _rg_size(rg_id)
+
+    remaining_row_groups = [(rg_id, _rg_size(rg_id)) for rg_id in range(total_row_groups) if rg_id not in completed_ids]
+    return RowGroupResumePlan(
+        total_row_groups=total_row_groups,
+        remaining_row_groups=remaining_row_groups,
+        row_group_start_offsets={rg_id: all_start_offsets[rg_id] for rg_id, _ in remaining_row_groups},
+    )
 
 
 class DatasetBuilder:
@@ -162,6 +232,10 @@ class DatasetBuilder:
     @property
     def artifact_storage(self) -> ArtifactStorage:
         return self._resource_provider.artifact_storage
+
+    @property
+    def data_designer_config(self) -> DataDesignerConfig:
+        return self._data_designer_config
 
     @property
     def processors(self) -> tuple[Processor, ...]:
@@ -268,7 +342,8 @@ class DatasetBuilder:
             compat = self._check_resume_config_compatibility()
             if resume == ResumeMode.ALWAYS and compat == _ConfigCompatibility.INCOMPATIBLE:
                 raise DatasetGenerationError(
-                    "🛑 Cannot resume: the current config does not match the config used in the interrupted run. "
+                    "🛑 Cannot resume: the current config or dropped-column artifact policy does not match the "
+                    "config used in the interrupted run. "
                     "Use resume=ResumeMode.IF_POSSIBLE to start fresh automatically, or "
                     "resume=ResumeMode.NEVER to force a new run."
                 )
@@ -370,7 +445,12 @@ class DatasetBuilder:
 
     def _set_metadata_defaults(self) -> None:
         """Attach config identity fields to every metadata write in this build."""
-        self.artifact_storage.set_metadata_defaults(self._data_designer_config.fingerprint())
+        self.artifact_storage.set_metadata_defaults(
+            {
+                **self._data_designer_config.fingerprint(),
+                PRESERVE_DROPPED_COLUMNS_METADATA_KEY: self._resource_provider.run_config.preserve_dropped_columns,
+            }
+        )
 
     def _has_allow_resize_columns(self) -> bool:
         return any(getattr(config, "allow_resize", False) for config in self.single_column_configs)
@@ -500,6 +580,14 @@ class DatasetBuilder:
                 "or start a new run without resume=ResumeMode.ALWAYS."
             )
 
+        if not self._dropped_column_artifact_policy_matches(metadata):
+            raise DatasetGenerationError(
+                "🛑 Cannot resume: preserve_dropped_columns="
+                f"{self._resource_provider.run_config.preserve_dropped_columns} does not match the original "
+                "run's dropped-column artifact policy. Start a fresh run with resume=ResumeMode.NEVER, or "
+                "use resume=ResumeMode.IF_POSSIBLE to start fresh automatically when the policy differs."
+            )
+
         return _ResumeState(
             num_completed_batches=num_completed_batches,
             actual_num_records=actual_num_records,
@@ -566,6 +654,7 @@ class DatasetBuilder:
                 group_id=group_id,
                 current_batch_number=batch_idx,
                 on_batch_complete=on_batch_complete,
+                row_group_start_offset=sum(self.batch_manager.num_records_list[:batch_idx]),
             )
         self.batch_manager.finish()
         return True
@@ -747,6 +836,9 @@ class DatasetBuilder:
                 )
                 return _ConfigCompatibility.INCOMPATIBLE
 
+            if not self._dropped_column_artifact_policy_matches(metadata):
+                return _ConfigCompatibility.INCOMPATIBLE
+
             stored_hash = metadata.get("config_hash")
             stored_version = metadata.get("config_hash_version")
             if stored_hash is not None:
@@ -786,6 +878,24 @@ class DatasetBuilder:
             )
             return _ConfigCompatibility.COMPATIBLE
 
+    def _dropped_column_artifact_policy_matches(self, metadata: dict[str, Any]) -> bool:
+        """Return whether stored dropped-column artifact behavior matches this run.
+
+        Metadata written before this RunConfig option existed implicitly used the
+        historical behavior, which preserved dropped-column artifacts.
+        """
+        stored = metadata.get(PRESERVE_DROPPED_COLUMNS_METADATA_KEY, True)
+        current = self._resource_provider.run_config.preserve_dropped_columns
+        if stored != current:
+            logger.warning(
+                "⚠️ preserve_dropped_columns changed from %s to %s; treating the existing dataset as "
+                "incompatible for resume because dropped-column parquet artifacts would be inconsistent.",
+                stored,
+                current,
+            )
+            return False
+        return True
+
     def _build_async(
         self,
         generators: list[ColumnGenerator],
@@ -807,6 +917,7 @@ class DatasetBuilder:
         trace_enabled = _is_async_trace_enabled(settings)
 
         precomputed_row_groups: list[tuple[int, int]] | None = None
+        row_group_start_offsets: dict[int, int] | None = None
         initial_actual_num_records = 0
         initial_total_num_batches = 0
         original_target = num_records  # immutable original target; overridden on resume
@@ -825,22 +936,15 @@ class DatasetBuilder:
             # non-aligned run gets its true size, not buffer_size.
             original_target = state.original_target_num_records
 
-            num_original_groups = -(-original_target // buffer_size)  # ceil(original_target/buffer_size)
-
-            def _rg_size(rg_id: int) -> int:
-                if rg_id < num_original_groups:
-                    return min(buffer_size, original_target - rg_id * buffer_size)
-                ext_group_idx = rg_id - num_original_groups
-                return min(buffer_size, (num_records - original_target) - ext_group_idx * buffer_size)
-
             self.artifact_storage.clear_partial_results()
 
-            # Original groups are immutable; any extension always needs new groups beyond
-            # num_original_groups — ceil(num_records/bs) gives the wrong count when the
-            # original run was non-aligned and the extension fits in the last group's slack.
-            extension_records = num_records - original_target
-            total_row_groups = num_original_groups + -(-extension_records // buffer_size)
-            if len(completed_ids) >= total_row_groups:
+            resume_plan = build_row_group_resume_plan(
+                original_target=original_target,
+                num_records=num_records,
+                buffer_size=buffer_size,
+                completed_ids=completed_ids,
+            )
+            if len(completed_ids) >= resume_plan.total_row_groups:
                 logger.warning(
                     "⚠️ Dataset is already complete — all row groups were found in the existing artifact "
                     "directory. Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
@@ -848,16 +952,12 @@ class DatasetBuilder:
                 return False
 
             logger.info(
-                f"▶️ Resuming async run: {len(completed_ids)} of {total_row_groups} row group(s) already "
+                f"▶️ Resuming async run: {len(completed_ids)} of {resume_plan.total_row_groups} row group(s) already "
                 f"complete ({initial_actual_num_records} records), skipping them."
             )
 
-            # Pre-compute the full row-group list with correct per-group sizes so that
-            # non-aligned skipped groups deduct their actual on-disk record count rather
-            # than buffer_size, keeping extension group sizes accurate.
-            precomputed_row_groups = [
-                (rg_id, _rg_size(rg_id)) for rg_id in range(total_row_groups) if rg_id not in completed_ids
-            ]
+            precomputed_row_groups = resume_plan.remaining_row_groups
+            row_group_start_offsets = resume_plan.row_group_start_offsets
 
         def finalize_row_group(rg_id: int) -> None:
             def on_complete(final_path: Path | str | None) -> None:
@@ -882,6 +982,7 @@ class DatasetBuilder:
             disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
             precomputed_row_groups=precomputed_row_groups,
+            row_group_start_offsets=row_group_start_offsets,
             initial_actual_num_records=initial_actual_num_records,
             initial_total_num_batches=initial_total_num_batches,
         )
@@ -951,6 +1052,7 @@ class DatasetBuilder:
         disable_early_shutdown: bool = False,
         trace: bool = False,
         precomputed_row_groups: list[tuple[int, int]] | None = None,
+        row_group_start_offsets: dict[int, int] | None = None,
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
@@ -1015,10 +1117,8 @@ class DatasetBuilder:
             df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
 
-        # Coarse upper bound: sums all registered aliases, not just those used
-        # in this build. Oversizing is harmless - ThrottleManager enforces
-        # the real per-key limit; the semaphore is a memory-safety cap.
-        aggregate = self._resource_provider.model_registry.get_aggregate_max_parallel_requests()
+        max_in_flight_tasks = self._resource_provider.run_config.max_in_flight_tasks
+        max_model_task_admission = max_in_flight_tasks
 
         scheduler = AsyncTaskScheduler(
             generators=gen_map,
@@ -1026,8 +1126,8 @@ class DatasetBuilder:
             tracker=tracker,
             row_groups=row_groups,
             buffer_manager=buffer_manager,
-            max_submitted_tasks=DEFAULT_TASK_POOL_SIZE,
-            max_llm_wait_tasks=max(DEFAULT_TASK_POOL_SIZE, GLOBAL_LLM_WAIT_POOL_HEADROOM_MULTIPLIER * aggregate),
+            max_in_flight_tasks=max_in_flight_tasks,
+            max_model_task_admission=max_model_task_admission,
             on_finalize_row_group=on_finalize_row_group,
             on_seeds_complete=(
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
@@ -1043,8 +1143,12 @@ class DatasetBuilder:
             trace=trace,
             num_records=num_records,
             buffer_size=buffer_size,
+            row_group_start_offsets=row_group_start_offsets,
+            initial_completed_records=initial_actual_num_records,
             progress_interval=self._resource_provider.run_config.progress_interval,
             progress_bar=self._resource_provider.run_config.progress_bar,
+            request_pressure_provider=self._resource_provider.model_registry.request_admission,
+            request_pressure_advisory=True,
         )
         return scheduler, buffer_manager
 
@@ -1089,47 +1193,75 @@ class DatasetBuilder:
         group_id: str,
         current_batch_number: int | None = None,
         on_batch_complete: Callable[[Path], None] | None = None,
+        row_group_start_offset: int | None = None,
     ) -> None:
-        pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
-        ran_pre_batch = False
-        for generator in generators:
-            generator.log_pre_generation()
-            try:
-                generation_strategy = generator.get_generation_strategy()
-                if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
-                    self._run_from_scratch_column_generator(generator)
-                    # Run PRE_BATCH after seed generator, before other columns
-                    if not ran_pre_batch:
-                        self._processor_runner.run_pre_batch(self.batch_manager)
-                        ran_pre_batch = True
-                elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
-                    self._run_cell_by_cell_generator(generator)
-                elif generation_strategy == GenerationStrategy.FULL_COLUMN:
-                    self._run_full_column_generator(generator)
-                else:
-                    logger.error(f"❌ Unknown generation strategy: {generation_strategy}")
-                    raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generation_strategy}")
-                if save_partial_results:
-                    self.batch_manager.write()
-            except Exception as e:
-                column_error_str = (
-                    f"columns {generator.config.column_names}"
-                    if hasattr(generator.config, "column_names")
-                    else f"column {generator.config.name!r}"
-                )
-                raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
+        """Run one batch of generators in the sync engine.
+
+        Sets two ContextVars for the duration of the batch so order-dependent
+        generators (e.g. seed dataset under ORDERED sampling) and log helpers
+        can observe the row group's place in the run:
+
+        - ``current_row_group`` is set whenever ``current_batch_number`` is known
+          (both fresh and resumed sync runs), so ``format_row_group_tag()``
+          produces a consistent ``(x/X)`` log prefix in either path.
+        - ``current_row_group_start_offset`` is set only when the caller supplies
+          the planned start offset (sync resume passes it; fresh sync and preview
+          do not), so generators can seek into the correct seed slice without
+          replaying already-consumed rows.
+        """
+        row_group_token = None
+        start_offset_token = None
+        if current_batch_number is not None:
+            row_group_token = current_row_group.set((current_batch_number, self.batch_manager.num_batches))
+        if row_group_start_offset is not None:
+            start_offset_token = current_row_group_start_offset.set(row_group_start_offset)
 
         try:
-            usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
-            self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
-        except Exception:
-            pass
+            pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
+            ran_pre_batch = False
+            for generator in generators:
+                generator.log_pre_generation()
+                try:
+                    generation_strategy = generator.get_generation_strategy()
+                    if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
+                        self._run_from_scratch_column_generator(generator)
+                        # Run PRE_BATCH after seed generator, before other columns
+                        if not ran_pre_batch:
+                            self._processor_runner.run_pre_batch(self.batch_manager)
+                            ran_pre_batch = True
+                    elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
+                        self._run_cell_by_cell_generator(generator)
+                    elif generation_strategy == GenerationStrategy.FULL_COLUMN:
+                        self._run_full_column_generator(generator)
+                    else:
+                        logger.error(f"❌ Unknown generation strategy: {generation_strategy}")
+                        raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generation_strategy}")
+                    if save_partial_results:
+                        self.batch_manager.write()
+                except Exception as e:
+                    column_error_str = (
+                        f"columns {generator.config.column_names}"
+                        if hasattr(generator.config, "column_names")
+                        else f"column {generator.config.name!r}"
+                    )
+                    raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
 
-        if current_batch_number is not None:
-            df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
-            df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=current_batch_number)
-            self._write_processed_batch(df_batch)
-            self.batch_manager.finish_batch(on_batch_complete)
+            try:
+                usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
+                self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
+            except Exception:
+                pass
+
+            if current_batch_number is not None:
+                df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
+                df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=current_batch_number)
+                self._write_processed_batch(df_batch)
+                self.batch_manager.finish_batch(on_batch_complete)
+        finally:
+            if start_offset_token is not None:
+                current_row_group_start_offset.reset(start_offset_token)
+            if row_group_token is not None:
+                current_row_group.reset(row_group_token)
 
     def _run_from_scratch_column_generator(self, generator: ColumnGenerator) -> None:
         df = generator.generate_from_scratch(self.batch_manager.num_records_batch)

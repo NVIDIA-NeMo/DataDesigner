@@ -1,24 +1,18 @@
 ---
 title: "Data Designer Plugins"
-description: ""
+description: "Extend Data Designer with custom column generators, seed readers, and processors."
 position: 1
 ---
-<Warning>
-Experimental in this version
-Plugins were experimental in v0.5.8 and v0.5.9. For stable plugin docs, see the [v0.6.0 plugin docs](/v0.6.0/plugins/overview).
-</Warning>
 
-## What are plugins?
-
-Plugins are Python packages that extend Data Designer's capabilities without modifying the core library. Similar to [VS Code extensions](https://marketplace.visualstudio.com/vscode) and [Pytest plugins](https://docs.pytest.org/en/stable/reference/plugin_list.html), the plugin system empowers you to build specialized extensions for your specific use cases and share them with the community.
+Plugins let you add new object types to Data Designer without modifying the core library. Once installed, plugins behave like native Data Designer objects: they use the same declarative config patterns, builder APIs, discovery flow, and runtime execution paths as the built-in objects.
 
 ## Supported plugin types
 
-**Current capabilities**: Data Designer supports three plugin types:
+Data Designer supports three plugin types:
 
-- **Column Generator Plugins**: Custom column types you pass to the config builder's [add_column](/code-reference/topic-overviews/config-builder#data_designer.config.config_builder.DataDesignerConfigBuilder.add_column) method.
-- **Seed Reader Plugins**: Custom seed dataset readers that let you load data from new sources (e.g., databases, cloud storage, custom formats).
-- **Processor Plugins**: Custom processors that transform data before batches, after batches, or after generation completes. Pass them to the config builder's [add_processor](/code-reference/topic-overviews/config-builder#data_designer.config.config_builder.DataDesignerConfigBuilder.add_processor) method.
+- **Column generator plugins**: Custom column types you pass to the config builder's `add_column` method.
+- **Seed reader plugins**: Custom seed dataset readers that let you load data from new sources, such as databases, cloud storage, or custom file formats.
+- **Processor plugins**: Custom processors that transform data before batches, after batches, or after generation completes. Pass them to the config builder's `add_processor` method.
 
 ## How do you use plugins?
 

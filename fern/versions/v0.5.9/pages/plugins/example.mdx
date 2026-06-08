@@ -3,10 +3,6 @@ title: "Example Plugin: Column Generator"
 description: ""
 position: 2
 ---
-<Warning>
-Experimental in this version
-Plugins were experimental in v0.5.8 and v0.5.9. For stable plugin docs, see the [v0.6.0 plugin docs](/v0.6.0/plugins/overview).
-</Warning>
 
 # Example Plugin: Column Generator
 
@@ -43,7 +39,7 @@ data-designer-index-multiplier/
 
 ### Step 2: Create the config class
 
-The configuration class defines what parameters users can set when using your plugin. For column generator plugins, it must inherit from [SingleColumnConfig](/code-reference/topic-overviews/column-configs#data_designer.config.column_configs.SingleColumnConfig) and include a [discriminator field](https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions).
+The configuration class defines what parameters users can set when using your plugin. For column generator plugins, it must inherit from `SingleColumnConfig` and include a [discriminator field](https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions).
 
 Create `src/data_designer_index_multiplier/config.py`:
 

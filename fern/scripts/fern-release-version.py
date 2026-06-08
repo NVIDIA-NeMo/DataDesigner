@@ -15,6 +15,7 @@ from pathlib import Path
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-.][0-9A-Za-z]+)*")
 AS_OF_VERSION_RE = re.compile(rf"As of Data Designer\s+\[?v?({VERSION_RE.pattern})")
 NAV_PATH_RE = re.compile(r"^\s*path:\s+\./([^#\s]+)\s*$")
+VERSIONED_PAGES_RE = re.compile(r"\./(?P<root>latest|v[0-9][^/\s#]*)/pages/")
 
 
 class ReleaseVersionError(RuntimeError):
@@ -113,12 +114,14 @@ def check_latest_display_name(root: Path) -> list[str]:
 
 def referenced_mdx_paths(nav: Path) -> list[Path]:
     versions_dir = nav.parent
+    seen: set[Path] = set()
     paths: list[Path] = []
     for line in nav.read_text().splitlines():
         match = NAV_PATH_RE.match(line)
         if match:
             path = versions_dir / match.group(1)
-            if path.suffix == ".mdx" and path.exists():
+            if path.suffix == ".mdx" and path.exists() and path not in seen:
+                seen.add(path)
                 paths.append(path)
     return paths
 
@@ -186,6 +189,43 @@ def strip_leading_comment_block(content: str) -> str:
     return "".join(lines[index:])
 
 
+def referenced_page_roots(content: str) -> list[str]:
+    roots: list[str] = []
+    seen: set[str] = set()
+    for match in VERSIONED_PAGES_RE.finditer(content):
+        root = match.group("root")
+        if root not in seen:
+            roots.append(root)
+            seen.add(root)
+    return roots
+
+
+def rewrite_versioned_page_roots(content: str, slug: str) -> str:
+    return VERSIONED_PAGES_RE.sub(f"./{slug}/pages/", content)
+
+
+def copy_referenced_pages(root: Path, source_roots: list[str], slug: str, force: bool) -> bool:
+    source_roots = [source_root for source_root in source_roots if source_root != slug]
+    if not source_roots:
+        return False
+
+    versions_dir = root / "versions"
+    source_pages_dirs = [(source_root, versions_dir / source_root / "pages") for source_root in source_roots]
+    for source_root, source_pages in source_pages_dirs:
+        if not source_pages.exists():
+            raise ReleaseVersionError(f"{source_pages} is referenced by latest.yml but does not exist")
+
+    target_pages = versions_dir / slug / "pages"
+    if target_pages.exists() and not force:
+        raise ReleaseVersionError(f"{target_pages} already exists. Pass --force to replace it.")
+    if target_pages.exists():
+        shutil.rmtree(target_pages)
+
+    for _source_root, source_pages in source_pages_dirs:
+        shutil.copytree(source_pages, target_pages, dirs_exist_ok=True)
+    return True
+
+
 def write_release_nav(root: Path, slug: str, force: bool) -> bool:
     versions_dir = root / "versions"
     source = versions_dir / "latest.yml"
@@ -196,21 +236,10 @@ def write_release_nav(root: Path, slug: str, force: bool) -> bool:
         raise ReleaseVersionError(f"{target} already exists. Pass --force to replace it.")
 
     content = source.read_text()
-    copied_pages = False
-    if "./latest/pages/" in content:
-        source_pages = versions_dir / "latest" / "pages"
-        target_pages = versions_dir / slug / "pages"
-        if not source_pages.exists():
-            raise ReleaseVersionError(f"{source_pages} is referenced by latest.yml but does not exist")
-        if target_pages.exists() and not force:
-            raise ReleaseVersionError(f"{target_pages} already exists. Pass --force to replace it.")
-        if target_pages.exists():
-            shutil.rmtree(target_pages)
-        shutil.copytree(source_pages, target_pages)
-        copied_pages = True
-        content = content.replace("./latest/pages/", f"./{slug}/pages/")
+    copied_pages = copy_referenced_pages(root, referenced_page_roots(content), slug, force)
+    content = rewrite_versioned_page_roots(content, slug)
 
-    release_comment = f"# Frozen {slug} release nav. Reuses shared pages until content needs to diverge.\n"
+    release_comment = f"# Frozen {slug} release nav. Pages are materialized under ./{slug}/pages/.\n"
     target.write_text(release_comment + strip_leading_comment_block(content))
     return copied_pages
 
@@ -218,7 +247,7 @@ def write_release_nav(root: Path, slug: str, force: bool) -> bool:
 def update_latest_nav(root: Path, slug: str) -> bool:
     latest_nav = root / "versions" / "latest.yml"
     content = latest_nav.read_text()
-    updated = content.replace("./latest/pages/", f"./{slug}/pages/")
+    updated = rewrite_versioned_page_roots(content, slug)
     if updated == content:
         return False
     latest_nav.write_text(updated)
@@ -260,9 +289,9 @@ def prepare(args: argparse.Namespace) -> int:
     update_docs_yml(root, slug)
     print(f"Prepared Fern release {slug}")
     if copied_pages:
-        print(f"Copied latest-only pages into {root / 'versions' / slug / 'pages'}")
+        print(f"Copied referenced pages into {root / 'versions' / slug / 'pages'}")
     else:
-        print("No latest-only pages needed copying")
+        print("No referenced pages needed copying")
     if updated_latest:
         print(f"Updated latest.yml to point at {slug} page copies")
     print("Review reused page paths before publishing the release.")

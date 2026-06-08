@@ -42,9 +42,12 @@ class AsyncProgressReporter:
             for col, tracker in trackers.items():
                 self._bar.add_bar(col, f"column '{col}'", tracker.total_records)
 
-    def log_start(self, num_row_groups: int) -> None:
+    def log_start(self, num_row_groups: int, scheduled_records: int | None = None) -> None:
         cols = ", ".join(self._trackers)
-        total = sum(t.total_records for t in self._trackers.values())
+        if scheduled_records is None:
+            total = sum(max(0, t.total_records - t.completed) for t in self._trackers.values())
+        else:
+            total = scheduled_records * len(self._trackers)
         logger.info(
             "⚡️ Async generation: %d column(s) (%s), %d tasks across %d row group(s)",
             len(self._trackers),

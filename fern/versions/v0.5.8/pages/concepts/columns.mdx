@@ -45,6 +45,8 @@ LLM-Text columns generate natural language text: product descriptions, customer 
 
 Use **Jinja2 templating** in prompts to reference other columns. Data Designer automatically manages dependencies and injects the referenced column values into the prompt.
 
+LLM-Text and LLM-Structured columns can also include `multi_modal_context` with `ImageContext`, `AudioContext`, or `VideoContext`. Data Designer reads the referenced seed columns and serializes the media blocks, but it does not make an image-only model understand audio or video. Choose a `model_alias` whose underlying provider/model supports every modality in the column.
+
 <Note>
 Generation Traces
 LLM columns can optionally capture message traces in a separate `{column_name}__trace` column. Set `with_trace` on the column config to control what's captured: `TraceType.NONE` (default, no trace), `TraceType.LAST_MESSAGE` (final assistant message only), or `TraceType.ALL_MESSAGES` (full conversation history). The trace includes the ordered message history for the final generation attempt (system/user/assistant/tool calls/tool results), and may include model reasoning fields when the provider exposes them.
@@ -126,11 +128,11 @@ Image columns require a model configured with `ImageInferenceParams`. Model-spec
 - **Preview** (`data_designer.preview()`): Images are stored as base64-encoded strings directly in the DataFrame for quick iteration
 - **Create** (`data_designer.create()`): Images are saved to disk in an `images/<column_name>/` folder with UUID filenames; the DataFrame stores relative paths
 
-Image columns also support `multi_modal_context` for autoregressive models that accept image inputs, enabling image-to-image generation workflows.
+Image columns also support `multi_modal_context` for autoregressive multimodal models that accept media inputs, enabling image-to-image and other media-conditioned image generation workflows. Diffusion image-generation routes do not consume multimodal context, and not every autoregressive image model accepts every media type.
 
 <Tip>
 Tutorials
-The image tutorials cover three workflows: [Providing Images as Context](/tutorials/providing-images-as-context) (image → text), [Generating Images](/tutorials/generating-images) (text → image), and [Editing Images with Image Context](/tutorials/image-to-image-editing) (image → image).
+The image tutorials cover three workflows: [Providing Images as Context](/tutorials/providing-images-as-context) (image → text, with notes on audio/video-capable models), [Generating Images](/tutorials/generating-images) (text → image), and [Editing Images with Image Context](/tutorials/image-to-image-editing) (image → image).
 </Tip>
 
 ### 🧬 Embedding Columns
@@ -234,4 +236,4 @@ Computed property listing columns created implicitly alongside the primary colum
 - `{name}__trace`: Created when `with_trace` is not `TraceType.NONE` on the column.
 - `{name}__reasoning_content`: Created when `extract_reasoning_content=True` on the column.
 
-For detailed information on each column type, refer to the [column configuration code reference](/code-reference/topic-overviews/column-configs).
+For examples of column type usage, see the tutorials and recipe pages.

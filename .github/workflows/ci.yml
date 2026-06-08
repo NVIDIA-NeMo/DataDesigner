@@ -6,10 +6,29 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      expected_head_sha:
+        description: "Optional head SHA that this dispatched run must execute"
+        required: false
+        type: string
 
 permissions: {}
 
 jobs:
+  validate-dispatch:
+    name: Validate dispatched SHA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check expected SHA
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          if [ -n "$EXPECTED_HEAD_SHA" ] && [ "$GITHUB_SHA" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "::error::Workflow SHA ${GITHUB_SHA} does not match expected ${EXPECTED_HEAD_SHA}."
+            exit 1
+          fi
+          echo "Dispatch target SHA validated."
+
   # ===========================================================================
   # Independent Package Tests
   # Each package is tested in isolation to ensure proper dependency boundaries
@@ -17,12 +36,13 @@ jobs:
 
   test-config:
     name: Test Config (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    needs: validate-dispatch
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout code
@@ -48,12 +68,13 @@ jobs:
 
   test-engine:
     name: Test Engine (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    needs: validate-dispatch
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout code
@@ -79,12 +100,13 @@ jobs:
 
   test-interface:
     name: Test Interface (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    needs: validate-dispatch
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout code
@@ -119,6 +141,7 @@ jobs:
 
   coverage:
     name: Coverage Check (Python ${{ matrix.python-version }})
+    needs: validate-dispatch
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -156,12 +179,13 @@ jobs:
 
   test-e2e:
     name: End to end test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    needs: validate-dispatch
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout code
@@ -183,6 +207,7 @@ jobs:
 
   lint:
     name: Lint and Format Check
+    needs: validate-dispatch
     runs-on: ubuntu-latest
 
     steps:
@@ -207,6 +232,7 @@ jobs:
 
   license-headers:
     name: Check License Headers
+    needs: validate-dispatch
     runs-on: ubuntu-latest
 
     steps:
@@ -237,20 +263,22 @@ jobs:
   test-summary:
     name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ubuntu-latest
-    needs: [test-config, test-engine, test-interface]
+    needs: [validate-dispatch, test-config, test-engine, test-interface]
     if: always()
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Check all tests passed
         run: |
-          if [[ "${{ needs.test-config.result }}" != "success" ]] || \
+          if [[ "${{ needs.validate-dispatch.result }}" != "success" ]] || \
+             [[ "${{ needs.test-config.result }}" != "success" ]] || \
              [[ "${{ needs.test-engine.result }}" != "success" ]] || \
              [[ "${{ needs.test-interface.result }}" != "success" ]]; then
             echo "One or more test jobs failed"
+            echo "validate-dispatch: ${{ needs.validate-dispatch.result }}"
             echo "test-config: ${{ needs.test-config.result }}"
             echo "test-engine: ${{ needs.test-engine.result }}"
             echo "test-interface: ${{ needs.test-interface.result }}"

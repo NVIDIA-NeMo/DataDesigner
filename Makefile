@@ -80,8 +80,6 @@ help:
 	@echo "  generate-colab-notebooks  - Generate Colab-compatible notebooks"
 	@echo "  generate-fern-notebooks   - Convert docs/notebook_source/*.py → fern/components/notebooks/{json,ts}"
 	@echo "  generate-fern-notebooks-with-outputs - Full pipeline: execute notebooks (needs API key), colabify, convert to Fern"
-	@echo "  generate-fern-api-reference - Generate local Fern API reference with py2fern"
-	@echo "  generate-fern-api-reference-native - Generate Fern API reference with Fern CLI (requires auth)"
 	@echo "  install-docs-deps        - Install docs and notebook dependencies"
 	@echo "  prepare-fern-release VERSION=X.Y.Z - Add or refresh Fern version files for release preview"
 	@echo "  check-fern-release-version VERSION=X.Y.Z - Verify Fern has a version entry for release publishing"
@@ -467,22 +465,13 @@ update-license-headers:
 # DOCUMENTATION
 # ==============================================================================
 
-# Pin docs setup to a Python with prebuilt pyarrow wheels.
-# pyarrow doesn't yet ship wheels for Python 3.14+, so docs builds fall back to
-# a from-source compile (cmake + Apache Arrow C++) on those interpreters and fail.
+# Pin docs setup to a Python version covered by all docs/notebook deps. We
+# default to 3.13 to match the published docs builds; override with
+# DOCS_PYTHON_VERSION=... to test on another interpreter.
 DOCS_PYTHON_VERSION ?= 3.13
 DOCS_PYTHON ?= .venv/bin/python
 DOCS_JUPYTEXT ?= .venv/bin/jupytext
 DOCS_MKDOCS ?= .venv/bin/mkdocs
-DOCS_PY2FERN ?= .venv/bin/py2fern
-FERN_API_REFERENCE_OUTPUT ?= fern/code-reference
-FERN_API_REFERENCE_CONFIG_OUTPUT ?= $(FERN_API_REFERENCE_OUTPUT)/data-designer
-FERN_API_REFERENCE_CONFIG_SOURCE ?= packages/data-designer-config/src/data_designer/config
-FERN_API_REFERENCE_INTERFACE_SOURCE ?= packages/data-designer/src/data_designer/interface
-FERN_API_REFERENCE_ENGINE_COLUMN_GENERATORS_SOURCE ?= packages/data-designer-engine/src/data_designer/engine/column_generators/generators/base.py
-FERN_API_REFERENCE_ENGINE_MCP_SOURCE ?= packages/data-designer-engine/src/data_designer/engine/mcp
-FERN_API_REFERENCE_ENGINE_PROCESSORS_SOURCE ?= packages/data-designer-engine/src/data_designer/engine/processing/processors
-FERN_API_REFERENCE_ENGINE_SEED_READERS_SOURCE ?= packages/data-designer-engine/src/data_designer/engine/resources/seed_reader.py
 FERN_VERSION ?= $(shell jq -r .version fern/fern.config.json)
 FERN ?= npx -y fern-api@$(FERN_VERSION)
 
@@ -501,21 +490,6 @@ serve-docs-locally:
 	@echo "📝 Building and serving docs (Python $(DOCS_PYTHON_VERSION))..."
 	$(DOCS_MKDOCS) serve --livereload
 
-generate-fern-api-reference:
-	@echo "📚 Generating Fern API reference with py2fern ($(DOCS_PY2FERN))..."
-	@rm -rf $(FERN_API_REFERENCE_OUTPUT)
-	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_CONFIG_SOURCE) --module data_designer.config --output $(FERN_API_REFERENCE_CONFIG_OUTPUT) --clean
-	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_INTERFACE_SOURCE) --module data_designer.interface --output $(FERN_API_REFERENCE_OUTPUT)/interface --clean
-	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_ENGINE_COLUMN_GENERATORS_SOURCE) --module data_designer.engine.column_generators.generators.base --output $(FERN_API_REFERENCE_OUTPUT)/engine/column-generators --clean
-	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_ENGINE_MCP_SOURCE) --module data_designer.engine.mcp --output $(FERN_API_REFERENCE_OUTPUT)/engine/mcp --clean
-	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_ENGINE_PROCESSORS_SOURCE) --module data_designer.engine.processing.processors --output $(FERN_API_REFERENCE_OUTPUT)/engine/processors --clean
-	$(DOCS_PY2FERN) write $(FERN_API_REFERENCE_ENGINE_SEED_READERS_SOURCE) --module data_designer.engine.resources.seed_reader --output $(FERN_API_REFERENCE_OUTPUT)/engine/seed-readers --clean
-	$(DOCS_PYTHON) fern/scripts/normalize-py2fern-indexes.py $(FERN_API_REFERENCE_OUTPUT)
-
-generate-fern-api-reference-native:
-	@echo "📚 Generating Fern API reference with Fern CLI..."
-	cd fern && $(FERN) docs md generate
-
 prepare-fern-release:
 ifndef VERSION
 	$(error VERSION is required, e.g. make prepare-fern-release VERSION=0.5.10)
@@ -528,7 +502,7 @@ ifndef VERSION
 endif
 	$(DOCS_PYTHON) fern/scripts/fern-release-version.py check --version $(VERSION) $(if $(REQUIRE_LATEST),--require-latest-matches-release,)
 
-prepare-fern-docs: generate-fern-api-reference generate-fern-notebooks
+prepare-fern-docs: generate-fern-notebooks
 	@echo "✅ Fern local artifacts ready"
 
 check-fern-docs: prepare-fern-docs
@@ -759,7 +733,7 @@ clean-test-coverage:
         coverage coverage-config coverage-engine coverage-interface \
         format format-check format-check-config format-check-engine format-check-interface \
         format-config format-engine format-interface \
-        generate-colab-notebooks generate-fern-api-reference generate-fern-api-reference-native generate-fern-notebooks generate-fern-notebooks-with-outputs help \
+        generate-colab-notebooks generate-fern-notebooks generate-fern-notebooks-with-outputs help \
         install install-dev install-dev-notebooks install-dev-recipes install-docs-deps \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
         perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-docs-locally serve-fern-docs-locally show-versions \

@@ -8,9 +8,10 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import replace
 from typing import Any
 
-from data_designer.config.utils.image_helpers import (
+from data_designer.config.utils.media_helpers import (
     aload_image_url_to_base64,
     extract_base64_from_data_uri,
     is_base64_image,
@@ -18,11 +19,14 @@ from data_designer.config.utils.image_helpers import (
 )
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
+    ChatCompletionChoice,
     ChatCompletionResponse,
     ImagePayload,
     ToolCall,
     Usage,
 )
+from data_designer.engine.models.usage import TokenCountSource
+from data_designer.engine.utils.token_counting import count_text_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -33,33 +37,75 @@ logger = logging.getLogger(__name__)
 
 
 def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
-    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
-    message = get_value_from(first_choice, "message")
-    tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
-    images = extract_images_from_chat_message(message)
-    assistant_message = AssistantMessage(
-        content=coerce_message_content(get_value_from(message, "content")),
-        reasoning_content=extract_reasoning_content(message),
-        tool_calls=tool_calls,
-        images=images,
+    choices = [
+        parse_chat_completion_choice(choice) for choice in normalize_choice_list(get_value_from(response, "choices"))
+    ]
+    assistant_message = choices[0].message if choices else AssistantMessage()
+    generated_images = sum(len(choice.message.images) for choice in choices)
+    usage = extract_usage(
+        get_value_from(response, "usage"),
+        generated_images=generated_images if generated_images else None,
     )
-    usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
-    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
+    usage = fill_reasoning_token_count_from_content(usage, assistant_message.reasoning_content)
+    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response, choices=choices)
 
 
 async def aparse_chat_completion_response(response: Any) -> ChatCompletionResponse:
-    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
-    message = get_value_from(first_choice, "message")
-    tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
-    images = await aextract_images_from_chat_message(message)
-    assistant_message = AssistantMessage(
+    choices = [
+        await aparse_chat_completion_choice(choice)
+        for choice in normalize_choice_list(get_value_from(response, "choices"))
+    ]
+    assistant_message = choices[0].message if choices else AssistantMessage()
+    generated_images = sum(len(choice.message.images) for choice in choices)
+    usage = extract_usage(
+        get_value_from(response, "usage"),
+        generated_images=generated_images if generated_images else None,
+    )
+    usage = fill_reasoning_token_count_from_content(usage, assistant_message.reasoning_content)
+    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response, choices=choices)
+
+
+def normalize_choice_list(raw_choices: Any) -> list[Any]:
+    if raw_choices is None:
+        return []
+    if isinstance(raw_choices, list):
+        return raw_choices
+    return [raw_choices]
+
+
+def parse_chat_completion_choice(choice: Any) -> ChatCompletionChoice:
+    message = get_value_from(choice, "message")
+    return ChatCompletionChoice(
+        message=parse_assistant_message(message, images=extract_images_from_chat_message(message)),
+        index=parse_choice_index(get_value_from(choice, "index")),
+        finish_reason=parse_choice_finish_reason(get_value_from(choice, "finish_reason")),
+    )
+
+
+async def aparse_chat_completion_choice(choice: Any) -> ChatCompletionChoice:
+    message = get_value_from(choice, "message")
+    return ChatCompletionChoice(
+        message=parse_assistant_message(message, images=await aextract_images_from_chat_message(message)),
+        index=parse_choice_index(get_value_from(choice, "index")),
+        finish_reason=parse_choice_finish_reason(get_value_from(choice, "finish_reason")),
+    )
+
+
+def parse_assistant_message(message: Any, *, images: list[ImagePayload]) -> AssistantMessage:
+    return AssistantMessage(
         content=coerce_message_content(get_value_from(message, "content")),
         reasoning_content=extract_reasoning_content(message),
-        tool_calls=tool_calls,
+        tool_calls=extract_tool_calls(get_value_from(message, "tool_calls")),
         images=images,
     )
-    usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
-    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
+
+
+def parse_choice_index(index: Any) -> int | None:
+    return index if isinstance(index, int) else None
+
+
+def parse_choice_finish_reason(finish_reason: Any) -> str | None:
+    return finish_reason if isinstance(finish_reason, str) else None
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +306,7 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     input_tokens = get_value_from(raw_usage, "prompt_tokens")
     output_tokens = get_value_from(raw_usage, "completion_tokens")
     total_tokens = get_value_from(raw_usage, "total_tokens")
+    reasoning_token_count = extract_reasoning_token_count(raw_usage)
 
     if input_tokens is None:
         input_tokens = get_value_from(raw_usage, "input_tokens")
@@ -269,6 +316,7 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     input_tokens = coerce_to_int_or_none(input_tokens)
     output_tokens = coerce_to_int_or_none(output_tokens)
     total_tokens = coerce_to_int_or_none(total_tokens)
+    reasoning_token_count_source = TokenCountSource.PROVIDER if reasoning_token_count is not None else None
 
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
         total_tokens = input_tokens + output_tokens
@@ -280,14 +328,57 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
 
     generated_images = coerce_to_int_or_none(generated_images)
 
-    if input_tokens is None and output_tokens is None and total_tokens is None and generated_images is None:
+    if (
+        input_tokens is None
+        and output_tokens is None
+        and total_tokens is None
+        and reasoning_token_count is None
+        and generated_images is None
+    ):
         return None
 
     return Usage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
+        reasoning_tokens=reasoning_token_count,
+        reasoning_token_count_source=reasoning_token_count_source,
         generated_images=generated_images,
+    )
+
+
+def extract_reasoning_token_count(raw_usage: Any) -> int | None:
+    if raw_usage is None:
+        return None
+
+    top_level = get_value_from(raw_usage, "reasoning_tokens")
+    if top_level is not None:
+        return coerce_to_int_or_none(top_level)
+
+    for details_key in ("completion_tokens_details", "output_tokens_details"):
+        details = get_value_from(raw_usage, details_key)
+        reasoning_token_count = get_value_from(details, "reasoning_tokens")
+        if reasoning_token_count is not None:
+            return coerce_to_int_or_none(reasoning_token_count)
+
+    return None
+
+
+def fill_reasoning_token_count_from_content(usage: Usage | None, reasoning_content: str | None) -> Usage | None:
+    if usage is None:
+        return None
+    if usage.reasoning_tokens is not None or not reasoning_content:
+        return usage
+
+    try:
+        reasoning_token_count = count_text_tokens(reasoning_content)
+    except Exception:
+        logger.debug("Failed to estimate reasoning token count", exc_info=True)
+        return usage
+    return replace(
+        usage,
+        reasoning_tokens=reasoning_token_count,
+        reasoning_token_count_source=TokenCountSource.ESTIMATED,
     )
 
 

@@ -40,6 +40,7 @@ _LAZY_IMPORTS = {
     "jsonschema": "jsonschema",
     "PIL": "PIL",
     "Image": "PIL.Image",
+    "tiktoken": "tiktoken",
 }
 
 
