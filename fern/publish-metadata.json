@@ -1,12 +1,11 @@
 {
   "schema_version": 1,
   "kind": "fern-docs-website",
-  "action": "release-snapshot",
+  "action": "devnotes-patch",
   "source": {
     "repository": "NVIDIA-NeMo/DataDesigner",
-    "ref": "andreatgretel/docs/v0.6.1-no-personas-notebook",
-    "sha": "2c22a3e94bbaeed4bdef533ef2f3e7acf912139f"
+    "ref": "refs/heads/main",
+    "sha": "564ca1a5b759e047fc8cf657d7e0c8ca9d908583"
   },
-  "release_tag": "v0.6.1",
   "published_branch": "docs-website"
 }
