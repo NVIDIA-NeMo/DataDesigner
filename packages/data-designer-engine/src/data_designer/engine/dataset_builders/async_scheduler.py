@@ -961,9 +961,10 @@ class AsyncTaskScheduler:
             return "no_llm_wait_resource"
         llm_available = task_view.resources_available.get("llm_wait", 0)
         queued_llm = queue_view.queued_peer_demand_by_resource.get("llm_wait", 0)
+        llm_leased = task_view.leased_resources.get("llm_wait", 0)
         if llm_available <= 0:
             return "llm_wait_saturated"
-        if llm_available <= queued_llm and queue_view.queued_total > 0:
+        if llm_leased > 0 and llm_available <= queued_llm:
             return "queued_llm_demand"
         return None
 
@@ -988,7 +989,12 @@ class AsyncTaskScheduler:
             "admitted_rows": admitted_rows,
             "max_admitted_rows": self._adaptive_max_admitted_rows,
             "queued_total": queue_view.queued_total,
+            "queued_demand_by_resource": dict(queue_view.queued_peer_demand_by_resource),
             "queued_llm_wait_demand": queue_view.queued_peer_demand_by_resource.get("llm_wait", 0),
+            "in_flight_tasks": len(self._in_flight),
+            "resource_limits": dict(task_view.resource_limits),
+            "leased_resources": dict(task_view.leased_resources),
+            "resources_available": dict(task_view.resources_available),
             "llm_wait_limit": task_view.resource_limits.get("llm_wait", 0),
             "llm_wait_leased": task_view.leased_resources.get("llm_wait", 0),
             "llm_wait_available": task_view.resources_available.get("llm_wait", 0),

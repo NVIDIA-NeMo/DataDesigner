@@ -375,6 +375,9 @@ def _build_simple_pipeline(
     configs: list[SamplerColumnConfig | LLMTextColumnConfig | ExpressionColumnConfig] | None = None,
     strategies: dict[str, GenerationStrategy] | None = None,
     scheduler_event_sink: Any | None = None,
+    max_concurrent_row_groups: int = 3,
+    adaptive_row_group_admission: bool = False,
+    adaptive_row_group_initial_target: int = 1,
 ) -> tuple[AsyncTaskScheduler, CompletionTracker]:
     """Build a simple seed → cell pipeline for testing."""
     if configs is None:
@@ -412,8 +415,11 @@ def _build_simple_pipeline(
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
+        max_concurrent_row_groups=max_concurrent_row_groups,
         trace=trace,
         scheduler_event_sink=scheduler_event_sink,
+        adaptive_row_group_admission=adaptive_row_group_admission,
+        adaptive_row_group_initial_target=adaptive_row_group_initial_target,
     )
     return scheduler, tracker
 
@@ -3787,6 +3793,31 @@ def test_scheduler_adaptive_row_group_row_guard_blocks_extra_large_groups() -> N
     assert scheduler._row_group_row_guard_allows(9_000)
 
 
+def _stub_row_group_admission_resource_views(
+    scheduler: AsyncTaskScheduler,
+    *,
+    queued_total: int,
+    queued_llm: int,
+    llm_limit: int,
+    llm_available: int,
+    llm_leased: int,
+) -> None:
+    scheduler._fair_queue = SimpleNamespace(
+        view=lambda: SimpleNamespace(
+            queued_total=queued_total,
+            queued_by_group={},
+            queued_peer_demand_by_resource={"llm_wait": queued_llm} if queued_llm else {},
+        )
+    )
+    scheduler._task_admission = SimpleNamespace(
+        view=lambda: SimpleNamespace(
+            resource_limits={"llm_wait": llm_limit},
+            resources_available={"llm_wait": llm_available},
+            leased_resources={"llm_wait": llm_leased} if llm_leased else {},
+        )
+    )
+
+
 def test_scheduler_adaptive_row_group_block_reason_prefers_llm_saturation() -> None:
     provider = _mock_provider()
     configs = [
@@ -3816,14 +3847,132 @@ def test_scheduler_adaptive_row_group_block_reason_prefers_llm_saturation() -> N
         num_records=2,
         buffer_size=1,
     )
-    scheduler._fair_queue = SimpleNamespace(
-        view=lambda: SimpleNamespace(queued_total=1, queued_peer_demand_by_resource={})
-    )
-    scheduler._task_admission = SimpleNamespace(
-        view=lambda: SimpleNamespace(resource_limits={"llm_wait": 1}, resources_available={"llm_wait": 0})
+    _stub_row_group_admission_resource_views(
+        scheduler,
+        queued_total=1,
+        queued_llm=0,
+        llm_limit=1,
+        llm_available=0,
+        llm_leased=1,
     )
 
     assert scheduler._adaptive_row_group_block_reason() == "llm_wait_saturated"
+
+
+def test_scheduler_adaptive_row_group_block_reason_allows_zero_llm_lease_bootstrap() -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=2, buffer_size=1)
+    _stub_row_group_admission_resource_views(
+        scheduler,
+        queued_total=3,
+        queued_llm=3,
+        llm_limit=3,
+        llm_available=3,
+        llm_leased=0,
+    )
+
+    assert scheduler._adaptive_row_group_block_reason() is None
+
+
+def test_scheduler_adaptive_row_group_block_reason_blocks_queued_llm_demand_after_bootstrap() -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=2, buffer_size=1)
+    _stub_row_group_admission_resource_views(
+        scheduler,
+        queued_total=3,
+        queued_llm=3,
+        llm_limit=4,
+        llm_available=3,
+        llm_leased=1,
+    )
+
+    assert scheduler._adaptive_row_group_block_reason() == "queued_llm_demand"
+
+
+def test_scheduler_row_group_admission_diagnostics_include_resource_state_for_events() -> None:
+    class ExplodingRequestPressureProvider:
+        def snapshots(self) -> None:
+            raise AssertionError("request pressure diagnostics should not be captured")
+
+        def global_snapshots(self) -> None:
+            raise AssertionError("request pressure diagnostics should not be captured")
+
+    scheduler, _tracker = _build_simple_pipeline(
+        num_records=2,
+        buffer_size=1,
+    )
+    scheduler._request_pressure_provider = ExplodingRequestPressureProvider()
+    _stub_row_group_admission_resource_views(
+        scheduler,
+        queued_total=3,
+        queued_llm=3,
+        llm_limit=4,
+        llm_available=3,
+        llm_leased=1,
+    )
+    scheduler._in_flight.add(Task(column="cell_out", row_group=0, row_index=0, task_type="cell"))
+
+    diagnostics = scheduler._row_group_admission_diagnostics(reason="queued_llm_demand")
+
+    assert diagnostics["queued_demand_by_resource"] == {"llm_wait": 3}
+    assert diagnostics["resource_limits"] == {"llm_wait": 4}
+    assert diagnostics["leased_resources"] == {"llm_wait": 1}
+    assert diagnostics["resources_available"] == {"llm_wait": 3}
+    assert diagnostics["in_flight_tasks"] == 1
+    assert "request_pressure" not in diagnostics
+
+
+def test_scheduler_adaptive_row_group_target_grows_for_zero_llm_lease_bootstrap() -> None:
+    scheduler, _tracker = _build_simple_pipeline(
+        num_records=2,
+        buffer_size=1,
+        scheduler_event_sink=(sink := InMemoryAdmissionEventSink()),
+        max_concurrent_row_groups=2,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1)
+    _stub_row_group_admission_resource_views(
+        scheduler,
+        queued_total=3,
+        queued_llm=3,
+        llm_limit=3,
+        llm_available=3,
+        llm_leased=0,
+    )
+
+    scheduler._maybe_update_adaptive_row_group_target()
+    assert scheduler._row_group_admission_target == 1
+
+    scheduler._maybe_update_adaptive_row_group_target()
+
+    assert scheduler._row_group_admission_target == 2
+    assert any(event.event_kind == "row_group_admission_target_changed" for event in sink.scheduler_events)
+
+
+def test_scheduler_adaptive_row_group_target_stays_blocked_after_llm_lease_bootstrap() -> None:
+    scheduler, _tracker = _build_simple_pipeline(
+        num_records=2,
+        buffer_size=1,
+        scheduler_event_sink=(sink := InMemoryAdmissionEventSink()),
+        max_concurrent_row_groups=2,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1)
+    _stub_row_group_admission_resource_views(
+        scheduler,
+        queued_total=3,
+        queued_llm=3,
+        llm_limit=4,
+        llm_available=3,
+        llm_leased=1,
+    )
+
+    scheduler._maybe_update_adaptive_row_group_target()
+    scheduler._maybe_update_adaptive_row_group_target()
+
+    assert scheduler._row_group_admission_target == 1
+    assert not any(event.event_kind == "row_group_admission_target_changed" for event in sink.scheduler_events)
+    assert scheduler._row_group_admission_blocked_reasons["queued_llm_demand"] == 2
 
 
 def test_scheduler_adaptive_row_group_queue_guard_uses_in_flight_task_cap() -> None:

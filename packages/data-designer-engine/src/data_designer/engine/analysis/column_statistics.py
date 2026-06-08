@@ -73,7 +73,11 @@ class GeneralColumnStatisticsCalculator(BaseModel):
 
 class LLMTextColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):
     def calculate_token_stats(self) -> dict[str, Any]:
-        return calculate_token_stats(self.column_config, self.df)
+        return calculate_token_stats(
+            self.column_config,
+            self.df,
+            jinja_rendering_engine=self.column_config_with_df.jinja_rendering_engine,
+        )
 
 
 class LLMCodeColumnStatisticsCalculator(LLMTextColumnStatisticsCalculator): ...
