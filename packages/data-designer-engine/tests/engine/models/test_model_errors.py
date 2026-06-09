@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import re
 from typing import Any
 from unittest.mock import MagicMock
@@ -22,6 +24,7 @@ from data_designer.engine.models.errors import (
     ModelPermissionDeniedError,
     ModelQuotaExceededError,
     ModelRateLimitError,
+    ModelRequestAdmissionTimeoutError,
     ModelTimeoutError,
     ModelUnprocessableEntityError,
     ModelUnsupportedCapabilityError,
@@ -130,6 +133,14 @@ stub_purpose = "running generation for column 'test'"
         ),
         (
             ProviderError(
+                kind=ProviderErrorKind.REQUEST_ADMISSION_TIMEOUT,
+                message="Request admission failed",
+            ),
+            ModelRequestAdmissionTimeoutError,
+            f"Cause: Local request admission for model '{stub_model_name}' timed out while {stub_purpose}; the provider request was not sent.",
+        ),
+        (
+            ProviderError(
                 kind=ProviderErrorKind.NOT_FOUND,
                 message="Model not found",
                 status_code=404,
@@ -202,6 +213,7 @@ stub_purpose = "running generation for column 'test'"
         "authentication",
         "api_connection",
         "timeout",
+        "request_admission_timeout",
         "not_found",
         "internal_server",
         "unprocessable_entity",

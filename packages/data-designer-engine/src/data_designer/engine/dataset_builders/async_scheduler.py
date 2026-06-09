@@ -28,9 +28,15 @@ from data_designer.engine.capacity import (
 from data_designer.engine.context import current_row_group, current_row_group_start_offset
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.row_group_plan import (
+    RowGroupInput,
+    RowGroupPlanLike,
+    normalize_row_group_plan,
+)
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.scheduling.queue import (
     FairTaskQueue,
+    QueueView,
 )
 from data_designer.engine.dataset_builders.scheduling.resolver import TaskSchedulingResolver
 from data_designer.engine.dataset_builders.scheduling.resources import (
@@ -63,6 +69,7 @@ from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
     GenerationValidationFailureError,
     ModelRateLimitError,
+    ModelRequestAdmissionTimeoutError,
 )
 from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 from data_designer.engine.models.request_admission.resources import RequestResourceKey
@@ -83,8 +90,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MODEL_GROUP_ADMISSION_BACKLOG_MULTIPLIER: int = 2
-RATE_LIMIT_RESALVAGE_BACKOFF_S: float = 0.05
-RATE_LIMIT_PRESERVATION_WARNING_INTERVAL: int = 10
+RETRYABLE_RESALVAGE_BACKOFF_S: float = 0.05
+PRESERVED_RETRYABLE_WARNING_INTERVAL: int = 10
+PRESERVED_RETRYABLE_ERRORS: tuple[type[BaseException], ...] = (
+    ModelRateLimitError,
+    ModelRequestAdmissionTimeoutError,
+)
 
 # Degraded-provider WARN: emit at most one warning per interval when the
 # rolling fraction of retryable errors exceeds the threshold. Distinct from
@@ -146,7 +157,7 @@ class AsyncTaskScheduler:
         generators: dict[str, ColumnGenerator],
         graph: ExecutionGraph,
         tracker: CompletionTracker,
-        row_groups: list[tuple[int, int]],
+        row_groups: RowGroupInput,
         buffer_manager: RowGroupBufferManager | None = None,
         *,
         max_concurrent_row_groups: int = 3,
@@ -170,7 +181,6 @@ class AsyncTaskScheduler:
         progress_bar: bool = False,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
         run_id: str | None = None,
-        row_group_start_offsets: dict[int, int] | None = None,
         initial_completed_records: int = 0,
         adaptive_row_group_admission: bool = False,
         adaptive_row_group_initial_target: int = 1,
@@ -180,7 +190,7 @@ class AsyncTaskScheduler:
         self._generators = generators
         self._graph = graph
         self._tracker = tracker
-        self._row_groups = row_groups
+        self._row_groups: RowGroupPlanLike = normalize_row_group_plan(row_groups)
         self._buffer_manager = buffer_manager
 
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
@@ -190,9 +200,13 @@ class AsyncTaskScheduler:
             model_group_limit_multiplier=MODEL_GROUP_ADMISSION_BACKLOG_MULTIPLIER,
             model_group_limit_cap=max_model_task_admission,
         )
+        task_resource_limits = {
+            "llm_wait": max_model_task_admission,
+            **self._task_scheduling.request_resource_limits,
+        }
         admission_config = task_admission_config or TaskAdmissionConfig(
             submission_capacity=max_in_flight_tasks,
-            resource_limits={"llm_wait": max_model_task_admission},
+            resource_limits=task_resource_limits,
             bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(),
         )
         self._task_admission = TaskAdmissionController(admission_config)
@@ -252,8 +266,8 @@ class AsyncTaskScheduler:
         # Deferred retryable failures (retried in salvage rounds)
         self._deferred: list[Task] = []
         self._deferred_errors: dict[Task, Exception] = {}
-        self._rate_limit_preservation_counts: Counter[Task] = Counter()
-        self._rate_limit_preservation_log_state: dict[int, tuple[int, int]] = {}
+        self._preserved_retryable_counts: Counter[Task] = Counter()
+        self._preserved_retryable_log_state: dict[int, tuple[int, int]] = {}
 
         # Tracing
         self._trace = trace
@@ -288,17 +302,12 @@ class AsyncTaskScheduler:
         self._first_non_retryable_error: Exception | None = None
         self._fatal_worker_error: BaseException | None = None
 
-        # Pre-compute row-group sizes for O(1) lookup
-        self._rg_size_map: dict[int, int] = dict(row_groups)
-        self._rg_start_offset_map: dict[int, int] = row_group_start_offsets or self._build_row_group_start_offsets(
-            row_groups
-        )
         self._max_concurrent_row_groups = max_concurrent_row_groups
         self._max_in_flight_tasks = max_in_flight_tasks
         self._max_model_task_admission = max_model_task_admission
         self._num_records = num_records
         self._buffer_size = buffer_size
-        self._scheduled_records = sum(size for _, size in row_groups)
+        self._scheduled_records = self._row_groups.scheduled_total_rows
         self._initial_completed_records = initial_completed_records
         self._observed_max_row_groups_in_flight = 0
         self._observed_max_task_leases_by_resource: dict[str, int] = {}
@@ -330,15 +339,6 @@ class AsyncTaskScheduler:
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
         self._progress_bar = StickyProgressBar() if progress_bar else None
         self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
-
-    @staticmethod
-    def _build_row_group_start_offsets(row_groups: list[tuple[int, int]]) -> dict[int, int]:
-        offsets: dict[int, int] = {}
-        next_offset = 0
-        for rg_id, rg_size in row_groups:
-            offsets[rg_id] = next_offset
-            next_offset += rg_size
-        return offsets
 
     def _setup_async_progress_reporter(
         self,
@@ -497,6 +497,8 @@ class AsyncTaskScheduler:
             )
 
     def _emit_scheduler_health_snapshot(self, reason: str) -> None:
+        if self._scheduler_event_sink is None:
+            return
         self._emit_scheduler_event(
             "scheduler_health_snapshot",
             diagnostics=self._scheduler_health_diagnostics(reason=reason),
@@ -531,7 +533,6 @@ class AsyncTaskScheduler:
         }
 
     def _scheduler_job_diagnostics(self) -> dict[str, object]:
-        row_group_sizes = [size for _rg_id, size in self._row_groups]
         strategies = {column: self._graph.get_strategy(column).value for column in self._graph.columns}
         task_count_by_strategy = Counter(strategies.values())
         return {
@@ -539,9 +540,9 @@ class AsyncTaskScheduler:
             "num_records": self._num_records,
             "buffer_size": self._buffer_size,
             "row_group_count": len(self._row_groups),
-            "row_group_total_rows": sum(row_group_sizes),
-            "row_group_min_size": min(row_group_sizes, default=0),
-            "row_group_max_size": max(row_group_sizes, default=0),
+            "row_group_total_rows": self._row_groups.scheduled_total_rows,
+            "row_group_min_size": self._row_groups.row_group_min_size,
+            "row_group_max_size": self._row_groups.row_group_max_size,
             "graph_column_count": len(self._graph.columns),
             "graph_root_columns": tuple(self._graph.get_root_columns()),
             "graph_depth": len(self._graph.get_longest_dependency_chain()),
@@ -606,7 +607,11 @@ class AsyncTaskScheduler:
             },
         }
 
-    def _request_pressure_item_diagnostics(self, item: SchedulableTask) -> dict[str, object]:
+    def _request_pressure_item_diagnostics(
+        self,
+        item: SchedulableTask,
+        pressure_reason: str | None = None,
+    ) -> dict[str, object]:
         if item.request_resource_key is None or self._request_pressure_provider is None:
             return {"request_resource": None}
         snapshot = self._request_pressure_provider.snapshot(item.request_resource_key)
@@ -616,7 +621,7 @@ class AsyncTaskScheduler:
         )
         diagnostics: dict[str, object] = {
             "request_resource": _request_resource_label(item.request_resource_key),
-            "pressure_reason": self._request_pressure_reason(item),
+            "pressure_reason": pressure_reason if pressure_reason is not None else self._request_pressure_reason(item),
             "resource_snapshot": None,
             "provider_model_snapshot": None,
         }
@@ -711,12 +716,12 @@ class AsyncTaskScheduler:
             selection = self._fair_queue.select_next(self._is_dispatch_eligible)
             if selection is None:
                 summary = self._task_admission.explain_blocked(self._fair_queue.view())
-                if "group_cap" in summary.dominant_denial_reasons:
-                    event_kind = "group_capped"
-                elif summary.dominant_denial_reasons:
-                    event_kind = "admission_blocked"
-                else:
+                if summary.queued_count == 0:
                     event_kind = "queue_empty"
+                elif "group_cap" in summary.dominant_denial_reasons:
+                    event_kind = "group_capped"
+                else:
+                    event_kind = "admission_blocked"
                 self._emit_scheduler_event(
                     event_kind,
                     diagnostics={
@@ -759,7 +764,11 @@ class AsyncTaskScheduler:
             self._emit_scheduler_health_snapshot("queue_drained")
         return _DispatchOutcome(dispatched=dispatched)
 
-    def _is_dispatch_eligible(self, item: SchedulableTask, view: Any) -> bool:
+    def _is_dispatch_eligible(
+        self,
+        item: SchedulableTask,
+        view: QueueView,
+    ) -> bool:
         if not self._task_admission.is_eligible(item, view):
             return False
         if not self._request_pressure_advisory:
@@ -786,7 +795,10 @@ class AsyncTaskScheduler:
     def _is_request_pressure_limited(self, item: SchedulableTask) -> bool:
         return self._request_pressure_reason(item) is not None
 
-    def _request_pressure_reason(self, item: SchedulableTask) -> str | None:
+    def _request_pressure_reason(
+        self,
+        item: SchedulableTask,
+    ) -> str | None:
         if item.request_resource_key is None or self._request_pressure_provider is None:
             return None
         snapshot = self._request_pressure_provider.snapshot(item.request_resource_key)
@@ -794,11 +806,12 @@ class AsyncTaskScheduler:
             item.request_resource_key.provider_name,
             item.request_resource_key.model_id,
         )
-        if (
+        provider_model_limited = (
             global_snapshot is not None
             and global_snapshot.static_cap > 0
             and global_snapshot.aggregate_in_flight >= global_snapshot.static_cap
-        ):
+        )
+        if provider_model_limited:
             return "provider_model_aggregate_cap"
         if snapshot is None:
             return None
@@ -810,10 +823,11 @@ class AsyncTaskScheduler:
             return "resource_limit"
         return None
 
-    def _has_request_pressure_open_peer(self, item: SchedulableTask, view: Any) -> bool:
-        return self._request_pressure_open_peer(item, view) is not None
-
-    def _request_pressure_open_peer(self, item: SchedulableTask, view: Any) -> SchedulableTask | None:
+    def _request_pressure_open_peer(
+        self,
+        item: SchedulableTask,
+        view: QueueView,
+    ) -> SchedulableTask | None:
         for peer in view.first_candidate_tasks_by_group.values():
             if peer.task_id == item.task_id:
                 continue
@@ -859,8 +873,7 @@ class AsyncTaskScheduler:
     def _max_admitted_rows_guardrail(self) -> int:
         if self._num_records > 0 and self._buffer_size > 0:
             return min(self._num_records, max(3 * self._buffer_size, 8192))
-        total_rows = sum(size for _rg_id, size in self._row_groups)
-        return max(1, total_rows)
+        return max(1, self._row_groups.scheduled_total_rows)
 
     async def _wait_for_row_group_admission_capacity(self, row_group_size: int) -> None:
         while True:
@@ -948,9 +961,10 @@ class AsyncTaskScheduler:
             return "no_llm_wait_resource"
         llm_available = task_view.resources_available.get("llm_wait", 0)
         queued_llm = queue_view.queued_peer_demand_by_resource.get("llm_wait", 0)
+        llm_leased = task_view.leased_resources.get("llm_wait", 0)
         if llm_available <= 0:
             return "llm_wait_saturated"
-        if llm_available <= queued_llm and queue_view.queued_total > 0:
+        if llm_leased > 0 and llm_available <= queued_llm:
             return "queued_llm_demand"
         return None
 
@@ -975,7 +989,12 @@ class AsyncTaskScheduler:
             "admitted_rows": admitted_rows,
             "max_admitted_rows": self._adaptive_max_admitted_rows,
             "queued_total": queue_view.queued_total,
+            "queued_demand_by_resource": dict(queue_view.queued_peer_demand_by_resource),
             "queued_llm_wait_demand": queue_view.queued_peer_demand_by_resource.get("llm_wait", 0),
+            "in_flight_tasks": len(self._in_flight),
+            "resource_limits": dict(task_view.resource_limits),
+            "leased_resources": dict(task_view.leased_resources),
+            "resources_available": dict(task_view.resources_available),
             "llm_wait_limit": task_view.resource_limits.get("llm_wait", 0),
             "llm_wait_leased": task_view.leased_resources.get("llm_wait", 0),
             "llm_wait_available": task_view.resources_available.get("llm_wait", 0),
@@ -1091,8 +1110,8 @@ class AsyncTaskScheduler:
                 if self._deferred:
                     await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
                 self._checkpoint_completed_row_groups(all_columns)
-                if self._has_rate_limited_deferred_tasks():
-                    await self._wait_before_rate_limit_resalvage()
+                if self._has_preserved_retryable_deferred_tasks():
+                    await self._wait_before_retryable_resalvage()
                     continue
                 break
 
@@ -1102,6 +1121,8 @@ class AsyncTaskScheduler:
                 self._run_seeds_complete_check(seed_cols)
 
             dispatch_outcome = self._dispatch_queued_tasks()
+            if dispatch_outcome.dispatched:
+                await asyncio.sleep(0)
 
             self._checkpoint_completed_row_groups(all_columns)
             self._maybe_update_adaptive_row_group_target()
@@ -1113,7 +1134,7 @@ class AsyncTaskScheduler:
                 await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
                 self._maybe_update_adaptive_row_group_target()
                 if self._deferred and not self._in_flight:
-                    await self._wait_before_rate_limit_resalvage()
+                    await self._wait_before_retryable_resalvage()
                     continue
 
             # Are we done?
@@ -1185,6 +1206,8 @@ class AsyncTaskScheduler:
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
             dispatch_outcome = self._dispatch_queued_tasks()
+            if dispatch_outcome.dispatched:
+                await asyncio.sleep(0)
             has_queued = self._fair_queue.has_queued_tasks
             if not has_queued and not self._in_flight:
                 break
@@ -1222,7 +1245,7 @@ class AsyncTaskScheduler:
         width = len(str(num_rgs))
         for rg_id in sorted(stalled_rgs):
             rg_deferred = [t for t in self._deferred if t.row_group == rg_id]
-            if not all(self._is_preserved_rate_limit_task(task) for task in rg_deferred):
+            if not all(self._is_preserved_retryable_task(task) for task in rg_deferred):
                 logger.info(f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Salvaging {len(rg_deferred)} deferred task(s)")
 
         # Partition deferred into stalled (retry now) and other (keep for later).
@@ -1235,7 +1258,7 @@ class AsyncTaskScheduler:
         exhausted = [t for t in self._deferred if t.row_group in stalled_rgs]
         newly_deferred = [t for t in self._deferred if t.row_group not in stalled_rgs]
         for task in exhausted:
-            if self._is_rate_limit_error(self._deferred_errors.get(task)):
+            if self._is_preserved_retryable_error(self._deferred_errors.get(task)):
                 continue
             # If the row was already dropped by an earlier task in this loop,
             # the skip was already counted; don't also record a failure.
@@ -1248,29 +1271,29 @@ class AsyncTaskScheduler:
                 rg_size = self._get_rg_size(task.row_group)
                 self._drop_row_group(task.row_group, rg_size, exclude_columns={task.column})
             self._deferred_errors.pop(task, None)
-            self._rate_limit_preservation_counts.pop(task, None)
-        rate_limited_exhausted = [
-            task for task in exhausted if self._is_rate_limit_error(self._deferred_errors.get(task))
+            self._preserved_retryable_counts.pop(task, None)
+        preserved_exhausted = [
+            task for task in exhausted if self._is_preserved_retryable_error(self._deferred_errors.get(task))
         ]
-        if rate_limited_exhausted:
-            self._record_rate_limit_preservations(rate_limited_exhausted, num_rgs, width)
-        self._deferred = other_deferred + newly_deferred + rate_limited_exhausted
+        if preserved_exhausted:
+            self._record_preserved_retryables(preserved_exhausted, num_rgs, width)
+        self._deferred = other_deferred + newly_deferred + preserved_exhausted
         self._checkpoint_completed_row_groups(all_columns)
 
-    async def _wait_before_rate_limit_resalvage(self) -> None:
-        """Pace repeated 429-only salvage cycles to avoid a hot loop."""
+    async def _wait_before_retryable_resalvage(self) -> None:
+        """Pace repeated preserved retryable salvage cycles to avoid a hot loop."""
         self._wake_event.clear()
         with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(self._wake_event.wait(), timeout=self._rate_limit_resalvage_delay_seconds())
+            await asyncio.wait_for(self._wake_event.wait(), timeout=self._retryable_resalvage_delay_seconds())
         self._raise_if_fatal_worker_error()
 
-    def _rate_limit_resalvage_delay_seconds(self) -> float:
+    def _retryable_resalvage_delay_seconds(self) -> float:
         if self._request_pressure_provider is None:
-            return RATE_LIMIT_RESALVAGE_BACKOFF_S
+            return RETRYABLE_RESALVAGE_BACKOFF_S
 
         cooldowns = []
         for task in self._deferred:
-            if not self._is_rate_limit_error(self._deferred_errors.get(task)):
+            if not self._is_preserved_retryable_error(self._deferred_errors.get(task)):
                 continue
             resource = self._schedulable_task(task).request_resource_key
             if resource is None:
@@ -1279,44 +1302,41 @@ class AsyncTaskScheduler:
             if snapshot is not None and snapshot.cooldown_remaining_seconds > 0.0:
                 cooldowns.append(snapshot.cooldown_remaining_seconds)
         if not cooldowns:
-            return RATE_LIMIT_RESALVAGE_BACKOFF_S
-        return max(RATE_LIMIT_RESALVAGE_BACKOFF_S, min(cooldowns))
+            return RETRYABLE_RESALVAGE_BACKOFF_S
+        return max(RETRYABLE_RESALVAGE_BACKOFF_S, min(cooldowns))
 
-    def _record_rate_limit_preservations(self, tasks: list[Task], num_rgs: int, width: int) -> None:
+    def _record_preserved_retryables(self, tasks: list[Task], num_rgs: int, width: int) -> None:
         by_rg: defaultdict[int, list[Task]] = defaultdict(list)
         for task in tasks:
-            self._rate_limit_preservation_counts[task] += 1
+            self._preserved_retryable_counts[task] += 1
             by_rg[task.row_group].append(task)
 
         for rg_id, rg_tasks in sorted(by_rg.items()):
             count = len(rg_tasks)
-            max_preservations = max(self._rate_limit_preservation_counts[task] for task in rg_tasks)
-            warning_bucket = max_preservations // RATE_LIMIT_PRESERVATION_WARNING_INTERVAL
-            last_count, last_warning_bucket = self._rate_limit_preservation_log_state.get(rg_id, (-1, -1))
+            max_preservations = max(self._preserved_retryable_counts[task] for task in rg_tasks)
+            warning_bucket = max_preservations // PRESERVED_RETRYABLE_WARNING_INTERVAL
+            last_count, last_warning_bucket = self._preserved_retryable_log_state.get(rg_id, (-1, -1))
 
-            if (
-                max_preservations % RATE_LIMIT_PRESERVATION_WARNING_INTERVAL == 0
-                and warning_bucket > last_warning_bucket
-            ):
+            if max_preservations % PRESERVED_RETRYABLE_WARNING_INTERVAL == 0 and warning_bucket > last_warning_bucket:
                 logger.warning(
-                    f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Preserving {count} rate-limited task(s) after "
+                    f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Preserving {count} retryable task(s) after "
                     f"{max_preservations} deferred salvage cycle(s); records will keep retrying."
                 )
-                self._rate_limit_preservation_log_state[rg_id] = (count, warning_bucket)
+                self._preserved_retryable_log_state[rg_id] = (count, warning_bucket)
             elif count != last_count:
                 logger.info(
-                    f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Preserving {count} rate-limited task(s); "
+                    f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Preserving {count} retryable task(s); "
                     "records will keep retrying."
                 )
-                self._rate_limit_preservation_log_state[rg_id] = (count, last_warning_bucket)
+                self._preserved_retryable_log_state[rg_id] = (count, last_warning_bucket)
 
-    def _is_preserved_rate_limit_task(self, task: Task) -> bool:
-        return self._rate_limit_preservation_counts.get(task, 0) > 0 and self._is_rate_limit_error(
+    def _is_preserved_retryable_task(self, task: Task) -> bool:
+        return self._preserved_retryable_counts.get(task, 0) > 0 and self._is_preserved_retryable_error(
             self._deferred_errors.get(task)
         )
 
-    def _has_rate_limited_deferred_tasks(self) -> bool:
-        return any(self._is_rate_limit_error(self._deferred_errors.get(task)) for task in self._deferred)
+    def _has_preserved_retryable_deferred_tasks(self) -> bool:
+        return any(self._is_preserved_retryable_error(self._deferred_errors.get(task)) for task in self._deferred)
 
     def _checkpoint_completed_row_groups(self, all_columns: list[str]) -> None:
         """Checkpoint any row groups that reached completion."""
@@ -1380,16 +1400,16 @@ class AsyncTaskScheduler:
             self._deferred_errors = {
                 task: exc for task, exc in self._deferred_errors.items() if task.row_group not in checkpointed
             }
-            self._rate_limit_preservation_counts = Counter(
+            self._preserved_retryable_counts = Counter(
                 {
                     task: count
-                    for task, count in self._rate_limit_preservation_counts.items()
+                    for task, count in self._preserved_retryable_counts.items()
                     if task.row_group not in checkpointed
                 }
             )
-            self._rate_limit_preservation_log_state = {
+            self._preserved_retryable_log_state = {
                 row_group: state
-                for row_group, state in self._rate_limit_preservation_log_state.items()
+                for row_group, state in self._preserved_retryable_log_state.items()
                 if row_group not in checkpointed
             }
             for rg_id in checkpointed:
@@ -1543,7 +1563,7 @@ class AsyncTaskScheduler:
         seed_cols = self._seed_cols
         if not seed_cols:
             return
-        num_rgs = len(self._rg_size_map)
+        num_rgs = len(self._row_groups)
         width = len(str(num_rgs))
         logger.info(f"🚀 ({rg_id + 1:0{width}d}/{num_rgs}) Dispatching with {rg_size} records")
         seen_instances: set[int] = set()
@@ -1567,7 +1587,7 @@ class AsyncTaskScheduler:
         """Core task execution logic."""
         num_rgs = len(self._row_groups)
         token = current_row_group.set((task.row_group, num_rgs))
-        start_offset_token = current_row_group_start_offset.set(self._rg_start_offset_map.get(task.row_group))
+        start_offset_token = current_row_group_start_offset.set(self._get_rg_start_offset(task.row_group))
         group = lease.item.group
         identity_hash = hashlib.sha1("\0".join(group.key.identity).encode()).hexdigest()[:16]
         correlation_token = runtime_correlation_provider.set(
@@ -1736,7 +1756,7 @@ class AsyncTaskScheduler:
                 self._dispatched.discard(task)
             if not retryable:
                 self._deferred_errors.pop(task, None)
-                self._rate_limit_preservation_counts.pop(task, None)
+                self._preserved_retryable_counts.pop(task, None)
             if stateful_lock_acquired:
                 self._stateful_locks[id(generator)].release()
             release_result = self._task_admission.release(lease)
@@ -1961,9 +1981,15 @@ class AsyncTaskScheduler:
 
     def _get_rg_size(self, row_group: int) -> int:
         try:
-            return self._rg_size_map[row_group]
+            return self._row_groups.row_group_size(row_group)
         except KeyError:
             raise ValueError(f"Unknown row group: {row_group}") from None
+
+    def _get_rg_start_offset(self, row_group: int) -> int | None:
+        try:
+            return self._row_groups.row_group_start_offset(row_group)
+        except KeyError:
+            return None
 
     def task_admission_snapshot(self) -> object:
         """Return the current scheduler task-admission snapshot for diagnostics."""
@@ -2108,8 +2134,8 @@ class AsyncTaskScheduler:
         return isinstance(exc, RETRYABLE_MODEL_ERRORS)
 
     @staticmethod
-    def _is_rate_limit_error(exc: BaseException | None) -> bool:
-        return isinstance(exc, ModelRateLimitError)
+    def _is_preserved_retryable_error(exc: BaseException | None) -> bool:
+        return isinstance(exc, PRESERVED_RETRYABLE_ERRORS)
 
     @staticmethod
     def _is_expected_non_retryable(exc: BaseException) -> bool:

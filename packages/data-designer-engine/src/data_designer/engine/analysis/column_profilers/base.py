@@ -12,6 +12,7 @@ from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
 from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.configurable_task import ConfigurableTask, TaskConfigT
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 class ColumnConfigWithDataFrame(ConfigBase):
     column_config: SingleColumnConfig
     df: pd.DataFrame
+    jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.SECURE
 
     @model_validator(mode="after")
     def validate_column_exists(self) -> Self:

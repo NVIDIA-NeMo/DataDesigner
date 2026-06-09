@@ -20,7 +20,7 @@ The [Nemotron-Personas HF collection](https://huggingface.co/collections/nvidia/
 
 <!-- more -->
 
-> **Want to dive straight into code?** Open the [tutorial notebook in Colab](https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb) — or read on for the full story.
+> **Want to dive straight into code?** Open the [companion Colab notebook](https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb) — or read on for the full story.
 
 <p align="center">
   <img src="assets/nemotron-personas/nemotron-personas-world-map.png" alt="Nemotron-Personas collection" width="900" />
@@ -299,7 +299,7 @@ The system prompt contains explicit guardrails: include the name in every descri
 
 The released artifact is the *general-purpose* collection. In practice, most downstream pipelines that use these personas extend them in some way. NeMo Data Designer makes that trivial: the same `LLMStructuredColumnConfig` + `ExpressionColumnConfig` pattern that builds the released schema can be used to layer on any custom dimension you need.
 
-The accompanying [Data Designer Tutorial: Reproducing & Customizing Nemotron-Personas](#try-it-yourself) walks through a concrete example. After reproducing the released schema with a `PersonSampler` against the NGC-hosted dataset, the tutorial adds a custom `tech_persona` dimension with two new fields: a prose description of the persona's relationship with technology, plus a list of specific tech tools they use:
+The accompanying [companion Colab notebook](#try-it-yourself) walks through a concrete example. After reproducing the released schema with a `PersonSampler` against the NGC-hosted dataset, the notebook adds a custom `tech_persona` dimension with two new fields: a prose description of the persona's relationship with technology, plus a list of specific tech tools they use:
 
 ```python
 import data_designer.config as dd
@@ -357,7 +357,7 @@ config_builder.add_column(dd.ExpressionColumnConfig(name="tech_persona", expr="{
 config_builder.add_column(dd.ExpressionColumnConfig(name="tech_tools", expr="{{ custom_persona.tech_tools }}"))
 ```
 
-A representative output from the tutorial run:
+A representative output from the Colab run:
 
 ```text
 tech_persona  Megan pragmatically adopts mainstream tech, seamlessly weaving AI assistants
@@ -372,13 +372,13 @@ A few lines of Pydantic + one LLM column + a couple of expression columns and th
 
 ### Going deeper: build a brand-new locale
 
-For locales without an NGC-hosted Nemotron-Personas dataset, the build path is open. The OCEAN Big-Five helpers ship in the tutorial repo (Stage 1 of the original pipeline), and [NeMo SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs) provides the framework for building your own demographic PGM (Stage 2) — collect aggregate statistical distributions, declare a `PGMGenerator` subclass (the [`us_person` example](https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person) is a working blueprint), and plug it into Data Designer via SDG-PGMs's [`PGMGeneratorPluginConfig`](https://github.com/NVIDIA-NeMo/SDG-PGMs/blob/main/src/data_designer_plugins/pgm_generator_plugin.py) column generator. The downstream LLM stages (3 and 4) are locale-agnostic; they just need the right language in the prompts. The tutorial leaves a `SAMPLE_FROM_SDG_PGM = True` toggle in place as the integration point.
+For locales without an NGC-hosted Nemotron-Personas dataset, the build path is open. The OCEAN Big-Five helpers ship in the companion Colab notebook (Stage 1 of the original pipeline), and [NeMo SDG-PGMs](https://github.com/NVIDIA-NeMo/SDG-PGMs) provides the framework for building your own demographic PGM (Stage 2) — collect aggregate statistical distributions, declare a `PGMGenerator` subclass (the [`us_person` example](https://github.com/NVIDIA-NeMo/SDG-PGMs/tree/main/examples/us_person) is a working blueprint), and plug it into Data Designer via SDG-PGMs's [`PGMGeneratorPluginConfig`](https://github.com/NVIDIA-NeMo/SDG-PGMs/blob/main/src/data_designer_plugins/pgm_generator_plugin.py) column generator. The downstream LLM stages (3 and 4) are locale-agnostic; they just need the right language in the prompts. The notebook leaves a `SAMPLE_FROM_SDG_PGM = True` toggle in place as the integration point.
 
 ---
 
 ## **Try it yourself**
 
-The full reproduction-and-customization tutorial covers every detail in this post end-to-end, from the NGC dataset bootstrap through the toy custom-persona example.
+The companion Colab notebook covers every detail in this post end-to-end, from the NGC dataset bootstrap through the toy custom-persona example.
 
 <a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/7-nemotron-personas.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
