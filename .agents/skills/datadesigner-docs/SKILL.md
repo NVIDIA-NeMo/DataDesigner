@@ -6,6 +6,8 @@ description: >
   docs", "rename page", "fix broken link", "add redirect", "preview docs",
   "publish docs", "regenerate notebooks", "update dev note", any request
   that touches `fern/`.
+metadata:
+    internal: true
 ---
 
 # Data Designer Docs Maintenance
