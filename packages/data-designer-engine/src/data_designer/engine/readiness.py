@@ -25,9 +25,9 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from data_designer.engine import flags
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 
 if TYPE_CHECKING:
     from data_designer.config.column_types import ColumnConfigT
@@ -42,12 +42,14 @@ _MODEL_HEALTH_CHECK_TIMEOUT_SECONDS = 180
 def run_readiness_check(
     column_configs: Sequence[ColumnConfigT],
     resource_provider: ResourceProvider,
+    *,
+    client_concurrency_mode: ClientConcurrencyMode,
 ) -> None:
     """Probe every model and MCP tool referenced by ``column_configs``.
 
     For each unique model alias collected from the column configs,
-    ``ModelRegistry.run_health_check`` (or ``arun_health_check`` on the async
-    engine) sends a tiny ``"Hello!"`` generation. Models whose ``ModelConfig``
+    ``ModelRegistry.run_health_check`` (or ``arun_health_check`` when async
+    mode is selected) sends a tiny ``"Hello!"`` generation. Models whose ``ModelConfig``
     has ``skip_health_check=True`` are skipped by the registry. After the
     model pass, every unique MCP tool alias is probed via
     ``MCPRegistry.run_health_check``.
@@ -58,6 +60,7 @@ def run_readiness_check(
         resource_provider: Provides access to the model registry and MCP
             registry. ``mcp_registry`` may be ``None`` only if no tool
             aliases are referenced.
+        client_concurrency_mode: Resolved client mode for this run.
 
     Raises:
         Typed model errors from ``data_designer.engine.models.errors`` for
@@ -67,13 +70,15 @@ def run_readiness_check(
         TimeoutError: If async health-check execution exceeds
             ``_MODEL_HEALTH_CHECK_TIMEOUT_SECONDS``.
     """
-    _run_model_health_check(column_configs, resource_provider)
+    _run_model_health_check(column_configs, resource_provider, client_concurrency_mode=client_concurrency_mode)
     _run_mcp_tool_health_check(column_configs, resource_provider)
 
 
 def _run_model_health_check(
     column_configs: Sequence[ColumnConfigT],
     resource_provider: ResourceProvider,
+    *,
+    client_concurrency_mode: ClientConcurrencyMode,
 ) -> None:
     model_aliases: set[str] = set()
     for config in column_configs:
@@ -82,10 +87,9 @@ def _run_model_health_check(
     if not model_aliases:
         return
 
-    if flags.DATA_DESIGNER_ASYNC_ENGINE:
+    if client_concurrency_mode == ClientConcurrencyMode.ASYNC:
         # Defer the async-engine imports to here so users on the legacy sync
-        # engine never pay the import cost. Mirrors the gating in
-        # ``dataset_builders.dataset_builder``.
+        # engine never pay the import cost.
         import asyncio
 
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop

@@ -39,6 +39,7 @@ from data_designer.config.seed_source import (
     HuggingFaceSeedSource,
 )
 from data_designer.engine import flags
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
     SeedReaderError,
@@ -1544,9 +1545,33 @@ def test_check_models_invokes_readiness_check(
         data_designer.check_models(config_builder)
 
     assert mock_check.call_count == 1
-    (called_columns, called_resource_provider), _ = mock_check.call_args
+    (called_columns, called_resource_provider), kwargs = mock_check.call_args
     assert [c.name for c in called_columns] == ["text"]
     assert called_resource_provider is not None
+    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.ASYNC
+
+
+def test_check_models_passes_sync_mode_for_sync_fallback(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """check_models readiness uses the resolved client mode, including allow_resize fallback."""
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
+    config_builder = _builder_with_allow_resize()
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
+        data_designer.check_models(config_builder)
+
+    _, kwargs = mock_check.call_args
+    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.SYNC
 
 
 def test_check_models_propagates_typed_model_error(

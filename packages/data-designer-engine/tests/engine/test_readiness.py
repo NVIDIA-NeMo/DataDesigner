@@ -17,7 +17,9 @@ from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.engine import flags
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.mcp.registry import MCPRegistry
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.readiness import run_readiness_check
+from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +54,14 @@ def _build_columns(
     return builder.build().columns
 
 
+def _run_sync_readiness(column_configs: Sequence[ColumnConfigT], resource_provider: ResourceProvider) -> None:
+    run_readiness_check(
+        column_configs,
+        resource_provider,
+        client_concurrency_mode=ClientConcurrencyMode.SYNC,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Model health check
 # ---------------------------------------------------------------------------
@@ -82,7 +92,7 @@ def test_run_readiness_check_collects_aliases_from_get_model_aliases(
 
     builder.add_column(CustomColumnConfig(name="custom_col", generator_function=_gen_with_two_models))
 
-    run_readiness_check(builder.build().columns, stub_resource_provider)
+    _run_sync_readiness(builder.build().columns, stub_resource_provider)
 
     stub_resource_provider.model_registry.run_health_check.assert_called_once()
     (called_aliases,), _ = stub_resource_provider.model_registry.run_health_check.call_args
@@ -99,7 +109,7 @@ def test_run_readiness_check_skips_model_probe_when_no_aliases(
 
     columns = _build_columns(model_configs=stub_model_configs, llm_columns=[])
 
-    run_readiness_check(columns, stub_resource_provider)
+    _run_sync_readiness(columns, stub_resource_provider)
 
     stub_resource_provider.model_registry.run_health_check.assert_not_called()
 
@@ -117,7 +127,7 @@ def test_run_readiness_check_propagates_model_probe_error(
     columns = _build_columns(model_configs=stub_model_configs, llm_columns=[("col", "stub-text")])
 
     with pytest.raises(ModelAuthenticationError, match="bad creds"):
-        run_readiness_check(columns, stub_resource_provider)
+        _run_sync_readiness(columns, stub_resource_provider)
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +152,7 @@ def test_run_readiness_check_collects_unique_sorted_tool_aliases(
         LLMTextColumnConfig(name="c", prompt="x", model_alias="stub-text", tool_alias="alpha")  # duplicate
     )
 
-    run_readiness_check(builder.build().columns, stub_resource_provider)
+    _run_sync_readiness(builder.build().columns, stub_resource_provider)
 
     mock_mcp_registry.run_health_check.assert_called_once_with(["alpha", "zebra"])
 
@@ -158,7 +168,7 @@ def test_run_readiness_check_skips_tool_probe_when_no_tool_aliases(
 
     columns = _build_columns(model_configs=stub_model_configs, llm_columns=[("col", "stub-text")])
 
-    run_readiness_check(columns, stub_resource_provider)
+    _run_sync_readiness(columns, stub_resource_provider)
 
     mock_mcp_registry.run_health_check.assert_not_called()
 
@@ -176,7 +186,7 @@ def test_run_readiness_check_raises_when_tools_referenced_but_no_mcp_registry(
     builder.add_column(LLMTextColumnConfig(name="col", prompt="x", model_alias="stub-text", tool_alias="missing-tools"))
 
     with pytest.raises(DatasetGenerationError, match="missing-tools"):
-        run_readiness_check(builder.build().columns, stub_resource_provider)
+        _run_sync_readiness(builder.build().columns, stub_resource_provider)
 
 
 def test_run_readiness_check_propagates_tool_probe_error(
@@ -194,7 +204,7 @@ def test_run_readiness_check_propagates_tool_probe_error(
     builder.add_column(LLMTextColumnConfig(name="col", prompt="x", model_alias="stub-text", tool_alias="tools"))
 
     with pytest.raises(RuntimeError, match="mcp down"):
-        run_readiness_check(builder.build().columns, stub_resource_provider)
+        _run_sync_readiness(builder.build().columns, stub_resource_provider)
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +228,7 @@ def test_run_readiness_check_runs_models_before_tools(
     builder.add_column(LLMTextColumnConfig(name="col", prompt="x", model_alias="stub-text", tool_alias="tools"))
 
     with pytest.raises(ModelAuthenticationError):
-        run_readiness_check(builder.build().columns, stub_resource_provider)
+        _run_sync_readiness(builder.build().columns, stub_resource_provider)
 
     # The MCP probe must not have been reached.
     mock_mcp_registry.run_health_check.assert_not_called()
@@ -235,7 +245,7 @@ def test_run_readiness_check_no_models_no_tools_is_noop(
 
     columns = _build_columns(model_configs=stub_model_configs, llm_columns=[])
 
-    run_readiness_check(columns, stub_resource_provider)
+    _run_sync_readiness(columns, stub_resource_provider)
 
     stub_resource_provider.model_registry.run_health_check.assert_not_called()
     mock_mcp_registry.run_health_check.assert_not_called()
@@ -266,7 +276,7 @@ def test_run_readiness_check_collects_image_model_aliases(
     builder.add_column(LLMTextColumnConfig(name="caption", prompt="x", model_alias="stub-text"))
     builder.add_column(ImageColumnConfig(name="picture", prompt="y", model_alias="stub-image"))
 
-    run_readiness_check(builder.build().columns, stub_resource_provider)
+    _run_sync_readiness(builder.build().columns, stub_resource_provider)
 
     stub_resource_provider.model_registry.run_health_check.assert_called_once()
     (called_aliases,), _ = stub_resource_provider.model_registry.run_health_check.call_args
@@ -292,7 +302,7 @@ def test_run_readiness_check_passes_skip_flagged_aliases_to_registry(
         llm_columns=[("col", "stub-text")],
     )
 
-    run_readiness_check(columns, stub_resource_provider)
+    _run_sync_readiness(columns, stub_resource_provider)
 
     stub_resource_provider.model_registry.run_health_check.assert_called_once_with(["stub-text"])
 
@@ -331,7 +341,11 @@ def test_run_readiness_check_dispatches_to_async_registry_under_async_engine(
         patch("data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop"),
         patch("asyncio.run_coroutine_threadsafe", return_value=sentinel_future) as mock_submit,
     ):
-        run_readiness_check(columns, stub_resource_provider)
+        run_readiness_check(
+            columns,
+            stub_resource_provider,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
+        )
 
     # The async coroutine was created from arun_health_check and submitted to the loop.
     stub_resource_provider.model_registry.arun_health_check.assert_called_once_with(["stub-text"])
@@ -362,6 +376,32 @@ def test_run_readiness_check_cancels_future_and_reraises_on_timeout(
         patch("asyncio.run_coroutine_threadsafe", return_value=sentinel_future),
         pytest.raises(TimeoutError),
     ):
-        run_readiness_check(columns, stub_resource_provider)
+        run_readiness_check(
+            columns,
+            stub_resource_provider,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
+        )
 
     sentinel_future.cancel.assert_called_once()
+
+
+def test_run_readiness_check_uses_sync_registry_for_sync_mode_clients(
+    stub_resource_provider,
+    stub_model_configs,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Readiness follows the explicit client mode, not only the raw async env flag."""
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
+    stub_resource_provider.model_registry.run_health_check = Mock()
+    stub_resource_provider.model_registry.arun_health_check = Mock()
+    stub_resource_provider.mcp_registry = None
+
+    columns = _build_columns(
+        model_configs=stub_model_configs,
+        llm_columns=[("col", "stub-text")],
+    )
+
+    run_readiness_check(columns, stub_resource_provider, client_concurrency_mode=ClientConcurrencyMode.SYNC)
+
+    stub_resource_provider.model_registry.run_health_check.assert_called_once_with(["stub-text"])
+    stub_resource_provider.model_registry.arun_health_check.assert_not_called()

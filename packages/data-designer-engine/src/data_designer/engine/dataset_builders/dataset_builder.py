@@ -59,6 +59,7 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
     strip_skip_metadata_from_records,
 )
 from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
@@ -311,8 +312,13 @@ class DatasetBuilder:
             Path to the generated dataset directory.
         """
         self._reset_run_state()
+        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
 
-        run_readiness_check(self.single_column_configs, self._resource_provider)
+        run_readiness_check(
+            self.single_column_configs,
+            self._resource_provider,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC if self._use_async else ClientConcurrencyMode.SYNC,
+        )
 
         # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
         # directory. _check_resume_config_compatibility() must NOT access base_dataset_path
@@ -382,7 +388,6 @@ class DatasetBuilder:
                 "start a new generation run."
             )
 
-        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
         if self._use_async:
             self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
         elif resume == ResumeMode.ALWAYS:
@@ -653,7 +658,12 @@ class DatasetBuilder:
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._reset_run_state()
-        run_readiness_check(self.single_column_configs, self._resource_provider)
+        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        run_readiness_check(
+            self.single_column_configs,
+            self._resource_provider,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC if self._use_async else ClientConcurrencyMode.SYNC,
+        )
 
         # Set media storage to DATAFRAME mode for preview - base64 stored directly in DataFrame
         if self._has_image_columns():
@@ -662,7 +672,6 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
         if self._use_async:
             dataset = self._build_async_preview(generators, num_records)
         else:

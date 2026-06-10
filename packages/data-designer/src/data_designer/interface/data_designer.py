@@ -578,7 +578,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             TimeoutError: If async health-check execution exceeds 180 seconds.
         """
         resource_provider = self._create_resource_provider("check-models", config_builder)
-        run_readiness_check(config_builder.build().columns, resource_provider)
+        run_readiness_check(
+            config_builder.build().columns,
+            resource_provider,
+            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
+        )
 
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.
