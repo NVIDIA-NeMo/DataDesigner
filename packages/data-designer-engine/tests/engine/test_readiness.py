@@ -327,10 +327,8 @@ def test_run_readiness_check_dispatches_to_async_registry_under_async_engine(
     sentinel_future = Mock()
     sentinel_future.result.return_value = None
 
-    fake_loop = Mock()
-
     with (
-        patch("data_designer.engine.readiness.ensure_async_engine_loop", return_value=fake_loop, create=True),
+        patch("data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop"),
         patch("asyncio.run_coroutine_threadsafe", return_value=sentinel_future) as mock_submit,
     ):
         run_readiness_check(columns, stub_resource_provider)
@@ -360,7 +358,7 @@ def test_run_readiness_check_cancels_future_and_reraises_on_timeout(
     sentinel_future.result.side_effect = TimeoutError()
 
     with (
-        patch("data_designer.engine.readiness.ensure_async_engine_loop", return_value=Mock(), create=True),
+        patch("data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop"),
         patch("asyncio.run_coroutine_threadsafe", return_value=sentinel_future),
         pytest.raises(TimeoutError),
     ):
