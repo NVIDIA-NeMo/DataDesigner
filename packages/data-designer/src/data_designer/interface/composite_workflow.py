@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import time
 from collections.abc import Callable, ItemsView, Iterator, KeysView
@@ -441,14 +442,23 @@ def _read_prior_workflow_metadata(
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
+        if resume != ResumeMode.ALWAYS:
+            logger.warning("Workflow metadata for %r is corrupt; starting fresh.", workflow_name)
+            return None
         raise DataDesignerWorkflowError(
             f"Cannot resume workflow {workflow_name!r}: workflow metadata is corrupt."
         ) from exc
     except OSError as exc:
+        if resume != ResumeMode.ALWAYS:
+            logger.warning("Workflow metadata for %r could not be read; starting fresh.", workflow_name)
+            return None
         raise DataDesignerWorkflowError(
             f"Cannot resume workflow {workflow_name!r}: workflow metadata could not be read."
         ) from exc
     if metadata.get("name") != workflow_name:
+        if resume != ResumeMode.ALWAYS:
+            logger.warning("Workflow metadata for %r has a different name; starting fresh.", workflow_name)
+            return None
         raise DataDesignerWorkflowError(
             f"Cannot resume workflow {workflow_name!r}: workflow metadata name does not match."
         )
@@ -693,7 +703,15 @@ def _parquet_files(path: Path) -> list[Path]:
 
 def _write_workflow_metadata(workflow_path: Path, metadata: dict[str, Any]) -> None:
     path = workflow_path / WORKFLOW_METADATA_FILENAME
-    path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+    tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _validate_stage_output(output: str) -> None:

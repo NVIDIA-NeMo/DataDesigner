@@ -493,6 +493,51 @@ def test_composite_workflow_resume_if_possible_skips_stage_with_output_processor
     assert output_processor_file.stat().st_mtime_ns == output_processor_mtime
 
 
+def test_composite_workflow_resume_if_possible_preserves_completed_empty_skip(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+
+    def empty_output(stage_path: Path) -> Path:
+        output_path = stage_path / "callback-outputs" / "empty"
+        output_path.mkdir(parents=True)
+        lazy.pd.DataFrame({"category": []}).to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = data_designer.compose_workflow(name="resume-empty")
+    workflow.add_stage(
+        "base",
+        _category_builder(stub_model_configs),
+        num_records=2,
+        on_success=empty_output,
+        on_success_version="empty",
+        allow_empty=True,
+    )
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-empty")
+    resumed.add_stage(
+        "base",
+        _category_builder(stub_model_configs),
+        num_records=2,
+        on_success=empty_output,
+        on_success_version="empty",
+        allow_empty=True,
+    )
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    results = resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert create_mock.call_count == 0
+    assert isinstance(results["copy"], SkippedStageResult)
+    assert results["copy"].upstream_stage == "base"
+
+
 def test_composite_workflow_resume_if_possible_reruns_changed_stage_only(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -563,11 +608,37 @@ def test_composite_workflow_resume_if_possible_missing_callback_output_reruns_de
     assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
 
 
-def test_composite_workflow_resume_if_possible_delegates_matching_partial_stage(
+def test_composite_workflow_resume_if_possible_corrupt_metadata_starts_fresh(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_model_configs: list[ModelConfig],
     stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-corrupt")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-corrupt" / "workflow-metadata.json"
+    metadata_path.write_text("{", encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-corrupt")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+
+
+@pytest.mark.parametrize("status", ["running", "failed"])
+def test_composite_workflow_resume_if_possible_delegates_matching_resumable_stage(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+    status: str,
 ) -> None:
     data_designer = _data_designer(stub_artifact_path, stub_model_providers)
     create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
@@ -577,7 +648,7 @@ def test_composite_workflow_resume_if_possible_delegates_matching_partial_stage(
     workflow.run()
     metadata_path = stub_artifact_path / "resume-partial" / "workflow-metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata["stages"][0]["status"] = "running"
+    metadata["stages"][0]["status"] = status
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     create_mock.reset_mock()
 
@@ -588,6 +659,39 @@ def test_composite_workflow_resume_if_possible_delegates_matching_partial_stage(
 
     assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
     assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.ALWAYS, ResumeMode.NEVER]
+
+
+def test_composite_workflow_resume_always_requires_metadata(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    workflow = data_designer.compose_workflow(name="resume-missing")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+
+    with pytest.raises(DataDesignerWorkflowError, match="no workflow metadata found"):
+        workflow.run(resume=ResumeMode.ALWAYS)
+
+
+def test_composite_workflow_resume_always_rejects_corrupt_metadata(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-corrupt-always")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-corrupt-always" / "workflow-metadata.json"
+    metadata_path.write_text("{", encoding="utf-8")
+
+    resumed = data_designer.compose_workflow(name="resume-corrupt-always")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    with pytest.raises(DataDesignerWorkflowError, match="workflow metadata is corrupt"):
+        resumed.run(resume=ResumeMode.ALWAYS)
 
 
 def test_composite_workflow_resume_always_rejects_changed_stage(
