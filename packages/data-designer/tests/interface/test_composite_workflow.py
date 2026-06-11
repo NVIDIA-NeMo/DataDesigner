@@ -455,6 +455,44 @@ def test_composite_workflow_resume_if_possible_skips_completed_stages(
     assert results.load_dataset()["category"].tolist() == ["alpha", "alpha", "alpha"]
 
 
+def test_composite_workflow_resume_if_possible_skips_stage_with_output_processors(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada", "secret": "hidden"}])
+    stage.add_column(ExpressionColumnConfig(name="public_name", expr="{{ name }}"))
+
+    data_designer = _real_data_designer(tmp_path / "artifacts", stub_model_providers)
+    workflow = data_designer.compose_workflow(name="resume-output-processors")
+    workflow.add_stage(
+        "base",
+        stage,
+        num_records=1,
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ public_name }} final"))
+    first = workflow.run()
+    output_processor_file = first["base"].artifact_storage.final_dataset_path / "batch_00000.parquet"
+    output_processor_mtime = output_processor_file.stat().st_mtime_ns
+
+    resumed = data_designer.compose_workflow(name="resume-output-processors")
+    resumed.add_stage(
+        "base",
+        stage,
+        num_records=1,
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+    resumed.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ public_name }} final"))
+    results = resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert "secret" not in results["base"].load_dataset().columns
+    assert results.load_dataset().to_dict(orient="records") == [
+        {"name": "Ada", "public_name": "Ada", "final": "Ada final"}
+    ]
+    assert output_processor_file.stat().st_mtime_ns == output_processor_mtime
+
+
 def test_composite_workflow_resume_if_possible_reruns_changed_stage_only(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
