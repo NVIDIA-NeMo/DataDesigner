@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 from data_designer.config.base import ConfigBase
@@ -13,6 +12,7 @@ from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
 from data_designer.config.utils.type_helpers import StrEnum
+from data_designer.engine import flags
 from data_designer.engine.mcp.factory import create_mcp_registry
 from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.model_provider import (
@@ -148,9 +148,7 @@ def create_resource_provider(
     # default for backward compatibility.
     if client_concurrency_mode is None:
         client_concurrency_mode = (
-            ClientConcurrencyMode.ASYNC
-            if os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
-            else ClientConcurrencyMode.SYNC
+            ClientConcurrencyMode.ASYNC if flags.DATA_DESIGNER_ASYNC_ENGINE else ClientConcurrencyMode.SYNC
         )
 
     effective_run_config = run_config or RunConfig()

@@ -37,12 +37,14 @@ from data_designer.config.utils.constants import (
     MODEL_PROVIDERS_FILE_PATH,
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
+from data_designer.engine import flags
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.dataset_builder import DATA_DESIGNER_ASYNC_ENGINE, DatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.resources.person_reader import (
     PersonReader,
     create_person_reader,
@@ -547,6 +549,41 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
         compile_data_designer_config(config_builder.build(), resource_provider)
 
+    def check_models(self, config_builder: DataDesignerConfigBuilder) -> None:
+        """Probe every model and MCP tool referenced by the configuration.
+
+        Runs the same readiness checks performed at the start of ``preview`` and
+        ``create``: a tiny generation against each referenced model alias, plus a
+        connectivity probe to each referenced MCP tool. Models whose ``ModelConfig``
+        has ``skip_health_check=True`` are skipped.
+
+        This complements :meth:`validate`: ``validate`` answers "is my configuration
+        well-formed?", ``check_models`` answers "are the providers it depends on
+        actually responsive?". Together they cover internal and external readiness
+        without needing to start a workload.
+
+        Args:
+            config_builder: The DataDesignerConfigBuilder whose column configs
+                determine which model aliases and tool aliases are probed.
+
+        Returns:
+            None if every (non-skipped) probe succeeded.
+
+        Raises:
+            ModelAuthenticationError, ModelNotFoundError, ModelAPIConnectionError,
+                and other typed errors from ``data_designer.engine.models.errors``
+                for any failing model probe.
+            DatasetGenerationError: If a tool alias is referenced but no
+                ``MCPRegistry`` is configured.
+            TimeoutError: If async health-check execution exceeds 180 seconds.
+        """
+        resource_provider = self._create_resource_provider("check-models", config_builder)
+        run_readiness_check(
+            config_builder.build().columns,
+            resource_provider,
+            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
+        )
+
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.
 
@@ -722,7 +759,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         from inside the sync engine. Match the client mode to the actual engine
         choice so the fallback path is functional.
         """
-        if not DATA_DESIGNER_ASYNC_ENGINE:
+        if not flags.DATA_DESIGNER_ASYNC_ENGINE:
             # Deliberate opt-out via env var. Surface the deprecation so users
             # know the sync path is going away. Mirror the ``allow_resize`` shape
             # in ``_resolve_async_compatibility``: emit both a ``logger.warning``
