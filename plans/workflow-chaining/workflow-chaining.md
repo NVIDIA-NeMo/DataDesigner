@@ -401,7 +401,7 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - Add `compose_workflow(name: str)` factory method on `DataDesigner`.
 - Tests: multi-stage runs, explode/filter via callbacks, num_records defaulting, duplicate stage-name rejection, artifact layout, throttle reuse across stages.
 
-**Status after PR #636:** Implemented `CompositeWorkflow`, `compose_workflow()`, `to_config_builder()`, disk handoff, stage metadata, `acreate()`, shared throttle manager reuse, explicit stage artifact roots, cloned stage builders, concurrent-safe seed reader/resource-provider handling, seeded processor-only configs, stage output processors, and stage output selection. Still deferred: stage-level resume, DAG branches, `allow_resize` removal, config bundles, and broader first-class artifact seeding.
+**Status after PR #636:** Implemented `CompositeWorkflow`, `compose_workflow()`, `to_config_builder()`, disk handoff, stage metadata, `acreate()`, shared throttle manager reuse, explicit stage artifact roots, cloned stage builders, concurrent-safe seed reader/resource-provider handling, seeded processor-only configs, stage output processors, and stage output selection. Still deferred after #636: stage-level resume, DAG branches, `allow_resize` removal, config bundles, and broader first-class artifact seeding.
 
 ### Sidecar: `acreate()` on `DataDesigner` (independent of chaining v1)
 
@@ -432,6 +432,8 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - Before skipping or resuming a stage seeded by `on_success`, validate the recorded callback output path exists and can seed `LocalFileSeedSource`; if missing, invalidate that stage and descendants.
 - For invalidated stages, clear or replace the deterministic stage directory before starting fresh so `ArtifactStorage` does not timestamp away from the workflow layout.
 - Depends on artifact layout from phase 1.
+
+**Status after stage-level resume slice:** Implemented `workflow.run(resume=...)`, compatible completed-stage reuse, matching partial-stage delegation to `DataDesigner.create(..., resume=ResumeMode.ALWAYS)`, downstream invalidation after changed or missing stages, callback output path checks, and docs for `ResumeMode.IF_POSSIBLE` / `ResumeMode.ALWAYS`. Still deferred: DAG branches, `allow_resize` removal, config bundles, and broader first-class artifact seeding.
 
 ### Phase 4: DAG-shaped stages with parallel branches
 

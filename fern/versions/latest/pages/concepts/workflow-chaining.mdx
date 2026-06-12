@@ -102,10 +102,21 @@ workflow.add_stage("cleanup", cleanup)
 
 This is useful for final cleanup, schema transforms, and format-specific export preparation.
 
+## Resume
+
+Workflow names are durable artifact identities. Reusing the same name with `resume=ResumeMode.IF_POSSIBLE` reuses compatible completed stages, resumes a matching partial stage through `DataDesigner.create(..., resume=ResumeMode.ALWAYS)`, and reruns the first changed or missing stage plus its descendants.
+
+```python
+from data_designer.interface import ResumeMode
+
+results = workflow.run(resume=ResumeMode.IF_POSSIBLE)
+```
+
+Use `ResumeMode.ALWAYS` for strict resume before the first recovered checkpoint. A changed stage or missing selected output raises instead of starting fresh. If a matching partial stage resumes successfully, descendants are recreated from that stage's current output.
+
 ## Current limits
 
 - Stages are linear. DAGs, parallel branches, and joins are planned separately.
-- Stage-level resume is not implemented yet.
 - `push_to_hub()` does not support selected processor or callback outputs yet. Use `export()` for the selected workflow output.
 - `on_success` callbacks are trusted user code. If a callback returns a path, Data Designer reads that path as the next stage input.
 - The artifact layout is intended for inspection, but it is not yet a stable public contract.
