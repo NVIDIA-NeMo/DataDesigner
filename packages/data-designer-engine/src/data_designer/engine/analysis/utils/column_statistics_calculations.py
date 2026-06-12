@@ -17,6 +17,7 @@ from data_designer.config.analysis.column_statistics import (
 from data_designer.config.column_configs import (
     LLMTextColumnConfig,
 )
+from data_designer.config.run_config import JinjaRenderingEngine
 from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
     RecordBasedPromptRenderer,
@@ -95,12 +96,18 @@ def calculate_general_column_info(column_name: str, df: pd.DataFrame) -> dict[st
 
 
 def calculate_input_token_stats(
-    column_config: LLMTextColumnConfig, df: pd.DataFrame
+    column_config: LLMTextColumnConfig,
+    df: pd.DataFrame,
+    *,
+    jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.SECURE,
 ) -> dict[str, float | MissingValue]:
     try:
         num_tokens = []
         num_samples = min(MAX_PROMPT_SAMPLE_SIZE, len(df))
-        renderer = RecordBasedPromptRenderer(response_recipe=create_response_recipe(column_config))
+        renderer = RecordBasedPromptRenderer(
+            response_recipe=create_response_recipe(column_config),
+            jinja_rendering_engine=jinja_rendering_engine,
+        )
         for record in df.sample(num_samples, random_state=RANDOM_SEED).to_dict(orient="records"):
             system_prompt = renderer.render(
                 prompt_template=column_config.system_prompt, record=record, prompt_type=PromptType.SYSTEM_PROMPT
@@ -143,9 +150,14 @@ def calculate_output_token_stats(
         }
 
 
-def calculate_token_stats(column_config: LLMTextColumnConfig, df: pd.DataFrame) -> dict[str, float | MissingValue]:
+def calculate_token_stats(
+    column_config: LLMTextColumnConfig,
+    df: pd.DataFrame,
+    *,
+    jinja_rendering_engine: JinjaRenderingEngine = JinjaRenderingEngine.SECURE,
+) -> dict[str, float | MissingValue]:
     return {
-        **calculate_input_token_stats(column_config, df),
+        **calculate_input_token_stats(column_config, df, jinja_rendering_engine=jinja_rendering_engine),
         **calculate_output_token_stats(column_config, df),
     }
 

@@ -28,7 +28,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -63,7 +63,7 @@ jobs:
           fi
 
       - name: Checkout published Fern archive
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           path: published-fern-preview
@@ -88,8 +88,7 @@ jobs:
           cd "$FERN_PREVIEW_ROOT"
           make check-fern-docs \
             DOCS_PYTHON="$GITHUB_WORKSPACE/.venv/bin/python" \
-            DOCS_JUPYTEXT="$GITHUB_WORKSPACE/.venv/bin/jupytext" \
-            DOCS_PY2FERN="$GITHUB_WORKSPACE/.venv/bin/py2fern"
+            DOCS_JUPYTEXT="$GITHUB_WORKSPACE/.venv/bin/jupytext"
 
       - name: Skip hosted previews for fork PRs
         if: github.event.pull_request.head.repo.full_name != github.repository

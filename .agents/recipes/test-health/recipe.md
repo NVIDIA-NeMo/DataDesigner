@@ -32,6 +32,24 @@ update `baselines` with current values and `known_issues` with new findings.
 
 ## Instructions
 
+### Turn budget
+
+This suite must finish before the `max_turns` limit. Do not attempt a
+repo-wide test audit in one run.
+
+1. Read runner memory.
+2. Write `/tmp/audit-{{suite}}.md` immediately with the required headings and
+   empty tables. If the run is interrupted later, the workflow must still have
+   a usable partial report.
+3. Use targeted searches to find candidates, then read only the files needed
+   to verify a specific finding.
+4. Stop after either:
+   - 20 tool calls
+   - 2 new findings in a section
+   - all sections have been sampled
+5. Finalize the report, update runner memory, and stop. If no new findings
+   were verified, replace the report with `NO_FINDINGS`.
+
 ### 1. Test-to-source coverage mapping
 
 Map source files to their corresponding test files:
@@ -208,7 +226,7 @@ without at least one provider configured. Stick to config-layer checks
 (`DataDesignerConfigBuilder.build()`, column type resolution) which do
 not require providers.
 
-**API reference** for writing checks:
+**Useful imports** for writing checks:
 
 ```python
 from data_designer.config.config_builder import DataDesignerConfigBuilder

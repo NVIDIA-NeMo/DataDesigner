@@ -13,8 +13,9 @@ from data_designer.engine.secret_resolver import SecretResolver
 if TYPE_CHECKING:
     from data_designer.config.run_config import RunConfig
     from data_designer.engine.mcp.registry import MCPRegistry
-    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.registry import ModelRegistry
+    from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
 
 def create_model_registry(
@@ -25,7 +26,7 @@ def create_model_registry(
     mcp_registry: MCPRegistry | None = None,
     client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
     run_config: RunConfig | None = None,
-    throttle_manager: ThrottleManager | None = None,
+    request_admission: AdaptiveRequestAdmissionController | None = None,
 ) -> ModelRegistry:
     """Factory function for creating a ModelRegistry instance.
 
@@ -42,24 +43,21 @@ def create_model_registry(
         client_concurrency_mode: ``"sync"`` (default) or ``"async"``.  Forwarded
             to native HTTP adapters so each client is constrained to a single
             concurrency mode.
-        run_config: Optional runtime configuration.  The nested
-            ``run_config.throttle`` (a ``ThrottleConfig``) is forwarded to the
-            ``ThrottleManager`` constructor.
-        throttle_manager: Optional shared throttle manager. When omitted, a new
-            manager is created for this registry.
+        run_config: Optional runtime configuration. Public request-admission
+            tuning is translated to the engine-internal request-admission config.
+        request_admission: Optional shared request-admission controller. When
+            omitted, a new controller is created from ``run_config``.
 
     Returns:
         A configured ModelRegistry instance.
     """
-    from data_designer.config.run_config import RunConfig
     from data_designer.engine.models.clients.factory import create_model_client
     from data_designer.engine.models.clients.retry import RetryConfig
-    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.registry import ModelRegistry
 
-    if throttle_manager is None:
-        throttle_manager = ThrottleManager((run_config or RunConfig()).throttle)
+    if request_admission is None:
+        request_admission = create_request_admission_controller(run_config)
 
     def model_facade_factory(
         model_config: ModelConfig,
@@ -73,7 +71,7 @@ def create_model_registry(
             model_provider_registry,
             retry_config=retry_config,
             client_concurrency_mode=client_concurrency_mode,
-            throttle_manager=throttle_manager,
+            request_admission=request_admission,
         )
         return ModelFacade(
             model_config,
@@ -87,6 +85,36 @@ def create_model_registry(
         secret_resolver=secret_resolver,
         model_provider_registry=model_provider_registry,
         model_facade_factory=model_facade_factory,
-        throttle_manager=throttle_manager,
+        request_admission=request_admission,
         retry_config=RetryConfig(),
+    )
+
+
+def create_request_admission_controller(
+    run_config: RunConfig | None = None,
+) -> AdaptiveRequestAdmissionController:
+    """Create a request-admission controller from public runtime tuning."""
+    from data_designer.config.run_config import RunConfig
+    from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
+
+    resolved_run_config = run_config or RunConfig()
+    return AdaptiveRequestAdmissionController(
+        _request_admission_config_from_run_config(resolved_run_config, RequestAdmissionConfig)
+    )
+
+
+def _request_admission_config_from_run_config(
+    run_config: RunConfig,
+    config_cls: type[RequestAdmissionConfig],
+) -> RequestAdmissionConfig:
+    tuning = run_config.request_admission
+    if tuning is None:
+        return config_cls()
+    return config_cls(
+        cooldown_seconds=tuning.cooldown_seconds,
+        multiplicative_decrease_factor=tuning.multiplicative_decrease_factor,
+        additive_increase_step=tuning.additive_increase_step,
+        successes_until_increase=tuning.successes_until_increase,
+        startup_ramp_seconds=tuning.startup_ramp_seconds,
     )

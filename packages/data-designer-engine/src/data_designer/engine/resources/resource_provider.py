@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 from data_designer.config.base import ConfigBase
@@ -13,6 +12,7 @@ from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
 from data_designer.config.utils.type_helpers import StrEnum
+from data_designer.engine import flags
 from data_designer.engine.mcp.factory import create_mcp_registry
 from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.model_provider import (
@@ -28,7 +28,7 @@ from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
 if TYPE_CHECKING:
-    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
+    from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 
 
 class ResourceType(StrEnum):
@@ -95,7 +95,7 @@ def create_resource_provider(
     mcp_providers: list[MCPProviderT] | None = None,
     tool_configs: list[ToolConfig] | None = None,
     client_concurrency_mode: ClientConcurrencyMode | None = None,
-    throttle_manager: ThrottleManager | None = None,
+    request_admission: AdaptiveRequestAdmissionController | None = None,
 ) -> ResourceProvider:
     """Factory function for creating a ResourceProvider instance.
 
@@ -116,7 +116,7 @@ def create_resource_provider(
         run_config: Optional runtime configuration.
         mcp_providers: Optional list of MCP provider configurations.
         tool_configs: Optional list of tool configurations.
-        throttle_manager: Optional shared throttle manager for model clients.
+        request_admission: Optional shared request-admission controller for model clients.
 
     Returns:
         A configured ResourceProvider instance.
@@ -148,9 +148,7 @@ def create_resource_provider(
     # default for backward compatibility.
     if client_concurrency_mode is None:
         client_concurrency_mode = (
-            ClientConcurrencyMode.ASYNC
-            if os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
-            else ClientConcurrencyMode.SYNC
+            ClientConcurrencyMode.ASYNC if flags.DATA_DESIGNER_ASYNC_ENGINE else ClientConcurrencyMode.SYNC
         )
 
     effective_run_config = run_config or RunConfig()
@@ -164,7 +162,7 @@ def create_resource_provider(
             mcp_registry=mcp_registry,
             client_concurrency_mode=client_concurrency_mode,
             run_config=effective_run_config,
-            throttle_manager=throttle_manager,
+            request_admission=request_admission,
         ),
         person_reader=person_reader,
         mcp_registry=mcp_registry,

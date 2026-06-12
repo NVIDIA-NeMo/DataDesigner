@@ -43,7 +43,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, MCPProviderT
-from data_designer.config.utils.image_helpers import (
+from data_designer.config.utils.media_helpers import (
     decode_base64_image,
     detect_image_format,
     extract_base64_from_data_uri,

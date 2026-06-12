@@ -10,7 +10,7 @@ Data Designer is moving from MkDocs to Fern over several releases. During that t
 - Keep Fern working in parallel for local checks and hosted validation.
 - Treat `docs/` as the docs source of truth unless a page has already been intentionally moved to Fern-only MDX.
 - Treat `docs/notebook_source/*.py` as the notebook source of truth.
-- Keep generated Fern API reference and notebook artifacts gitignored.
+- Keep generated Fern notebook artifacts gitignored.
 
 ## Prerequisites
 
@@ -21,23 +21,9 @@ npm install -g fern-api
 
 ## First-time setup
 
-Two pre-render steps are needed before the dev server has all content. Both produce gitignored files and are safe to rerun.
+One pre-render step is needed before the dev server has all tutorial content. It produces gitignored files and is safe to rerun.
 
-### 1. Python API reference (gitignored - must regenerate)
-
-`make generate-fern-api-reference` uses `py2fern` to extract API docs from local Python source. The output lands in `fern/code-reference/` (gitignored), preserving the existing Config API folder and adding Interface and curated Engine extension API folders.
-
-```bash
-make generate-fern-api-reference
-```
-
-`py2fern` only descends into Python packages. Add `__init__.py` to any new subdirectory whose modules should appear in the API reference.
-
-The `libraries:` block in [`docs.yml`](docs.yml) still documents the Fern-native config generator. Run `make generate-fern-api-reference-native` only when you want the Fern CLI output and have Fern auth.
-
-Re-run when the upstream package source changes.
-
-### 2. Notebook tutorials (gitignored - regenerate on clone)
+### Notebook tutorials (gitignored - regenerate on clone)
 
 Each tutorial source file is converted to a JSON+TS pair in `fern/components/notebooks/`, then rendered through the `<NotebookViewer>` component on the wrapper MDX page. Output is gitignored; regenerate it after cloning and after changing `docs/notebook_source/*.py`.
 
@@ -57,7 +43,7 @@ make serve-fern-docs-locally
 # → http://localhost:3000
 ```
 
-`serve-fern-docs-locally` generates Fern API reference and notebook artifacts before starting `fern docs dev`. It does not publish.
+`serve-fern-docs-locally` generates notebook artifacts before starting `fern docs dev`. It does not publish.
 
 ## CI and publishing
 
@@ -114,28 +100,52 @@ Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages
 ```
 fern/
 ├── README.md                  ← this file
-├── docs.yml                   ← title, colors, versions:, libraries:, redirects, custom domain
+├── docs.yml                   ← global-theme, versions:, redirects, custom domain
 ├── fern.config.json           ← organization, fern-api version pin
-├── main.css                   ← bundled NVIDIA theme CSS
-├── assets/                    ← logos, favicon, recipe assets, devnote post images
+├── assets/                    ← recipe assets, devnote post images
 ├── images/                    ← /images/* references from MDX (mirror of docs/images)
-├── styles/                    ← component-level CSS (notebook-viewer, authors, metrics-table, …)
 ├── components/                ← React components used by MDX
 │   ├── NotebookViewer.tsx     ← renders converted .ipynb cells
 │   ├── Authors.tsx            ← devnote bylines (uses devnotes/authors-data.ts)
 │   ├── MetricsTable.tsx       ← benchmark tables w/ best-value highlight
 │   ├── TrajectoryViewer.tsx   ← multi-turn tool-call traces
 │   ├── ExpandableCode.tsx     ← collapsible code (currently unused — Fern SSR has issues)
-│   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx, CustomFooter.tsx
+│   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx
+│   │     ↑ each component injects its own CSS via a <style> tag (see "Styling" below)
 │   ├── notebooks/             ← gitignored per-tutorial *.json + *.ts output
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
 │   └── ipynb-to-fern-json.py  ← .ipynb → fern/components/notebooks/*.{json,ts}
-├── code-reference/            ← gitignored; populated by `make generate-fern-api-reference`
 └── versions/
     ├── latest.yml             ← authoring navigation tree
     └── latest/pages/          ← authoring MDX content
 ```
+
+## Branding & styling
+
+NVIDIA branding (logo, favicon, colors, fonts, footer, base CSS/JS, layout) is
+inherited from the canonical [NVIDIA Fern global theme](https://github.com/NVIDIA/fern-components)
+via `global-theme: nvidia` in `docs.yml`. To change branding, change it there and
+re-upload the theme — not here.
+
+**Product styles ship inside the MDX components, not via `docs.yml` `css:`.** `css`
+is a theme-owned field: under `global-theme`, Fern replaces it with the theme's
+stylesheets at publish, so a local `css:` list is silently dropped (this is what
+broke the dev-notes in #713 and was hotfixed by the #715 revert). Each kit
+component (`BlogCard`, `Authors`, `NotebookViewer`, `MetricsTable`,
+`TrajectoryViewer`, `BadgeLinks`) therefore injects its own CSS through a
+`<style dangerouslySetInnerHTML>` tag in its render output. When you add product
+styling, put it in the component that uses it — do not add a `css:` entry.
+
+`dangerouslySetInnerHTML` is safe here because every injected stylesheet is a
+static string literal defined at module scope — no user/MDX content is
+interpolated. `BlogGrid` injects once for the whole grid; the leaf components
+(`Authors`, `MetricsTable`, `TrajectoryViewer`, `BadgeLinks`) re-emit their
+`<style>` per instance. Duplicate identical `<style>` tags are harmless (the
+browser dedupes the rules), so injection is intentionally unconditional — a
+render-time guard (`document.getElementById`, a module flag) would risk an SSR
+hydration mismatch. If per-instance duplication ever matters, revisit once Fern
+supports React's `<style precedence>` hoisting.
 
 ## Common commands
 
@@ -154,11 +164,9 @@ Support and CI targets:
 | Command | Purpose |
 |---------|---------|
 | `make install-docs-deps` | Install docs and notebook dependencies |
-| `make generate-fern-api-reference` | Generate local Fern API reference with `py2fern` |
-| `make generate-fern-api-reference-native` | Generate Fern API reference with Fern CLI (requires Fern auth) |
 | `make generate-fern-notebooks` | Refresh gitignored notebook output from `docs/notebook_source/*.py` |
-| `make prepare-fern-docs` | Generate local Fern artifacts |
-| `make check-fern-docs` | Generate local Fern artifacts and run `fern check` |
+| `make prepare-fern-docs` | Generate local Fern notebook artifacts |
+| `make check-fern-docs` | Generate local Fern notebook artifacts and run `fern check` |
 
 Raw Fern CLI commands, normally wrapped by Make:
 
@@ -166,5 +174,4 @@ Raw Fern CLI commands, normally wrapped by Make:
 |---------|---------|
 | `fern docs dev` | Local preview at `http://localhost:3000` |
 | `fern check` | Validate `docs.yml` and MDX |
-| `fern docs md generate` | Generate library API docs with Fern CLI (requires Fern auth) |
 | `fern generate --docs --preview` | Hosted preview on `*.docs.buildwithfern.com` (needs Fern token) |

@@ -6,11 +6,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
-from data_designer.engine.models.errors import ModelAuthenticationError
+from data_designer.config.run_config import RequestAdmissionTuningConfig, RunConfig
+from data_designer.engine.models.errors import ModelAuthenticationError, ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenCountSource, TokenUsageStats
+from data_designer.engine.testing import make_stub_completion_response
 from data_designer.logging import LOG_INDENT
 
 
@@ -52,6 +54,35 @@ def test_create_model_registry(
         model_provider_registry=stub_model_provider_registry,
     )
     assert isinstance(model_registry, ModelRegistry)
+
+
+def test_create_model_registry_maps_request_admission_tuning_config(
+    stub_model_configs: list[ModelConfig],
+    stub_secrets_resolver: object,
+    stub_model_provider_registry: object,
+) -> None:
+    model_registry = create_model_registry(
+        model_configs=stub_model_configs,
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        run_config=RunConfig(
+            request_admission=RequestAdmissionTuningConfig(
+                multiplicative_decrease_factor=0.5,
+                additive_increase_step=2,
+                successes_until_increase=7,
+                cooldown_seconds=1.5,
+                startup_ramp_seconds=30.0,
+            )
+        ),
+    )
+
+    assert model_registry.request_admission is not None
+    request_config = model_registry.request_admission.config
+    assert request_config.multiplicative_decrease_factor == 0.5
+    assert request_config.additive_increase_step == 2
+    assert request_config.successes_until_increase == 7
+    assert request_config.cooldown_seconds == 1.5
+    assert request_config.startup_ramp_seconds == 30.0
 
 
 def test_public_props(stub_model_configs, stub_model_registry):
@@ -302,6 +333,8 @@ def test_run_health_check_success(
     mock_generate_image: object,
     stub_model_registry: ModelRegistry,
 ) -> None:
+    mock_completion.return_value = make_stub_completion_response(content="Hello!")
+    mock_generate_text_embeddings.return_value = [[0.1]]
     model_aliases = ["stub-text", "stub-reasoning", "stub-embedding", "stub-image"]
     stub_model_registry.run_health_check(model_aliases)
     assert mock_completion.call_count == 2
@@ -335,6 +368,7 @@ def test_run_health_check_embedding_authentication_error(
     stub_model_registry: ModelRegistry,
 ) -> None:
     auth_error = ModelAuthenticationError("Invalid API key for embedding model")
+    mock_completion.return_value = make_stub_completion_response(content="Hello!")
     mock_generate_text_embeddings.side_effect = auth_error
     model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
 
@@ -346,11 +380,38 @@ def test_run_health_check_embedding_authentication_error(
 
 
 @patch.object(ModelFacade, "completion", autospec=True)
+def test_run_health_check_rejects_empty_completion_response(
+    mock_completion: object,
+    stub_model_registry: ModelRegistry,
+) -> None:
+    mock_completion.return_value = make_stub_completion_response(content="")
+
+    with pytest.raises(ModelGenerationValidationFailureError, match="Health check response must be non-empty text"):
+        stub_model_registry.run_health_check(["stub-text"])
+
+    mock_completion.assert_called_once()
+
+
+@patch.object(ModelFacade, "generate_text_embeddings", autospec=True)
+def test_run_health_check_rejects_empty_embedding_vector(
+    mock_generate_text_embeddings: object,
+    stub_model_registry: ModelRegistry,
+) -> None:
+    mock_generate_text_embeddings.return_value = [[]]
+
+    with pytest.raises(ModelGenerationValidationFailureError, match="invalid embedding response"):
+        stub_model_registry.run_health_check(["stub-embedding"])
+
+    mock_generate_text_embeddings.assert_called_once()
+
+
+@patch.object(ModelFacade, "completion", autospec=True)
 def test_run_health_check_skip_health_check_flag(
     mock_completion: object,
     stub_secrets_resolver: object,
     stub_model_provider_registry: object,
 ) -> None:
+    mock_completion.return_value = make_stub_completion_response(content="Hello!")
     # Create model configs: one with skip_health_check=True, others with default (False)
     model_configs = [
         ModelConfig(
@@ -406,6 +467,7 @@ async def test_arun_health_check_success(
     mock_agenerate_image: AsyncMock,
     stub_model_registry: ModelRegistry,
 ) -> None:
+    mock_agenerate_text_embeddings.return_value = [[0.1]]
     model_aliases = ["stub-text", "stub-reasoning", "stub-embedding", "stub-image"]
     await stub_model_registry.arun_health_check(model_aliases)
     assert mock_agenerate.call_count == 2
@@ -429,6 +491,20 @@ async def test_arun_health_check_authentication_error(
 
     mock_agenerate.assert_awaited_once()
     mock_agenerate_text_embeddings.assert_not_awaited()
+
+
+@patch.object(ModelFacade, "agenerate_text_embeddings", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_arun_health_check_rejects_empty_embedding_vector(
+    mock_agenerate_text_embeddings: AsyncMock,
+    stub_model_registry: ModelRegistry,
+) -> None:
+    mock_agenerate_text_embeddings.return_value = [[]]
+
+    with pytest.raises(ModelGenerationValidationFailureError, match="invalid embedding response"):
+        await stub_model_registry.arun_health_check(["stub-embedding"])
+
+    mock_agenerate_text_embeddings.assert_awaited_once()
 
 
 def test_get_aggregate_max_parallel_requests(stub_model_registry: ModelRegistry) -> None:

@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import math
+import tracemalloc
 import warnings
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
 import pytest
 
+import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
@@ -24,7 +27,8 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
-from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker, FrontierDelta
+from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
+from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -189,15 +193,90 @@ async def test_build_async_end_to_end() -> None:
     assert tracker.is_row_group_complete(1, 2, all_cols)
 
 
+def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class _SpyScheduler:
+        def __init__(self, **kwargs: object) -> None:
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(builder_mod, "AsyncTaskScheduler", _SpyScheduler)
+    request_admission = object()
+    model_registry = MagicMock()
+    model_registry.get_aggregate_max_parallel_requests.side_effect = AssertionError(
+        "model task admission should follow max_in_flight_tasks directly"
+    )
+    model_registry.request_admission = request_admission
+    provider = SimpleNamespace(
+        model_registry=model_registry,
+        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, progress_bar=False),
+    )
+    processor_runner = MagicMock()
+    processor_runner.has_processors_for.return_value = False
+    config = SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})
+    builder = SimpleNamespace(
+        _column_configs=[config],
+        _processor_runner=processor_runner,
+        artifact_storage=MagicMock(),
+        _resource_provider=provider,
+    )
+    generator = MockSeed(config=_expr_config("seed"), resource_provider=provider)
+
+    DatasetBuilder._prepare_async_run(builder, [generator], num_records=1, buffer_size=1)
+
+    assert captured_kwargs["request_pressure_provider"] is request_admission
+    assert captured_kwargs["request_pressure_advisory"] is True
+    assert captured_kwargs["max_in_flight_tasks"] == 64
+    assert captured_kwargs["max_model_task_admission"] == 64
+
+
+def test_prepare_async_run_uses_compact_plan_for_large_fresh_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class _SpyScheduler:
+        def __init__(self, **kwargs: object) -> None:
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(builder_mod, "AsyncTaskScheduler", _SpyScheduler)
+    model_registry = MagicMock()
+    model_registry.request_admission = None
+    provider = SimpleNamespace(
+        model_registry=model_registry,
+        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, progress_bar=False),
+    )
+    processor_runner = MagicMock()
+    processor_runner.has_processors_for.return_value = False
+    config = SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})
+    builder = SimpleNamespace(
+        _column_configs=[config],
+        _processor_runner=processor_runner,
+        artifact_storage=MagicMock(),
+        _resource_provider=provider,
+    )
+    generator = MockSeed(config=_expr_config("seed"), resource_provider=provider)
+
+    tracemalloc.start()
+    try:
+        DatasetBuilder._prepare_async_run(builder, [generator], num_records=2_000_000, buffer_size=2)
+        _current, peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    row_groups = captured_kwargs["row_groups"]
+    assert isinstance(row_groups, CompactRowGroupPlan)
+    assert len(row_groups) == 1_000_000
+    assert peak_bytes < 5 * 1024 * 1024
+
+
 # -- Test that existing sync path is unaffected --------------------------------
 
 
 def test_sync_path_unaffected_by_async_engine_flag() -> None:
     """DATA_DESIGNER_ASYNC_ENGINE=0 keeps the sync path unchanged."""
-    import data_designer.engine.dataset_builders.dataset_builder as builder_mod
+    from data_designer.engine import flags
 
-    assert hasattr(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE")
-    assert isinstance(builder_mod.DATA_DESIGNER_ASYNC_ENGINE, bool)
+    assert hasattr(flags, "DATA_DESIGNER_ASYNC_ENGINE")
+    assert isinstance(flags.DATA_DESIGNER_ASYNC_ENGINE, bool)
 
 
 # -- Test execution graph integration with real column configs -----------------

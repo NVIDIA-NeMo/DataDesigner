@@ -16,6 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 [build-system]
@@ -50,10 +51,10 @@ dependencies = [
     "mcp>=1.26.0,<2",
     "networkx>=3.0,<4",
     "numpy>=1.23.5,<3",
-    "python-multipart>=0.0.27,<1", # 0.0.27 fixes security advisory pulled in by mcp
+    "python-multipart>=0.0.29,<1", # 0.0.29 addresses multipart security advisories pulled in by mcp
     "ruff>=0.14.10,<1",
     "scipy>=1.11.0,<2",
-    "sqlfluff>=3.2.0,<4",
+    "sqlfluff>=4.1.0,<5",
     "tiktoken>=0.8.0,<1",
 ]
 

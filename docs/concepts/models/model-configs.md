@@ -146,5 +146,4 @@ model_config = dd.ModelConfig(
 - **[Default Model Settings](default-model-settings.md)**: Pre-configured model settings included with Data Designer
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Use the CLI to manage model settings
-- **[Column Configurations](../../code_reference/config/column_configs.md)**: Learn how to use models in column configurations
 - **[Architecture & Performance](../architecture-and-performance.md)**: Understanding separation of concerns and optimizing concurrency

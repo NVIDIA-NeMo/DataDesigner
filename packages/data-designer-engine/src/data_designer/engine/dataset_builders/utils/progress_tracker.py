@@ -44,19 +44,23 @@ class ProgressTracker:
         quiet: bool = False,
         progress_bar: StickyProgressBar | None = None,
         progress_bar_key: str | None = None,
+        initial_completed: int = 0,
     ):
         self.total_records = total_records
         self.label = label
         self.quiet = quiet
 
-        self.completed = 0
-        self.success = 0
+        self.completed = min(max(0, initial_completed), total_records)
+        self.success = self.completed
         self.failed = 0
         self.skipped = 0
+        self._initial_completed = self.completed
 
         interval_fraction = max(1, log_interval_percent) / 100.0
         self.log_interval = max(1, int(total_records * interval_fraction)) if total_records > 0 else 1
         self.next_log_at = self.log_interval
+        while self.next_log_at <= self.completed:
+            self.next_log_at += self.log_interval
 
         self.start_time = time.perf_counter()
         self.lock = Lock()
@@ -130,7 +134,8 @@ class ProgressTracker:
 
     def _get_snapshot_unlocked(self, elapsed: float | None = None) -> tuple[int, int, int, int, int, float, float, str]:
         current_elapsed = time.perf_counter() - self.start_time if elapsed is None else elapsed
-        rate = self.completed / current_elapsed if current_elapsed > 0 else 0.0
+        run_completed = max(0, self.completed - self._initial_completed)
+        rate = run_completed / current_elapsed if current_elapsed > 0 else 0.0
         percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
         emoji = self._random_emoji.progress(percent)
         return self.completed, self.total_records, self.success, self.failed, self.skipped, percent, rate, emoji

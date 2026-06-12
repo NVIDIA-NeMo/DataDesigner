@@ -4,12 +4,15 @@ on:
   push:
     branches: [main]
     paths:
+      - ".github/workflows/publish-fern-devnotes.yml"
       - "fern/assets/**"
       - "fern/components/Authors.tsx"
       - "fern/components/BlogCard.tsx"
+      - "fern/components/Figure.tsx"
       - "fern/components/MetricsTable.tsx"
       - "fern/components/TrajectoryViewer.tsx"
       - "fern/components/devnotes/**"
+      - "fern/scripts/fern-published-branch.py"
       - "fern/styles/authors.css"
       - "fern/styles/blog-card.css"
       - "fern/styles/metrics-table.css"
@@ -37,18 +40,18 @@ jobs:
       FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
     steps:
       - name: Checkout workflow
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: workflow
           ref: ${{ github.event.repository.default_branch }}
 
       - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: source
 
       - name: Checkout published branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           path: website

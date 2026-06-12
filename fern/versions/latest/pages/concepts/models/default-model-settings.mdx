@@ -48,7 +48,7 @@ The following model configurations are automatically available when `NVIDIA_API_
 |-------|-------|----------|---------------------|
 | `nvidia-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
 | `nvidia-reasoning` | `nvidia/nemotron-3-super-120b-a12b` | Reasoning and analysis tasks | `temperature=1.0, top_p=0.95, extra_body={"reasoning_effort": "medium"}` |
-| `nvidia-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `nvidia-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | Omni multimodal understanding for image, audio, and video inputs | `temperature=0.60, top_p=0.95` |
 | `nvidia-embedding` | `nvidia/llama-3.2-nv-embedqa-1b-v2` | Text embeddings | `encoding_format="float", extra_body={"input_type": "query"}` |
 
 
@@ -59,8 +59,8 @@ The following model configurations are automatically available when `OPENAI_API_
 | Alias | Model | Use Case | Inference Parameters |
 |-------|-------|----------|---------------------|
 | `openai-text` | `gpt-4.1` | General text generation | `temperature=0.85, top_p=0.95` |
-| `openai-reasoning` | `gpt-5` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
-| `openai-vision` | `gpt-5` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `openai-reasoning` | `gpt-5` | Reasoning and analysis tasks | `extra_body={"reasoning_effort": "medium"}` |
+| `openai-vision` | `gpt-5` | Vision and image understanding | `extra_body={"reasoning_effort": "medium"}` |
 | `openai-embedding` | `text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
 
 ### OpenRouter Models
@@ -71,8 +71,12 @@ The following model configurations are automatically available when `OPENROUTER_
 |-------|-------|----------|---------------------|
 | `openrouter-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
 | `openrouter-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
-| `openrouter-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | Vision and image understanding | `temperature=0.60, top_p=0.95` |
+| `openrouter-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | Omni multimodal understanding for image, audio, and video inputs, subject to OpenRouter model support | `temperature=0.60, top_p=0.95` |
 | `openrouter-embedding` | `openai/text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
+
+<Note title="Modality support depends on the model">
+  The `multi_modal_context` field can include image, audio, and video contexts, but each model/provider combination has its own accepted input formats, media-size limits, and modality mix. Use an image-capable model for image-only workflows, and use an omni or otherwise multimodal model before sending audio or video context. Local audio/video paths require explicit URL mode (`data_type=url`) and require the model endpoint to have filesystem access to the same paths, typically a colocated vLLM server configured for local media access.
+</Note>
 
 
 ## Using Default Settings

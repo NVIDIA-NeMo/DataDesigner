@@ -10,7 +10,7 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
-from data_designer.engine.context import format_row_group_tag
+from data_designer.engine.context import current_row_group_start_offset, format_row_group_tag
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.logging import LOG_INDENT
@@ -43,7 +43,11 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         if num_records <= 0:
             raise ValueError("🛑 `num_records` must be positive.")
 
-        if self._batch_reader is None:
+        row_group_start_offset = current_row_group_start_offset.get()
+        if self.config.sampling_strategy == SamplingStrategy.ORDERED and row_group_start_offset is not None:
+            self._df_remaining = None
+            self._reset_batch_reader(num_records, record_offset=row_group_start_offset)
+        elif self._batch_reader is None:
             self._reset_batch_reader(num_records)
 
         return self._sample_records(num_records)
@@ -81,13 +85,35 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
                 index_range = self.config.selection_strategy.to_index_range(self._seed_dataset_size)
         return index_range
 
-    def _reset_batch_reader(self, num_records: int) -> None:
+    def _reset_batch_reader(self, num_records: int, *, record_offset: int = 0) -> None:
         shuffle = self.config.sampling_strategy == SamplingStrategy.SHUFFLE
         self._batch_reader = self.resource_provider.seed_reader.create_batch_reader(
             batch_size=num_records,
-            index_range=self._index_range,
+            index_range=self._index_range_at_offset(record_offset),
             shuffle=shuffle,
         )
+
+    def _index_range_at_offset(self, record_offset: int) -> IndexRange | None:
+        # ORDERED sampling cycles through the index range when more records are
+        # requested than the selection contains. ``record_offset`` is the count
+        # of records already produced for prior row groups, so it may exceed
+        # ``selected_size`` after one or more full cycles. Modulo by selection
+        # size gives the next read position within the current cycle; when it
+        # lands at 0 we fall back to the original range so the next read starts
+        # at ``selected_start`` like a fresh cycle.
+        if record_offset <= 0:
+            return self._index_range
+
+        selected_start = self._index_range.start if self._index_range is not None else 0
+        selected_end = self._index_range.end if self._index_range is not None else self._seed_dataset_size - 1
+        selected_size = selected_end - selected_start + 1
+        if selected_size <= 0:
+            return self._index_range
+
+        relative_offset = record_offset % selected_size
+        if relative_offset == 0:
+            return self._index_range
+        return IndexRange(start=selected_start + relative_offset, end=selected_end)
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
         logger.info(f"🌱 {format_row_group_tag()}Sampling {num_records} records from seed dataset")

@@ -24,6 +24,7 @@ class ProviderErrorKind(str, Enum):
     NOT_FOUND = "not_found"
     PERMISSION_DENIED = "permission_denied"
     RATE_LIMIT = "rate_limit"
+    REQUEST_ADMISSION_TIMEOUT = "request_admission_timeout"
     TIMEOUT = "timeout"
     UNPROCESSABLE_ENTITY = "unprocessable_entity"
     UNSUPPORTED_CAPABILITY = "unsupported_capability"

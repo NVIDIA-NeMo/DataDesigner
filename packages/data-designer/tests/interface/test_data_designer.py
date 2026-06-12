@@ -17,13 +17,18 @@ from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import CustomColumnConfig, ExpressionColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import (
+    CustomColumnConfig,
+    ExpressionColumnConfig,
+    LLMTextColumnConfig,
+    SamplerColumnConfig,
+)
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.models import ModelProvider
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_config import JinjaRenderingEngine, RunConfig, ThrottleConfig
+from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import (
@@ -33,6 +38,8 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
+from data_designer.engine import flags
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
     SeedReaderError,
@@ -444,7 +451,7 @@ def test_resolve_client_concurrency_mode_matches_engine_choice(
     (``allow_resize=True``) does not double-warn here; the builder layer
     emits its own warning when the run actually executes.
     """
-    monkeypatch.setattr(dd_mod, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
     builder = _builder_with_allow_resize() if with_allow_resize else DataDesignerConfigBuilder()
     if not with_allow_resize:
         builder.add_column(
@@ -535,13 +542,14 @@ def test_init_no_user_providers_loads_from_yaml(
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
-    original_throttle_manager = data_designer._throttle_manager
+    original_request_admission = data_designer._request_admission
 
     # Test default values
     assert data_designer.run_config.disable_early_shutdown is False
     assert data_designer.run_config.shutdown_error_rate == 0.5
     assert data_designer.run_config.shutdown_error_window == 10
     assert data_designer.run_config.buffer_size == 1000
+    assert data_designer.run_config.max_in_flight_tasks == 1024
     assert data_designer.run_config.max_conversation_restarts == 5
     assert data_designer.run_config.max_conversation_correction_steps == 0
 
@@ -552,19 +560,21 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             shutdown_error_rate=0.8,
             shutdown_error_window=25,
             buffer_size=500,
+            max_in_flight_tasks=1536,
             max_conversation_restarts=7,
             max_conversation_correction_steps=2,
-            throttle=ThrottleConfig(success_window=7),
+            request_admission=RequestAdmissionTuningConfig(successes_until_increase=7),
         )
     )
     assert data_designer.run_config.disable_early_shutdown is True
     assert data_designer.run_config.shutdown_error_rate == 1.0  # normalized when disabled
     assert data_designer.run_config.shutdown_error_window == 25
     assert data_designer.run_config.buffer_size == 500
+    assert data_designer.run_config.max_in_flight_tasks == 1536
     assert data_designer.run_config.max_conversation_restarts == 7
     assert data_designer.run_config.max_conversation_correction_steps == 2
-    assert data_designer._throttle_manager is not original_throttle_manager
-    assert data_designer._throttle_manager._success_window == 7
+    assert data_designer._request_admission is not original_request_admission
+    assert data_designer._request_admission.config.successes_until_increase == 7
 
     # Test updating values
     data_designer.set_run_config(
@@ -573,6 +583,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             shutdown_error_rate=0.3,
             shutdown_error_window=5,
             buffer_size=750,
+            max_in_flight_tasks=2048,
             max_conversation_restarts=9,
             max_conversation_correction_steps=1,
         )
@@ -581,6 +592,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.shutdown_error_rate == 0.3
     assert data_designer.run_config.shutdown_error_window == 5
     assert data_designer.run_config.buffer_size == 750
+    assert data_designer.run_config.max_in_flight_tasks == 2048
     assert data_designer.run_config.max_conversation_restarts == 9
     assert data_designer.run_config.max_conversation_correction_steps == 1
 
@@ -684,6 +696,89 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
     # display report with no errors
     analysis.to_report()
+
+
+def test_create_with_drop_true_can_skip_dropped_column_artifacts(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_model_configs,
+    stub_managed_assets_path,
+):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="uuid",
+            sampler_type="uuid",
+            params={"prefix": "id_", "short_form": True, "uppercase": False},
+        )
+    )
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="hidden_category",
+            sampler_type="category",
+            params={"values": ["private"]},
+            drop=True,
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+    data_designer.set_run_config(RunConfig(preserve_dropped_columns=False))
+
+    results = data_designer.create(config_builder, num_records=3)
+
+    df = results.load_dataset()
+    assert "uuid" in df.columns
+    assert "hidden_category" not in df.columns
+    assert not results.artifact_storage.dropped_columns_dataset_path.exists()
+    metadata = json.loads(results.artifact_storage.metadata_file_path.read_text())
+    assert metadata["preserve_dropped_columns"] is False
+
+
+def test_create_with_drop_true_preserves_columns_only_in_dropped_artifacts(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_model_configs,
+    stub_managed_assets_path,
+):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="uuid",
+            sampler_type="uuid",
+            params={"prefix": "id_", "short_form": True, "uppercase": False},
+        )
+    )
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="hidden_category",
+            sampler_type="category",
+            params={"values": ["private"]},
+            drop=True,
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(config_builder, num_records=3)
+
+    main_df = results.load_dataset()
+    dropped_df = lazy.pd.read_parquet(results.artifact_storage.dropped_columns_dataset_path)
+    assert "uuid" in main_df.columns
+    assert "hidden_category" not in main_df.columns
+    assert "hidden_category" in dropped_df.columns
+    assert "uuid" not in dropped_df.columns
+    metadata = json.loads(results.artifact_storage.metadata_file_path.read_text())
+    assert metadata["preserve_dropped_columns"] is True
 
 
 def test_create_raises_error_when_builder_fails(
@@ -1228,6 +1323,168 @@ def test_preview_with_dropped_columns(
     assert "category" in analysis.side_effect_column_names, (
         "Dropped column 'category' should be tracked in side_effect_column_names"
     )
+
+
+@pytest.fixture
+def stub_check_models_model_configs() -> list[ModelConfig]:
+    """Model configs whose ``provider`` field matches the local ``stub_model_providers`` fixture.
+
+    The shared ``stub_model_configs`` fixture targets ``provider-1``; this file's
+    ``stub_model_providers`` defines ``stub-model-provider``. ``check_models`` builds
+    a real ``ResourceProvider``, so the two need to align.
+    """
+    return [
+        ModelConfig(
+            alias="stub-model",
+            model="stub-model",
+            provider="stub-model-provider",
+            inference_parameters=ChatCompletionInferenceParams(
+                temperature=0.9,
+                top_p=0.9,
+                max_tokens=2048,
+            ),
+        )
+    ]
+
+
+def test_check_models_invokes_readiness_check(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_check_models_model_configs,
+    stub_managed_assets_path,
+):
+    """check_models constructs a ResourceProvider and delegates to run_readiness_check."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
+        data_designer.check_models(config_builder)
+
+    assert mock_check.call_count == 1
+    (called_columns, called_resource_provider), kwargs = mock_check.call_args
+    assert [c.name for c in called_columns] == ["text"]
+    assert called_resource_provider is not None
+    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.ASYNC
+
+
+def test_check_models_passes_sync_mode_for_sync_fallback(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """check_models readiness uses the resolved client mode, including allow_resize fallback."""
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
+    config_builder = _builder_with_allow_resize()
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
+        data_designer.check_models(config_builder)
+
+    _, kwargs = mock_check.call_args
+    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.SYNC
+
+
+def test_check_models_propagates_typed_model_error(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_check_models_model_configs,
+    stub_managed_assets_path,
+):
+    """Errors from the readiness probe surface unchanged so callers can branch on type."""
+    from data_designer.engine.models.errors import ModelAuthenticationError
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch(
+        "data_designer.interface.data_designer.run_readiness_check",
+        side_effect=ModelAuthenticationError("bad creds"),
+    ):
+        with pytest.raises(ModelAuthenticationError, match="bad creds"):
+            data_designer.check_models(config_builder)
+
+
+def test_check_models_passes_built_columns_to_readiness_check(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_check_models_model_configs,
+    stub_managed_assets_path,
+):
+    """The columns argument is the materialized config's column list, not the builder."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="city",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["nyc", "la"]),
+        )
+    )
+    config_builder.add_column(LLMTextColumnConfig(name="story", prompt="x", model_alias="stub-model"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
+        data_designer.check_models(config_builder)
+
+    (called_columns, _), _ = mock_check.call_args
+    assert [c.name for c in called_columns] == ["city", "story"]
+
+
+def test_check_models_no_op_when_only_samplers(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_check_models_model_configs,
+    stub_managed_assets_path,
+):
+    """A config with no model-using columns still routes through readiness, which short-circuits."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="city",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["nyc", "la"]),
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
+        data_designer.check_models(config_builder)
+
+    # check_models always invokes run_readiness_check; the readiness function itself
+    # short-circuits when no aliases are referenced. The contract here is "we always
+    # delegate"; the no-op decision lives in the engine.
+    assert mock_check.call_count == 1
 
 
 def test_validate_raises_error_when_seed_collides(

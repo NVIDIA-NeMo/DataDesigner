@@ -18,9 +18,9 @@ from data_designer.engine.models.clients.adapters.anthropic import AnthropicClie
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.factory import create_model_client
+from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
 from data_designer.engine.models.clients.retry import RetryConfig
-from data_designer.engine.models.clients.throttle_manager import ThrottleManager
-from data_designer.engine.models.clients.throttled import ThrottledModelClient
+from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
 from data_designer.engine.secret_resolver import SecretResolver
 
 
@@ -178,40 +178,51 @@ def test_concurrency_mode_defaults_to_sync(
     assert client.concurrency_mode == ClientConcurrencyMode.SYNC
 
 
-# --- Throttle manager wrapping ---
+# --- Request admission wrapping ---
 
 
-def test_throttle_manager_wraps_openai_client(
+def test_request_admission_wraps_openai_client(
     openai_model_config: ModelConfig,
     secret_resolver: SecretResolver,
     openai_registry: ModelProviderRegistry,
 ) -> None:
-    tm = ThrottleManager()
+    controller = AdaptiveRequestAdmissionController()
+    retry_config = RetryConfig(max_retries=5)
     client = create_model_client(
-        openai_model_config, secret_resolver, openai_registry, retry_config=RetryConfig(), throttle_manager=tm
+        openai_model_config,
+        secret_resolver,
+        openai_registry,
+        retry_config=retry_config,
+        request_admission=controller,
     )
-    assert isinstance(client, ThrottledModelClient)
+    assert isinstance(client, ModelRequestExecutor)
     assert isinstance(client._inner, OpenAICompatibleClient)
+    assert client._retry_config is retry_config
+    assert client._inner._retry_config.max_retries == 0
 
 
-def test_throttle_manager_wraps_anthropic_client(
+def test_request_admission_wraps_anthropic_client(
     anthropic_model_config: ModelConfig,
     secret_resolver: SecretResolver,
     anthropic_registry: ModelProviderRegistry,
 ) -> None:
-    tm = ThrottleManager()
+    controller = AdaptiveRequestAdmissionController()
     client = create_model_client(
-        anthropic_model_config, secret_resolver, anthropic_registry, retry_config=RetryConfig(), throttle_manager=tm
+        anthropic_model_config,
+        secret_resolver,
+        anthropic_registry,
+        retry_config=RetryConfig(),
+        request_admission=controller,
     )
-    assert isinstance(client, ThrottledModelClient)
+    assert isinstance(client, ModelRequestExecutor)
     assert isinstance(client._inner, AnthropicClient)
 
 
-def test_no_throttle_manager_returns_inner_client_directly(
+def test_no_request_admission_returns_inner_client_directly(
     openai_model_config: ModelConfig,
     secret_resolver: SecretResolver,
     openai_registry: ModelProviderRegistry,
 ) -> None:
     client = create_model_client(openai_model_config, secret_resolver, openai_registry)
     assert isinstance(client, OpenAICompatibleClient)
-    assert not isinstance(client, ThrottledModelClient)
+    assert not isinstance(client, ModelRequestExecutor)
