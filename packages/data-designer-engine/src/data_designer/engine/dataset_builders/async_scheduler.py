@@ -16,12 +16,18 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import GenerationStrategy
+from data_designer.config.run_config import (
+    DEFAULT_ROW_GROUP_ADMISSION_HORIZON,
+    MAX_ROW_GROUP_ADMISSION_HORIZON,
+    MAX_ROW_GROUP_ADMITTED_ROWS,
+)
 from data_designer.engine.capacity import (
     AsyncCapacityConfigured,
     AsyncCapacityObservedMaxima,
     AsyncCapacityPlan,
     AsyncCapacityRuntimeSnapshot,
     CapacityValue,
+    CapacityValueSource,
     RequestAdmissionConfigSnapshot,
     RowGroupAdmission,
 )
@@ -160,7 +166,7 @@ class AsyncTaskScheduler:
         row_groups: RowGroupInput,
         buffer_manager: RowGroupBufferManager | None = None,
         *,
-        max_concurrent_row_groups: int = 3,
+        max_concurrent_row_groups: int = DEFAULT_ROW_GROUP_ADMISSION_HORIZON,
         max_in_flight_tasks: int = DEFAULT_IN_FLIGHT_TASK_CAPACITY,
         max_model_task_admission: int = DEFAULT_IN_FLIGHT_TASK_CAPACITY,
         task_admission_config: TaskAdmissionConfig | None = None,
@@ -184,9 +190,24 @@ class AsyncTaskScheduler:
         initial_completed_records: int = 0,
         adaptive_row_group_admission: bool = False,
         adaptive_row_group_initial_target: int = 1,
+        max_admitted_rows: int | None = None,
+        row_group_admission_source: CapacityValueSource = "default",
         request_pressure_provider: RequestPressureSnapshotProvider | None = None,
         request_pressure_advisory: bool = False,
     ) -> None:
+        if max_concurrent_row_groups < 1:
+            raise ValueError("max_concurrent_row_groups must be at least 1.")
+        if max_concurrent_row_groups > MAX_ROW_GROUP_ADMISSION_HORIZON:
+            raise ValueError(f"max_concurrent_row_groups must be at most {MAX_ROW_GROUP_ADMISSION_HORIZON}.")
+        if adaptive_row_group_initial_target < 1:
+            raise ValueError("adaptive_row_group_initial_target must be at least 1.")
+        if adaptive_row_group_initial_target > max_concurrent_row_groups:
+            raise ValueError("adaptive_row_group_initial_target must not exceed max_concurrent_row_groups.")
+        if max_admitted_rows is not None and max_admitted_rows < 1:
+            raise ValueError("max_admitted_rows must be at least 1.")
+        if max_admitted_rows is not None and max_admitted_rows > MAX_ROW_GROUP_ADMITTED_ROWS:
+            raise ValueError(f"max_admitted_rows must be at most {MAX_ROW_GROUP_ADMITTED_ROWS}.")
+
         self._generators = generators
         self._graph = graph
         self._tracker = tracker
@@ -302,7 +323,6 @@ class AsyncTaskScheduler:
         self._first_non_retryable_error: Exception | None = None
         self._fatal_worker_error: BaseException | None = None
 
-        self._max_concurrent_row_groups = max_concurrent_row_groups
         self._max_in_flight_tasks = max_in_flight_tasks
         self._max_model_task_admission = max_model_task_admission
         self._num_records = num_records
@@ -317,9 +337,9 @@ class AsyncTaskScheduler:
         self._observed_max_provider_model_aggregate_in_flight: dict[ProviderModelKey, int] = {}
         self._observed_max_request_domain_current_limits: dict[RequestResourceKey, int] = {}
         self._adaptive_row_group_admission = adaptive_row_group_admission
-        self._row_group_admission_hard_cap = max(1, max_concurrent_row_groups)
+        self._row_group_admission_hard_cap = max_concurrent_row_groups
         self._row_group_admission_target = (
-            max(1, min(self._row_group_admission_hard_cap, adaptive_row_group_initial_target))
+            min(self._row_group_admission_hard_cap, adaptive_row_group_initial_target)
             if adaptive_row_group_admission
             else self._row_group_admission_hard_cap
         )
@@ -328,7 +348,28 @@ class AsyncTaskScheduler:
         self._row_group_admission_event.set()
         self._row_group_admission_pressure_ticks = 0
         self._row_group_admission_blocked_reasons: Counter[str] = Counter()
-        self._adaptive_max_admitted_rows = self._max_admitted_rows_guardrail()
+        derive_row_guard = (
+            adaptive_row_group_admission or max_concurrent_row_groups > DEFAULT_ROW_GROUP_ADMISSION_HORIZON
+        )
+        self._max_admitted_rows = (
+            max_admitted_rows
+            if max_admitted_rows is not None
+            else self._max_admitted_rows_guardrail()
+            if derive_row_guard
+            else None
+        )
+        self._max_admitted_rows_source: CapacityValueSource | None = (
+            row_group_admission_source
+            if max_admitted_rows is not None
+            else "engine_internal_config"
+            if self._max_admitted_rows is not None
+            else None
+        )
+        self._validate_row_group_row_budget()
+        # Diagnostic-only candidate size for the row-group admission attempt
+        # currently waiting on capacity; actual admission always rechecks guards.
+        self._pending_row_group_admission_size: int | None = None
+        self._row_group_admission_source = row_group_admission_source
         self._request_pressure_provider = request_pressure_provider
         self._request_pressure_advisory = request_pressure_advisory and request_pressure_provider is not None
         self._request_pressure_advisory_skips = 0
@@ -513,7 +554,7 @@ class AsyncTaskScheduler:
             "target_row_groups": self._row_group_admission_target,
             "hard_cap_row_groups": self._row_group_admission_hard_cap,
             "active_admitted_rows": self._active_admitted_row_count(),
-            "max_admitted_rows": self._adaptive_max_admitted_rows,
+            "max_admitted_rows": self._effective_max_admitted_rows(),
             "all_row_groups_admitted": self._all_rgs_admitted,
             "queued_total": queue_view.queued_total,
             "queued_by_group": _string_keyed_counts(queue_view.queued_by_group),
@@ -553,7 +594,7 @@ class AsyncTaskScheduler:
             "adaptive_row_group_admission": self._adaptive_row_group_admission,
             "row_group_initial_target": self._row_group_admission_target,
             "row_group_hard_cap": self._row_group_admission_hard_cap,
-            "max_admitted_rows": self._adaptive_max_admitted_rows,
+            "max_admitted_rows": self._effective_max_admitted_rows(),
             "request_pressure_advisory_enabled": self._request_pressure_advisory,
         }
 
@@ -872,8 +913,12 @@ class AsyncTaskScheduler:
 
     def _max_admitted_rows_guardrail(self) -> int:
         if self._num_records > 0 and self._buffer_size > 0:
-            return min(self._num_records, max(3 * self._buffer_size, 8192))
-        return max(1, self._row_groups.scheduled_total_rows)
+            return min(
+                self._num_records,
+                max(self._row_group_admission_hard_cap * self._buffer_size, 8192),
+                MAX_ROW_GROUP_ADMITTED_ROWS,
+            )
+        return min(max(1, self._row_groups.scheduled_total_rows), MAX_ROW_GROUP_ADMITTED_ROWS)
 
     async def _wait_for_row_group_admission_capacity(self, row_group_size: int) -> None:
         while True:
@@ -888,40 +933,63 @@ class AsyncTaskScheduler:
                 return
             if row_guard_blocked:
                 self._row_group_admission_blocked_reasons["max_admitted_rows"] += 1
-                self._emit_scheduler_event(
+                self._emit_row_group_admission_event(
                     "row_group_admission_blocked",
-                    diagnostics=self._row_group_admission_diagnostics(reason="max_admitted_rows"),
+                    reason="max_admitted_rows",
                 )
-                self._emit_scheduler_health_snapshot("row_group_admission_blocked")
             await self._row_group_admission_event.wait()
             self._raise_if_fatal_worker_error()
 
     def _row_group_row_guard_allows(self, row_group_size: int) -> bool:
-        if not self._adaptive_row_group_admission:
+        max_admitted_rows = self._max_admitted_rows
+        if max_admitted_rows is None:
             return True
+        if row_group_size > max_admitted_rows:
+            return False
         admitted_rows = self._active_admitted_row_count()
-        return admitted_rows == 0 or admitted_rows + row_group_size <= self._adaptive_max_admitted_rows
+        return admitted_rows + row_group_size <= max_admitted_rows
 
     def _active_admitted_row_count(self) -> int:
         return sum(state.size for state in self._rg_states.values())
+
+    def _effective_max_admitted_rows(self) -> int | None:
+        return self._max_admitted_rows
+
+    def _validate_row_group_row_budget(self) -> None:
+        max_admitted_rows = self._max_admitted_rows
+        if max_admitted_rows is None:
+            return
+        max_row_group_size = self._row_groups.row_group_max_size
+        if max_row_group_size <= max_admitted_rows:
+            return
+        if max_admitted_rows >= MAX_ROW_GROUP_ADMITTED_ROWS:
+            hint = (
+                f"Reduce buffer_size or row-group size; max_admitted_rows is capped at {MAX_ROW_GROUP_ADMITTED_ROWS}."
+            )
+        elif self._max_admitted_rows_source == "engine_internal_config":
+            hint = "Reduce buffer_size or row-group size, or set row_group_admission.max_admitted_rows explicitly."
+        else:
+            hint = "Reduce buffer_size or increase row_group_admission.max_admitted_rows."
+        raise ValueError(
+            f"row-group size {max_row_group_size} exceeds row_group_admission.max_admitted_rows "
+            f"({max_admitted_rows}). {hint}"
+        )
 
     def _maybe_update_adaptive_row_group_target(self) -> None:
         if not self._adaptive_row_group_admission:
             return
         if self._all_rgs_admitted or self._early_shutdown or self._fatal_worker_error is not None:
             return
+        if self._pending_row_group_admission_size is None:
+            return
         if len(self._rg_states) >= self._row_group_admission_hard_cap:
             self._row_group_admission_pressure_ticks = 0
             return
-        reason = self._adaptive_row_group_block_reason()
+        reason = self._adaptive_row_group_block_reason(self._pending_row_group_admission_size)
         if reason is not None:
             self._row_group_admission_blocked_reasons[reason] += 1
             self._row_group_admission_pressure_ticks = 0
-            self._emit_scheduler_event(
-                "row_group_admission_blocked",
-                diagnostics=self._row_group_admission_diagnostics(reason=reason),
-            )
-            self._emit_scheduler_health_snapshot("row_group_admission_blocked")
+            self._emit_row_group_admission_event("row_group_admission_blocked", reason=reason)
             return
 
         self._row_group_admission_pressure_ticks += 1
@@ -935,20 +1003,18 @@ class AsyncTaskScheduler:
         )
         self._row_group_admission_pressure_ticks = 0
         if self._row_group_admission_target != old_target:
-            self._emit_scheduler_event(
+            self._emit_row_group_admission_event(
                 "row_group_admission_target_changed",
-                diagnostics=self._row_group_admission_diagnostics(reason="horizon_limited")
-                | {"old_target": old_target, "new_target": self._row_group_admission_target},
+                reason="horizon_limited",
+                extra={"old_target": old_target, "new_target": self._row_group_admission_target},
             )
-            self._emit_scheduler_health_snapshot("row_group_admission_target_changed")
             self._row_group_admission_event.set()
 
-    def _adaptive_row_group_block_reason(self) -> str | None:
+    def _adaptive_row_group_block_reason(self, next_size: int | None) -> str | None:
         if self._deferred:
             return "deferred_tasks"
-        next_size = self._next_unadmitted_row_group_size()
         if next_size is None:
-            return "no_pending_row_groups"
+            return None
         if not self._row_group_row_guard_allows(next_size):
             return "max_admitted_rows"
         queue_view = self._fair_queue.view()
@@ -968,14 +1034,6 @@ class AsyncTaskScheduler:
             return "queued_llm_demand"
         return None
 
-    def _next_unadmitted_row_group_size(self) -> int | None:
-        for rg_id, rg_size in self._row_groups:
-            if rg_id not in self._rg_states and not self._tracker.is_row_group_complete(
-                rg_id, rg_size, self._graph.columns
-            ):
-                return rg_size
-        return None
-
     def _row_group_admission_diagnostics(self, *, reason: str) -> dict[str, object]:
         queue_view = self._fair_queue.view()
         task_view = self._task_admission.view()
@@ -987,7 +1045,7 @@ class AsyncTaskScheduler:
             "target_row_groups": self._row_group_admission_target,
             "hard_cap": self._row_group_admission_hard_cap,
             "admitted_rows": admitted_rows,
-            "max_admitted_rows": self._adaptive_max_admitted_rows,
+            "max_admitted_rows": self._effective_max_admitted_rows(),
             "queued_total": queue_view.queued_total,
             "queued_demand_by_resource": dict(queue_view.queued_peer_demand_by_resource),
             "queued_llm_wait_demand": queue_view.queued_peer_demand_by_resource.get("llm_wait", 0),
@@ -1001,40 +1059,53 @@ class AsyncTaskScheduler:
             "blocked_reasons": dict(self._row_group_admission_blocked_reasons),
         }
 
+    def _emit_row_group_admission_event(
+        self,
+        event_kind: str,
+        *,
+        reason: str,
+        extra: dict[str, object] | None = None,
+    ) -> None:
+        if self._scheduler_event_sink is None:
+            return
+        diagnostics = self._row_group_admission_diagnostics(reason=reason)
+        if extra:
+            diagnostics |= extra
+        self._emit_scheduler_event(event_kind, diagnostics=diagnostics)
+        self._emit_scheduler_health_snapshot(event_kind)
+
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
         all_admitted = True
-        for rg_id, rg_size in self._row_groups:
-            await self._wait_for_row_group_admission_capacity(rg_size)
-            if self._early_shutdown or self._fatal_worker_error is not None:
-                all_admitted = False
-                break
-            await self._rg_semaphore.acquire()
-            if self._early_shutdown or self._fatal_worker_error is not None:
-                self._rg_semaphore.release()
-                all_admitted = False
-                break
-            if not self._row_group_row_guard_allows(rg_size):
-                self._rg_semaphore.release()
-                await self._wait_for_row_group_admission_capacity(rg_size)
+        try:
+            for rg_id, rg_size in self._row_groups:
+                self._pending_row_group_admission_size = rg_size
+                try:
+                    await self._wait_for_row_group_admission_capacity(rg_size)
+                finally:
+                    self._pending_row_group_admission_size = None
+                if self._early_shutdown or self._fatal_worker_error is not None:
+                    all_admitted = False
+                    break
                 await self._rg_semaphore.acquire()
                 if self._early_shutdown or self._fatal_worker_error is not None:
                     self._rg_semaphore.release()
                     all_admitted = False
                     break
-            self._rg_states[rg_id] = _RowGroupState(size=rg_size)
+                self._rg_states[rg_id] = _RowGroupState(size=rg_size)
 
-            if self._buffer_manager is not None:
-                self._buffer_manager.init_row_group(rg_id, rg_size)
+                if self._buffer_manager is not None:
+                    self._buffer_manager.init_row_group(rg_id, rg_size)
 
-            await self._dispatch_seeds(rg_id, rg_size)
-            self._emit_scheduler_event(
-                "row_group_admitted",
-                diagnostics=self._row_group_admission_diagnostics(reason="admitted")
-                | {"row_group": rg_id, "row_group_size": rg_size},
-            )
-            self._emit_scheduler_health_snapshot("row_group_admitted")
-            self._wake_event.set()
+                await self._dispatch_seeds(rg_id, rg_size)
+                self._emit_row_group_admission_event(
+                    "row_group_admitted",
+                    reason="admitted",
+                    extra={"row_group": rg_id, "row_group_size": rg_size},
+                )
+                self._wake_event.set()
+        finally:
+            self._pending_row_group_admission_size = None
         self._all_rgs_admitted = all_admitted
         self._wake_event.set()
 
@@ -1343,11 +1414,12 @@ class AsyncTaskScheduler:
         completed = [
             (rg_id, state.size)
             for rg_id, state in self._rg_states.items()
+            if state.in_flight_count == 0
             if self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
         ]
+        checkpointed_row_groups: set[int] = set()
         for rg_id, rg_size in completed:
-            dropped_rows = sum(1 for ri in range(rg_size) if self._tracker.is_dropped(rg_id, ri))
-            checkpointed = False
+            dropped_rows = self._tracker.dropped_row_count(rg_id, rg_size)
             checkpoint_result = "unknown"
             try:
                 if self._on_before_checkpoint:
@@ -1359,8 +1431,6 @@ class AsyncTaskScheduler:
                         raise DatasetGenerationError(
                             f"Post-batch processor failed for row group {rg_id}: {exc}"
                         ) from exc
-                # Remove from tracking only after the callback succeeds.
-                del self._rg_states[rg_id]
                 # If all rows were dropped (e.g. seed failure), free instead of finalizing
                 if dropped_rows == rg_size:
                     if self._buffer_manager:
@@ -1371,48 +1441,51 @@ class AsyncTaskScheduler:
                     checkpoint_result = "finalized"
                 else:
                     checkpoint_result = "completed"
-                checkpointed = True
             except DatasetGenerationError:
                 raise
-            except Exception:
-                logger.error(f"Failed to checkpoint row group {rg_id}.", exc_info=True)
-            finally:
-                self._rg_semaphore.release()
-                self._row_group_admission_event.set()
-            if checkpointed:
-                self._emit_scheduler_event(
-                    "row_group_checkpointed",
-                    diagnostics={
-                        "row_group": rg_id,
-                        "row_group_size": rg_size,
-                        "dropped_rows": dropped_rows,
-                        "surviving_rows": rg_size - dropped_rows,
-                        "result": checkpoint_result,
-                        "active_row_groups": len(self._rg_states),
-                    },
-                )
-                self._emit_scheduler_health_snapshot("row_group_checkpointed")
+            except Exception as exc:
+                raise DatasetGenerationError(f"Failed to checkpoint row group {rg_id}: {exc}") from exc
+
+            del self._rg_states[rg_id]
+            self._rg_semaphore.release()
+            self._row_group_admission_event.set()
+            self._emit_scheduler_event(
+                "row_group_checkpointed",
+                diagnostics={
+                    "row_group": rg_id,
+                    "row_group_size": rg_size,
+                    "dropped_rows": dropped_rows,
+                    "surviving_rows": rg_size - dropped_rows,
+                    "result": checkpoint_result,
+                    "active_row_groups": len(self._rg_states),
+                },
+            )
+            self._tracker.release_row_group(rg_id, rg_size, all_columns)
+            checkpointed_row_groups.add(rg_id)
+            self._emit_scheduler_health_snapshot("row_group_checkpointed")
 
         # Clean up deferred tasks for checkpointed row groups
-        if completed:
-            checkpointed = {rg_id for rg_id, _ in completed}
-            self._deferred = [t for t in self._deferred if t.row_group not in checkpointed]
+        if checkpointed_row_groups:
+            self._deferred = [t for t in self._deferred if t.row_group not in checkpointed_row_groups]
             self._deferred_errors = {
-                task: exc for task, exc in self._deferred_errors.items() if task.row_group not in checkpointed
+                task: exc
+                for task, exc in self._deferred_errors.items()
+                if task.row_group not in checkpointed_row_groups
             }
             self._preserved_retryable_counts = Counter(
                 {
                     task: count
                     for task, count in self._preserved_retryable_counts.items()
-                    if task.row_group not in checkpointed
+                    if task.row_group not in checkpointed_row_groups
                 }
             )
             self._preserved_retryable_log_state = {
                 row_group: state
                 for row_group, state in self._preserved_retryable_log_state.items()
-                if row_group not in checkpointed
+                if row_group not in checkpointed_row_groups
             }
-            for rg_id in checkpointed:
+            self._dispatched = {task for task in self._dispatched if task.row_group not in checkpointed_row_groups}
+            for rg_id in checkpointed_row_groups:
                 self._drop_pending_ready_for_row_group(rg_id)
 
     def _finalize_after_shutdown(self, all_columns: list[str]) -> None:
@@ -1618,9 +1691,6 @@ class AsyncTaskScheduler:
         output_cols = self._gen_instance_to_columns.get(id(generator), [task.column])
         retryable = False
         cancelled = False
-        # When True, skip removing from _dispatched so the task isn't re-dispatched
-        # from the frontier (it was never completed, so it stays in the frontier).
-        skipped = False
         uses_model_stage_resource = "llm_wait" in lease.resources
         stateful_lock_acquired = False
 
@@ -1629,7 +1699,6 @@ class AsyncTaskScheduler:
             # when a vacuously-ready downstream is dispatched via create_task
             # in the same loop iteration that checkpoints the row group).
             if task.row_group not in self._rg_states:
-                skipped = True
                 return
 
             if task.task_type == "from_scratch" and id(generator) in self._stateful_locks:
@@ -1648,6 +1717,9 @@ class AsyncTaskScheduler:
                 await self._run_batch(task, generator)
             else:
                 raise ValueError(f"Unknown task type: {task.task_type}")
+
+            if task.row_group not in self._rg_states:
+                return
 
             # Mark all output columns complete
             for col in output_cols:
@@ -1752,7 +1824,7 @@ class AsyncTaskScheduler:
             self._in_flight.discard(task)
             if (s := self._rg_states.get(task.row_group)) is not None:
                 s.in_flight_count = max(0, s.in_flight_count - 1)
-            if not retryable and not skipped:
+            if not retryable:
                 self._dispatched.discard(task)
             if not retryable:
                 self._deferred_errors.pop(task, None)
@@ -2055,14 +2127,15 @@ class AsyncTaskScheduler:
                 buffer_size=CapacityValue(value=self._buffer_size, source="run_config"),
                 row_group_admission=RowGroupAdmission(
                     row_group_concurrency=CapacityValue(
-                        value=self._max_concurrent_row_groups,
-                        source="dataset_builder",
+                        value=self._row_group_admission_hard_cap,
+                        source=self._row_group_admission_source,
                     ),
                     observed_in_flight=len(self._rg_states),
                     mode="adaptive" if self._adaptive_row_group_admission else "fixed",
                     target_in_flight=self._row_group_admission_target,
                     observed_max_target=self._observed_max_row_group_admission_target,
-                    max_admitted_rows=self._adaptive_max_admitted_rows,
+                    max_admitted_rows=self._effective_max_admitted_rows(),
+                    max_admitted_rows_source=self._max_admitted_rows_source,
                     blocked_reasons=dict(self._row_group_admission_blocked_reasons),
                 ),
                 submission_capacity=CapacityValue(value=self._max_in_flight_tasks, source="run_config"),

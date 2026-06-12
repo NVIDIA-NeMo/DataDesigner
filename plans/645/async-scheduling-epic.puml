@@ -558,6 +558,12 @@ package "Capacity planning (issue 654)" {
   class RowGroupAdmission {
     +row_group_concurrency
     +observed_in_flight
+    +mode
+    +target_in_flight
+    +observed_max_target
+    +max_admitted_rows
+    +max_admitted_rows_source
+    +blocked_reasons
   }
 
   class TransportPoolConfig {

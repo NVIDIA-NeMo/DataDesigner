@@ -99,7 +99,8 @@ Within each column, cells are processed **in parallel** up to the configured lim
 
 ### Concurrency Formula
 
-At any moment, the number of concurrent LLM requests is:
+On the sync engine, each batch is processed one column at a time. At any moment,
+the number of concurrent LLM requests is:
 
 ```python
 concurrent_requests = min(
@@ -108,6 +109,21 @@ concurrent_requests = min(
     remaining_cells_in_column   # Cells left to generate
 )
 ```
+
+On the async engine, ready cells can come from multiple active row groups:
+
+```python
+concurrent_requests = min(
+    active_ready_model_cells,   # Ready cells across admitted row groups
+    current_request_limit,      # AIMD-managed limit (≤ max_parallel_requests)
+    max_in_flight_tasks         # Scheduler task-lease ceiling
+)
+```
+
+`active_ready_model_cells` is bounded by row-group admission:
+`max_concurrent_row_groups`, the effective `max_admitted_rows` guard, the DAG
+dependencies that have become ready, and any rows already dropped by processors
+or failures.
 
 `max_parallel_requests` sets the **ceiling**. The actual limit (`current_request_limit`) is managed at runtime by adaptive request admission that reacts to rate-limit signals from the inference server:
 
@@ -149,6 +165,53 @@ designer.set_run_config(run_config)
 **When to increase**: High-capacity inference server, single-model workflows, memory not constrained
 
 **When to decrease**: Memory-constrained environments, development/debugging, complex multi-model pipelines
+
+---
+
+### Row-Group Admission (RunConfig)
+
+Controls how many async row groups can be active at once. A row group contains
+`buffer_size` records, so this setting is the scheduler horizon above the batch
+size: a wider horizon can expose more ready model work to fast endpoints, while
+a smaller horizon tends to checkpoint completed records earlier and hold less
+active state.
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+run_config = dd.RunConfig(
+    buffer_size=1000,
+    max_in_flight_tasks=4096,
+    row_group_admission=dd.RowGroupAdmissionConfig(
+        mode="adaptive",
+        max_concurrent_row_groups=8,
+        adaptive_initial_target=2,
+        max_admitted_rows=16_000,
+    ),
+)
+
+designer = DataDesigner()
+designer.set_run_config(run_config)
+```
+
+| Parameter | Default | Effect |
+|-----------|---------|--------|
+| `mode` | `fixed` | `fixed` admits up to the hard cap immediately; `adaptive` starts lower and raises the target when scheduler pressure shows that more ready work can be useful. |
+| `max_concurrent_row_groups` | 3 | Hard cap on active row groups. Maximum is 64. |
+| `adaptive_initial_target` | 1 in adaptive mode | Initial soft target before adaptive additive ramp-up. |
+| `max_admitted_rows` | Engine-derived for adaptive mode and widened fixed horizons; unset for the default fixed horizon | Optional guardrail on total records held across active row groups. When omitted for adaptive mode or fixed mode with `max_concurrent_row_groups > 3`, the engine derives `max(max_concurrent_row_groups * buffer_size, 8192)`, bounded by the requested target record count when available, falling back to scheduled rows for direct scheduler plans, and a 1,000,000-row ceiling. Derived guards require `buffer_size` at or below that ceiling. Explicit values must be at least `buffer_size` and at most 1,000,000. |
+
+**When to use fixed mode**: You want predictable checkpoint cadence, lower
+active memory, or easier debugging.
+
+**When to use adaptive mode**: Large async DAGs, fan-out/fan-in flows, mixed
+latency columns, or high-capacity endpoints where the default horizon leaves
+capacity idle.
+
+Async scheduler telemetry includes the effective mode, active row-group target,
+observed maximum target, active row-group count, max admitted rows, and blocked
+reasons when scheduler event instrumentation is enabled.
 
 ---
 
@@ -319,7 +382,7 @@ DATA_DESIGNER_ASYNC_ENGINE=0 python my_pipeline.py
 | Problem | Symptom | Solution |
 |---------|---------|----------|
 | **Low throughput** | Low GPU utilization | Increase `max_parallel_requests` and/or `buffer_size`. If request admission has self-reduced due to earlier 429s (check logs for "concurrency reduced" messages), the server may need more capacity or you can wait for AIMD recovery. |
-| **Frequent 429 → recovery cycles** | Logs show repeated concurrency drops and ramp-ups | The `max_parallel_requests` ceiling is above the server's sustained capacity. This is handled automatically, but you can lower the ceiling to reduce the sawtooth. |
+| **Frequent 429 → recovery cycles** | Logs show repeated concurrency drops and ramp-ups | The `max_parallel_requests` ceiling is above the server's sustained capacity. This is handled automatically, but you can lower the ceiling to reduce the sawtooth or tune `request_admission` with `RequestAdmissionTuningConfig`. |
 | **Long tail of slow generations** | Most records fast, few very slow | Reduce `max_conversation_restarts`, simplify schemas, improve prompts |
 | **Multi-model idle periods** | One model busy, others idle | Reduce `buffer_size` for faster cycling, or consolidate models |
 | **Memory errors** | OOM crashes | Reduce `buffer_size` and `max_parallel_requests` |

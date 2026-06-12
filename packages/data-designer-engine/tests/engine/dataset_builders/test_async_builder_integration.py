@@ -19,6 +19,7 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
     SamplerColumnConfig,
 )
+from data_designer.config.run_config import RowGroupAdmissionConfig, RowGroupAdmissionMode, RunConfig
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
@@ -193,7 +194,14 @@ async def test_build_async_end_to_end() -> None:
     assert tracker.is_row_group_complete(1, 2, all_cols)
 
 
-def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest.MonkeyPatch) -> None:
+def _capture_prepare_async_run_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+    run_config: RunConfig,
+    *,
+    num_records: int = 1,
+    buffer_size: int = 1,
+    request_admission: object | None = None,
+) -> dict[str, object]:
     captured_kwargs: dict[str, object] = {}
 
     class _SpyScheduler:
@@ -201,7 +209,6 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
             captured_kwargs.update(kwargs)
 
     monkeypatch.setattr(builder_mod, "AsyncTaskScheduler", _SpyScheduler)
-    request_admission = object()
     model_registry = MagicMock()
     model_registry.get_aggregate_max_parallel_requests.side_effect = AssertionError(
         "model task admission should follow max_in_flight_tasks directly"
@@ -209,7 +216,7 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
     model_registry.request_admission = request_admission
     provider = SimpleNamespace(
         model_registry=model_registry,
-        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, progress_bar=False),
+        run_config=run_config,
     )
     processor_runner = MagicMock()
     processor_runner.has_processors_for.return_value = False
@@ -222,7 +229,18 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
     )
     generator = MockSeed(config=_expr_config("seed"), resource_provider=provider)
 
-    DatasetBuilder._prepare_async_run(builder, [generator], num_records=1, buffer_size=1)
+    DatasetBuilder._prepare_async_run(builder, [generator], num_records=num_records, buffer_size=buffer_size)
+
+    return captured_kwargs
+
+
+def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest.MonkeyPatch) -> None:
+    request_admission = object()
+    captured_kwargs = _capture_prepare_async_run_kwargs(
+        monkeypatch,
+        RunConfig(max_in_flight_tasks=64),
+        request_admission=request_admission,
+    )
 
     assert captured_kwargs["request_pressure_provider"] is request_admission
     assert captured_kwargs["request_pressure_advisory"] is True
@@ -230,34 +248,120 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
     assert captured_kwargs["max_model_task_admission"] == 64
 
 
+@pytest.mark.parametrize(
+    "run_config,expected_cap,expected_adaptive,expected_initial_target,expected_row_budget",
+    [
+        pytest.param(
+            RunConfig(max_in_flight_tasks=64),
+            3,
+            False,
+            1,
+            None,
+            id="default_fixed",
+        ),
+        pytest.param(
+            RunConfig(
+                max_in_flight_tasks=64,
+                row_group_admission=RowGroupAdmissionConfig(max_concurrent_row_groups=7),
+            ),
+            7,
+            False,
+            1,
+            None,
+            id="custom_fixed",
+        ),
+        pytest.param(
+            RunConfig(
+                max_in_flight_tasks=64,
+                row_group_admission=RowGroupAdmissionConfig(
+                    max_concurrent_row_groups=7,
+                    max_admitted_rows=4096,
+                ),
+            ),
+            7,
+            False,
+            1,
+            4096,
+            id="custom_fixed_row_budget",
+        ),
+        pytest.param(
+            RunConfig(
+                max_in_flight_tasks=64,
+                row_group_admission=RowGroupAdmissionConfig(
+                    mode=RowGroupAdmissionMode.ADAPTIVE,
+                    max_concurrent_row_groups=9,
+                    adaptive_initial_target=3,
+                    max_admitted_rows=2048,
+                ),
+            ),
+            9,
+            True,
+            3,
+            2048,
+            id="adaptive",
+        ),
+        pytest.param(
+            RunConfig(
+                max_in_flight_tasks=64,
+                row_group_admission=RowGroupAdmissionConfig(
+                    mode=RowGroupAdmissionMode.ADAPTIVE,
+                    max_concurrent_row_groups=5,
+                ),
+            ),
+            5,
+            True,
+            1,
+            None,
+            id="adaptive_default_initial_target",
+        ),
+    ],
+)
+def test_prepare_async_run_threads_row_group_admission_config(
+    monkeypatch: pytest.MonkeyPatch,
+    run_config: RunConfig,
+    expected_cap: int,
+    expected_adaptive: bool,
+    expected_initial_target: int,
+    expected_row_budget: int | None,
+) -> None:
+    captured_kwargs = _capture_prepare_async_run_kwargs(monkeypatch, run_config)
+
+    assert captured_kwargs["max_concurrent_row_groups"] == expected_cap
+    assert captured_kwargs["adaptive_row_group_admission"] is expected_adaptive
+    assert captured_kwargs["adaptive_row_group_initial_target"] == expected_initial_target
+    assert captured_kwargs["max_admitted_rows"] == expected_row_budget
+    assert captured_kwargs["row_group_admission_source"] == "run_config"
+
+
+def test_prepare_async_run_threads_adaptive_row_budget_inputs(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs = _capture_prepare_async_run_kwargs(
+        monkeypatch,
+        RunConfig(
+            max_in_flight_tasks=64,
+            row_group_admission=RowGroupAdmissionConfig(
+                mode=RowGroupAdmissionMode.ADAPTIVE,
+                max_concurrent_row_groups=5,
+            ),
+        ),
+        num_records=12345,
+        buffer_size=123,
+    )
+
+    assert captured_kwargs["adaptive_row_group_admission"] is True
+    assert captured_kwargs["max_admitted_rows"] is None
+    assert captured_kwargs["num_records"] == 12345
+    assert captured_kwargs["buffer_size"] == 123
+
+
 def test_prepare_async_run_uses_compact_plan_for_large_fresh_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured_kwargs: dict[str, object] = {}
-
-    class _SpyScheduler:
-        def __init__(self, **kwargs: object) -> None:
-            captured_kwargs.update(kwargs)
-
-    monkeypatch.setattr(builder_mod, "AsyncTaskScheduler", _SpyScheduler)
-    model_registry = MagicMock()
-    model_registry.request_admission = None
-    provider = SimpleNamespace(
-        model_registry=model_registry,
-        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, progress_bar=False),
-    )
-    processor_runner = MagicMock()
-    processor_runner.has_processors_for.return_value = False
-    config = SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})
-    builder = SimpleNamespace(
-        _column_configs=[config],
-        _processor_runner=processor_runner,
-        artifact_storage=MagicMock(),
-        _resource_provider=provider,
-    )
-    generator = MockSeed(config=_expr_config("seed"), resource_provider=provider)
-
     tracemalloc.start()
     try:
-        DatasetBuilder._prepare_async_run(builder, [generator], num_records=2_000_000, buffer_size=2)
+        captured_kwargs = _capture_prepare_async_run_kwargs(
+            monkeypatch,
+            RunConfig(max_in_flight_tasks=64),
+            num_records=2_000_000,
+            buffer_size=2,
+        )
         _current, peak_bytes = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()

@@ -25,6 +25,10 @@ _THROTTLE_DEPRECATION_MESSAGE = (
     "RequestAdmissionTuningConfig for supported advanced request-admission tuning."
 )
 
+DEFAULT_ROW_GROUP_ADMISSION_HORIZON = 3
+MAX_ROW_GROUP_ADMISSION_HORIZON = 64
+MAX_ROW_GROUP_ADMITTED_ROWS = 1_000_000
+
 
 class RequestAdmissionTuningConfig(ConfigBase):
     """Advanced request-admission AIMD tuning for model API calls.
@@ -63,6 +67,70 @@ class RequestAdmissionTuningConfig(ConfigBase):
             "concurrent request and linearly ramps to its configured cap unless a rate-limit aborts the ramp."
         ),
     )
+
+
+class RowGroupAdmissionMode(StrEnum):
+    """Row-group admission policy used by the async scheduler."""
+
+    FIXED = "fixed"
+    ADAPTIVE = "adaptive"
+
+
+class RowGroupAdmissionConfig(ConfigBase):
+    """Async row-group admission horizon and optional adaptive ramp-up policy.
+
+    ``buffer_size`` defines how many records belong to one row group. This
+    policy controls how many row groups and records the async scheduler may keep
+    active at once. Fixed mode uses ``max_concurrent_row_groups`` as a hard
+    horizon. Adaptive mode starts at ``adaptive_initial_target`` and raises the
+    active target up to ``max_concurrent_row_groups`` when scheduler pressure
+    indicates more ready work can be admitted. Adaptive mode and widened fixed
+    horizons derive an active-record guard when ``max_admitted_rows`` is omitted,
+    while the default fixed horizon preserves historical row-group-count-only
+    behavior.
+    """
+
+    mode: RowGroupAdmissionMode = Field(
+        default=RowGroupAdmissionMode.FIXED,
+        description="Use a fixed row-group horizon or adaptive additive ramp-up beneath that hard cap.",
+    )
+    max_concurrent_row_groups: int = Field(
+        default=DEFAULT_ROW_GROUP_ADMISSION_HORIZON,
+        ge=1,
+        le=MAX_ROW_GROUP_ADMISSION_HORIZON,
+        description="Hard cap on row groups that may be active in the async scheduler at once. Maximum is 64.",
+    )
+    adaptive_initial_target: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Initial active row-group target for adaptive mode. Defaults to 1 when omitted. "
+            "Must not exceed max_concurrent_row_groups."
+        ),
+    )
+    max_admitted_rows: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_ROW_GROUP_ADMITTED_ROWS,
+        description=(
+            "Optional guardrail on the total records held across active row groups. "
+            "When set on RunConfig, it must be at least buffer_size and at most 1,000,000. "
+            "When omitted in adaptive mode or widened fixed mode, the engine derives a conservative "
+            "guardrail from buffer_size and target record count."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_adaptive_settings(self) -> Self:
+        mode = RowGroupAdmissionMode(self.mode)
+        if mode == RowGroupAdmissionMode.FIXED:
+            if self.adaptive_initial_target is not None:
+                raise ValueError("adaptive_initial_target applies only when row-group admission mode is 'adaptive'.")
+        elif self.adaptive_initial_target is None:
+            self.adaptive_initial_target = 1
+        elif self.adaptive_initial_target > self.max_concurrent_row_groups:
+            raise ValueError("adaptive_initial_target must not exceed max_concurrent_row_groups.")
+        return self
 
 
 class ThrottleConfig(ConfigBase):
@@ -130,9 +198,10 @@ class RunConfig(ConfigBase):
             early shutdown is enabled. Default is 0.5.
         shutdown_error_window: Minimum number of completed tasks before error rate
             monitoring begins. Must be >= 1. Default is 10.
-        buffer_size: Number of records to process in each batch during dataset generation.
-            A batch is processed end-to-end (column generation, post-batch processors, and writing the batch
-            to artifact storage) before moving on to the next batch. Must be > 0. Default is 1000.
+        buffer_size: Number of records in each sync batch or async row group during dataset generation.
+            The sync engine processes one batch end-to-end before moving to the next batch. The async engine
+            may admit multiple row groups concurrently according to row_group_admission. Must be > 0.
+            Default is 1000.
         max_in_flight_tasks: Maximum number of async scheduler tasks that may hold task
             leases at once. Tasks may be executing, awaiting I/O, or waiting on model
             request admission. Model API request concurrency is controlled separately by
@@ -161,6 +230,10 @@ class RunConfig(ConfigBase):
             Default is ``secure``.
         request_admission: Advanced AIMD request-admission tuning for provider/model calls.
             Most users should leave this unset and tune ``max_parallel_requests`` instead.
+        row_group_admission: Async scheduler row-group horizon/adaptive admission policy.
+            Defaults to a fixed horizon of three active row groups. Tune this
+            for large async runs that need earlier checkpoints or wider endpoint
+            occupancy.
 
     Notes:
         Request-admission controller internals remain engine-owned. This field
@@ -200,6 +273,7 @@ class RunConfig(ConfigBase):
         ),
     )
     request_admission: RequestAdmissionTuningConfig | None = None
+    row_group_admission: RowGroupAdmissionConfig = Field(default_factory=RowGroupAdmissionConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -224,6 +298,27 @@ class RunConfig(ConfigBase):
             )
             return normalized
         return data
+
+    @model_validator(mode="after")
+    def validate_row_group_admission_budget(self) -> Self:
+        mode = RowGroupAdmissionMode(self.row_group_admission.mode)
+        requires_derived_row_guard = (
+            mode == RowGroupAdmissionMode.ADAPTIVE
+            or self.row_group_admission.max_concurrent_row_groups > DEFAULT_ROW_GROUP_ADMISSION_HORIZON
+        )
+        if (
+            self.row_group_admission.max_admitted_rows is None
+            and requires_derived_row_guard
+            and self.buffer_size > MAX_ROW_GROUP_ADMITTED_ROWS
+        ):
+            raise ValueError(
+                f"row-group admission with a derived active-row guard requires buffer_size to be at most "
+                f"{MAX_ROW_GROUP_ADMITTED_ROWS}."
+            )
+        max_admitted_rows = self.row_group_admission.max_admitted_rows
+        if max_admitted_rows is not None and max_admitted_rows < self.buffer_size:
+            raise ValueError("row_group_admission.max_admitted_rows must be at least buffer_size.")
+        return self
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:

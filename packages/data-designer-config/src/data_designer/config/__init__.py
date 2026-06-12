@@ -61,8 +61,12 @@ if TYPE_CHECKING:
         SchemaTransformProcessorConfig,
     )
     from data_designer.config.run_config import (  # noqa: F401
+        MAX_ROW_GROUP_ADMISSION_HORIZON,
+        MAX_ROW_GROUP_ADMITTED_ROWS,
         JinjaRenderingEngine,
         RequestAdmissionTuningConfig,
+        RowGroupAdmissionConfig,
+        RowGroupAdmissionMode,
         RunConfig,
         ThrottleConfig,
     )
@@ -188,7 +192,11 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SchemaTransformProcessorConfig": (_MOD_PROCESSORS, "SchemaTransformProcessorConfig"),
     # run_config
     "JinjaRenderingEngine": (f"{_MOD_BASE}.run_config", "JinjaRenderingEngine"),
+    "MAX_ROW_GROUP_ADMISSION_HORIZON": (f"{_MOD_BASE}.run_config", "MAX_ROW_GROUP_ADMISSION_HORIZON"),
+    "MAX_ROW_GROUP_ADMITTED_ROWS": (f"{_MOD_BASE}.run_config", "MAX_ROW_GROUP_ADMITTED_ROWS"),
     "RequestAdmissionTuningConfig": (f"{_MOD_BASE}.run_config", "RequestAdmissionTuningConfig"),
+    "RowGroupAdmissionConfig": (f"{_MOD_BASE}.run_config", "RowGroupAdmissionConfig"),
+    "RowGroupAdmissionMode": (f"{_MOD_BASE}.run_config", "RowGroupAdmissionMode"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
     # scheduling metadata

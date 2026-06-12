@@ -41,7 +41,7 @@ from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionLease
-from data_designer.engine.dataset_builders.scheduling.task_model import Task
+from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
 from data_designer.engine.dataset_builders.utils.async_progress_reporter import AsyncProgressReporter
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -472,6 +472,42 @@ def test_scheduler_preparation_memory_stays_bounded_for_million_row_groups() -> 
     assert peak_bytes < 5 * 1024 * 1024
 
 
+def test_completion_tracker_full_column_batch_uses_compact_completion_marker() -> None:
+    configs = [SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]})]
+    graph = ExecutionGraph.create(configs, {"seed": GenerationStrategy.FULL_COLUMN})
+    tracker = CompletionTracker.with_graph(graph, [(0, 1_000_000)])
+
+    delta = tracker.mark_row_range_complete("seed", 0, 1_000_000)
+
+    assert delta.empty
+    assert tracker._batch_complete[0] == {"seed": 1_000_000}
+    assert "seed" not in tracker._completed.get(0, {})
+    assert tracker.is_complete(SliceRef(column="seed", row_group=0, row_index=999_999))
+    assert tracker.is_all_complete(
+        [
+            SliceRef(column="seed", row_group=0, row_index=None),
+            SliceRef(column="seed", row_group=0, row_index=123),
+        ]
+    )
+    assert tracker.is_column_complete_for_rg("seed", 0)
+    assert tracker.is_row_group_complete(0, 1_000_000, ["seed"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_releases_completion_state_after_checkpoint() -> None:
+    scheduler, tracker = _build_simple_pipeline(num_records=4, buffer_size=2)
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    assert tracker._completed == {}
+    assert tracker._dropped == {}
+    assert tracker._batch_complete == {}
+    assert tracker.ready_frontier() == ()
+    assert tracker._released_row_groups == {}
+    assert tracker.is_row_group_complete(0, 2, ["seed", "cell_out"])
+    assert tracker.is_row_group_complete(1, 2, ["seed", "cell_out"])
+
+
 def _seed_plus_cell_setup(
     cell_generator: ColumnGenerator,
     num_records: int,
@@ -734,6 +770,57 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
     # Row group is "complete" because all non-dropped rows have all columns
     # (there are no non-dropped rows)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_waits_for_in_flight_siblings_before_checkpoint_release() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="fail_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="slow_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "fail_col": GenerationStrategy.CELL_BY_CELL,
+        "slow_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1)]
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "fail_col": MockFailingGenerator(config=_expr_config("fail_col"), resource_provider=provider),
+            "slow_col": SlowCellGenerator(
+                config=_expr_config("slow_col"),
+                resource_provider=provider,
+                delay=0.05,
+            ),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_in_flight_tasks=2,
+        max_model_task_admission=2,
+        num_records=1,
+        buffer_size=1,
+    )
+    release_in_flight_counts: list[int] = []
+    release_row_group = tracker.release_row_group
+
+    def spy_release_row_group(row_group: int, row_group_size: int, all_columns: list[str]) -> None:
+        release_in_flight_counts.append(sum(task.row_group == row_group for task in scheduler._in_flight))
+        release_row_group(row_group, row_group_size, all_columns)
+
+    tracker.release_row_group = spy_release_row_group  # type: ignore[method-assign]
+
+    await scheduler.run()
+
+    assert release_in_flight_counts == [0]
+    assert tracker.is_dropped(0, 0)
+    assert tracker.is_row_group_complete(0, 1, ["seed", "fail_col", "slow_col"])
+    assert scheduler.capacity_plan().observed_maxima.row_groups_in_flight == 1
 
 
 def test_scheduler_internal_bug_classifier_preserves_scheduler_builtin_failures() -> None:
@@ -2724,6 +2811,7 @@ async def test_scheduler_429_beyond_salvage_cap_is_delayed_not_dropped() -> None
     assert scheduler._deferred_errors == {}
     assert scheduler._preserved_retryable_counts == {}
     assert scheduler._preserved_retryable_log_state == {}
+    assert scheduler._dispatched == set()
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -2880,6 +2968,7 @@ async def test_scheduler_drops_non_preserved_retryable_errors_when_salvage_exhau
     assert scheduler._deferred_errors == {}
     assert scheduler._preserved_retryable_counts == {}
     assert scheduler._preserved_retryable_log_state == {}
+    assert scheduler._dispatched == set()
 
 
 def test_scheduler_rejects_zero_salvage_rounds() -> None:
@@ -3137,6 +3226,22 @@ class SlowCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
         return data
 
     async def agenerate(self, data: dict) -> dict:
+        await asyncio.sleep(self._delay)
+        return self.generate(data)
+
+
+class SlowFullColumnGenerator(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
+    """Full-column generator with configurable async delay."""
+
+    def __init__(self, *args: Any, delay: float = 0.05, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._delay = delay
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        data[self.config.name] = "gen"
+        return data
+
+    async def agenerate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
         await asyncio.sleep(self._delay)
         return self.generate(data)
 
@@ -3638,6 +3743,45 @@ def test_scheduler_capacity_plan_reports_default_request_initial_limit_after_aim
     assert plan.runtime_snapshot.request_domain_current_limits[resource] == 3
 
 
+def test_scheduler_capacity_plan_reports_public_row_group_admission_config() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 2), (1, 2), (2, 2)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "model_col": MockCellGenerator(config=_expr_config("model_col"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=5,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=2,
+        max_admitted_rows=2048,
+        row_group_admission_source="run_config",
+        num_records=6,
+        buffer_size=2,
+    )
+
+    plan = scheduler.capacity_plan()
+
+    assert plan.configured.row_group_admission.row_group_concurrency.value == 5
+    assert plan.configured.row_group_admission.row_group_concurrency.source == "run_config"
+    assert plan.configured.row_group_admission.mode == "adaptive"
+    assert plan.configured.row_group_admission.target_in_flight == 2
+    assert plan.configured.row_group_admission.max_admitted_rows == 2048
+    assert plan.configured.row_group_admission.max_admitted_rows_source == "run_config"
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_emits_job_health_and_row_group_telemetry() -> None:
     provider = _mock_provider()
@@ -3750,10 +3894,12 @@ async def test_scheduler_adaptive_row_group_admission_expands_target_for_horizon
     assert plan.configured.row_group_admission.observed_max_target is not None
     assert plan.configured.row_group_admission.observed_max_target > 1
     assert plan.observed_maxima.row_groups_in_flight > 1
+    assert "no_pending_row_groups" not in plan.configured.row_group_admission.blocked_reasons
     assert any(event.event_kind == "row_group_admission_target_changed" for event in sink.scheduler_events)
 
 
-def test_scheduler_adaptive_row_group_row_guard_blocks_extra_large_groups() -> None:
+@pytest.mark.parametrize("adaptive", [False, True], ids=["fixed", "adaptive"])
+def test_scheduler_derived_row_group_row_guard_blocks_extra_large_groups(adaptive: bool) -> None:
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
@@ -3778,7 +3924,7 @@ def test_scheduler_adaptive_row_group_row_guard_blocks_extra_large_groups() -> N
         tracker=CompletionTracker.with_graph(graph, row_groups),
         row_groups=row_groups,
         max_concurrent_row_groups=4,
-        adaptive_row_group_admission=True,
+        adaptive_row_group_admission=adaptive,
         adaptive_row_group_initial_target=4,
         num_records=10_000,
         buffer_size=1,
@@ -3786,11 +3932,251 @@ def test_scheduler_adaptive_row_group_row_guard_blocks_extra_large_groups() -> N
 
     scheduler._rg_states[0] = SimpleNamespace(size=5_000)
 
-    assert scheduler._adaptive_max_admitted_rows == 8_192
+    assert scheduler._max_admitted_rows == 8_192
     assert not scheduler._row_group_row_guard_allows(5_000)
     assert scheduler._row_group_row_guard_allows(1_000)
     scheduler._rg_states.clear()
-    assert scheduler._row_group_row_guard_allows(9_000)
+    assert not scheduler._row_group_row_guard_allows(9_000)
+
+
+def test_scheduler_derived_row_group_row_guard_is_capped_to_public_max() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(rg_id, 20_000) for rg_id in range(64)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "model_col": MockCellGenerator(config=_expr_config("model_col"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=64,
+        adaptive_row_group_admission=True,
+        num_records=1_280_000,
+        buffer_size=20_000,
+    )
+
+    assert scheduler._max_admitted_rows == 1_000_000
+    plan = scheduler.capacity_plan()
+    assert plan.configured.row_group_admission.max_admitted_rows == 1_000_000
+    assert plan.configured.row_group_admission.max_admitted_rows_source == "engine_internal_config"
+
+
+def test_scheduler_rejects_row_group_larger_than_row_budget() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1_000_001)]
+    graph = ExecutionGraph.create(configs, strategies)
+
+    with pytest.raises(ValueError, match="row-group size 1000001 exceeds row_group_admission.max_admitted_rows"):
+        AsyncTaskScheduler(
+            generators={
+                "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+                "model_col": MockCellGenerator(config=_expr_config("model_col"), resource_provider=provider),
+            },
+            graph=graph,
+            tracker=CompletionTracker.with_graph(graph, row_groups),
+            row_groups=row_groups,
+            max_concurrent_row_groups=1,
+            adaptive_row_group_admission=True,
+            num_records=1_000_001,
+            buffer_size=1_000_001,
+        )
+
+
+def test_scheduler_adaptive_target_does_not_grow_before_pending_row_group() -> None:
+    scheduler, _tracker = _build_simple_pipeline(num_records=2, buffer_size=1)
+    scheduler._adaptive_row_group_admission = True
+    scheduler._row_group_admission_hard_cap = 2
+    scheduler._row_group_admission_target = 1
+    scheduler._pending_row_group_admission_size = None
+
+    scheduler._maybe_update_adaptive_row_group_target()
+
+    assert scheduler._row_group_admission_target == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_adaptive_derived_row_guard_blocks_admission() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        ExpressionColumnConfig(name="slow_full", expr="{{ topic }}", dtype="str"),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "slow_full": GenerationStrategy.FULL_COLUMN,
+    }
+    row_groups = [(0, 4_097), (1, 4_097)]
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "slow_full": SlowFullColumnGenerator(
+                config=_expr_config("slow_full"),
+                resource_provider=provider,
+                delay=0.01,
+            ),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=2,
+        num_records=8_194,
+        buffer_size=4_096,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    plan = scheduler.capacity_plan()
+    assert plan.configured.row_group_admission.max_admitted_rows == 8_192
+    assert plan.observed_maxima.row_groups_in_flight == 1
+    assert plan.configured.row_group_admission.blocked_reasons["max_admitted_rows"] > 0
+    assert tracker.is_row_group_complete(0, 4_097, ["topic", "slow_full"])
+    assert tracker.is_row_group_complete(1, 4_097, ["topic", "slow_full"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_widened_fixed_horizon_derives_row_group_row_guard() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        ExpressionColumnConfig(name="slow_full", expr="{{ topic }}", dtype="str"),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "slow_full": GenerationStrategy.FULL_COLUMN,
+    }
+    row_groups = [(0, 2_000), (1, 2_000), (2, 2_000), (3, 2_000)]
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "slow_full": SlowFullColumnGenerator(
+                config=_expr_config("slow_full"),
+                resource_provider=provider,
+                delay=0.01,
+            ),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=4,
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        num_records=8_000,
+        buffer_size=2_000,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    plan = scheduler.capacity_plan()
+    assert plan.configured.row_group_admission.max_admitted_rows == 8_000
+    assert plan.configured.row_group_admission.max_admitted_rows_source == "engine_internal_config"
+    assert plan.observed_maxima.row_groups_in_flight == 4
+
+
+def test_scheduler_default_fixed_horizon_preserves_count_only_row_group_default() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1_000_001)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "model_col": MockCellGenerator(config=_expr_config("model_col"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        num_records=1_000_001,
+        buffer_size=1_000_001,
+    )
+
+    assert scheduler.capacity_plan().configured.row_group_admission.max_admitted_rows is None
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize("adaptive", [False, True], ids=["fixed", "adaptive"])
+async def test_scheduler_explicit_row_group_row_guard_blocks_admission(adaptive: bool) -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="model_col", prompt="{{ topic }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "topic": GenerationStrategy.FULL_COLUMN,
+        "model_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 500), (1, 500)]
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_manager = RowGroupBufferManager(_make_storage())
+
+    def finalize_row_group(row_group: int) -> None:
+        buffer_manager.checkpoint_row_group(row_group)
+
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+            "model_col": SlowLLMBoundCellGenerator(
+                config=_expr_config("model_col"),
+                resource_provider=provider,
+                delay=0.001,
+            ),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        on_finalize_row_group=finalize_row_group,
+        max_concurrent_row_groups=2,
+        max_in_flight_tasks=128,
+        max_model_task_admission=128,
+        adaptive_row_group_admission=adaptive,
+        adaptive_row_group_initial_target=2,
+        max_admitted_rows=600,
+        num_records=1_000,
+        buffer_size=500,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    plan = scheduler.capacity_plan()
+    assert tracker.is_row_group_complete(0, 500, ["topic", "model_col"])
+    assert tracker.is_row_group_complete(1, 500, ["topic", "model_col"])
+    assert plan.configured.row_group_admission.mode == ("adaptive" if adaptive else "fixed")
+    assert plan.observed_maxima.row_groups_in_flight == 1
+    assert plan.configured.row_group_admission.blocked_reasons["max_admitted_rows"] > 0
 
 
 def _stub_row_group_admission_resource_views(
@@ -3856,7 +4242,7 @@ def test_scheduler_adaptive_row_group_block_reason_prefers_llm_saturation() -> N
         llm_leased=1,
     )
 
-    assert scheduler._adaptive_row_group_block_reason() == "llm_wait_saturated"
+    assert scheduler._adaptive_row_group_block_reason(1) == "llm_wait_saturated"
 
 
 def test_scheduler_adaptive_row_group_block_reason_allows_zero_llm_lease_bootstrap() -> None:
@@ -3983,7 +4369,7 @@ def test_scheduler_adaptive_row_group_queue_guard_uses_in_flight_task_cap() -> N
         view=lambda: SimpleNamespace(queued_total=8, queued_peer_demand_by_resource={})
     )
 
-    assert scheduler._adaptive_row_group_block_reason() == "queued_task_guardrail"
+    assert scheduler._adaptive_row_group_block_reason(1) == "queued_task_guardrail"
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -4426,6 +4812,12 @@ async def test_scheduler_post_batch_failure_raises() -> None:
     graph = ExecutionGraph.create(configs, strategies)
     row_groups = [(0, 3)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
+    release_calls: list[int] = []
+    release_row_group = tracker.release_row_group
+
+    def spy_release_row_group(row_group: int, row_group_size: int, all_columns: list[str]) -> None:
+        release_calls.append(row_group)
+        release_row_group(row_group, row_group_size, all_columns)
 
     storage = MagicMock()
     storage.dataset_name = "test"
@@ -4435,6 +4827,7 @@ async def test_scheduler_post_batch_failure_raises() -> None:
     def fail_post_batch(rg_id: int, rg_size: int) -> None:
         raise RuntimeError("post-batch processor exploded")
 
+    tracker.release_row_group = spy_release_row_group  # type: ignore[method-assign]
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
@@ -4445,6 +4838,58 @@ async def test_scheduler_post_batch_failure_raises() -> None:
     )
     with pytest.raises(DatasetGenerationError, match="Post-batch processor failed"):
         await scheduler.run()
+
+    assert release_calls == []
+    assert 0 in scheduler._rg_states
+    assert scheduler._active_admitted_row_count() == 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_checkpoint_failure_preserves_admission_state() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1), (1, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    release_calls: list[int] = []
+    release_row_group = tracker.release_row_group
+
+    def spy_release_row_group(row_group: int, row_group_size: int, all_columns: list[str]) -> None:
+        release_calls.append(row_group)
+        release_row_group(row_group, row_group_size, all_columns)
+
+    def fail_finalize(rg_id: int) -> None:
+        raise RuntimeError(f"storage checkpoint failed for row group {rg_id}")
+
+    tracker.release_row_group = spy_release_row_group  # type: ignore[method-assign]
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=1,
+        num_records=2,
+        buffer_size=1,
+        on_finalize_row_group=fail_finalize,
+    )
+
+    with pytest.raises(DatasetGenerationError, match="Failed to checkpoint row group 0"):
+        await scheduler.run()
+
+    assert release_calls == []
+    assert 0 in scheduler._rg_states
+    assert scheduler._active_admitted_row_count() == 1
+    assert tracker.is_row_group_complete(0, 1, ["seed", "cell_out"])
 
 
 # -- Early shutdown drains workers -------------------------------------------
