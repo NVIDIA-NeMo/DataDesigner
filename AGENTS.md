@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This file is for agents **developing** DataDesigner — the codebase you are working in.
-If you are an agent helping a user **build a dataset**, use the [`data-designer` skill](skills/data-designer/SKILL.md) and the [product documentation](https://nvidia-nemo.github.io/DataDesigner/) instead.
+If you are an agent helping a user **build a dataset**, use the [`data-designer` skill](skills/data-designer/SKILL.md) and the [product documentation](https://docs.nvidia.com/nemo/datadesigner/) instead.
 
 **DataDesigner** is an NVIDIA NeMo framework for creating synthetic datasets from scratch. Users declare what their data should look like (columns, types, relationships, validation rules); the engine figures out how to generate it. Every change you make should preserve this "declare, don't orchestrate" contract.
 
