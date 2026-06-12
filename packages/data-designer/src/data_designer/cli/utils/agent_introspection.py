@@ -12,7 +12,7 @@ from typing import Any, Literal, get_args, get_origin
 
 import data_designer.config as dd
 from data_designer.cli.agent_command_defs import AGENT_COMMANDS
-from data_designer.cli.repositories.model_repository import ModelRepository
+from data_designer.cli.repositories.model_repository import LegacyModelConfigMigrationError, ModelRepository
 from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.services.download_service import DownloadService
@@ -295,7 +295,14 @@ def _get_source_file(cls: type) -> str:
 def _load_registry(repo: Any) -> Any:
     if not repo.exists():
         return None
-    registry = repo.load()
+    try:
+        registry = repo.load()
+    except LegacyModelConfigMigrationError as e:
+        raise AgentIntrospectionError(
+            code="legacy_model_config",
+            message=str(e),
+            details={"config_file": str(repo.config_file)},
+        ) from e
     if registry is None:
         raise AgentIntrospectionError(
             code="invalid_registry",
