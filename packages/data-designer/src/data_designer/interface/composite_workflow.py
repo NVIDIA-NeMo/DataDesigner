@@ -9,10 +9,13 @@ import logging
 import os
 import shutil
 import time
+import uuid
 from collections.abc import Callable, ItemsView, Iterator, KeysView
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from pydantic import ValidationError
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
@@ -50,6 +53,12 @@ OnSuccessCallback = Callable[[Path], Path | str]
 WORKFLOW_METADATA_FILENAME = "workflow-metadata.json"
 COMPLETED_STAGE_STATUSES = {"completed", "completed_empty"}
 RESUMABLE_STAGE_STATUSES = {"running", "failed"}
+WORKFLOW_PATH_METADATA_KEYS = (
+    "seed_path",
+    "output_seed_path",
+    "callback_output_path",
+    "output_processor_output_path",
+)
 
 
 @dataclass(frozen=True)
@@ -252,6 +261,7 @@ class CompositeWorkflow:
         previous_stage_name: str | None = None
         previous_stage_fingerprint: str | None = None
         skipped_upstream_stage: str | None = None
+        # A stage that runs or resumes may produce new data, so descendants rebuild from its current output.
         force_rerun_downstream = False
 
         for index, stage in enumerate(self._stages):
@@ -304,9 +314,10 @@ class CompositeWorkflow:
                 and prior_stage_metadata.get("fingerprint") == stage_fingerprint
             )
 
-            if prior_matches and _can_skip_prior_stage(stage, prior_stage_metadata):
+            if prior_matches and _can_skip_prior_stage(stage, prior_stage_metadata, workflow_path):
                 stage_metadata.update(prior_stage_metadata)
-                output_seed_path = Path(stage_metadata["output_seed_path"])
+                output_seed_path = _resolve_metadata_path(workflow_path, stage_metadata["output_seed_path"])
+                _normalize_stage_path_metadata(workflow_path, stage_metadata)
                 output_records = _count_parquet_records(output_seed_path)
                 output_result = _stage_result_from_metadata(
                     workflow_path=workflow_path,
@@ -317,7 +328,7 @@ class CompositeWorkflow:
                 stage_results[stage.name] = output_result
                 stage_output_paths[stage.name] = output_seed_path
                 previous_seed_path = output_seed_path
-                previous_output_records = output_records
+                previous_output_records = None if stage_metadata["status"] == "completed_empty" else output_records
                 previous_stage_name = stage.name
                 previous_stage_fingerprint = stage_fingerprint
                 if stage_metadata["status"] == "completed_empty":
@@ -341,7 +352,11 @@ class CompositeWorkflow:
                     "fingerprint": stage_fingerprint,
                     "num_records_requested": num_records,
                     "seeded_from_stage": previous_stage_name,
-                    "seed_path": str(previous_seed_path) if previous_seed_path is not None else None,
+                    "seed_path": (
+                        _metadata_path_value(workflow_path, previous_seed_path)
+                        if previous_seed_path is not None
+                        else None
+                    ),
                     "config": stage_config.model_dump(mode="json"),
                 }
             )
@@ -397,10 +412,14 @@ class CompositeWorkflow:
                         "status": status,
                         "num_records_actual": actual_records,
                         "output_records": output_records,
-                        "output_seed_path": str(output_seed_path),
-                        "callback_output_path": str(callback_output_path) if callback_output_path else None,
+                        "output_seed_path": _metadata_path_value(workflow_path, output_seed_path),
+                        "callback_output_path": (
+                            _metadata_path_value(workflow_path, callback_output_path) if callback_output_path else None
+                        ),
                         "output_processor_output_path": (
-                            str(output_result.artifact_storage.base_dataset_path) if stage.output_processors else None
+                            _metadata_path_value(workflow_path, output_result.artifact_storage.base_dataset_path)
+                            if stage.output_processors
+                            else None
                         ),
                         "duration_sec": time.monotonic() - start_time,
                     }
@@ -413,7 +432,7 @@ class CompositeWorkflow:
             stage_results[stage.name] = output_result
             stage_output_paths[stage.name] = output_seed_path
             previous_seed_path = output_seed_path
-            previous_output_records = output_records
+            previous_output_records = None if status == "completed_empty" else output_records
             previous_stage_name = stage.name
             previous_stage_fingerprint = stage_fingerprint
             force_rerun_downstream = True
@@ -484,7 +503,7 @@ def _get_prior_stage_metadata(
     return prior_stage
 
 
-def _can_skip_prior_stage(stage: _WorkflowStage, prior_stage_metadata: dict[str, Any]) -> bool:
+def _can_skip_prior_stage(stage: _WorkflowStage, prior_stage_metadata: dict[str, Any], workflow_path: Path) -> bool:
     if prior_stage_metadata.get("status") not in COMPLETED_STAGE_STATUSES:
         return False
     if stage.on_success is not None and stage.on_success_version is None:
@@ -493,10 +512,33 @@ def _can_skip_prior_stage(stage: _WorkflowStage, prior_stage_metadata: dict[str,
     if not isinstance(output_seed_path, str) or not output_seed_path:
         return False
     try:
-        _count_parquet_records(Path(output_seed_path))
+        _count_parquet_records(_resolve_metadata_path(workflow_path, output_seed_path))
     except DataDesignerWorkflowError:
         return False
     return True
+
+
+def _metadata_path_value(workflow_path: Path, path: Path) -> str:
+    if path.is_absolute():
+        try:
+            return str(path.relative_to(workflow_path))
+        except ValueError:
+            return str(path)
+    return str(path)
+
+
+def _resolve_metadata_path(workflow_path: Path, path: str) -> Path:
+    metadata_path = Path(path)
+    if metadata_path.is_absolute():
+        return metadata_path
+    return workflow_path / metadata_path
+
+
+def _normalize_stage_path_metadata(workflow_path: Path, stage_metadata: dict[str, Any]) -> None:
+    for key in WORKFLOW_PATH_METADATA_KEYS:
+        value = stage_metadata.get(key)
+        if isinstance(value, str) and value:
+            stage_metadata[key] = _metadata_path_value(workflow_path, _resolve_metadata_path(workflow_path, value))
 
 
 def _stage_result_from_metadata(
@@ -549,7 +591,7 @@ def _load_stage_analysis(artifact_storage: ArtifactStorage) -> Any:
                 "column_profiles": metadata.get("column_profiles"),
             }
         )
-    except Exception:
+    except ValidationError:
         return None
 
 
@@ -703,7 +745,7 @@ def _parquet_files(path: Path) -> list[Path]:
 
 def _write_workflow_metadata(workflow_path: Path, metadata: dict[str, Any]) -> None:
     path = workflow_path / WORKFLOW_METADATA_FILENAME
-    tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
     try:
         with tmp_path.open("w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, sort_keys=True)

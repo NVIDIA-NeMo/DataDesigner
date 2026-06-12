@@ -112,7 +112,7 @@ from data_designer.interface import ResumeMode
 results = workflow.run(resume=ResumeMode.IF_POSSIBLE)
 ```
 
-Use `ResumeMode.ALWAYS` when every reusable stage must match the prior workflow metadata. If a stage changed or its selected output is missing, the workflow raises instead of starting fresh.
+Use `ResumeMode.ALWAYS` for strict resume before the first recovered checkpoint. A changed stage or missing selected output raises instead of starting fresh. If a matching partial stage resumes successfully, descendants are recreated from that stage's current output.
 
 ## Current limits
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -115,6 +116,19 @@ def _seeded_builder(model_configs: list[ModelConfig], rows: list[dict]) -> DataD
 
 def _load_workflow_metadata(artifact_path: Path, workflow_name: str) -> dict:
     return json.loads((artifact_path / workflow_name / "workflow-metadata.json").read_text())
+
+
+def _mark_stage_resumable(metadata: dict, index: int, status: str) -> None:
+    metadata["stages"][index]["status"] = status
+    for key in (
+        "num_records_actual",
+        "output_records",
+        "output_seed_path",
+        "callback_output_path",
+        "output_processor_output_path",
+        "duration_sec",
+    ):
+        metadata["stages"][index].pop(key, None)
 
 
 def test_dataset_creation_results_to_config_builder_columns(
@@ -473,6 +487,8 @@ def test_composite_workflow_resume_if_possible_skips_stage_with_output_processor
     )
     workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ public_name }} final"))
     first = workflow.run()
+    output_processor_dir = first["base"].artifact_storage.base_dataset_path
+    output_processor_dir_mtime = output_processor_dir.stat().st_mtime_ns
     output_processor_file = first["base"].artifact_storage.final_dataset_path / "batch_00000.parquet"
     output_processor_mtime = output_processor_file.stat().st_mtime_ns
 
@@ -490,7 +506,35 @@ def test_composite_workflow_resume_if_possible_skips_stage_with_output_processor
     assert results.load_dataset().to_dict(orient="records") == [
         {"name": "Ada", "public_name": "Ada", "final": "Ada final"}
     ]
+    assert output_processor_dir.stat().st_mtime_ns == output_processor_dir_mtime
     assert output_processor_file.stat().st_mtime_ns == output_processor_mtime
+
+
+def test_composite_workflow_resume_if_possible_uses_relative_metadata_paths_after_move(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    source_artifacts = tmp_path / "source" / "artifacts"
+    moved_artifacts = tmp_path / "moved" / "artifacts"
+    data_designer = _data_designer(source_artifacts, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-moved")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.run()
+    metadata = _load_workflow_metadata(source_artifacts, "resume-moved")
+    assert metadata["stages"][0]["output_seed_path"] == "stage-0-base/parquet-files"
+
+    shutil.copytree(source_artifacts, moved_artifacts)
+    moved_data_designer = _data_designer(moved_artifacts, stub_model_providers)
+    create_mock = _patch_create(moved_data_designer, stub_dataset_profiler_results)
+    resumed = moved_data_designer.compose_workflow(name="resume-moved")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    results = resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert create_mock.call_count == 0
+    assert results.count_records() == 2
 
 
 def test_composite_workflow_resume_if_possible_preserves_completed_empty_skip(
@@ -648,7 +692,7 @@ def test_composite_workflow_resume_if_possible_delegates_matching_resumable_stag
     workflow.run()
     metadata_path = stub_artifact_path / "resume-partial" / "workflow-metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata["stages"][0]["status"] = status
+    _mark_stage_resumable(metadata, 0, status)
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     create_mock.reset_mock()
 
@@ -656,6 +700,33 @@ def test_composite_workflow_resume_if_possible_delegates_matching_resumable_stag
     resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
     resumed.add_stage("copy", _copy_builder(stub_model_configs))
     resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+    assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.ALWAYS, ResumeMode.NEVER]
+
+
+def test_composite_workflow_resume_always_reruns_descendants_after_partial_stage(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-always-partial")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-always-partial" / "workflow-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    _mark_stage_resumable(metadata, 0, "running")
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-always-partial")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _expression_builder(stub_model_configs, "category_copy", "{{ category }} v2"))
+    resumed.run(resume=ResumeMode.ALWAYS)
 
     assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
     assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.ALWAYS, ResumeMode.NEVER]
