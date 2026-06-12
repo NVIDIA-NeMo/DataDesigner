@@ -120,10 +120,6 @@ Both methods operate on the same files, ensuring consistency across your entire 
   The default model providers call hosted endpoints operated by NVIDIA, OpenAI, OpenRouter, or their upstream providers. Provider terms and privacy practices apply independently of Data Designer, and free or trial endpoints may log request data for security, operations, or product improvement. Do not submit confidential information or personal data, including faces, voices, screenshots, regulated data, or other sensitive content, unless the selected provider and endpoint are approved for your use case.
 </Warning>
 
-<Warning title="Deprecated: implicit default provider routing">
-  The `default:` key in `~/.data-designer/model_providers.yaml` and the registry-level "default provider" concept are **deprecated** and will be removed in a future release. Specify `provider=` explicitly on every `ModelConfig` instead — the built-in defaults above already do this, and a `DeprecationWarning` is now emitted whenever the legacy routing is exercised. See [issue #589](https://github.com/NVIDIA-NeMo/DataDesigner/issues/589).
-</Warning>
-
 <Tip title="Environment Variables">
   Store your API keys in environment variables rather than hardcoding them in your scripts:
 

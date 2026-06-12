@@ -29,6 +29,7 @@ from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.engine import flags
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
@@ -58,7 +59,7 @@ def _force_sync_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     behavior; the async path has dedicated coverage in
     ``test_async_builder_integration.py`` and ``test_async_scheduler.py``.
     """
-    monkeypatch.setattr(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", False)
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", False)
 
 
 @pytest.fixture
@@ -332,61 +333,6 @@ def test_dataset_builder_build_method_basic_flow(
     stub_batch_manager.start.assert_called_once_with(num_records=100, buffer_size=50)
     stub_batch_manager.finish.assert_called_once()
     assert result_path == stub_resource_provider.artifact_storage.final_dataset_path
-
-
-def test_run_model_health_check_collects_aliases_from_get_model_aliases(
-    stub_resource_provider,
-    stub_model_configs,
-) -> None:
-    """The health check pings every alias returned by each config's get_model_aliases().
-
-    Regression test for #606: secondary aliases on multi-model plugin configs (returned via
-    get_model_aliases()) must be passed to run_health_check(), not just the primary
-    model_alias field.
-    """
-    stub_resource_provider.model_registry.run_health_check = Mock()
-
-    @custom_column_generator(model_aliases=["custom-model-a", "custom-model-b"])
-    def gen_with_two_models(row: dict, generator_params, models) -> dict:
-        del generator_params, models
-        return row
-
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.add_column(
-        SamplerColumnConfig(name="seed_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
-    )
-    config_builder.add_column(LLMTextColumnConfig(name="builtin_llm_col", prompt="x", model_alias="builtin-model"))
-    config_builder.add_column(CustomColumnConfig(name="custom_col", generator_function=gen_with_two_models))
-
-    builder = DatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    builder._run_model_health_check_if_needed()
-
-    stub_resource_provider.model_registry.run_health_check.assert_called_once()
-    (called_aliases,), _ = stub_resource_provider.model_registry.run_health_check.call_args
-    assert set(called_aliases) == {"builtin-model", "custom-model-a", "custom-model-b"}
-
-
-def test_run_model_health_check_skips_when_no_model_aliases(
-    stub_resource_provider,
-    stub_model_configs,
-) -> None:
-    """Configs with no model aliases (e.g. samplers only) skip the health check entirely."""
-    stub_resource_provider.model_registry.run_health_check = Mock()
-
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.add_column(
-        SamplerColumnConfig(name="seed_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
-    )
-    builder = DatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    builder._run_model_health_check_if_needed()
-
-    stub_resource_provider.model_registry.run_health_check.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1833,7 +1779,7 @@ def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
     with caplog.at_level(logging.INFO):
-        with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(builder_mod, "run_readiness_check"):
             with patch.object(builder, "_run_batch"):
                 with patch.object(builder.batch_manager, "finish"):
                     # resume=False is set internally; build dispatches to the normal (non-resume) path
@@ -1911,7 +1857,7 @@ def test_build_resume_allows_larger_num_records(stub_resource_provider, stub_tes
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with caplog.at_level(logging.WARNING):
-        with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(builder_mod, "run_readiness_check"):
             # 6 > 4 already generated → not already complete, should start generating
             # Here we just verify it does NOT raise on the num_records check
             with patch.object(builder, "_build_with_resume", return_value=True):
@@ -1985,7 +1931,7 @@ def test_build_if_possible_starts_fresh_on_dropped_column_artifact_policy_mismat
         resource_provider=stub_resource_provider,
     )
 
-    with patch.object(builder, "_run_model_health_check_if_needed"):
+    with patch.object(builder_mod, "run_readiness_check"):
         with patch.object(builder, "_run_batch"):
             with patch.object(builder.batch_manager, "finish"):
                 final_path = builder.build(num_records=4, resume=ResumeMode.IF_POSSIBLE)
@@ -2244,7 +2190,7 @@ def test_build_resume_not_already_complete_when_extension_fits_in_slack(
 
     with patch.object(builder, "_run_batch") as mock_run_batch:
         with patch.object(builder.batch_manager, "finish"):
-            with patch.object(builder, "_run_model_health_check_if_needed"):
+            with patch.object(builder_mod, "run_readiness_check"):
                 builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     mock_run_batch.assert_called_once()
@@ -2273,7 +2219,7 @@ def test_build_resume_recovers_progress_from_disk_when_metadata_lags(
     with caplog.at_level(logging.WARNING):
         with patch.object(builder, "_run_batch") as mock_run_batch:
             with patch.object(builder.batch_manager, "finish"):
-                with patch.object(builder, "_run_model_health_check_if_needed"):
+                with patch.object(builder_mod, "run_readiness_check"):
                     builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     mock_run_batch.assert_not_called()
@@ -2317,8 +2263,8 @@ def test_build_async_resume_logs_warning_when_already_complete(
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
     with caplog.at_level(logging.WARNING):
-        with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
-            with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
+            with patch.object(builder_mod, "run_readiness_check"):
                 builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     assert any("already complete" in record.message for record in caplog.records)
@@ -2340,8 +2286,8 @@ def test_build_async_resume_starts_fresh_without_metadata(
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
 
     with caplog.at_level(logging.INFO):
-        with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
-            with patch.object(builder, "_run_model_health_check_if_needed"):
+        with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
+            with patch.object(builder_mod, "run_readiness_check"):
                 with patch.object(builder, "_build_async", return_value=True) as mock_async:
                     builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
@@ -2361,8 +2307,8 @@ def test_build_async_resume_already_complete_does_not_run_after_generation_proce
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder, "_run_model_health_check_if_needed"):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "run_readiness_check"):
             with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
                 builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
@@ -2387,8 +2333,8 @@ def test_find_completed_row_groups_used_for_initial_total_batches(
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     # Both row groups are on disk → dataset is already complete → generated=False
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder, "_run_model_health_check_if_needed"):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
+        with patch.object(builder_mod, "run_readiness_check"):
             with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
                 builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
@@ -2435,11 +2381,11 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
     # asyncio and ensure_async_engine_loop are lazy-imported in dataset_builder only when
     # DATA_DESIGNER_ASYNC_ENGINE=True at module load time.  Inject them for the duration
     # of this test so _build_async can proceed past the early-return path.
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
             with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                    with patch.object(builder_mod, "run_readiness_check"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
                             builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
@@ -2541,11 +2487,11 @@ def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_gro
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
             with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                    with patch.object(builder_mod, "run_readiness_check"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
                             builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
@@ -2584,11 +2530,11 @@ def test_build_async_resume_initial_actual_num_records_uses_original_target(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
             with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                    with patch.object(builder_mod, "run_readiness_check"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
                             # Extend the dataset: new target is 7, original was 5
                             builder.build(num_records=7, resume=ResumeMode.ALWAYS)
@@ -2632,11 +2578,11 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
             with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                    with patch.object(builder_mod, "run_readiness_check"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
                             builder.build(num_records=9, resume=ResumeMode.ALWAYS)
 
@@ -2687,11 +2633,11 @@ def test_build_async_resume_stale_original_target_after_incremental_metadata_wri
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
             with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                    with patch.object(builder_mod, "run_readiness_check"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
                             builder.build(num_records=9, resume=ResumeMode.ALWAYS)
 
@@ -2730,11 +2676,11 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
             with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                    with patch.object(builder_mod, "run_readiness_check"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
                             builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
@@ -2775,11 +2721,11 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
             with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                    with patch.object(builder_mod, "run_readiness_check"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
                             builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
@@ -2814,11 +2760,11 @@ def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE", True):
+    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
         with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
             with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
                 with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder, "_run_model_health_check_if_needed"):
+                    with patch.object(builder_mod, "run_readiness_check"):
                         with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare:
                             builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 

@@ -92,12 +92,8 @@ def display_providers(provider_repo: ProviderRepository) -> None:
         table.add_column("Endpoint", style=NordColor.NORD4.value)
         table.add_column("Type", style=NordColor.NORD9.value, no_wrap=True)
         table.add_column("API Key", style=NordColor.NORD7.value)
-        table.add_column("Default", style=NordColor.NORD13.value, justify="center")
-
-        default_name = provider_registry.default or provider_registry.providers[0].name
 
         for provider in provider_registry.providers:
-            is_default = "✓" if provider.name == default_name else ""
             api_key_display = _mask_api_key(provider.api_key)
 
             table.add_row(
@@ -105,7 +101,6 @@ def display_providers(provider_repo: ProviderRepository) -> None:
                 provider.endpoint,
                 provider.provider_type,
                 api_key_display,
-                is_default,
             )
 
         console.print(table)
@@ -145,7 +140,7 @@ def display_models(model_repo: ModelRepository) -> None:
             table.add_row(
                 mc.alias,
                 mc.model,
-                mc.provider or "(default)",
+                mc.provider,
                 params_display,
             )
 

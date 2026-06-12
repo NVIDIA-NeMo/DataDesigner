@@ -98,34 +98,6 @@ def test_delete_last_provider(stub_provider_service: ProviderService, stub_model
     assert stub_provider_service.list_all() == []
 
 
-def test_set_default(stub_provider_service: ProviderService, stub_model_providers: list[ModelProvider]):
-    stub_provider_service.set_default("test-provider-2")
-    assert stub_provider_service.get_default() == "test-provider-2"
-
-
-def test_set_default_no_registry(tmp_path: Path):
-    """Test set_default when no registry exists."""
-    service = ProviderService(ProviderRepository(tmp_path))
-    with pytest.raises(ValueError, match="No providers configured"):
-        service.set_default("test-provider-1")
-
-
-def test_set_default_nonexistent_provider(stub_provider_service: ProviderService):
-    """Test set_default with a provider that doesn't exist."""
-    with pytest.raises(ValueError, match="Provider 'nonexistent' not found"):
-        stub_provider_service.set_default("nonexistent")
-
-
-def test_get_default(stub_provider_service: ProviderService, stub_model_providers: list[ModelProvider]):
-    assert stub_provider_service.get_default() == "test-provider-1"
-
-
-def test_get_default_no_registry(tmp_path: Path):
-    """Test get_default when no registry exists."""
-    service = ProviderService(ProviderRepository(tmp_path))
-    assert service.get_default() is None
-
-
 def test_delete_provider_with_associated_models(
     tmp_path: Path, stub_model_providers: list[ModelProvider], stub_model_configs: list[ModelConfig]
 ):
@@ -140,7 +112,7 @@ def test_delete_provider_with_associated_models(
     from data_designer.cli.repositories.provider_repository import ModelProviderRegistry, ProviderRepository
 
     provider_repo = ProviderRepository(tmp_path)
-    provider_repo.save(ModelProviderRegistry(providers=stub_model_providers, default="test-provider-1"))
+    provider_repo.save(ModelProviderRegistry(providers=stub_model_providers))
 
     model_repo = ModelRepository(tmp_path)
     model_repo.save(ModelConfigRegistry(model_configs=stub_model_configs))

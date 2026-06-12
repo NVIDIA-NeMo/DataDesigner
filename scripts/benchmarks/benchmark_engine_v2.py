@@ -619,7 +619,7 @@ def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> Benc
         endpoint="https://mock.local/mcp",
         api_key="mock-mcp-key",
     )
-    model_provider_registry = resolve_model_provider_registry([provider], default_provider_name=provider.name)
+    model_provider_registry = resolve_model_provider_registry([provider])
     secret_resolver = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
 
     with tempfile.TemporaryDirectory() as temp_dir:

@@ -28,12 +28,12 @@ from data_designer.config.processors import (
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.version import get_library_version
+from data_designer.engine import flags
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     ColumnGeneratorWithModel,
     GenerationStrategy,
 )
-from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.context import current_row_group, current_row_group_start_offset
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
@@ -59,9 +59,11 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
     strip_skip_metadata_from_records,
 )
 from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
+from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import (
@@ -82,12 +84,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Async engine is the default execution path. Set ``DATA_DESIGNER_ASYNC_ENGINE=0``
-# to opt back into the legacy sync engine for one transitional release; the sync
-# path is scheduled for removal afterwards.
-DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "1") == "1"
+# The async-engine flag now lives in ``data_designer.engine.flags`` so the
+# engine, the public interface, and the readiness module can share one source
+# of truth. Always read ``flags.DATA_DESIGNER_ASYNC_ENGINE`` rather than caching
+# a local copy so monkeypatches in tests are visible.
 
-if DATA_DESIGNER_ASYNC_ENGINE:
+if flags.DATA_DESIGNER_ASYNC_ENGINE:
     import asyncio
 
     from data_designer.engine.dataset_builders.async_scheduler import (
@@ -193,7 +195,7 @@ class DatasetBuilder:
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
-        self._use_async: bool = DATA_DESIGNER_ASYNC_ENGINE
+        self._use_async: bool = flags.DATA_DESIGNER_ASYNC_ENGINE
         # Structured signal: set by _build_async if the scheduler hit early shutdown.
         # Stays at defaults for sync-engine and successful async runs. Reset at
         # the start of each public run path so reused builder instances don't
@@ -275,10 +277,6 @@ class DatasetBuilder:
     def single_column_config_by_name(self) -> dict[str, ColumnConfigT]:
         return {config.name: config for config in self.single_column_configs}
 
-    @functools.cached_property
-    def llm_generated_column_configs(self) -> list[ColumnConfigT]:
-        return [config for config in self.single_column_configs if column_type_is_model_generated(config.column_type)]
-
     def build(
         self,
         *,
@@ -314,9 +312,13 @@ class DatasetBuilder:
             Path to the generated dataset directory.
         """
         self._reset_run_state()
+        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
 
-        self._run_model_health_check_if_needed()
-        self._run_mcp_tool_check_if_needed()
+        run_readiness_check(
+            self.single_column_configs,
+            self._resource_provider,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC if self._use_async else ClientConcurrencyMode.SYNC,
+        )
 
         # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
         # directory. _check_resume_config_compatibility() must NOT access base_dataset_path
@@ -386,7 +388,6 @@ class DatasetBuilder:
                 "start a new generation run."
             )
 
-        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
         if self._use_async:
             self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
         elif resume == ResumeMode.ALWAYS:
@@ -657,8 +658,12 @@ class DatasetBuilder:
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._reset_run_state()
-        self._run_model_health_check_if_needed()
-        self._run_mcp_tool_check_if_needed()
+        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        run_readiness_check(
+            self.single_column_configs,
+            self._resource_provider,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC if self._use_async else ClientConcurrencyMode.SYNC,
+        )
 
         # Set media storage to DATAFRAME mode for preview - base64 stored directly in DataFrame
         if self._has_image_columns():
@@ -667,7 +672,6 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        self._use_async = DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
         if self._use_async:
             dataset = self._build_async_preview(generators, num_records)
         else:
@@ -1406,38 +1410,6 @@ class DatasetBuilder:
                 gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
             batch.append(gen_result)
         return batch
-
-    def _run_model_health_check_if_needed(self) -> None:
-        model_aliases: set[str] = set()
-        for config in self.single_column_configs:
-            model_aliases.update(config.get_model_aliases())
-
-        if not model_aliases:
-            return
-
-        if DATA_DESIGNER_ASYNC_ENGINE:
-            loop = ensure_async_engine_loop()
-            future = asyncio.run_coroutine_threadsafe(
-                self._resource_provider.model_registry.arun_health_check(list(model_aliases)),
-                loop,
-            )
-            try:
-                future.result(timeout=180)
-            except TimeoutError:
-                future.cancel()
-                raise
-        else:
-            self._resource_provider.model_registry.run_health_check(list(model_aliases))
-
-    def _run_mcp_tool_check_if_needed(self) -> None:
-        tool_aliases = sorted(
-            {config.tool_alias for config in self.llm_generated_column_configs if getattr(config, "tool_alias", None)}
-        )
-        if not tool_aliases:
-            return
-        if self._resource_provider.mcp_registry is None:
-            raise DatasetGenerationError(f"Tool alias(es) {tool_aliases!r} specified but no MCPRegistry configured.")
-        self._resource_provider.mcp_registry.run_health_check(tool_aliases)
 
     def _setup_fan_out(
         self,
