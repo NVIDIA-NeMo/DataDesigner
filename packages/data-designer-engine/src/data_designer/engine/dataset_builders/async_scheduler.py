@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import GenerationStrategy
+from data_designer.config.column_configs import ExpressionColumnConfig, GenerationStrategy
 from data_designer.engine.capacity import (
     AsyncCapacityConfigured,
     AsyncCapacityObservedMaxima,
@@ -1808,6 +1808,9 @@ class AsyncTaskScheduler:
             )
         return result
 
+    def _task_supports_row_drops(self, task: Task, generator: ColumnGenerator) -> bool:
+        return task.task_type == "batch" and isinstance(generator.config, ExpressionColumnConfig)
+
     async def _run_from_scratch(self, task: Task, generator: ColumnGenerator) -> Any:
         """Execute a from_scratch task."""
         rg_size = self._get_rg_size(task.row_group)
@@ -1920,6 +1923,7 @@ class AsyncTaskScheduler:
         if self._buffer_manager is not None:
             pre_dropped: set[int] = {ri for ri in range(rg_size) if self._buffer_manager.is_dropped(task.row_group, ri)}
             active_rows_data: list[dict] = []
+            active_row_indices: list[int] = []
 
             # Skip evaluation only applies to single-column configs.
             # Multi-column configs (sampler/seed) are rejected by the SkipConfig
@@ -1937,9 +1941,10 @@ class AsyncTaskScheduler:
                     continue
 
                 active_rows_data.append(record)
+                active_row_indices.append(ri)
 
             batch_df = (
-                lazy.pd.DataFrame(strip_skip_metadata_from_records(active_rows_data))
+                lazy.pd.DataFrame(strip_skip_metadata_from_records(active_rows_data), index=active_row_indices)
                 if active_rows_data
                 else lazy.pd.DataFrame()
             )
@@ -1947,6 +1952,7 @@ class AsyncTaskScheduler:
             batch_df = lazy.pd.DataFrame()
             pre_dropped = set()
             pre_skipped = set()
+            active_row_indices = []
 
         if len(batch_df) == 0:
             return batch_df
@@ -1957,27 +1963,80 @@ class AsyncTaskScheduler:
             "batch generation",
             generator.agenerate(batch_df),
         )
-        result_df = self._require_dataframe_result(
-            task,
-            "Batch generator",
-            result_df,
-            expected_rows=active_rows,
-        )
+        if self._task_supports_row_drops(task, generator):
+            result_df = self._require_expression_row_drop_result(
+                task,
+                result_df,
+                active_row_indices=active_row_indices,
+            )
+        else:
+            result_df = self._require_dataframe_result(
+                task,
+                "Batch generator",
+                result_df,
+                expected_rows=active_rows,
+            )
 
         # Merge result columns back to buffer (include side-effect columns)
         if self._buffer_manager is not None:
             write_cols = self._gen_instance_to_columns_including_side_effects.get(id(generator), [task.column])
-            result_idx = 0
+            result_by_row_index = self._batch_result_by_row_index(
+                result_df,
+                active_row_indices=active_row_indices,
+                supports_row_drops=self._task_supports_row_drops(task, generator),
+            )
             for ri in range(rg_size):
                 if ri in pre_dropped or ri in pre_skipped:
                     continue
+                result_row = result_by_row_index.get(ri)
+                if result_row is None:
+                    self._drop_row(task.row_group, ri, exclude_columns={task.column})
+                    continue
                 if not self._buffer_manager.is_dropped(task.row_group, ri):
                     for col in write_cols:
-                        if col in result_df.columns:
-                            self._buffer_manager.update_cell(task.row_group, ri, col, result_df.iloc[result_idx][col])
-                result_idx += 1
+                        if col in result_row:
+                            self._buffer_manager.update_cell(task.row_group, ri, col, result_row[col])
 
         return result_df
+
+    def _require_expression_row_drop_result(
+        self,
+        task: Task,
+        result: Any,
+        *,
+        active_row_indices: list[int],
+    ) -> Any:
+        result_df = self._require_dataframe_result(task, "Batch generator", result)
+        result_indexes = result_df.index.to_list()
+        if len(result_indexes) != len(set(result_indexes)):
+            raise DatasetGenerationError(
+                f"Batch generator for column '{task.column}' returned duplicate row indexes (rg={task.row_group})."
+            )
+        active_index_set = set(active_row_indices)
+        unexpected_indexes = set(result_indexes) - active_index_set
+        if unexpected_indexes:
+            raise DatasetGenerationError(
+                f"Batch generator for column '{task.column}' returned row indexes outside the active input rows "
+                f"(rg={task.row_group}): {sorted(unexpected_indexes)!r}."
+            )
+        if len(result_df) > len(active_row_indices):
+            raise DatasetGenerationError(
+                f"Batch generator for column '{task.column}' returned {len(result_df)} rows "
+                f"but at most {len(active_row_indices)} active rows were expected (rg={task.row_group})."
+            )
+        return result_df
+
+    @staticmethod
+    def _batch_result_by_row_index(
+        result_df: Any,
+        *,
+        active_row_indices: list[int],
+        supports_row_drops: bool,
+    ) -> dict[int, dict[str, Any]]:
+        result_records = result_df.to_dict(orient="records")
+        if supports_row_drops:
+            return dict(zip(result_df.index.to_list(), result_records, strict=True))
+        return dict(zip(active_row_indices, result_records, strict=True))
 
     def _get_rg_size(self, row_group: int) -> int:
         try:

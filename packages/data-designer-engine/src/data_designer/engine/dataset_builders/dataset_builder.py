@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from pydantic import ValidationError
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -1335,21 +1336,34 @@ class DatasetBuilder:
         """Run the generator on the full batch, preserving skip metadata across the replace."""
         original_count = self.batch_manager.num_records_in_buffer
         allow_resize = generator.config.allow_resize if not isinstance(generator.config, MultiColumnConfig) else False
+        supports_row_drops = self._generator_supports_row_drops(generator)
         old_records = [record for _, record in self.batch_manager.iter_current_batch()]
         input_records, restore_context = prepare_records_for_skip_metadata_round_trip(old_records)
 
         df = generator.generate(lazy.pd.DataFrame(input_records))
+        if supports_row_drops and len(df) > original_count:
+            raise DatasetGenerationError(
+                f"Generator for {self._column_display_name(generator.config)} returned {len(df)} rows "
+                f"but at most {original_count} were expected."
+            )
         self._log_resize_if_changed(self._column_display_name(generator.config), original_count, len(df), allow_resize)
         new_records = df.to_dict(orient="records")
         if restore_context is not None:
             try:
-                restore_skip_metadata(new_records, context=restore_context, allow_resize=allow_resize)
+                restore_skip_metadata(
+                    new_records,
+                    context=restore_context,
+                    allow_resize=allow_resize or supports_row_drops,
+                )
             except ValueError as exc:
                 raise DatasetGenerationError(
                     f"Unable to restore skip provenance after FULL_COLUMN generation for "
                     f"{self._column_display_name(generator.config)}: {exc}"
                 ) from exc
-        self.batch_manager.replace_buffer(new_records, allow_resize=allow_resize)
+        self.batch_manager.replace_buffer(new_records, allow_resize=allow_resize or supports_row_drops)
+
+    def _generator_supports_row_drops(self, generator: ColumnGenerator) -> bool:
+        return isinstance(generator.config, ExpressionColumnConfig)
 
     def _run_full_column_generator_with_skip(self, generator: ColumnGenerator, column_name: str) -> None:
         """Run a FULL_COLUMN generator with per-row skip evaluation and merge-back.
@@ -1377,7 +1391,7 @@ class DatasetBuilder:
             return
 
         batch = self._merge_skipped_and_generated(generator, column_name, active_records, records_with_skip_status)
-        self.batch_manager.replace_buffer(batch, allow_resize=False)
+        self.batch_manager.replace_buffer(batch, allow_resize=self._generator_supports_row_drops(generator))
 
     def _merge_skipped_and_generated(
         self,
@@ -1391,7 +1405,16 @@ class DatasetBuilder:
             return [record for _, record in records_with_skip_status]
 
         active_df = lazy.pd.DataFrame(strip_skip_metadata_from_records(active_records))
-        result_records = generator.generate(active_df).to_dict(orient="records")
+        result_df = generator.generate(active_df)
+        result_records = result_df.to_dict(orient="records")
+        if self._generator_supports_row_drops(generator):
+            return self._merge_row_dropped_generated_records(
+                result_df=result_df,
+                result_records=result_records,
+                active_record_count=len(active_records),
+                records_with_skip_status=records_with_skip_status,
+            )
+
         if len(result_records) != len(active_records):
             raise DatasetGenerationError(
                 f"Generator for '{column_name}' returned {len(result_records)} rows "
@@ -1409,6 +1432,45 @@ class DatasetBuilder:
             if prior_skipped is not None:
                 gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
             batch.append(gen_result)
+        return batch
+
+    def _merge_row_dropped_generated_records(
+        self,
+        *,
+        result_df: pd.DataFrame,
+        result_records: list[dict],
+        active_record_count: int,
+        records_with_skip_status: list[tuple[bool, dict]],
+    ) -> list[dict]:
+        result_indexes = result_df.index.to_list()
+        if len(result_indexes) != len(set(result_indexes)):
+            raise DatasetGenerationError("Expression generator returned duplicate row indexes after row drops.")
+
+        result_by_active_index = dict(zip(result_indexes, result_records, strict=True))
+        unexpected_indexes = set(result_by_active_index) - set(range(active_record_count))
+        if unexpected_indexes:
+            raise DatasetGenerationError(
+                "Expression generator returned row indexes outside the active input rows: "
+                f"{sorted(unexpected_indexes)!r}."
+            )
+
+        batch: list[dict] = []
+        active_index = 0
+        for skipped, record in records_with_skip_status:
+            if skipped:
+                batch.append(record)
+                continue
+
+            gen_result = result_by_active_index.get(active_index)
+            active_index += 1
+            if gen_result is None:
+                continue
+
+            prior_skipped = record.get(SKIPPED_COLUMNS_RECORD_KEY)
+            if prior_skipped is not None:
+                gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
+            batch.append(gen_result)
+
         return batch
 
     def _setup_fan_out(
