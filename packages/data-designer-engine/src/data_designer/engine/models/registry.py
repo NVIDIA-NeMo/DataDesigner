@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
+from data_designer.engine.models.errors import ModelGenerationValidationFailureError
+from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenCountSource, TokenUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.logging import LOG_INDENT
@@ -25,6 +27,21 @@ if TYPE_CHECKING:
     ]
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_health_check_chat_response(response: str) -> str:
+    if not isinstance(response, str) or not response:
+        raise ParserException("Health check response must be non-empty text.")
+    return response
+
+
+def _validate_health_check_embedding_response(vectors: list[list[float]], *, model_alias: str) -> None:
+    if not isinstance(vectors, list) or len(vectors) != 1 or not isinstance(vectors[0], list) or not vectors[0]:
+        raise ModelGenerationValidationFailureError(
+            f"Health check for model alias {model_alias!r} returned an invalid embedding response.",
+            detail="Expected exactly one non-empty embedding vector.",
+            failure_kind="validation_error",
+        )
 
 
 def format_reasoning_token_count(reasoning_token_count: int, source: TokenCountSource | str | None) -> str:
@@ -241,15 +258,16 @@ class ModelRegistry:
             )
             try:
                 if model.model_generation_type == GenerationType.EMBEDDING:
-                    model.generate_text_embeddings(
+                    vectors = model.generate_text_embeddings(
                         input_texts=["Hello!"],
                         skip_usage_tracking=True,
                         purpose="running health checks",
                     )
+                    _validate_health_check_embedding_response(vectors, model_alias=model_alias)
                 elif model.model_generation_type == GenerationType.CHAT_COMPLETION:
                     model.generate(
                         prompt="Hello!",
-                        parser=lambda x: x,
+                        parser=_parse_health_check_chat_response,
                         system_prompt="You are a helpful assistant.",
                         max_correction_steps=0,
                         max_conversation_restarts=0,
@@ -286,15 +304,16 @@ class ModelRegistry:
             )
             try:
                 if model.model_generation_type == GenerationType.EMBEDDING:
-                    await model.agenerate_text_embeddings(
+                    vectors = await model.agenerate_text_embeddings(
                         input_texts=["Hello!"],
                         skip_usage_tracking=True,
                         purpose="running health checks",
                     )
+                    _validate_health_check_embedding_response(vectors, model_alias=model_alias)
                 elif model.model_generation_type == GenerationType.CHAT_COMPLETION:
                     await model.agenerate(
                         prompt="Hello!",
-                        parser=lambda x: x,
+                        parser=_parse_health_check_chat_response,
                         system_prompt="You are a helpful assistant.",
                         max_correction_steps=0,
                         max_conversation_restarts=0,

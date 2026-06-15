@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from data_designer.cli.repositories.model_repository import ModelRepository
+from data_designer.cli.repositories.model_repository import LegacyModelConfigMigrationError, ModelRepository
 from data_designer.cli.services.model_service import ModelService
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
+from data_designer.config.utils.constants import MODEL_CONFIGS_FILE_NAME
+from data_designer.config.utils.io_helpers import load_config_file, save_config_file
 
 
 def test_list_all(stub_model_service: ModelService, stub_model_configs: list[ModelConfig]):
@@ -136,3 +138,31 @@ def test_delete_by_aliases_no_registry(tmp_path: Path):
     service = ModelService(ModelRepository(tmp_path))
     with pytest.raises(ValueError, match="No models configured"):
         service.delete_by_aliases(["test-alias-1"])
+
+
+def test_add_blocks_when_legacy_config_missing_provider(
+    tmp_path: Path,
+    stub_new_model_config: ModelConfig,
+) -> None:
+    """Legacy aliases without provider must block writes instead of overwriting the file."""
+    model_configs_file_path = tmp_path / MODEL_CONFIGS_FILE_NAME
+    save_config_file(
+        model_configs_file_path,
+        {
+            "model_configs": [
+                {
+                    "alias": "legacy-alias",
+                    "model": "legacy-model",
+                    "inference_parameters": {"generation_type": "chat-completion"},
+                }
+            ]
+        },
+    )
+
+    service = ModelService(ModelRepository(tmp_path))
+    with pytest.raises(LegacyModelConfigMigrationError, match="legacy-alias"):
+        service.add(stub_new_model_config)
+
+    saved = load_config_file(model_configs_file_path)
+    assert saved["model_configs"][0]["alias"] == "legacy-alias"
+    assert "provider" not in saved["model_configs"][0]
