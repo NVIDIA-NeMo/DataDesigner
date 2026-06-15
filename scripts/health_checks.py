@@ -12,8 +12,10 @@ Usage:
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
+import time
 import traceback
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -32,19 +34,13 @@ from data_designer.config.utils.constants import (
 from data_designer.interface import DataDesigner
 
 MAX_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 5
+RETRYABLE_MODEL_ERRORS = importlib.import_module("data_designer.engine.models.errors").RETRYABLE_MODEL_ERRORS
+HEALTH_CHECK_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 PROVIDER_API_KEY_ENV_VARS = {
     NVIDIA_PROVIDER_NAME: NVIDIA_API_KEY_ENV_VAR_NAME,
     OPENAI_PROVIDER_NAME: OPENAI_API_KEY_ENV_VAR_NAME,
     OPENROUTER_PROVIDER_NAME: OPENROUTER_API_KEY_ENV_VAR_NAME,
-}
-RETRYABLE_ERROR_NAMES = {
-    "ModelAPIConnectionError",
-    "ModelAPIError",
-    "ModelInternalServerError",
-    "ModelRequestAdmissionTimeoutError",
-    "ModelRateLimitError",
-    "ModelTimeoutError",
-    "TimeoutError",
 }
 
 
@@ -103,10 +99,15 @@ def _check_model(provider_name: str, model_type: str) -> None:
             with TemporaryDirectory(prefix="data-designer-health-check-") as temp_dir:
                 DataDesigner(artifact_path=Path(temp_dir), model_providers=[provider]).check_models(config_builder)
             return
-        except Exception as exc:
-            if type(exc).__name__ not in RETRYABLE_ERROR_NAMES or attempt == MAX_ATTEMPTS:
+        except HEALTH_CHECK_RETRYABLE_ERRORS as exc:
+            if attempt == MAX_ATTEMPTS:
                 raise
-            print(f"RETRY {provider_name}/{model_type} (attempt {attempt + 1}/{MAX_ATTEMPTS})")
+            delay = attempt * RETRY_BACKOFF_SECONDS
+            print(
+                f"RETRY {provider_name}/{model_type} after {type(exc).__name__}: {exc} "
+                f"(attempt {attempt + 1}/{MAX_ATTEMPTS}, sleeping {delay}s)"
+            )
+            time.sleep(delay)
 
 
 def main() -> int:

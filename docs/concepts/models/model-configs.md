@@ -95,7 +95,7 @@ model_configs = [
     # Embedding tasks
     dd.ModelConfig(
         alias="embedding_model",
-        model="nvidia/llama-3.2-nv-embedqa-1b-v2",
+        model="nvidia/llama-nemotron-embed-1b-v2",
         provider="nvidia",
         inference_parameters=dd.EmbeddingInferenceParams(
             encoding_format="float",
