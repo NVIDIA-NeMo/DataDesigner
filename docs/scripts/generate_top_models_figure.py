@@ -10,11 +10,10 @@
 
 Renders the ranked input-vs-output token breakdown shown in the README's
 "Top models (YTD)" section, styled to match the Data Designer devnote charts
-(near-black canvas, NVIDIA-green duotone). The same PNG is written to both
-tracked copies so the README and Fern docs site stay in sync:
+(near-black canvas, NVIDIA-green duotone). The PNG is written to the Fern image
+path rendered by the README and docs site:
 
-    docs/images/top-models.png    (rendered by the README)
-    fern/images/top-models.png    (Fern's /images/* mirror)
+    fern/images/top-models.png
 
 The source telemetry export lives at docs/scripts/top-model-usage.csv with
 columns: model name, input (context) tokens, output (generated) tokens, plus a
@@ -35,7 +34,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -45,13 +43,8 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 # Repo root is two levels up from docs/scripts/.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = REPO_ROOT / "docs" / "scripts" / "top-model-usage.csv"
-# Tracked copies of the figure; first entry is the canonical render target.
-# docs/images/ is what the README renders; fern/images/ is Fern's mirror for
-# /images/* references.
-TARGETS = (
-    REPO_ROOT / "docs" / "images" / "top-models.png",
-    REPO_ROOT / "fern" / "images" / "top-models.png",
-)
+# Tracked figure path rendered by the README and Fern docs site.
+TARGETS = (REPO_ROOT / "fern" / "images" / "top-models.png",)
 
 # ---------------------------------------------------------------- palette ----
 BG = "#0E0E0E"  # near-black canvas (matches DD devnote charts)
@@ -270,11 +263,8 @@ def main() -> None:
     configure_matplotlib()
     rows = load_rows(args.csv)
 
-    primary, *mirrors = TARGETS
+    (primary,) = TARGETS
     render(rows, primary)
-    for mirror in mirrors:
-        mirror.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(primary, mirror)
 
     for target in TARGETS:
         print(f"wrote {target.relative_to(REPO_ROOT)}")

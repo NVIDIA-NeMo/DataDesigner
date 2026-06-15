@@ -28,7 +28,7 @@ The `docs-website` branch must already contain the historical Fern archive (`v0.
 
 Frozen `vX.Y.Z.yml` navs on `docs-website` must point only at their own `vX.Y.Z/pages/...` files. The release sync materializes shared historical pages into each version folder before publishing.
 
-Dev Notes publishing patches only Dev Notes from `main` into the current latest docs on `docs-website`, mirroring the MkDocs workflow.
+Dev Notes publishing patches only Dev Notes from `main` into the current latest docs on `docs-website`.
 
 ## Release Prep
 
