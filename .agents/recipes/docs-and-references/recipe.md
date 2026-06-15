@@ -4,7 +4,7 @@ description: Audit documentation freshness - docstrings vs signatures, broken li
 trigger: schedule
 tool: claude-code
 timeout_minutes: 20
-max_turns: 30
+max_turns: 50
 permissions:
   contents: write
 ---

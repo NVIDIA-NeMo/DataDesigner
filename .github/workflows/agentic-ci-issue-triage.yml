@@ -55,18 +55,25 @@ jobs:
           echo "Claude CLI version: $(claude --version 2>&1 || true)"
 
           if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 30 \
-              -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
-              -H "Content-Type: application/json" \
-              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-              -H "anthropic-version: 2023-06-01" \
-              -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-              echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
-              exit 1
-            fi
-            echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+            for ATTEMPT in 1 2 3; do
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                --max-time 30 \
+                -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
+                -H "Content-Type: application/json" \
+                -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+                -H "anthropic-version: 2023-06-01" \
+                -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+              if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+                echo "API pre-flight passed (HTTP ${HTTP_CODE})"
+                break
+              fi
+              if [ "$ATTEMPT" = "3" ]; then
+                echo "::error::API pre-flight failed with HTTP ${HTTP_CODE}"
+                exit 1
+              fi
+              echo "API pre-flight failed with HTTP ${HTTP_CODE}; retrying (${ATTEMPT}/3)"
+              sleep $((ATTEMPT * 10))
+            done
           fi
 
       - name: Run issue triage recipe

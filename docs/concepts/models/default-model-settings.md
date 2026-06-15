@@ -46,7 +46,7 @@ The following model configurations are automatically available when `NVIDIA_API_
 | `nvidia-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
 | `nvidia-reasoning` | `nvidia/nemotron-3-super-120b-a12b` | Reasoning and analysis tasks | `temperature=1.0, top_p=0.95, extra_body={"reasoning_effort": "medium"}` |
 | `nvidia-vision` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | Vision and image understanding | `temperature=0.60, top_p=0.95` |
-| `nvidia-embedding` | `nvidia/llama-3.2-nv-embedqa-1b-v2` | Text embeddings | `encoding_format="float", extra_body={"input_type": "query"}` |
+| `nvidia-embedding` | `nvidia/llama-nemotron-embed-1b-v2` | Text embeddings | `encoding_format="float", extra_body={"input_type": "query"}` |
 
 
 ### OpenAI Models

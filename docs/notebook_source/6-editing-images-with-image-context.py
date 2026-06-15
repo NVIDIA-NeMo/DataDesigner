@@ -39,6 +39,7 @@
 
 # %%
 import base64
+import os
 from pathlib import Path
 
 from IPython.display import Image as IPImage
@@ -244,7 +245,10 @@ for index, row in preview.dataset.iterrows():
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=5, dataset_name="tutorial-6-edited-images")
+create_num_records = 5
+if MODEL_ID == "black-forest-labs/flux.2-pro":
+    create_num_records = int(os.environ.get("DATA_DESIGNER_FLUX_2_PRO_CREATE_NUM_RECORDS") or create_num_records)
+results = data_designer.create(config_builder, num_records=create_num_records, dataset_name="tutorial-6-edited-images")
 
 # %%
 dataset = results.load_dataset()

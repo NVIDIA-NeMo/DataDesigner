@@ -76,6 +76,10 @@ data_designer = DataDesigner()
 
 # %%
 config_builder = dd.DataDesignerConfigBuilder()
+for model_config in config_builder.model_configs:
+    if model_config.alias == "nvidia-vision":
+        model_config.skip_health_check = True
+        break
 
 # %% [markdown]
 # ### 🌱 Seed Dataset Creation

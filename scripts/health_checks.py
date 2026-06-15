@@ -31,10 +31,20 @@ from data_designer.config.utils.constants import (
 )
 from data_designer.interface import DataDesigner
 
+MAX_ATTEMPTS = 3
 PROVIDER_API_KEY_ENV_VARS = {
     NVIDIA_PROVIDER_NAME: NVIDIA_API_KEY_ENV_VAR_NAME,
     OPENAI_PROVIDER_NAME: OPENAI_API_KEY_ENV_VAR_NAME,
     OPENROUTER_PROVIDER_NAME: OPENROUTER_API_KEY_ENV_VAR_NAME,
+}
+RETRYABLE_ERROR_NAMES = {
+    "ModelAPIConnectionError",
+    "ModelAPIError",
+    "ModelInternalServerError",
+    "ModelRequestAdmissionTimeoutError",
+    "ModelRateLimitError",
+    "ModelTimeoutError",
+    "TimeoutError",
 }
 
 
@@ -88,8 +98,15 @@ def _check_model(provider_name: str, model_type: str) -> None:
     model_config = _get_model_config(provider_name, model_type)
     config_builder = _build_check_config(model_config, model_type)
 
-    with TemporaryDirectory(prefix="data-designer-health-check-") as temp_dir:
-        DataDesigner(artifact_path=Path(temp_dir), model_providers=[provider]).check_models(config_builder)
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            with TemporaryDirectory(prefix="data-designer-health-check-") as temp_dir:
+                DataDesigner(artifact_path=Path(temp_dir), model_providers=[provider]).check_models(config_builder)
+            return
+        except Exception as exc:
+            if type(exc).__name__ not in RETRYABLE_ERROR_NAMES or attempt == MAX_ATTEMPTS:
+                raise
+            print(f"RETRY {provider_name}/{model_type} (attempt {attempt + 1}/{MAX_ATTEMPTS})")
 
 
 def main() -> int:

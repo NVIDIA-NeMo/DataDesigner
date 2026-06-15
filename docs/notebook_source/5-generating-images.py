@@ -38,6 +38,8 @@
 #
 
 # %%
+import os
+
 from IPython.display import Image as IPImage
 from IPython.display import display
 
@@ -272,7 +274,10 @@ preview.dataset
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=2, dataset_name="tutorial-5-images")
+create_num_records = 2
+if MODEL_ID == "black-forest-labs/flux.2-pro":
+    create_num_records = int(os.environ.get("DATA_DESIGNER_FLUX_2_PRO_CREATE_NUM_RECORDS") or create_num_records)
+results = data_designer.create(config_builder, num_records=create_num_records, dataset_name="tutorial-5-images")
 
 # %%
 dataset = results.load_dataset()
