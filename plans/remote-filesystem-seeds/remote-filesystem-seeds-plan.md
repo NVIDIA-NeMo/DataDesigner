@@ -12,16 +12,24 @@ When the Data Designer NeMo Platform service runs in **remote execution mode**,
 the `data_designer_nemo` plugin only accepts two seed source types:
 HuggingFace (`seed_type=hf`) and the Files service (`seed_type=nmp`). Locally,
 the upstream Data Designer library additionally supports `directory`,
-`file_contents`, and `agent_rollout` seed sources, all of which read files from
-local disk.
+`file_contents`, and `agent_rollout` seed sources that read files from local
+disk.
 
 This RFC proposes bridging that gap by making the upstream library's
 filesystem layer **injectable** via a generic `FileSystemProvider` seam, and
 having the platform plugin inject a provider backed by the existing
-`FilesetFileSystem` (an fsspec `AsyncFileSystem`). The result: `directory`,
-`file_contents`, and `agent_rollout` seed sources work remotely, reading their
-files from the Files service instead of local disk — with the upstream library
-remaining completely NeMo Platform-agnostic.
+`FilesetFileSystem` (an fsspec `AsyncFileSystem`). The result: `directory` and
+`file_contents` seed sources work remotely, reading their files from the
+Files service instead of local disk — with the upstream library remaining
+completely NeMo Platform-agnostic.
+
+`agent_rollout` is deliberately descoped from this plan. It is the one
+filesystem seed source that is not immediately ready for an injectable
+filesystem layer because its format handlers bypass fsspec and open
+`pathlib.Path` objects directly. Agent rollout support may move out of the core
+library and become a plugin instead, and there are open questions on the
+nemo-platform side about getting agent session data into the Files service,
+so this plan avoids adding new core AgentRollout reader abstractions now.
 
 ## Problem
 
@@ -45,23 +53,23 @@ only:
 The remote restriction is enforced at parse time by
 `unsupported_features.py`, where `_SUPPORTED_SEED_TYPES = {"hf", "nmp"}`.
 
-### Why the fancier types are local-only
+### Why the in-scope types are local-only
 
-All three missing types descend from the upstream `FileSystemSeedReader`
-(`data-designer-engine/.../seed_reader.py:376`). They enumerate and read files
-under a configured directory. The library assumes that directory lives on the
-**local disk of the process that runs the workflow**. In remote mode the
-process runs inside the service, so the user's files are not there — they live
-in the Files service.
+`DirectorySeedReader` and `FileContentsSeedReader` descend from the upstream
+`FileSystemSeedReader` (`data-designer-engine/.../seed_reader.py:376`). They
+enumerate and read files under a configured directory. The library assumes that
+directory lives on the **local disk of the process that runs the workflow**. In
+remote mode the process runs inside the service, so the user's files are not
+there — they live in the Files service.
 
-There are exactly four places where the upstream code hardcodes "local disk":
+There are exactly three in-scope places where the upstream code hardcodes
+"local disk":
 
 | # | Coupling point | Location | Difficulty |
 |---|---|---|---|
 | 1 | `create_filesystem_context()` builds `DirFileSystem(fs=LocalFileSystem())` | `seed_reader.py:245-249` | Easy |
 | 2 | `SeedReaderFileSystemContext.root_path: Path` is a concrete local path | `seed_reader.py:58` | Medium |
 | 3 | Config validator calls `path.is_dir()` against local disk at parse time | `seed_source.py:205-211, 134-138` | Easy |
-| 4 | Agent rollout handlers call `pathlib.Path.open()`, bypassing fsspec | `atif.py:195`, `utils.py:44,63` | Hard |
 
 The important good news: `DirectorySeedReader` and `FileContentsSeedReader`
 **already perform all I/O through `context.fs`** (e.g. `context.fs.open(...)`
@@ -70,16 +78,18 @@ at `seed_reader.py:578`). And `FilesetFileSystem`
 `AsyncFileSystem`. The plumbing to connect them exists; it is only blocked by
 the hardcoded `LocalFileSystem()` in coupling point #1.
 
-The agent rollout handlers are the sole exception: they receive a
-`pathlib.Path` and open files directly, never touching `context.fs`.
+The excluded `AgentRolloutSeedReader` is the sole exception in the broader
+`FileSystemSeedReader` family: its handlers receive a `pathlib.Path` and open
+files directly, never touching `context.fs`. Refactoring that path is now out of
+scope for this bridge.
 
 ## End-user interface
 
 Users build configs the same way they do today, via
 `DataDesignerConfigBuilder.with_seed_dataset(<seed source>)`. Remote mode does
 **not** introduce new seed source classes — it reuses the upstream
-`DirectorySeedSource`, `FileContentsSeedSource`, and `AgentRolloutSeedSource`.
-The only thing that changes is what string the user puts in `path`.
+`DirectorySeedSource` and `FileContentsSeedSource`. The only thing that changes
+is what string the user puts in `path`.
 
 ### Path grammar
 
@@ -98,10 +108,10 @@ as `FilesetFileSeedSource`:
 - The semantics of the fragment differ by reader, mirroring the local library:
   - For `FilesetFileSeedSource` (`nmp`) the fragment points at a **file** (or
     wildcard) read tabularly by duckdb.
-  - For `DirectorySeedSource` / `FileContentsSeedSource` /
-    `AgentRolloutSeedSource` the fragment is the **root directory** the reader
-    enumerates under. `file_pattern` and `recursive` then operate within that
-    directory, exactly as they do on local disk.
+  - For `DirectorySeedSource` / `FileContentsSeedSource` the fragment is the
+    **root directory** the reader enumerates under. `file_pattern` and
+    `recursive` then operate within that directory, exactly as they do on local
+    disk.
 
 This means a user who already knows how to reference a fileset for `nmp` does
 not learn a new grammar — they reuse the same ref and additionally set the
@@ -139,15 +149,6 @@ builder.with_seed_dataset(
         encoding="utf-8",
     )
 )
-
-# agent_rollout: parse agent trace files under a fileset directory
-builder.with_seed_dataset(
-    AgentRolloutSeedSource(
-        path="default/my-traces#sessions",
-        format=AgentRolloutFormat.CLAUDE_CODE,
-        # file_pattern/recursive default per-format if omitted
-    )
-)
 ```
 
 ### Notes and caveats for the interface
@@ -158,10 +159,6 @@ builder.with_seed_dataset(
 - **Workspace omission** is allowed (`my-seeds#data/traces`); the provider fills
   it from context. Including it (`default/my-seeds#data/traces`) is explicit and
   always safe.
-- **`AgentRolloutSeedSource` default paths** (e.g. `~/.claude/projects`) are
-  local-disk conventions and are **not** meaningful in remote mode. In remote
-  mode `path` should be provided explicitly as a fileset ref; relying on a
-  local default path remotely is an error. (This is called out under Risks.)
 - The `#` fragment is overloaded: "a file" for `nmp` vs "a directory" for the
   filesystem readers. This is intentional and matches the local split between
   `LocalFileSeedSource` (a file) and the `FileSystemSeedSource` family (a
@@ -169,8 +166,8 @@ builder.with_seed_dataset(
 
 ## Goals
 
-- Make `directory`, `file_contents`, and `agent_rollout` seed sources usable in
-  remote execution against files stored in the Files service.
+- Make `directory` and `file_contents` seed sources usable in remote execution
+  against files stored in the Files service.
 - Keep the upstream Data Designer library **NeMo-agnostic**. It may expose
   generic protocols and accept dependencies via injection; it must not know
   about NeMo Platform, the SDK, or Filesets.
@@ -184,9 +181,11 @@ builder.with_seed_dataset(
   complementary and stays.
 - Optimizing per-file read concurrency for large directories (noted as future
   work).
-- Adding new seed source *config* types. The `directory`, `file_contents`, and
-  `agent_rollout` config classes already exist upstream and are serializable
-  over the wire.
+- Adding new seed source *config* types. The `directory` and `file_contents`
+  config classes already exist upstream and are serializable over the wire.
+- Adding remote `agent_rollout` support. Agent rollout's direct `pathlib` file
+  access and local-default path semantics make it a larger change, and the type
+  may move out of the core library into a plugin.
 
 ## Design
 
@@ -197,8 +196,7 @@ abstract `SeedReaderFileSystemContext(fs, root_path)`. Everything downstream
 (`build_manifest`, `get_matching_relative_paths`, `hydrate_row`) consumes
 `context.fs` and `context.root_path` abstractly. If we make **which filesystem
 backs that context** injectable, then `directory` and `file_contents` work
-remotely with no reader changes. Agent rollout requires an additional refactor
-to route its reads through `context.fs`.
+remotely with no reader changes.
 
 The injection follows the pattern already used in this plugin:
 `FilesetFileSeedReader(self._sdk)` — readers accept their NeMo dependency via
@@ -220,13 +218,13 @@ class FileSystemProvider(Protocol):
     """
     def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext: ...
 
-    # Authors the precise, backend-specific existence error. See A4 Layer 2.
+    # Authors the precise, backend-specific existence error. See A3 Layer 2.
     def ensure_root_exists(self, *, runtime_path: str) -> None: ...
 ```
 
 - The **default implementation** reproduces today's behavior:
   `DirFileSystem(path=resolved, fs=LocalFileSystem())`, with `ensure_root_exists`
-  performing the local `is_dir()` check (see A4 Layer 2 for the full rationale
+  performing the local `is_dir()` check (see A3 Layer 2 for the full rationale
   and the per-backend message wording).
 - `FileSystemSeedReader` accepts an optional `fs_provider` in its constructor,
   defaulting to the local provider. `create_filesystem_context()` delegates to
@@ -238,39 +236,16 @@ changes to the reader subclasses**.
 
 #### A2. Make `root_path` filesystem-agnostic
 
-`SeedReaderFileSystemContext.root_path: Path` is used for (a) display/metadata
-(the `source_path` column, error messages) and (b) path joins in agent rollout
-(`root_path / relative_path`).
+`SeedReaderFileSystemContext.root_path: Path` is used for display/metadata (the
+`source_path` column and error messages). That value does not need to be an
+openable local filesystem path for `directory` or `file_contents`; reads already
+go through `context.fs`.
 
-Add a `context.open(relative_path, mode, encoding)` helper that delegates to
-`context.fs.open(...)`, and make this the blessed read path. Keep `root_path`
-for display/metadata; stop assuming it is openable on local disk. (For remote
-providers `root_path` becomes a fileset ref string rendered for traceability.)
+Loosen `root_path` so it can carry a displayable remote root, such as a fileset
+ref rendered for traceability. Keep it for metadata only; new read paths should
+continue to use `context.fs`.
 
-#### A3. Route agent rollout handlers through fsspec (the harder part)
-
-Today `AgentRolloutFormatHandler.parse_file(root_path: Path, relative_path:
-str, ...)` and helpers (`load_jsonl_rows`, `load_json_object`,
-`load_atif_payload`) call `file_path.open()`.
-
-Change the handler contract to receive the filesystem context (or an opener)
-instead of a `Path`:
-
-```python
-def parse_file(
-    self, *, context: SeedReaderFileSystemContext,
-    relative_path: str, parse_context=...,
-) -> list[NormalizedAgentRolloutRecord]: ...
-```
-
-Route the JSON/JSONL load helpers through `context.fs.open(relative_path, ...)`.
-`build_parse_context` similarly takes `context` rather than `root_path`. This
-touches every handler (atif, claude_code, codex, hermes_agent,
-pi_coding_agent) but is mechanical: replace `file_path.open(...)` with
-`fs.open(...)`. `source_path` strings continue to be rendered as
-`f"{root_path}/{relative_path}"`.
-
-#### A4. Defer config-parse-time local validation (two-layer validation)
+#### A3. Defer config-parse-time local validation (two-layer validation)
 
 The upstream config classes bake **two** local-disk assumptions into the Pydantic
 model itself, and both fire at *construction time* — client-side, before any SDK,
@@ -300,16 +275,22 @@ two layers:
   a light normalization / pass-through so a `#`-ref survives intact for the
   provider to interpret.
 - Net effect: `DirectorySeedSource(path="default/my-seeds#data/traces")`
-  constructs successfully. **Same class works in both local and remote modes.**
+  constructs successfully. **Same classes work in both local and remote modes.**
 
 > **Scope note — deliberate asymmetry.** This deferral applies only to the
-> `FileSystemSeedSource` family (`directory` / `file_contents` /
-> `agent_rollout`), which the remote bridge needs. `LocalFileSeedSource` keeps
-> its eager construction-time `is_file()` validation; it is *not* deferred,
-> because `local` is unsupported in remote mode regardless, so deferring it
-> unlocks nothing (see "Server-side request validation"). The resulting
-> eager-vs-lazy asymmetry between the single-file and directory-family sources
-> is intentional, not an oversight.
+> in-scope `FileSystemSeedSource` types (`directory` / `file_contents`), which
+> the remote bridge needs. `LocalFileSeedSource` keeps its eager
+> construction-time `is_file()` validation; it is *not* deferred, because
+> `local` is unsupported in remote mode regardless, so deferring it unlocks
+> nothing (see "Server-side request validation"). The resulting eager-vs-lazy
+> asymmetry between the single-file and directory-family sources is intentional,
+> not an oversight.
+
+The current validator is shared by `FileSystemSeedSource`, so the implementation
+must preserve this boundary explicitly. If needed, split or override validation
+so only `DirectorySeedSource` and `FileContentsSeedSource` get remote-ref-safe
+path handling; `AgentRolloutSeedSource` should keep its current local-path
+behavior until its ownership and plugin direction are decided.
 
 **Layer 2 — filesystem-aware existence check, in the provider/reader.**
 
@@ -348,25 +329,21 @@ graded:
 |---|---|---|---|
 | Directory does not exist | `InvalidFilePathError: "🛑 Path X is not a directory"` | `DirFileSystem.find("")` returns `[]` → `SeedReaderError("No files matched file_pattern ... under X")` (`seed_reader.py:271-273`) | **Misleading** — implies the dir exists but is empty |
 | Directory exists, no matches | (not checked) | same "No files matched ..." | Fine — accurate |
-| Local file does not exist | `InvalidFilePathError: "🛑 Path X is not a file"` (`io_helpers.py:157`) | duckdb reads the URI → low-level `IOException` / `CatalogException` | **Bad** — opaque engine error |
 | Bad extension | `InvalidFileFormatError` | unchanged (stays structural, see below) | Fine |
 
-So the regression is concentrated in two cases (missing directory, missing
-local file). The design must satisfy **four requirements** so `validate()` UX is
-not degraded:
+So the regression is concentrated in the missing-directory case. The design must
+satisfy **four requirements** so `validate()` UX is not degraded:
 
 1. **Explicit existence preflight, not incidental discovery.** Existence must be
    asserted as a first-class check that runs *before* manifest building /
-   duckdb querying — i.e. in `FileSystemSeedReader` when it creates the
-   filesystem context (`_get_filesystem_context`, before `build_manifest`), and
-   in `LocalFileSeedReader` before the URI is handed to duckdb. The error must
+   `find()` — i.e. in `FileSystemSeedReader` when it creates the filesystem
+   context (`_get_filesystem_context`, before `build_manifest`). The error must
    describe *existence*, not a downstream consequence.
 2. **Precise, per-backend, user-facing message.** Each backend, via its
    provider, emits a tailored message at least as good as today's, and distinct
    from the "exists but empty" case:
    - **Local provider** → `"🛑 Seed source directory '<path>' does not exist."`
-     (matches today's intent) and `"file '<path>' does not exist"` for the
-     single-file reader.
+     (matches today's intent).
    - **Fileset provider** → `"fileset '<ws>/<fs>' not found"` /
      `"path '<fragment>' not found in fileset '<ws>/<fs>'"` — *better* than
      today, which could not express this at all.
@@ -384,7 +361,8 @@ not degraded:
    `DataDesigner.validate` surface a `SeedReaderError` from existence checking
    as a config violation, not a traceback.
 4. **Keep cheap structural checks in Pydantic.** Only the *filesystem-touching*
-   check is deferred (and only for the `FileSystemSeedSource` family).
+   check is deferred, and only for `DirectorySeedSource` /
+   `FileContentsSeedSource`.
    Non-filesystem validation stays at construction so most malformed configs
    still fail fast even without calling `validate()`: non-empty `path` and valid
    `file_pattern` shape (`seed_source.py:214-221`).
@@ -394,10 +372,11 @@ typed, actionable error — sourced from the reader/provider instead of the
 Pydantic model — on every `validate()` path, without the config layer assuming
 local disk.
 
-- **Remote (NeMo):** additionally extend `validate_seed` to recognize the three
-  filesystem source types, parse their `#`-ref, and verify the fileset exists
-  via the SDK for an early, network-cheap check (see B3). The provider-level
-  preflight (above) remains the backstop reached through `get_column_names()`.
+- **Remote (NeMo):** additionally extend `validate_seed` to recognize the two
+  in-scope filesystem source types, parse their `#`-ref, and verify the fileset
+  exists via the SDK for an early, network-cheap check (see B3). The
+  provider-level preflight (above) remains the backstop reached through
+  `get_column_names()`.
 
 **Where the messages live: an `ensure_root_exists` provider seam.**
 
@@ -480,10 +459,10 @@ class FilesetFileSystemProvider:
             )
 ```
 
-So `directory` / `file_contents` / `agent_rollout` running remotely get the
-fileset-specific message, while the local default provider keeps today's
-"directory does not exist" wording. (`LocalFileSeedSource` is untouched — it
-retains its eager construction-time `is_file()` check; see the A4 scope note.)
+So `directory` / `file_contents` running remotely get the fileset-specific
+message, while the local default provider keeps today's "directory does not
+exist" wording. (`LocalFileSeedSource` is untouched — it retains its eager
+construction-time `is_file()` check; see the A3 scope note.)
 
 Two implementation notes:
 
@@ -500,8 +479,9 @@ Two implementation notes:
 **Behavior change being accepted.** With the four requirements above, error
 *quality* is preserved (arguably improved for filesets) on every `validate()`
 path — so the accepted regression narrows to **timing only**: a missing
-directory/file now errors when `validate()` (or a read) runs rather than at the
-instant `DirectorySeedSource(...)` is constructed. Any code path that calls
+directory now errors when `validate()` (or a read) runs rather than at the
+instant `DirectorySeedSource(...)` or `FileContentsSeedSource(...)` is
+constructed. Any code path that calls
 `validate()` — the high-level `DataDesigner.validate`, the CLI, and the platform
 preview/job flows — still gets a precise, typed pre-flight error with **no
 wasted workload**. The only path that loses an early signal is constructing the
@@ -541,32 +521,27 @@ return [
     FilesetFileSeedReader(self._sdk),          # keep: single-file/duckdb path
     DirectorySeedReader(fs_provider=provider),
     FileContentsSeedReader(fs_provider=provider),
-    AgentRolloutSeedReader(fs_provider=provider),
 ]
 ```
 
 #### B3. Relax and extend remote validation
 
-Two changes, matching the two-layer model from A4:
+Two changes, matching the two-layer model from A3:
 
 1. **Allow the new seed types.** Expand `_SUPPORTED_SEED_TYPES` in
    `unsupported_features.py:9` from `{"hf", "nmp"}` to also include
-   `{"directory", "file_contents", "agent_rollout"}`.
+   `{"directory", "file_contents"}`. `agent_rollout` remains unsupported in
+   remote mode.
 
 2. **Extend pre-flight existence validation.** Extend `validate_seed`
-   (`seed.py:20`) to handle `DirectorySeedSource`, `FileContentsSeedSource`,
-   and `AgentRolloutSeedSource` the same way it already handles
+   (`seed.py:20`) to handle `DirectorySeedSource` and
+   `FileContentsSeedSource` the same way it already handles
    `FilesetFileSeedSource`: parse the `#`-ref via the existing
    `_parse_seed_source_path` (`seed.py:43`), then verify the fileset (and,
    where cheap, the path fragment) exists via `sdk.files.filesets.retrieve(...)`,
    surfacing `NDDInvalidConfigError` on 404 / `PermissionDeniedError`. This runs
    inside `RemoteDataDesignerContext.validate()` before workload submission, so
    the user gets fast feedback without a wasted job.
-
-For `AgentRolloutSeedSource` specifically, `validate_seed` must also reject
-reliance on a local default path in remote mode (its `path` defaults to local
-conventions like `~/.claude/projects`; see the Risks section) and require an
-explicit fileset ref.
 
 ### Server-side request validation (unchanged)
 
@@ -576,7 +551,7 @@ stays as-is. It runs on the request models (`DataDesignerJobConfig` in
 `jobs/spec.py:20`, `PreviewSpec` in `functions/_types.py:24`) and rejects
 unsupported seed types by indexing into the raw request dict *before* Pydantic
 hydrates the union member. We only expand `_SUPPORTED_SEED_TYPES` (B3) so it
-admits the three new remote-capable types.
+admits the two new remote-capable types.
 
 This validator must remain `mode="before"` because two source types cannot be
 validated via normal typed hydration server-side:
@@ -595,7 +570,7 @@ object server-side," so grouping them in a single raw-dict before-validator is
 cohesive, not accidental.
 
 > **Considered and dropped:** an earlier draft proposed deferring
-> `LocalFileSeedSource`'s existence check (mirroring A4) so `local` would
+> `LocalFileSeedSource`'s existence check (mirroring A3) so `local` would
 > hydrate server-side, then splitting the rejection logic into a `df`-only
 > before-validator plus a typed `mode="after"` validator. This was dropped: (1)
 > `local` is unsupported in remote mode either way, so the work unlocks no new
@@ -608,12 +583,12 @@ cohesive, not accidental.
 ## Why this shape
 
 - **Upstream stays generic.** It only learns about a `FileSystemProvider`
-  protocol and an fsspec opener. No NeMo, no Filesets, no SDK references.
+  protocol and an fsspec filesystem. No NeMo, no Filesets, no SDK references.
 - **Dependency injection**, exactly the requested pattern: NeMo injects the
   provider via reader constructors — the same approach already used for
   `FilesetFileSeedReader(self._sdk)`.
 - **Directory + FileContents are nearly free** because they already read via
-  `context.fs`. The bulk of the work is A3 (agent rollout) and the validator
+  `context.fs`. The remaining work is provider injection plus validator
   relaxation.
 - The existing `nmp` duckdb tabular path is untouched and remains the right
   tool for single/wildcard parquet reads.
@@ -627,9 +602,9 @@ globs (e.g. `*.parquet`) over duckdb, without touching upstream.
 
 - **Pros:** No upstream changes; smallest blast radius.
 - **Cons:** Only addresses tabular reads. Does not unlock the *semantics* of
-  `directory` (file manifest rows), `file_contents` (raw text per file), or
-  `agent_rollout` (trace parsing). Users still can't do those remotely. Leaves
-  the local/remote capability gap largely intact.
+  `directory` (file manifest rows) or `file_contents` (raw text per file).
+  Users still can't do those remotely. Leaves the local/remote capability gap
+  largely intact.
 
 Rejected as the sole solution; may still be worth doing independently as a
 quality-of-life improvement to the tabular path.
@@ -652,60 +627,49 @@ local readers.
 
 - **Pros:** Zero upstream changes.
 - **Cons:** Doubles storage and I/O; complicates cleanup and large datasets;
-  doesn't scale; fragile for `agent_rollout`'s default-path conventions. Worse
-  than reading through fsspec directly.
+  doesn't scale; worse than reading through fsspec directly.
 
 ## Risks and open questions
 
-- **Agent rollout absolute-path semantics.** ATIF records embed `cwd` /
-  `project_path` (`atif.py:170-171`) and `source_path`. Against a Fileset these
-  become fileset refs rather than real local paths. Need to confirm downstream
-  consumers treat these as opaque identifiers, not openable local paths.
-- **Agent rollout default paths are local-only.** `AgentRolloutSeedSource`
-  defaults `path` to local conventions like `~/.claude/projects`
-  (`seed_source.py:189-202`). Those are meaningless in remote mode. Remote mode
-  must require an explicit fileset ref and reject reliance on a local default
-  path; the validator relaxation in A4/B3 must not silently accept a local
-  default path for remote execution.
-- **Performance.** `directory` and `agent_rollout` perform per-file reads. Over
+- **Agent rollout remains unsupported remotely.** This is intentional for this
+  plan. If AgentRollout moves to a plugin, that plugin can own its own remote
+  filesystem story without forcing handler abstractions into the core library.
+- **Performance.** `directory` and `file_contents` perform per-file reads. Over
   Filesets each read is a network round trip. `FilesetFileSystem` is async with
   `batch_size=4`, but the hydration loop is currently sequential. Batched /
   concurrent hydration is future work, out of scope for the bridge itself.
-- **Upstream change coordination.** Parts A1–A4 live in the DataDesigner repo
+- **Upstream change coordination.** Parts A1–A3 live in the DataDesigner repo
   and must land (and version-bump) before the NeMo wiring in B can depend on
-  them. The agent rollout handler signature change (A3) is a breaking internal
-  contract within the library — its own handler tests must be updated in the
-  same change.
+  them.
 - **`root_path` typing.** Loosening `root_path` from `Path` to something more
   abstract may ripple through code that does `Path`-specific operations; an
-  audit of all `context.root_path` uses is required (currently: metadata
-  rendering and agent rollout joins).
+  audit of all `context.root_path` uses is required. In the in-scope readers it
+  should be metadata/rendering only.
 
 ## Implementation plan
 
 Ordered to keep each step independently testable.
 
 1. **Upstream A1 + A2** — add `FileSystemProvider` protocol, default local
-   implementation, and `context.open()`. Verify existing `directory` /
-   `file_contents` upstream tests pass unchanged.
+   implementation, and loosen `root_path` so it can be a displayable remote
+   root. Verify existing `directory` / `file_contents` upstream tests pass
+   unchanged.
 2. **NeMo B1 + partial B2** — add `FilesetFileSystemProvider`; wire
    `directory` + `file_contents` remotely. Integration-test against a real
    Fileset.
-3. **Upstream A3** — refactor agent rollout handlers to read via `context.fs`;
-   update handler unit tests.
-4. **A4 (Layer 1) — config refactor.** Drop `is_dir()` from the upstream
-   `validate_path`; make `runtime_path` a pass-through that preserves a `#`-ref.
-   Add a **precise root-existence assertion** in `FileSystemSeedReader` / the
-   provider so a missing root raises a clear "does not exist" error (local: via
-   `LocalFileSystem`; fileset: via SDK) instead of the vague "no files matched".
-   Verify upstream `DataDesigner.validate()` and the CLI still surface a precise
-   error for a missing directory (now via the provider, reached through
-   `get_column_names()`), and that existing tests pass.
-5. **A4 (Layer 2, NeMo) + B3 — remote pre-flight validation.** Extend
-   `validate_seed` to check `directory` / `file_contents` / `agent_rollout`
-   fileset refs via the SDK; expand `_SUPPORTED_SEED_TYPES`; reject
-   local-default-path reliance for remote `agent_rollout`.
-6. **SDK / OpenAPI** — regenerate only if request models change. They should
+3. **A3 (Layer 1) — config refactor.** Drop `is_dir()` from the upstream
+   `DirectorySeedSource` / `FileContentsSeedSource` path validation; make their
+   `runtime_path` handling preserve a `#`-ref. Keep `AgentRolloutSeedSource`
+   local-path behavior unchanged. Add a **precise root-existence assertion** in
+   `FileSystemSeedReader` / the provider so a missing root raises a clear "does
+   not exist" error (local: via `LocalFileSystem`; fileset: via SDK) instead of
+   the vague "no files matched". Verify upstream `DataDesigner.validate()` and
+   the CLI still surface a precise error for a missing directory (now via the
+   provider, reached through `get_column_names()`), and that existing tests pass.
+4. **A3 (Layer 2, NeMo) + B3 — remote pre-flight validation.** Extend
+   `validate_seed` to check `directory` / `file_contents` fileset refs via the
+   SDK; expand `_SUPPORTED_SEED_TYPES`.
+5. **SDK / OpenAPI** — regenerate only if request models change. They should
    not: the seed source config types already exist in the `dd` config and are
    serializable.
 
@@ -715,11 +679,9 @@ Upstream (`/Users/mknepper/code/DataDesigner`):
 
 - `packages/data-designer-engine/src/data_designer/engine/resources/seed_reader.py`
   (A1, A2)
-- `packages/data-designer-engine/src/data_designer/engine/resources/agent_rollout/base.py`,
-  `atif.py`, `utils.py`, `claude_code.py`, `codex.py`, `hermes_agent.py`,
-  `pi_coding_agent.py` (A3)
 - `packages/data-designer-config/src/data_designer/config/seed_source.py`
-  (A4 — `FileSystemSeedSource` family deferral; `LocalFileSeedSource` unchanged)
+  (A3 — `DirectorySeedSource` / `FileContentsSeedSource` deferral;
+  `AgentRolloutSeedSource` and `LocalFileSeedSource` unchanged)
 
 NeMo (`/Users/mknepper/code/nemo-platform`):
 
@@ -728,4 +690,4 @@ NeMo (`/Users/mknepper/code/nemo-platform`):
   `fileset_filesystem_provider.py` (B1)
 - `nemo-platform/packages/data_designer_nemo/src/data_designer_nemo/unsupported_features.py`
   (B3 — expand `_SUPPORTED_SEED_TYPES`)
-- `nemo-platform/packages/data_designer_nemo/src/data_designer_nemo/seed.py` (A4 Layer 2 / B3)
+- `nemo-platform/packages/data_designer_nemo/src/data_designer_nemo/seed.py` (A3 Layer 2 / B3)
