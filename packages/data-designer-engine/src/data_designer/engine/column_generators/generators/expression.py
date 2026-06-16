@@ -48,12 +48,19 @@ class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator
         drop_counts: Counter[str] = Counter()
 
         for row_index, record in zip(data.index.to_list(), data.to_dict(orient="records"), strict=True):
+            prepared_record = deserialize_json_values(record)
             try:
-                rendered_value = self.render_template(deserialize_json_values(record))
+                rendered_value = self.render_template(prepared_record)
             except EmptyTemplateRenderError:
                 drop_counts[EMPTY_RENDERED_EXPRESSION] += 1
                 continue
             except Exception:
+                logger.debug(
+                    "Expression column %r dropped row %r after template render failure.",
+                    self.config.name,
+                    row_index,
+                    exc_info=True,
+                )
                 drop_counts[TEMPLATE_RENDER_ERROR] += 1
                 continue
 

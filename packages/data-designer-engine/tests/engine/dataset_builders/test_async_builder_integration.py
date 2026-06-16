@@ -27,8 +27,10 @@ from data_designer.engine.column_generators.generators.base import (
     FromScratchColumnGenerator,
 )
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
+from data_designer.engine.context import current_row_group
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -251,6 +253,60 @@ async def test_expression_row_drops_shrink_async_row_group(caplog: pytest.LogCap
     assert written_batches[0]["seed"].tolist() == ["keep", "also"]
     assert written_batches[0]["copy"].tolist() == ["keep", "also"]
     assert "Expression column 'copy' dropped 1/3 rows after render: EmptyRenderedExpression=1." in caplog.text
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_expression_all_dropped_async_row_group_fails_loudly() -> None:
+    """All-dropped expression batches abort async generation instead of salvaging the row group."""
+
+    class SeedWithAllDroppedFirstGroup(MockSeed):
+        def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+            rg = current_row_group.get()
+            values = ["", ""] if rg is not None and rg[0] == 0 else ["keep", "also"]
+            return lazy.pd.DataFrame({"seed": values[:num_records]})
+
+    provider = _mock_provider()
+    provider.run_config = RunConfig()
+    seed_gen = SeedWithAllDroppedFirstGroup(config=_expr_config("seed"), resource_provider=provider)
+    expr_config = ExpressionColumnConfig(name="copy", expr="{{ seed }}")
+    expr_gen = ExpressionColumnGenerator(config=expr_config, resource_provider=provider)
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        expr_config,
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN, "copy": GenerationStrategy.FULL_COLUMN}
+    gen_map = {"seed": seed_gen, "copy": expr_gen}
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 2), (1, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    written_batches: list[lazy.pd.DataFrame] = []
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    storage.write_batch_to_parquet_file.side_effect = lambda **kwargs: written_batches.append(
+        kwargs["dataframe"].copy()
+    )
+    buffer_manager = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=gen_map,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        max_concurrent_row_groups=1,
+        on_finalize_row_group=lambda rg_id: buffer_manager.checkpoint_row_group(rg_id),
+    )
+
+    with pytest.raises(DatasetGenerationError, match="Expression column 'copy' produced no valid rows."):
+        await scheduler.run()
+
+    assert written_batches == []
+    assert buffer_manager.actual_num_records == 0
 
 
 def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest.MonkeyPatch) -> None:

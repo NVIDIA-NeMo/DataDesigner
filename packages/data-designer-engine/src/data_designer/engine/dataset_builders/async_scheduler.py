@@ -80,6 +80,7 @@ from data_designer.engine.observability import (
     SchedulerAdmissionEventSink,
     runtime_correlation_provider,
 )
+from data_designer.engine.processing.ginja.exceptions import UserTemplateError
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGenerator
@@ -402,6 +403,8 @@ class AsyncTaskScheduler:
     def _raise_if_fatal_worker_error(self) -> None:
         if self._fatal_worker_error is None:
             return
+        if isinstance(self._fatal_worker_error, UserTemplateError):
+            raise DatasetGenerationError(str(self._fatal_worker_error)) from self._fatal_worker_error
         raise DatasetGenerationError(
             "Unexpected internal task failure in async scheduler."
         ) from self._fatal_worker_error
@@ -1696,6 +1699,19 @@ class AsyncTaskScheduler:
                 trace.status = "error"
                 trace.error = str(exc)
 
+            if self._is_fatal_expression_template_error(task, generator, exc):
+                logger.error(
+                    "Fatal expression failure on %s[rg=%s, row=%s]: %s",
+                    task.column,
+                    task.row_group,
+                    task.row_index,
+                    exc,
+                    exc_info=True,
+                )
+                self._fatal_worker_error = exc
+                self._wake_event.set()
+                raise
+
             if retryable:
                 self._deferred.append(task)
                 self._deferred_errors[task] = exc
@@ -1783,6 +1799,9 @@ class AsyncTaskScheduler:
         try:
             return await call
         except Exception as exc:
+            generator = self._generators[task.column]
+            if self._is_fatal_expression_template_error(task, generator, exc):
+                raise
             if self._is_retryable(exc) or self._is_expected_non_retryable(exc):
                 raise
             raise DatasetGenerationError(
@@ -1810,6 +1829,14 @@ class AsyncTaskScheduler:
 
     def _task_supports_row_drops(self, task: Task, generator: ColumnGenerator) -> bool:
         return task.task_type == "batch" and isinstance(generator.config, ExpressionColumnConfig)
+
+    def _is_fatal_expression_template_error(
+        self,
+        task: Task,
+        generator: ColumnGenerator,
+        exc: BaseException,
+    ) -> bool:
+        return self._task_supports_row_drops(task, generator) and isinstance(exc, UserTemplateError)
 
     async def _run_from_scratch(self, task: Task, generator: ColumnGenerator) -> Any:
         """Execute a from_scratch task."""
