@@ -436,10 +436,15 @@ raises (`filesystem.py:503-526`) into a friendly `SeedReaderError`:
 # data_designer_nemo/fileset_filesystem_provider.py  (NeMo side)
 
 class FilesetFileSystemProvider:
-    def __init__(self, sdk: NeMoPlatform | AsyncNeMoPlatform):
+    def __init__(
+        self,
+        sdk: NeMoPlatform | AsyncNeMoPlatform,
+        validated_roots: set[str] | None = None,
+    ):
         if isinstance(sdk, AsyncNeMoPlatform):
             sdk = async_to_sync_sdk(sdk)
         self._sdk = sdk
+        self._validated_roots = set() if validated_roots is None else validated_roots
 
     def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext:
         fs = FilesetFileSystem(self._sdk)
@@ -449,8 +454,11 @@ class FilesetFileSystemProvider:
 
     def ensure_root_exists(self, *, runtime_path: str) -> None:
         workspace, fileset, fragment = parse_fileset_ref(runtime_path, ...)
-        fs = FilesetFileSystem(self._sdk)
         ref = build_fileset_ref(runtime_path, ...)
+        if ref in self._validated_roots:
+            return
+
+        fs = FilesetFileSystem(self._sdk)
         # fsspec sync exists() facade; FilesetFileSystem._info raises
         # FileNotFoundError for a missing path.
         if not fs.exists(ref):
@@ -468,11 +476,15 @@ construction-time `is_file()` check; see the A3 scope note.)
 
 Two implementation notes:
 
-- **Avoid a double round trip.** `ensure_root_exists` is free locally (`is_dir`)
-  but a network call remotely (`fs.exists`). For remote, lean on the
-  `validate_seed` SDK check at validate-time and keep the provider preflight as
-  the (lazy) backstop for the read path, so a single request flow does not hit
-  the Files API twice for the same fact.
+- **Avoid a double round trip with a per-context validated-root cache.**
+  `ensure_root_exists` is free locally (`is_dir`) but a network call remotely
+  (`fs.exists`). For remote, `RemoteDataDesignerContext` owns a
+  request-scoped `set[str]` of canonical fileset root refs that successfully
+  passed `validate_seed`. It passes the same set into
+  `FilesetFileSystemProvider`, and `ensure_root_exists` returns immediately
+  when the canonical root is present. If a caller skips `validate()` or creates
+  a provider in a different context, the set is empty and the provider preflight
+  still runs as the lazy backstop.
 - **One error class crosses the boundary.** The provider must catch low-level
   `FileNotFoundError` (`filesystem.py:503`) and re-raise as `SeedReaderError`
   with the friendly text, so the reader and the `validate()` classification
@@ -498,10 +510,15 @@ residual gap is acceptable, but must be documented in the upstream changelog.
 
 ```python
 class FilesetFileSystemProvider:
-    def __init__(self, sdk: NeMoPlatform | AsyncNeMoPlatform):
+    def __init__(
+        self,
+        sdk: NeMoPlatform | AsyncNeMoPlatform,
+        validated_roots: set[str] | None = None,
+    ):
         if isinstance(sdk, AsyncNeMoPlatform):
             sdk = async_to_sync_sdk(sdk)
         self._sdk = sdk
+        self._validated_roots = set() if validated_roots is None else validated_roots
 
     def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext:
         fs = FilesetFileSystem(self._sdk)                  # already exists
@@ -519,13 +536,34 @@ Reuses the workspace-prefixing logic already in
 #### B2. Wire it into `RemoteDataDesignerContext.get_seed_readers()`
 
 ```python
-provider = FilesetFileSystemProvider(self._sdk)
-return [
-    HuggingFaceSeedReader(),
-    FilesetFileSeedReader(self._sdk),          # keep: single-file/duckdb path
-    DirectorySeedReader(fs_provider=provider),
-    FileContentsSeedReader(fs_provider=provider),
-]
+class RemoteDataDesignerContext:
+    def __init__(self, sdk: AsyncNeMoPlatform | NeMoPlatform, workspace: str):
+        self._sdk = sdk
+        self._workspace = workspace
+        self._validated_filesystem_roots: set[str] = set()
+
+    async def validate(self, config: dd.DataDesignerConfig) -> list[NDDError]:
+        sdk = self._async_sdk()
+        errors: list[NDDError] = []
+        ...
+        try:
+            if validated_root := await validate_seed(config, self._workspace, sdk):
+                self._validated_filesystem_roots.add(validated_root)
+        except NDDError as e:
+            errors.append(e)
+        ...
+
+    def get_seed_readers(self) -> list[SeedReader]:
+        provider = FilesetFileSystemProvider(
+            self._sdk,
+            validated_roots=self._validated_filesystem_roots,
+        )
+        return [
+            HuggingFaceSeedReader(),
+            FilesetFileSeedReader(self._sdk),          # keep: single-file/duckdb path
+            DirectorySeedReader(fs_provider=provider),
+            FileContentsSeedReader(fs_provider=provider),
+        ]
 ```
 
 #### B3. Relax and extend remote validation
@@ -545,7 +583,12 @@ Two changes, matching the two-layer model from A3:
    where cheap, the path fragment) exists via `sdk.files.filesets.retrieve(...)`,
    surfacing `NDDInvalidConfigError` on 404 / `PermissionDeniedError`. This runs
    inside `RemoteDataDesignerContext.validate()` before workload submission, so
-   the user gets fast feedback without a wasted job.
+   the user gets fast feedback without a wasted job. Return the canonical
+   `build_fileset_ref(...)` root on success; `RemoteDataDesignerContext.validate()`
+   stores that value in `_validated_filesystem_roots`, and `get_seed_readers()`
+   passes the set to `FilesetFileSystemProvider` so preview/job/SDK validation
+   flows do not repeat the same Files existence check during engine compile or
+   read setup.
 
 ### Server-side request validation (unchanged)
 
