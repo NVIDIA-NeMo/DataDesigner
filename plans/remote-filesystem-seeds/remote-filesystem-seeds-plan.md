@@ -508,30 +508,19 @@ residual gap is acceptable, but must be documented in the upstream changelog.
 
 #### B1. A Fileset-backed `FileSystemProvider`
 
-```python
-class FilesetFileSystemProvider:
-    def __init__(
-        self,
-        sdk: NeMoPlatform | AsyncNeMoPlatform,
-        validated_roots: set[str] | None = None,
-    ):
-        if isinstance(sdk, AsyncNeMoPlatform):
-            sdk = async_to_sync_sdk(sdk)
-        self._sdk = sdk
-        self._validated_roots = set() if validated_roots is None else validated_roots
+Implement `FilesetFileSystemProvider` as the complete provider shown in A3
+(`create_context` plus `ensure_root_exists`). The NeMo-side provider must
+satisfy the upstream `FileSystemProvider` protocol, so B1 only calls out the
+NeMo-specific wiring details:
 
-    def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext:
-        fs = FilesetFileSystem(self._sdk)                  # already exists
-        root = build_fileset_ref(runtime_path, ...)        # workspace prefixing
-        rooted = DirFileSystem(path=root, fs=fs)
-        return SeedReaderFileSystemContext(
-            fs=rooted, root_path=PurePosixPath(root)
-        )
-```
-
-Reuses the workspace-prefixing logic already in
-`fileset_file_seed_reader.py:42-53` and the `build_fileset_ref` helper in
-`filesystem.py`.
+- Normalize `AsyncNeMoPlatform` to sync via `async_to_sync_sdk` before creating
+  `FilesetFileSystem`.
+- Reuse the workspace-prefixing behavior from
+  `fileset_file_seed_reader.py:42-53`.
+- Use the `build_fileset_ref` helper from `filesystem.py`.
+- Accept the request-scoped `validated_roots` set from
+  `RemoteDataDesignerContext` to skip duplicate existence checks after
+  `validate_seed`.
 
 #### B2. Wire it into `RemoteDataDesignerContext.get_seed_readers()`
 
