@@ -47,11 +47,11 @@ def _make_client(
 # --- Response helpers ---
 
 
-def _text_response(text: str = "Hello!") -> dict[str, Any]:
+def _text_response(text: str = "Hello!", stop_reason: str = "end_turn") -> dict[str, Any]:
     return {
         "content": [{"type": "text", "text": text}],
         "usage": {"input_tokens": 10, "output_tokens": 5},
-        "stop_reason": "end_turn",
+        "stop_reason": stop_reason,
     }
 
 
@@ -92,9 +92,19 @@ def test_completion_maps_text_content() -> None:
     result = client.completion(request)
 
     assert result.message.content == "Hello from Claude!"
+    assert result.choices[0].finish_reason == "end_turn"
     assert result.usage is not None
     assert result.usage.input_tokens == 10
     assert result.usage.output_tokens == 5
+
+
+def test_completion_maps_max_tokens_stop_reason() -> None:
+    client = _make_client(sync_client=make_mock_sync_client(_text_response(stop_reason="max_tokens")))
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    result = client.completion(request)
+
+    assert result.choices[0].finish_reason == "max_tokens"
 
 
 def test_completion_maps_tool_use_blocks() -> None:
@@ -104,6 +114,7 @@ def test_completion_maps_tool_use_blocks() -> None:
     result = client.completion(request)
 
     assert result.message.content == "Let me search for that."
+    assert result.choices[0].finish_reason == "tool_use"
     assert len(result.message.tool_calls) == 1
     assert result.message.tool_calls[0].id == "toolu_01"
     assert result.message.tool_calls[0].name == "search"

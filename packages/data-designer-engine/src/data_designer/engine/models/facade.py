@@ -58,6 +58,13 @@ def _identity(x: Any) -> Any:
 logger = logging.getLogger(__name__)
 
 
+_MAX_TOKENS_FINISH_REASONS = frozenset({"length", "max_tokens"})
+
+
+def _is_max_tokens_finish_reason(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() in _MAX_TOKENS_FINISH_REASONS
+
+
 def _get_response_value(source: Any, key: str) -> Any:
     if source is None:
         return None
@@ -82,17 +89,20 @@ def _classify_generation_failure_kind(exc: ParserException) -> str:
 
 
 def _response_was_truncated_by_max_tokens(completion_response: ChatCompletionResponse) -> bool:
+    if any(_is_max_tokens_finish_reason(choice.finish_reason) for choice in completion_response.choices):
+        return True
+
     raw_response = completion_response.raw
     if raw_response is None:
         return False
 
     first_choice = _get_first_response_item(_get_response_value(raw_response, "choices"))
     finish_reason = _get_response_value(first_choice, "finish_reason")
-    if isinstance(finish_reason, str) and finish_reason.strip().lower() == "length":
+    if _is_max_tokens_finish_reason(finish_reason):
         return True
 
     stop_reason = _get_response_value(raw_response, "stop_reason")
-    return isinstance(stop_reason, str) and stop_reason.strip().lower() == "max_tokens"
+    return _is_max_tokens_finish_reason(stop_reason)
 
 
 def _build_generation_validation_error(

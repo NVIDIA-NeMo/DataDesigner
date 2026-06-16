@@ -15,6 +15,7 @@ from data_designer.config.utils.media_helpers import (
 from data_designer.engine.models.clients.parsing import extract_usage, fill_reasoning_token_count_from_content
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
+    ChatCompletionChoice,
     ChatCompletionRequest,
     ChatCompletionResponse,
     ToolCall,
@@ -124,7 +125,14 @@ def parse_anthropic_response(response_json: dict[str, Any]) -> ChatCompletionRes
         usage = extract_usage(raw_usage)
         usage = fill_reasoning_token_count_from_content(usage, message.reasoning_content)
 
-    return ChatCompletionResponse(message=message, usage=usage, raw=response_json)
+    stop_reason = response_json.get("stop_reason")
+    finish_reason = stop_reason if isinstance(stop_reason, str) else None
+    return ChatCompletionResponse(
+        message=message,
+        usage=usage,
+        raw=response_json,
+        choices=[ChatCompletionChoice(message=message, finish_reason=finish_reason)],
+    )
 
 
 def translate_request_messages(

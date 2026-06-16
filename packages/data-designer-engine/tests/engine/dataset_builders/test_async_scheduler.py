@@ -49,6 +49,8 @@ from data_designer.engine.dataset_builders.utils.progress_tracker import Progres
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
+    FormattedLLMErrorMessage,
+    ModelGenerationValidationFailureError,
     ModelInternalServerError,
     ModelRateLimitError,
     ModelRequestAdmissionTimeoutError,
@@ -197,6 +199,29 @@ class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
             raise ValueError("permanent failure")
         data[self.config.name] = f"recovered_{data.get('seed', '?')}"
         return data
+
+
+class MockTruncatedParseFailureGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Generator that simulates a parser failure caused by max_tokens truncation."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, _data: dict) -> dict:
+        raise ModelGenerationValidationFailureError(
+            FormattedLLMErrorMessage(
+                cause=(
+                    "The model output from 'test-model' could not be parsed into the requested format while "
+                    "running generation for column 'fail_col' because the response appears to have been cut off "
+                    "by max_tokens. Validation detail: Unterminated JSON object."
+                ),
+                solution="Increase inference_parameters.max_tokens in the model config and try again.",
+            ),
+            detail="Unterminated JSON object.",
+            failure_kind="parse_error",
+            truncated_by_max_tokens=True,
+        )
 
 
 class MockBuggyGenerator(ColumnGenerator[ExpressionColumnConfig]):
@@ -734,6 +759,41 @@ async def test_scheduler_non_retryable_failure_drops_row() -> None:
     # Row group is "complete" because all non-dropped rows have all columns
     # (there are no non-dropped rows)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_logs_max_tokens_truncation_guidance(caplog: pytest.LogCaptureFixture) -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="fail_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "fail_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "fail_col": MockTruncatedParseFailureGenerator(config=_expr_config("fail_col"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+    )
+    with caplog.at_level(logging.WARNING):
+        await scheduler.run()
+
+    assert tracker.is_dropped(0, 0)
+    assert "Non-retryable failure on fail_col[rg=0, row=0]" in caplog.text
+    assert "cut off by max_tokens" in caplog.text
+    assert "Increase inference_parameters.max_tokens in the model config" in caplog.text
 
 
 def test_scheduler_internal_bug_classifier_preserves_scheduler_builtin_failures() -> None:

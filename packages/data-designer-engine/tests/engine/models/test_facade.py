@@ -32,10 +32,16 @@ from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_stub_completion_response
 
 
-def _make_response(content: str | None = None, raw: Any | None = None, **kwargs: Any) -> ChatCompletionResponse:
+def _make_response(
+    content: str | None = None,
+    raw: Any | None = None,
+    finish_reason: str | None = None,
+    **kwargs: Any,
+) -> ChatCompletionResponse:
     """Shorthand for creating a ChatCompletionResponse in tests."""
     response = make_stub_completion_response(content=content, **kwargs)
     response.raw = raw
+    response.choices[0].finish_reason = finish_reason
     return response
 
 
@@ -263,19 +269,21 @@ async def test_agenerate_includes_parser_validation_detail_in_user_facing_error(
 
 
 @pytest.mark.parametrize(
-    ("raw_response", "expected_truncated"),
+    ("finish_reason", "raw_response", "expected_truncated"),
     [
-        ({"choices": [{"finish_reason": "length"}]}, True),
-        ({"stop_reason": "max_tokens"}, True),
-        ({"choices": [{"finish_reason": "stop"}]}, False),
-        ({"stop_reason": "end_turn"}, False),
-        (None, False),
+        ("length", None, True),
+        ("max_tokens", None, True),
+        ("stop", None, False),
+        (None, {"choices": [{"finish_reason": "length"}]}, True),
+        (None, {"stop_reason": "max_tokens"}, True),
+        (None, None, False),
     ],
     ids=[
-        "openai_length",
-        "anthropic_max_tokens",
-        "openai_stop",
-        "anthropic_end_turn",
+        "canonical_openai_length",
+        "canonical_anthropic_max_tokens",
+        "canonical_stop",
+        "raw_openai_length_fallback",
+        "raw_anthropic_max_tokens_fallback",
         "missing_raw",
     ],
 )
@@ -283,10 +291,11 @@ async def test_agenerate_includes_parser_validation_detail_in_user_facing_error(
 def test_generate_sets_truncation_metadata_on_parser_failure(
     mock_completion: Any,
     stub_model_facade: ModelFacade,
+    finish_reason: str | None,
     raw_response: dict[str, Any] | None,
     expected_truncated: bool,
 ) -> None:
-    mock_completion.return_value = _make_response("bad response", raw=raw_response)
+    mock_completion.return_value = _make_response("bad response", raw=raw_response, finish_reason=finish_reason)
 
     def _failing_parser(response: str) -> str:
         raise ParserException("Response doesn't match requested <response_schema>\n'name' is a required property")
@@ -308,19 +317,21 @@ def test_generate_sets_truncation_metadata_on_parser_failure(
 
 
 @pytest.mark.parametrize(
-    ("raw_response", "expected_truncated"),
+    ("finish_reason", "raw_response", "expected_truncated"),
     [
-        ({"choices": [{"finish_reason": "length"}]}, True),
-        ({"stop_reason": "max_tokens"}, True),
-        ({"choices": [{"finish_reason": "stop"}]}, False),
-        ({"stop_reason": "end_turn"}, False),
-        (None, False),
+        ("length", None, True),
+        ("max_tokens", None, True),
+        ("stop", None, False),
+        (None, {"choices": [{"finish_reason": "length"}]}, True),
+        (None, {"stop_reason": "max_tokens"}, True),
+        (None, None, False),
     ],
     ids=[
-        "openai_length",
-        "anthropic_max_tokens",
-        "openai_stop",
-        "anthropic_end_turn",
+        "canonical_openai_length",
+        "canonical_anthropic_max_tokens",
+        "canonical_stop",
+        "raw_openai_length_fallback",
+        "raw_anthropic_max_tokens_fallback",
         "missing_raw",
     ],
 )
@@ -329,10 +340,11 @@ def test_generate_sets_truncation_metadata_on_parser_failure(
 async def test_agenerate_sets_truncation_metadata_on_parser_failure(
     mock_acompletion: AsyncMock,
     stub_model_facade: ModelFacade,
+    finish_reason: str | None,
     raw_response: dict[str, Any] | None,
     expected_truncated: bool,
 ) -> None:
-    mock_acompletion.return_value = _make_response("bad response", raw=raw_response)
+    mock_acompletion.return_value = _make_response("bad response", raw=raw_response, finish_reason=finish_reason)
 
     def _failing_parser(response: str) -> str:
         raise ParserException("Response doesn't match requested <response_schema>\n'name' is a required property")
