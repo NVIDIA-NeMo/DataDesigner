@@ -436,7 +436,9 @@ raises (`filesystem.py:503-526`) into a friendly `SeedReaderError`:
 # data_designer_nemo/fileset_filesystem_provider.py  (NeMo side)
 
 class FilesetFileSystemProvider:
-    def __init__(self, sdk):
+    def __init__(self, sdk: NeMoPlatform | AsyncNeMoPlatform):
+        if isinstance(sdk, AsyncNeMoPlatform):
+            sdk = async_to_sync_sdk(sdk)
         self._sdk = sdk
 
     def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext:
@@ -496,7 +498,9 @@ residual gap is acceptable, but must be documented in the upstream changelog.
 
 ```python
 class FilesetFileSystemProvider:
-    def __init__(self, sdk):
+    def __init__(self, sdk: NeMoPlatform | AsyncNeMoPlatform):
+        if isinstance(sdk, AsyncNeMoPlatform):
+            sdk = async_to_sync_sdk(sdk)
         self._sdk = sdk
 
     def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext:
