@@ -271,9 +271,11 @@ two layers:
 
 - `validate_path` drops `is_dir()` and keeps only cheap structural checks
   (non-empty, etc.). It no longer asserts existence.
-- `runtime_path` stops unconditionally calling `Path(...).resolve()`; it becomes
-  a light normalization / pass-through so a `#`-ref survives intact for the
-  provider to interpret.
+- For the in-scope sources, `runtime_path` stops calling
+  `Path(...).resolve()` at construction time and preserves the user-authored
+  path string for the provider to interpret. This is deliberately generic: the
+  core config package does **not** parse, classify, or otherwise know about
+  NeMo Platform fileset refs or any other host-specific remote path grammar.
 - Net effect: `DirectorySeedSource(path="default/my-seeds#data/traces")`
   constructs successfully. **Same classes work in both local and remote modes.**
 
@@ -288,9 +290,23 @@ two layers:
 
 The current validator is shared by `FileSystemSeedSource`, so the implementation
 must preserve this boundary explicitly. If needed, split or override validation
-so only `DirectorySeedSource` and `FileContentsSeedSource` get remote-ref-safe
-path handling; `AgentRolloutSeedSource` should keep its current local-path
+so only `DirectorySeedSource` and `FileContentsSeedSource` get provider-owned
+raw-path handling; `AgentRolloutSeedSource` should keep its current local-path
 behavior until its ownership and plugin direction are decided.
+
+**Accepted local relative-path semantics change.** Today a local relative path
+is anchored when the config object is constructed because `model_post_init`
+caches an absolute `_runtime_path`. This plan intentionally changes that for
+`DirectorySeedSource` and `FileContentsSeedSource`: relative local paths are
+resolved by the active filesystem provider at validate/read time. That means a
+script that constructs `DirectorySeedSource(path="./seeds")`, changes cwd, and
+then validates/reads will resolve `./seeds` against the later cwd. This is an
+accepted tradeoff because it keeps config objects declarative and portable when
+serialized/shared, and avoids adding hidden construction-cwd state that generic
+core helpers could accidentally misuse in remote contexts. Users who need stable
+local anchoring can opt in explicitly by passing an absolute path, e.g.
+`DirectorySeedSource(path=str(Path("./seeds").resolve()))`. This behavior change
+must be documented in the upstream changelog and covered by tests.
 
 **Layer 2 — filesystem-aware existence check, in the provider/reader.**
 
@@ -492,17 +508,26 @@ Two implementation notes:
 
 **Behavior change being accepted.** With the four requirements above, error
 *quality* is preserved (arguably improved for filesets) on every `validate()`
-path — so the accepted regression narrows to **timing only**: a missing
-directory now errors when `validate()` (or a read) runs rather than at the
-instant `DirectorySeedSource(...)` or `FileContentsSeedSource(...)` is
-constructed. Any code path that calls
-`validate()` — the high-level `DataDesigner.validate`, the CLI, and the platform
-preview/job flows — still gets a precise, typed pre-flight error with **no
-wasted workload**. The only path that loses an early signal is constructing the
-source in a script that never validates and never reads; even there, the cheap
-structural checks (requirement 4) still fire at construction. Given the
-directory could be created or deleted between construction and run anyway, this
-residual gap is acceptable, but must be documented in the upstream changelog.
+path. There are two accepted local behavior changes:
+
+1. A missing directory now errors when `validate()` (or a read) runs rather than
+   at the instant `DirectorySeedSource(...)` or `FileContentsSeedSource(...)` is
+   constructed. Any code path that calls `validate()` — the high-level
+   `DataDesigner.validate`, the CLI, and the platform preview/job flows — still
+   gets a precise, typed pre-flight error with **no wasted workload**. The only
+   path that loses an early signal is constructing the source in a script that
+   never validates and never reads; even there, the cheap structural checks
+   (requirement 4) still fire at construction.
+2. Relative local paths are no longer anchored to the cwd at config construction
+   time. They are resolved by the local filesystem provider at validate/read
+   time, while remote providers interpret the same raw `path` string according
+   to their own grammar. This makes serialized configs more portable and keeps
+   provider-specific path interpretation out of core. Users who need the old
+   stable anchoring behavior can pass an absolute path explicitly.
+
+Given directories can be created/deleted between construction and run, and
+relative-path portability is valuable for shared configs, these residual gaps
+are acceptable, but must be documented in the upstream changelog.
 
 ### Part B — NeMo side (`data_designer_nemo`)
 
@@ -677,6 +702,11 @@ local readers.
 - **Upstream change coordination.** Parts A1–A3 live in the DataDesigner repo
   and must land (and version-bump) before the NeMo wiring in B can depend on
   them.
+- **Relative local path behavior change.** Local relative paths for `directory`
+  and `file_contents` become run-context-relative rather than
+  construction-cwd-relative. This is intentional for config portability, but it
+  must be documented and covered by tests so future maintainers do not
+  accidentally reintroduce hidden construction-cwd anchoring.
 - **`root_path` typing.** Loosening `root_path` from `Path` to something more
   abstract may ripple through code that does `Path`-specific operations; an
   audit of all `context.root_path` uses is required. In the in-scope readers it
@@ -695,13 +725,16 @@ Ordered to keep each step independently testable.
    Fileset.
 3. **A3 (Layer 1) — config refactor.** Drop `is_dir()` from the upstream
    `DirectorySeedSource` / `FileContentsSeedSource` path validation; make their
-   `runtime_path` handling preserve a `#`-ref. Keep `AgentRolloutSeedSource`
-   local-path behavior unchanged. Add a **precise root-existence assertion** in
+   `runtime_path` handling preserve the raw user-authored path string for the
+   active provider to interpret. Keep `AgentRolloutSeedSource` local-path
+   behavior unchanged. Add a **precise root-existence assertion** in
    `FileSystemSeedReader` / the provider so a missing root raises a clear "does
    not exist" error (local: via `LocalFileSystem`; fileset: via SDK) instead of
    the vague "no files matched". Verify upstream `DataDesigner.validate()` and
    the CLI still surface a precise error for a missing directory (now via the
    provider, reached through `get_column_names()`), and that existing tests pass.
+   Add regression tests showing local relative paths are resolved at
+   validate/read time and absolute paths remain stable across cwd changes.
 4. **A3 (Layer 2, NeMo) + B3 — remote pre-flight validation.** Extend
    `validate_seed` to check `directory` / `file_contents` fileset refs via the
    SDK; expand `_SUPPORTED_SEED_TYPES`.
