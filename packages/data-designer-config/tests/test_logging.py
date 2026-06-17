@@ -8,12 +8,14 @@ from pathlib import Path
 
 import pytest
 
+import data_designer.logging as logging_mod
 from data_designer.logging import (
     LoggerConfig,
     LoggingConfig,
     OutputConfig,
     RandomEmoji,
     configure_logging,
+    is_logging_configured,
     quiet_noisy_logger,
 )
 
@@ -103,6 +105,16 @@ def test_configure_logging_basic(stub_default_logging_config):
 
     ndd_logger = logging.getLogger("data_designer")
     assert ndd_logger.level == logging.INFO
+
+
+def test_configure_logging_marks_logging_configured(stub_default_logging_config, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(logging_mod, "_logging_configured", False)
+
+    assert is_logging_configured() is False
+
+    configure_logging(stub_default_logging_config)
+
+    assert is_logging_configured() is True
 
 
 def test_configure_logging_with_file():

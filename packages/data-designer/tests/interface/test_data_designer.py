@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
+import data_designer.logging as dd_logging
 from data_designer.config.column_configs import (
     CustomColumnConfig,
     ExpressionColumnConfig,
@@ -1519,6 +1520,7 @@ def test_validate_raises_error_when_seed_collides(
 def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """_initialize_interface_runtime only runs initialization once."""
     monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+    monkeypatch.setattr(dd_logging, "_logging_configured", False)
 
     with (
         patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
@@ -1528,6 +1530,40 @@ def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch)
         dd_mod._initialize_interface_runtime()
         mock_logging.assert_called_once()
         mock_resolve.assert_called_once()
+
+
+def test_initialize_interface_runtime_respects_preconfigured_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+    monkeypatch.setattr(dd_logging, "_logging_configured", True)
+
+    with (
+        patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
+        patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
+    ):
+        dd_mod._initialize_interface_runtime()
+
+        mock_logging.assert_not_called()
+        mock_resolve.assert_called_once()
+
+
+def test_init_preserves_preconfigured_logging(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+    monkeypatch.setattr(dd_logging, "_logging_configured", False)
+    data_designer_logger = logging.getLogger("data_designer")
+    previous_level = data_designer_logger.level
+
+    try:
+        dd_logging.configure_logging(dd_logging.LoggingConfig.debug())
+
+        DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+        assert data_designer_logger.level == logging.DEBUG
+    finally:
+        data_designer_logger.setLevel(previous_level)
 
 
 def test_create_dataset_e2e_with_directory_seed_source(
