@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Sequence
 from copy import copy
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, get_args, get_origin
 
 from fsspec.implementations.dirfs import DirFileSystem
@@ -50,12 +50,37 @@ logger = logging.getLogger(__name__)
 class SeedReaderError(DataDesignerError): ...
 
 
+class SeedReaderConfigError(SeedReaderError): ...
+
+
 @dataclass(frozen=True)
 class SeedReaderFileSystemContext:
     """Filesystem and root path available to filesystem seed-reader plugins."""
 
     fs: AbstractFileSystem
-    root_path: Path
+    root_path: PurePath
+
+
+class FileSystemProvider(Protocol):
+    """Resolves a runtime path into a rooted fsspec filesystem."""
+
+    def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext: ...
+
+    def ensure_root_exists(self, *, runtime_path: str) -> None: ...
+
+
+class LocalFileSystemProvider:
+    """Default filesystem provider backed by the local disk."""
+
+    def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext:
+        resolved_root_path = Path(runtime_path).expanduser().resolve()
+        rooted_fs = DirFileSystem(path=str(resolved_root_path), fs=LocalFileSystem())
+        return SeedReaderFileSystemContext(fs=rooted_fs, root_path=resolved_root_path)
+
+    def ensure_root_exists(self, *, runtime_path: str) -> None:
+        resolved_root_path = Path(runtime_path).expanduser().resolve()
+        if not resolved_root_path.is_dir():
+            raise SeedReaderConfigError(f"🛑 Seed source directory '{resolved_root_path}' does not exist.")
 
 
 class SeedReaderBatch(Protocol):
@@ -388,11 +413,22 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     output_columns: ClassVar[list[str] | None] = None
 
+    def __init__(self, fs_provider: FileSystemProvider | None = None) -> None:
+        self._fs_provider = fs_provider or LocalFileSystemProvider()
+
     def _reset_attachment_state(self) -> None:
         super()._reset_attachment_state()
         self._filesystem_context = None
         self._output_df = None
         self._row_manifest_df = None
+
+    def create_filesystem_context(self, root_path: Path | str) -> SeedReaderFileSystemContext:
+        """Create a rooted filesystem context for directory-backed seed readers.
+
+        This hook is preserved for existing plugin readers. New host integrations
+        should prefer passing a ``FileSystemProvider`` to the reader constructor.
+        """
+        return self._get_fs_provider().create_context(runtime_path=str(root_path))
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
         return self.create_dataframe_duckdb_connection(
@@ -495,9 +531,17 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         self._ensure_attached()
         context = getattr(self, "_filesystem_context", None)
         if context is None:
+            self._get_fs_provider().ensure_root_exists(runtime_path=self.source.runtime_path)
             context = self.create_filesystem_context(self.source.runtime_path)
             self._filesystem_context = context
         return context
+
+    def _get_fs_provider(self) -> FileSystemProvider:
+        provider = getattr(self, "_fs_provider", None)
+        if provider is None:
+            provider = LocalFileSystemProvider()
+            self._fs_provider = provider
+        return provider
 
     def _get_manifest_dataset_uri(self) -> str:
         return self._build_internal_table_name("manifest")

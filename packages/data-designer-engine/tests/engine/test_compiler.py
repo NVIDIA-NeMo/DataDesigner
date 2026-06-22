@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -12,7 +12,7 @@ from data_designer.config.sampler_params import CategorySamplerParams, SamplerTy
 from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.resources.seed_reader import SeedReader
+from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderConfigError
 from data_designer.engine.validation import Violation, ViolationLevel, ViolationType
 
 
@@ -53,6 +53,18 @@ def test_errors_on_seed_column_collisions(resource_provider: ResourceProvider):
         compile_data_designer_config(builder.build(), resource_provider)
 
     assert "city" in str(excinfo)
+
+
+def test_seed_reader_config_errors_are_invalid_config_errors(resource_provider: ResourceProvider):
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    resource_provider.seed_reader = Mock(spec=SeedReader)
+    resource_provider.seed_reader.get_column_names.side_effect = SeedReaderConfigError("missing seed root")
+
+    with pytest.raises(InvalidConfigError, match="missing seed root") as excinfo:
+        compile_data_designer_config(builder.build(), resource_provider)
+
+    assert isinstance(excinfo.value.__cause__, SeedReaderConfigError)
 
 
 def test_validation_errors(resource_provider: ResourceProvider):

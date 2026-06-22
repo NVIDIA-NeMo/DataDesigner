@@ -100,9 +100,9 @@ class FileSystemSeedSource(SeedSource, ABC):
     ``FileSystemSeedReader`` implementation.
 
     Attributes:
-        path: Directory containing seed artifacts. Relative paths are resolved
-            from the current working directory when the config is loaded, not
-            from the config file location.
+        path: Directory containing seed artifacts. Relative local paths are
+            resolved by the active filesystem provider when the seed is
+            validated or read, not when the config object is constructed.
         file_pattern: Case-sensitive filename pattern used to match files under
             the provided directory. Patterns match basenames only, not relative
             paths. Defaults to ``'*'``.
@@ -115,8 +115,8 @@ class FileSystemSeedSource(SeedSource, ABC):
     path: str = Field(
         ...,
         description=(
-            "Directory containing seed artifacts. Relative paths are resolved from the current working "
-            "directory when the config is loaded, not from the config file location."
+            "Directory containing seed artifacts. Relative local paths are resolved by the active filesystem "
+            "provider when the seed is validated or read, not when the config object is constructed."
         ),
     )
     file_pattern: str = Field(
@@ -155,6 +155,13 @@ class FileSystemSeedSource(SeedSource, ABC):
 class DirectorySeedSource(FileSystemSeedSource):
     seed_type: Literal["directory"] = "directory"
 
+    def model_post_init(self, __context: Any) -> None:
+        self._runtime_path = self.path
+
+    @property
+    def runtime_path(self) -> str:
+        return self.path
+
 
 class FileContentsSeedSource(FileSystemSeedSource):
     seed_type: Literal["file_contents"] = "file_contents"
@@ -171,6 +178,13 @@ class FileContentsSeedSource(FileSystemSeedSource):
         except LookupError as error:
             raise ValueError(f"🛑 Unknown encoding: {value!r}. Use a valid Python codec name.") from error
         return value
+
+    def model_post_init(self, __context: Any) -> None:
+        self._runtime_path = self.path
+
+    @property
+    def runtime_path(self) -> str:
+        return self.path
 
 
 def _resolve_filesystem_runtime_path(path: str) -> str:
@@ -203,6 +217,15 @@ def get_pi_coding_agent_default_path() -> str:
 
 
 def _validate_filesystem_seed_source_path(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not value.strip():
+        raise InvalidFilePathError("🛑 FileSystemSeedSource.path must be a non-empty string.")
+    return value
+
+
+def _validate_local_filesystem_seed_source_path(value: str | None) -> str | None:
+    value = _validate_filesystem_seed_source_path(value)
     if value is None:
         return None
     path = Path(value).expanduser().resolve()
@@ -272,6 +295,10 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
             "and Hermes Agent defaults to '*.json*'."
         ),
     )
+
+    @field_validator("path", mode="after")
+    def validate_path(cls, value: str | None) -> str | None:
+        return _validate_local_filesystem_seed_source_path(value)
 
     @model_validator(mode="after")
     def validate_runtime_path_source(self) -> Self:

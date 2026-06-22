@@ -95,12 +95,14 @@ def test_dataframe_seed_source_serialization() -> None:
     assert serialized == {"seed_type": "df"}
 
 
-def test_directory_seed_source_requires_directory(tmp_path: Path) -> None:
+def test_directory_seed_source_defers_directory_existence_validation(tmp_path: Path) -> None:
     file_path = tmp_path / "file.txt"
     file_path.write_text("alpha", encoding="utf-8")
 
-    with pytest.raises(InvalidFilePathError, match="is not a directory"):
-        DirectorySeedSource(path=str(file_path))
+    source = DirectorySeedSource(path=str(file_path))
+
+    assert source.path == str(file_path)
+    assert source.runtime_path == str(file_path)
 
 
 def test_directory_seed_source_preserves_relative_path_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,7 +148,7 @@ def test_file_contents_seed_source_preserves_relative_path_input(
         pytest.param(FileContentsSeedSource, {"file_pattern": "*.txt"}, id="file-contents"),
     ],
 )
-def test_filesystem_seed_sources_cache_runtime_path_across_cwd_changes(
+def test_filesystem_seed_sources_preserve_raw_runtime_path_across_cwd_changes(
     source_type: type[DirectorySeedSource] | type[FileContentsSeedSource],
     source_kwargs: dict[str, str],
     tmp_path: Path,
@@ -160,12 +162,11 @@ def test_filesystem_seed_sources_cache_runtime_path_across_cwd_changes(
 
     monkeypatch.chdir(initial_root)
     source = source_type(path="seed-dir", **source_kwargs)
-    expected_runtime_path = str(initial_seed_dir.resolve())
 
     monkeypatch.chdir(later_root)
 
     assert source.path == "seed-dir"
-    assert source.runtime_path == expected_runtime_path
+    assert source.runtime_path == "seed-dir"
     assert source.model_dump(mode="json")["path"] == "seed-dir"
 
 
@@ -176,10 +177,10 @@ def test_seed_source_path_descriptions_document_cwd_resolution() -> None:
 
     assert "current working directory" in local_path_description
     assert "config file location" in local_path_description
-    assert "current working directory" in directory_path_description
-    assert "config file location" in directory_path_description
-    assert "current working directory" in file_contents_path_description
-    assert "config file location" in file_contents_path_description
+    assert "active filesystem provider" in directory_path_description
+    assert "config object is constructed" in directory_path_description
+    assert "active filesystem provider" in file_contents_path_description
+    assert "config object is constructed" in file_contents_path_description
 
 
 def test_file_contents_seed_source_parses_from_dict(tmp_path: Path) -> None:

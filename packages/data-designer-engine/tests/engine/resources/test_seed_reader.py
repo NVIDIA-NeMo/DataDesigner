@@ -738,7 +738,7 @@ def test_local_file_seed_reader_uses_load_time_runtime_path_when_cwd_changes(
     assert list(df["value"]) == [1]
 
 
-def test_directory_seed_reader_uses_load_time_runtime_path_when_cwd_changes(
+def test_directory_seed_reader_uses_read_time_runtime_path_when_cwd_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -760,8 +760,17 @@ def test_directory_seed_reader_uses_load_time_runtime_path_when_cwd_changes(
     df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
 
     assert source.path == "seed-dir"
-    assert list(df["relative_path"]) == ["alpha.txt"]
-    assert list(df["source_path"]) == [str((initial_seed_dir / "alpha.txt").resolve())]
+    assert list(df["relative_path"]) == ["beta.txt"]
+    assert list(df["source_path"]) == [str((later_seed_dir / "beta.txt").resolve())]
+
+
+def test_directory_seed_reader_reports_missing_root_before_matching_files(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "missing"
+    reader = DirectorySeedReader()
+    reader.attach(DirectorySeedSource(path=str(missing_dir), file_pattern="*.txt"), PlaintextResolver())
+
+    with pytest.raises(SeedReaderError, match="Seed source directory .* does not exist"):
+        reader.get_column_names()
 
 
 def test_filesystem_seed_reader_on_attach_requires_no_super_and_resets_state(tmp_path: Path) -> None:

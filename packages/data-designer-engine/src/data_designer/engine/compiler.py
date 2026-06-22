@@ -10,7 +10,7 @@ from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.sampler_params import UUIDSamplerParams
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.resources.seed_reader import SeedReader
+from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderConfigError
 from data_designer.engine.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,10 @@ def _resolve_and_add_seed_columns(config: DataDesignerConfig, seed_reader: SeedR
     if not seed_reader:
         return
 
-    seed_col_names = seed_reader.get_column_names()
+    try:
+        seed_col_names = seed_reader.get_column_names()
+    except SeedReaderConfigError as error:
+        raise InvalidConfigError(str(error)) from error
     existing_columns = {column.name for column in config.columns}
     colliding_columns = {name for name in seed_col_names if name in existing_columns}
     if colliding_columns:
