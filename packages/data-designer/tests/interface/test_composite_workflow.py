@@ -763,6 +763,32 @@ def test_composite_workflow_resume_if_possible_corrupt_metadata_starts_fresh(
     assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
 
 
+@pytest.mark.parametrize("metadata_payload", [[], None, "oops"])
+def test_composite_workflow_resume_if_possible_invalid_metadata_shape_starts_fresh(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+    metadata_payload,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-invalid-shape")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-invalid-shape" / "workflow-metadata.json"
+    metadata_path.write_text(json.dumps(metadata_payload), encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-invalid-shape")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+
+
 @pytest.mark.parametrize("status", ["running", "failed"])
 def test_composite_workflow_resume_if_possible_delegates_matching_resumable_stage(
     stub_artifact_path: Path,
@@ -849,6 +875,28 @@ def test_composite_workflow_resume_always_rejects_corrupt_metadata(
     resumed = data_designer.compose_workflow(name="resume-corrupt-always")
     resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
     with pytest.raises(DataDesignerWorkflowError, match="workflow metadata is corrupt"):
+        resumed.run(resume=ResumeMode.ALWAYS)
+
+
+@pytest.mark.parametrize("metadata_payload", [[], None, "oops"])
+def test_composite_workflow_resume_always_rejects_invalid_metadata_shape(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+    metadata_payload,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-invalid-shape-always")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-invalid-shape-always" / "workflow-metadata.json"
+    metadata_path.write_text(json.dumps(metadata_payload), encoding="utf-8")
+
+    resumed = data_designer.compose_workflow(name="resume-invalid-shape-always")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    with pytest.raises(DataDesignerWorkflowError, match="workflow metadata has invalid shape"):
         resumed.run(resume=ResumeMode.ALWAYS)
 
 

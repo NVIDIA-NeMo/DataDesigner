@@ -580,6 +580,13 @@ def _read_prior_workflow_metadata(
         raise DataDesignerWorkflowError(
             f"Cannot resume workflow {workflow_name!r}: workflow metadata could not be read."
         ) from exc
+    if not isinstance(metadata, dict):
+        if resume != ResumeMode.ALWAYS:
+            logger.warning("Workflow metadata for %r has invalid shape; starting fresh.", workflow_name)
+            return None
+        raise DataDesignerWorkflowError(
+            f"Cannot resume workflow {workflow_name!r}: workflow metadata has invalid shape."
+        )
     if metadata.get("name") != workflow_name:
         if resume != ResumeMode.ALWAYS:
             logger.warning("Workflow metadata for %r has a different name; starting fresh.", workflow_name)
