@@ -433,7 +433,7 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - For invalidated stages, clear or replace the deterministic stage directory before starting fresh so `ArtifactStorage` does not timestamp away from the workflow layout.
 - Depends on artifact layout from phase 1.
 
-**Status after stage-level resume slice:** Implemented `workflow.run(resume=...)`, compatible completed-stage reuse, matching partial-stage delegation to `DataDesigner.create(..., resume=ResumeMode.ALWAYS)`, downstream invalidation after changed or missing stages, callback output path checks, and docs for `ResumeMode.IF_POSSIBLE` / `ResumeMode.ALWAYS`. Still deferred: DAG branches, `allow_resize` removal, config bundles, and broader first-class artifact seeding.
+**Status after stage-level resume slice:** Implemented `workflow.run(resume=...)`, compatible completed-stage reuse, matching partial-stage delegation to `DataDesigner.create(..., resume=ResumeMode.ALWAYS)`, downstream invalidation after changed or missing stages, callback output path checks, target stage materialization, explicit `rerun_from` invalidation, stage output overrides for review gates, and docs for `ResumeMode.IF_POSSIBLE` / `ResumeMode.ALWAYS`. Still deferred: DAG branches, `allow_resize` removal, config bundles, and broader first-class artifact seeding.
 
 ### Phase 4: DAG-shaped stages with parallel branches
 

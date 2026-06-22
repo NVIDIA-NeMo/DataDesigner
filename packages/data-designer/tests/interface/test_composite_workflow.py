@@ -445,6 +445,93 @@ def test_composite_workflow_clones_stage_builders_on_add(
     assert [column.name for column in stage_builder.get_column_configs()] == ["category"]
 
 
+def test_composite_workflow_targets_materializes_requested_stage(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="target-chain")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=3)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ category_copy }}"))
+
+    results = workflow.run(targets="copy")
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+    assert list(results.keys()) == ["base", "copy"]
+    assert results.final_stage_name == "copy"
+    assert results.count_records() == 3
+    metadata = _load_workflow_metadata(stub_artifact_path, "target-chain")
+    assert [stage["name"] for stage in metadata["stages"]] == ["base", "copy"]
+
+
+def test_composite_workflow_rerun_from_forces_stage_and_descendants(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="rerun-from")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ category_copy }}"))
+    workflow.run()
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="rerun-from")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ category_copy }}"))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE, rerun_from="copy")
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-1-copy", "stage-2-final"]
+    assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.NEVER, ResumeMode.NEVER]
+
+
+def test_composite_workflow_stage_output_override_seeds_descendants(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(stub_model_configs, [{"name": "Ada"}, {"name": "Linus"}])
+    stage_1.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage_2 = _expression_builder(stub_model_configs, "final", "{{ persona }} {{ approval }}")
+
+    data_designer = _real_data_designer(tmp_path / "artifacts", stub_model_providers)
+    workflow = data_designer.compose_workflow(name="hitl-override")
+    workflow.add_stage("drafts", stage_1, num_records=2)
+    workflow.add_stage("expanded", stage_2)
+    draft_results = workflow.run(targets="drafts")
+    assert draft_results.count_records() == 2
+
+    approved_path = tmp_path / "approved.parquet"
+    lazy.pd.DataFrame([{"name": "Grace", "persona": "Grace", "approval": "approved"}]).to_parquet(
+        approved_path,
+        index=False,
+    )
+
+    resumed = data_designer.compose_workflow(name="hitl-override")
+    resumed.add_stage("drafts", stage_1, num_records=2)
+    resumed.add_stage("expanded", stage_2)
+    results = resumed.run(
+        resume=ResumeMode.IF_POSSIBLE,
+        stage_output_overrides={"drafts": approved_path},
+    )
+
+    assert results.get_stage_output_path("drafts") == approved_path.resolve()
+    assert results.load_dataset().to_dict(orient="records") == [
+        {"name": "Grace", "persona": "Grace", "approval": "approved", "final": "Grace approved"}
+    ]
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "hitl-override")
+    assert metadata["stages"][0]["stage_output_override_path"] == str(approved_path.resolve())
+    assert metadata["stages"][1]["seed_path"] == str(approved_path.resolve())
+
+
 def test_composite_workflow_resume_if_possible_skips_completed_stages(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -1163,6 +1250,29 @@ def test_composite_workflow_export_uses_selected_final_output(
     workflow.add_stage("compact", stage, num_records=2, output="processor:compact")
 
     output = workflow.run().export(tmp_path / "selected.jsonl")
+
+    assert [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()] == [
+        {"compact_name": "Ada"},
+        {"compact_name": "Linus"},
+    ]
+
+
+def test_composite_workflow_export_stage_uses_selected_stage_output(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada"}, {"name": "Linus"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage.add_processor(SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"}))
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="selected-stage-export"
+    )
+    workflow.add_stage("compact", stage, num_records=2, output="processor:compact")
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ compact_name }} final"))
+
+    output = workflow.run().export_stage("compact", tmp_path / "compact.jsonl")
 
     assert [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()] == [
         {"compact_name": "Ada"},
