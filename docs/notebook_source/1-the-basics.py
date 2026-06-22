@@ -37,7 +37,7 @@ from data_designer.interface import DataDesigner
 #
 # - `DataDesigner` is the main object responsible for managing the data generation process.
 #
-# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model providers](https://docs.nvidia.com/nemo/datadesigner/concepts/models/default-model-settings) are used.
 #
 
 # %%
@@ -50,7 +50,7 @@ data_designer = DataDesigner()
 #
 # - The "model alias" is used to reference the model in the Data Designer config (as we will see below).
 #
-# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).
+# - The "model provider" is the external service that hosts the model (see the [model config](https://docs.nvidia.com/nemo/datadesigner/concepts/models/default-model-settings) docs for more details).
 #
 # - By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.
 #
@@ -324,11 +324,11 @@ analysis.to_report()
 #
 # Now that you've seen the basics of Data Designer, check out the following notebooks to learn more about:
 #
-# - [Structured outputs, jinja expressions, and conditional generation](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)
+# - [Structured outputs, jinja expressions, and conditional generation](https://docs.nvidia.com/nemo/datadesigner/tutorials/structured-outputs-jinja-expressions-and-conditional-generation)
 #
-# - [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
+# - [Seeding synthetic data generation with an external dataset](https://docs.nvidia.com/nemo/datadesigner/tutorials/seeding-with-an-external-dataset)
 #
-# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)
+# - [Providing images as context](https://docs.nvidia.com/nemo/datadesigner/tutorials/providing-images-as-context)
 #
-# - [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/)
+# - [Generating images](https://docs.nvidia.com/nemo/datadesigner/tutorials/generating-images)
 #

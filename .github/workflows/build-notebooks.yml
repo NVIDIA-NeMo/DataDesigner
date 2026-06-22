@@ -89,7 +89,31 @@ jobs:
       - name: Convert and execute notebooks
         run: |
           if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-            export DATA_DESIGNER_FLUX_2_PRO_CREATE_NUM_RECORDS=2
+            .venv/bin/python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text()
+              if old not in text:
+                  raise SystemExit(f"Could not patch {target}")
+              target.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "docs/notebook_source/4-providing-images-as-context.py",
+              "config_builder = dd.DataDesignerConfigBuilder()\n",
+              "config_builder = dd.DataDesignerConfigBuilder()\n"
+              "for model_config in config_builder.model_configs:\n"
+              "    if model_config.alias == \"nvidia-vision\":\n"
+              "        model_config.skip_health_check = True\n"
+              "        break\n",
+          )
+          replace_once(
+              "docs/notebook_source/6-editing-images-with-image-context.py",
+              'num_records=5, dataset_name="tutorial-6-edited-images"',
+              'num_records=2, dataset_name="tutorial-6-edited-images"',
+          )
+          PY
           fi
           make convert-execute-notebooks ${{ inputs.use_cache && 'USE_CACHE=1' || '' }}
       - name: Upload notebooks as artifacts

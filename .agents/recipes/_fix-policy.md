@@ -39,7 +39,7 @@ If the top-ranked candidate fails the bar, try the next. If none of the top
 
 | Suite | Paths the recipe MAY modify |
 |-------|-----------------------------|
-| docs-and-references | `architecture/**`, `docs/**`, `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
+| docs-and-references | `architecture/**`, `fern/versions/latest/pages/**`, `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
 | dependencies | `packages/*/pyproject.toml` |
 | structure | `packages/*/src/**/*.py` |
 | code-quality | `packages/*/src/**/*.py` |

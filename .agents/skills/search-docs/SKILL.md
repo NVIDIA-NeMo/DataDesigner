@@ -1,6 +1,6 @@
 ---
 name: search-docs
-description: Search local documentation in the docs/ folder for content related to a topic
+description: Search local Fern documentation for content related to a topic
 argument-hint: <search-topic>
 metadata:
     internal: true
@@ -8,7 +8,7 @@ metadata:
 
 # Documentation Search
 
-Use the `docs-searcher` subagent to search local documentation for content related to: **$ARGUMENTS**
+Use the `docs-searcher` subagent to search local Fern documentation for content related to: **$ARGUMENTS**
 
 Call the Task tool with:
 - `subagent_type: "docs-searcher"`

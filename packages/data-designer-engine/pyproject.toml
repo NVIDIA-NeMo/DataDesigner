@@ -51,10 +51,12 @@ dependencies = [
     "mcp>=1.26.0,<2",
     "networkx>=3.0,<4",
     "numpy>=1.23.5,<3",
+    "pyjwt[crypto]>=2.13.0,<3", # 2.13.0 fixes PyJWT security advisories pulled in by mcp
     "python-multipart>=0.0.29,<1", # 0.0.29 addresses multipart security advisories pulled in by mcp
     "ruff>=0.14.10,<1",
     "scipy>=1.11.0,<2",
     "sqlfluff>=4.1.0,<5",
+    "starlette>=1.2.0,<2", # 1.2.0 fixes security advisory pulled in by mcp
     "tiktoken>=0.8.0,<1",
 ]
 

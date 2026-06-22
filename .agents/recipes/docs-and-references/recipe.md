@@ -77,7 +77,7 @@ interface package is what users see first.
 Check links in these locations:
 - `README.md` - all relative links and URLs
 - `architecture/*.md` - cross-references to other architecture docs and code
-- `docs/` - MkDocs content links, code references, cross-page links
+- `fern/versions/latest/pages/` - Fern content links, code references, cross-page links
 - `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md` - relative links
 
 Use targeted link extraction and inspect at most 10 candidate links. Prefer
@@ -103,10 +103,10 @@ ls architecture/
 
 ### 4. Docs site content accuracy
 
-The MkDocs site under `docs/` is the primary user-facing documentation.
+The Fern site under `fern/versions/latest/pages/` is the primary user-facing documentation.
 Review for accuracy against the current code:
 
-**Concepts pages** (`docs/concepts/`):
+**Concepts pages** (`fern/versions/latest/pages/concepts/`):
 - Do code examples use correct imports, class names, and method signatures?
   Check against actual source - e.g., verify `DataDesigner.create()`,
   `DataDesigner.preview()`, builder patterns match the real API.
@@ -114,12 +114,12 @@ Review for accuracy against the current code:
   or renamed?
 - Are new features or column types missing from the docs?
 
-**Recipes** (`docs/recipes/`):
+**Recipes** (`fern/versions/latest/pages/recipes/`):
 - Do step-by-step instructions reference correct file paths, class names,
   and CLI commands? Run `grep` for class names mentioned in recipe docs and
   verify they resolve in the source.
 
-**Dev notes** (`docs/devnotes/posts/`):
+**Dev notes** (`fern/versions/latest/pages/devnotes/posts/`):
 - Dev notes describe implementation details that may have changed. Spot-check
   the most recent 3-5 posts for references to functions, classes, or
   architecture that have since been modified.

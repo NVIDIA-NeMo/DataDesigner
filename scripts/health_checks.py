@@ -12,7 +12,6 @@ Usage:
 
 from __future__ import annotations
 
-import importlib
 import os
 import sys
 import time
@@ -31,11 +30,11 @@ from data_designer.config.utils.constants import (
     PREDEFINED_PROVIDERS,
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
+from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
 from data_designer.interface import DataDesigner
 
 MAX_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 5
-RETRYABLE_MODEL_ERRORS = importlib.import_module("data_designer.engine.models.errors").RETRYABLE_MODEL_ERRORS
 HEALTH_CHECK_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 PROVIDER_API_KEY_ENV_VARS = {
     NVIDIA_PROVIDER_NAME: NVIDIA_API_KEY_ENV_VAR_NAME,

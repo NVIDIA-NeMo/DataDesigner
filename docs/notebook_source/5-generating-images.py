@@ -27,7 +27,7 @@
 #
 # > **Prerequisites**: This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro image model. Set `OPENROUTER_API_KEY` in your environment before running.
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://docs.nvidia.com/nemo/datadesigner/tutorials/the-basics) in this tutorial series.
 #
 
 # %% [markdown]
@@ -38,8 +38,6 @@
 #
 
 # %%
-import os
-
 from IPython.display import Image as IPImage
 from IPython.display import display
 
@@ -274,10 +272,7 @@ preview.dataset
 #
 
 # %%
-create_num_records = 2
-if MODEL_ID == "black-forest-labs/flux.2-pro":
-    create_num_records = int(os.environ.get("DATA_DESIGNER_FLUX_2_PRO_CREATE_NUM_RECORDS") or create_num_records)
-results = data_designer.create(config_builder, num_records=create_num_records, dataset_name="tutorial-5-images")
+results = data_designer.create(config_builder, num_records=2, dataset_name="tutorial-5-images")
 
 # %%
 dataset = results.load_dataset()
@@ -296,9 +291,9 @@ for index, row in dataset.iterrows():
 # %% [markdown]
 # ## ⏭️ Next steps
 #
-# - [The basics](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/): samplers and LLM text columns
-# - [Structured outputs and Jinja](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)
-# - [Seeding with a dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
-# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)
-# - [Image-to-image editing](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/6-editing-images-with-image-context/): edit existing images with seed datasets
+# - [The basics](https://docs.nvidia.com/nemo/datadesigner/tutorials/the-basics): samplers and LLM text columns
+# - [Structured outputs and Jinja](https://docs.nvidia.com/nemo/datadesigner/tutorials/structured-outputs-jinja-expressions-and-conditional-generation)
+# - [Seeding with a dataset](https://docs.nvidia.com/nemo/datadesigner/tutorials/seeding-with-an-external-dataset)
+# - [Providing images as context](https://docs.nvidia.com/nemo/datadesigner/tutorials/providing-images-as-context)
+# - [Image-to-image editing](https://docs.nvidia.com/nemo/datadesigner/tutorials/image-to-image-editing): edit existing images with seed datasets
 #

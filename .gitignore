@@ -38,9 +38,6 @@ htmlcov/
 coverage.xml
 .pytest_cache/
 
-# mkdocs documentation
-/site
-
 # Jupyter Notebook
 .ipynb_checkpoints
 

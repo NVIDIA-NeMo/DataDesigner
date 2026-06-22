@@ -111,11 +111,11 @@ jobs:
             fi
           }
 
-          for workflow in build-fern-docs.yml build-docs.yml; do
+          for workflow in build-fern-docs.yml; do
             download_notebooks "$workflow" --event release
           done
 
-          for workflow in build-fern-docs.yml build-docs.yml; do
+          for workflow in build-fern-docs.yml; do
             download_notebooks "$workflow" --event workflow_dispatch --branch main
           done
 
