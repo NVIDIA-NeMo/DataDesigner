@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -15,6 +16,7 @@ from data_designer.config.seed_source import (
     AgentRolloutSeedSource,
     DirectorySeedSource,
     FileContentsSeedSource,
+    FileSystemSeedSource,
     LocalFileSeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
@@ -224,6 +226,17 @@ def test_filesystem_seed_sources_reject_path_like_file_patterns(
         source_type(path=str(tmp_path), file_pattern=file_pattern)
 
 
+def test_filesystem_seed_source_subclass_inherits_runtime_path(tmp_path: Path) -> None:
+    # Plugin authors subclass FileSystemSeedSource directly; readers rely on
+    # `source.runtime_path`, so the base must provide it without an override.
+    class PluginSeedSource(FileSystemSeedSource):
+        seed_type: Literal["plugin-seed-source"] = "plugin-seed-source"
+
+    source = PluginSeedSource(path=str(tmp_path))
+
+    assert source.runtime_path == str(tmp_path)
+
+
 @pytest.mark.parametrize(
     ("rollout_format", "file_pattern", "error_message"),
     [
@@ -266,6 +279,46 @@ def test_agent_rollout_seed_source_rejects_invalid_file_patterns(
 def test_agent_rollout_seed_source_requires_explicit_atif_path() -> None:
     with pytest.raises(ValueError, match="path is required for format 'atif'"):
         AgentRolloutSeedSource(format=AgentRolloutFormat.ATIF)
+
+
+def test_agent_rollout_seed_source_defers_directory_existence_validation(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "does-not-exist"
+
+    source = AgentRolloutSeedSource(path=str(missing_dir), format=AgentRolloutFormat.ATIF)
+
+    assert source.path == str(missing_dir)
+    assert source.runtime_path == str(missing_dir)
+
+
+def test_agent_rollout_seed_source_preserves_raw_runtime_path_across_cwd_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_root = tmp_path / "initial"
+    later_root = tmp_path / "later"
+    (initial_root / "seed-dir").mkdir(parents=True)
+    later_root.mkdir()
+
+    monkeypatch.chdir(initial_root)
+    source = AgentRolloutSeedSource(path="seed-dir", format=AgentRolloutFormat.ATIF)
+
+    monkeypatch.chdir(later_root)
+
+    assert source.path == "seed-dir"
+    assert source.runtime_path == "seed-dir"
+    assert source.model_dump(mode="json")["path"] == "seed-dir"
+
+
+def test_agent_rollout_seed_source_runtime_path_falls_back_to_format_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = AgentRolloutSeedSource(format=AgentRolloutFormat.CLAUDE_CODE)
+
+    assert source.path is None
+    assert source.runtime_path == str(tmp_path / ".claude" / "projects")
 
 
 def test_agent_rollout_seed_source_uses_default_atif_file_pattern(tmp_path: Path) -> None:
