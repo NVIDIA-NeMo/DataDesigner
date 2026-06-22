@@ -3,7 +3,7 @@ name: docs-and-references
 description: Audit documentation freshness - docstrings vs signatures, broken links, architecture refs, docs site content accuracy
 trigger: schedule
 tool: claude-code
-timeout_minutes: 20
+timeout_minutes: 40
 max_turns: 50
 permissions:
   contents: write
