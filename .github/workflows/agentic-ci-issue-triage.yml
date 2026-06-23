@@ -56,13 +56,15 @@ jobs:
 
           if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
             for ATTEMPT in 1 2 3; do
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              if ! HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
                 --max-time 30 \
                 -X POST "${ANTHROPIC_BASE_URL}/v1/messages" \
                 -H "Content-Type: application/json" \
                 -H "x-api-key: ${ANTHROPIC_API_KEY}" \
                 -H "anthropic-version: 2023-06-01" \
-                -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+                -d "{\"model\":\"${AGENTIC_CI_MODEL}\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"); then
+                HTTP_CODE="000"
+              fi
               if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
                 echo "API pre-flight passed (HTTP ${HTTP_CODE})"
                 break
