@@ -30,8 +30,8 @@ Processors can run at three stages, determined by which callback methods they im
   Each batch carries the full dataset schema during generation. Post-batch schema changes such as column dropping only alter past batches, so all columns remain accessible to generators while building follow-up batches.
 </Note>
 
-<Warning title="Row-count changes under the async engine">
-  The async engine (default) enforces row-count invariance in `process_before_batch()` and `process_after_batch()` — a processor returning a different row count raises `DatasetGenerationError`. Run row-filtering or expansion logic in `process_after_generation()`, which operates on the final dataset and supports row-count changes. The legacy sync engine (opt-out via `DATA_DESIGNER_ASYNC_ENGINE=0`) is permissive about row-count changes at all stages.
+<Warning title="Row-count changes">
+  Data Designer enforces row-count invariance in `process_before_batch()`. The async engine also enforces it in `process_after_batch()`. Run row-filtering or expansion logic in `process_after_generation()`, which operates on the final dataset and supports row-count changes, or put the transform at a workflow boundary.
 </Warning>
 
 <Warning title="Resume after process_after_generation">

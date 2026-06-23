@@ -700,10 +700,9 @@ def test_default_column_emoji_for_custom_column_type() -> None:
     assert StubColumnConfig.get_column_emoji() == "🎨"
 
 
-def test_allow_resize_inherited_by_subclasses() -> None:
-    """Subclasses inherit allow_resize from SingleColumnConfig."""
-    assert StubColumnConfig(name="test").allow_resize is False
-    assert StubColumnConfig(name="test", allow_resize=True).allow_resize is True
+def test_allow_resize_extra_field_rejected() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        StubColumnConfig(name="test", allow_resize=True)
 
 
 def test_get_model_aliases_empty_when_no_model_alias_field() -> None:

@@ -63,31 +63,34 @@ class ProcessorRunner:
             logger.info(f"ℹ️ {stage.name} processors changed the record count by {delta:+d} records.")
         return df
 
+    @staticmethod
+    def _raise_if_pre_batch_resized(original_len: int, new_len: int) -> None:
+        if new_len != original_len:
+            raise DatasetProcessingError(
+                f"Pre-batch processor changed row count from {original_len} to {new_len}. "
+                "Row-count changes in pre-batch processors are not supported; use workflow chaining instead."
+            )
+
     def run_pre_batch(self, batch_manager: DatasetBatchManager) -> None:
         """Run process_before_batch() on current batch."""
         if not self.has_processors_for(ProcessorStage.PRE_BATCH):
             return
 
         df = batch_manager.get_current_batch(as_dataframe=True)
+        original_len = len(df)
         df = self._run_stage(df, ProcessorStage.PRE_BATCH)
-        batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=True)
+        self._raise_if_pre_batch_resized(original_len, len(df))
+        batch_manager.replace_buffer(df.to_dict(orient="records"))
 
-    def run_pre_batch_on_df(self, df: pd.DataFrame, *, strict_row_count: bool = False) -> pd.DataFrame:
+    def run_pre_batch_on_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """Run PRE_BATCH processors on a DataFrame and return the result.
 
         Args:
             df: Input DataFrame.
-            strict_row_count: If True, raise ``DatasetProcessingError`` when a
-                processor changes the row count. Used by the async engine where
-                row-count changes are not supported.
         """
         original_len = len(df)
         df = self._run_stage(df, ProcessorStage.PRE_BATCH)
-        if strict_row_count and len(df) != original_len:
-            raise DatasetProcessingError(
-                f"Pre-batch processor changed row count from {original_len} to {len(df)}. "
-                "Row-count changes in pre-batch processors are not supported with the async engine."
-            )
+        self._raise_if_pre_batch_resized(original_len, len(df))
         return df
 
     def run_post_batch(
