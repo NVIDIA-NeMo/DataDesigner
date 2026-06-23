@@ -102,15 +102,14 @@ class ProcessorRunner:
             df: Input DataFrame.
             current_batch_number: Batch index passed to processors.
             strict_row_count: If True, raise ``DatasetProcessingError`` when a
-                processor changes the row count. Used by the async engine where
-                row-count changes are not supported.
+                processor changes the row count.
         """
         original_len = len(df)
         df = self._run_stage(df, ProcessorStage.POST_BATCH, current_batch_number=current_batch_number)
         if strict_row_count and len(df) != original_len:
             raise DatasetProcessingError(
                 f"Post-batch processor changed row count from {original_len} to {len(df)}. "
-                "Row-count changes in post-batch processors are not supported with the async engine."
+                "Row-count changes in post-batch processors are not supported; use workflow chaining instead."
             )
         return df
 

@@ -700,7 +700,7 @@ def test_default_column_emoji_for_custom_column_type() -> None:
     assert StubColumnConfig.get_column_emoji() == "🎨"
 
 
-def test_allow_resize_extra_field_rejected() -> None:
+def test_removed_allow_resize_field_rejected() -> None:
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         StubColumnConfig(name="test", allow_resize=True)
 
