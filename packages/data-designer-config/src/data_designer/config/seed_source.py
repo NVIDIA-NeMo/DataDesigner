@@ -253,8 +253,8 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
             "Claude Code defaults to ~/.claude/projects, Codex defaults to ~/.codex/sessions, "
             "Hermes Agent defaults to ~/.hermes/sessions, "
             "and Pi Coding Agent defaults to ~/.pi/agent/sessions. "
-            "Relative paths are resolved from the current working directory when the config is loaded, "
-            "not from the config file location."
+            "Relative local paths are resolved by the active filesystem provider when the seed is "
+            "validated or read, not when the config object is constructed."
         ),
     )
 
