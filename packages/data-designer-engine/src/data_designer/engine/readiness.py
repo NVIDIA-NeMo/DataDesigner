@@ -88,8 +88,6 @@ def _run_model_health_check(
         return
 
     if client_concurrency_mode == ClientConcurrencyMode.ASYNC:
-        # Defer the async-engine imports to here so users on the legacy sync
-        # engine never pay the import cost.
         import asyncio
 
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop

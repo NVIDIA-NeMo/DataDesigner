@@ -50,12 +50,12 @@ def _compute_bridge_timeout(
 
 
 class _AsyncBridgedModelFacade:
-    """Proxy that bridges ``model.generate()`` to ``model.agenerate()`` in async engine mode.
+    """Proxy that bridges ``model.generate()`` to ``model.agenerate()``.
 
-    When a sync custom column runs inside ``asyncio.to_thread`` under the async engine,
-    the sync HTTP client is unavailable. This proxy intercepts the resulting
-    ``SyncClientUnavailableError`` and schedules ``agenerate()`` on the engine's persistent
-    event loop via ``run_coroutine_threadsafe``.
+    When a synchronous custom column runs inside ``asyncio.to_thread``, the sync
+    HTTP client is unavailable. This proxy intercepts the resulting
+    ``SyncClientUnavailableError`` and schedules ``agenerate()`` on the engine's
+    persistent event loop via ``run_coroutine_threadsafe``.
 
     All other attributes are forwarded to the underlying facade unchanged.
     """
@@ -82,7 +82,7 @@ class _AsyncBridgedModelFacade:
             pass  # No running loop - safe to bridge
         else:
             raise RuntimeError(
-                "model.generate() is not available in async engine mode from the event loop. "
+                "model.generate() is not available from the event loop. "
                 "Use 'await model.agenerate()' in async custom columns."
             )
 
@@ -153,7 +153,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
-        return self.config.generation_strategy
+        return GenerationStrategy(self.config.generation_strategy)
 
     def generate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
         """Generate column value(s) for a row (dict) or batch (DataFrame)."""

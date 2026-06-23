@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import contextlib
+import asyncio
 import functools
 import json
 import logging
@@ -27,14 +27,12 @@ from data_designer.config.processors import (
 )
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
-from data_designer.engine import flags
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
-    ColumnGeneratorWithModel,
     GenerationStrategy,
 )
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.context import current_row_group, current_row_group_start_offset
+from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.row_group_plan import (
@@ -43,21 +41,12 @@ from data_designer.engine.dataset_builders.row_group_plan import (
     RowGroupPlanLike,
     normalize_row_group_plan,
 )
-from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
+from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
+from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
-from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
-from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
-from data_designer.engine.dataset_builders.utils.skip_tracker import (
-    SKIPPED_COLUMNS_RECORD_KEY,
-    apply_skip_to_record,
-    prepare_records_for_skip_metadata_round_trip,
-    restore_skip_metadata,
-    strip_skip_metadata_from_records,
-)
-from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
+from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
@@ -77,29 +66,10 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from data_designer.config.run_config import RunConfig
-    from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.dataset_builders.scheduling.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
-
-# The async-engine flag now lives in ``data_designer.engine.flags`` so the
-# engine, the public interface, and the readiness module can share one source
-# of truth. Always read ``flags.DATA_DESIGNER_ASYNC_ENGINE`` rather than caching
-# a local copy so monkeypatches in tests are visible.
-
-if flags.DATA_DESIGNER_ASYNC_ENGINE:
-    import asyncio
-
-    from data_designer.engine.dataset_builders.async_scheduler import (
-        AsyncTaskScheduler,
-    )
-    from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
-    from data_designer.engine.dataset_builders.utils.async_concurrency import (
-        AsyncConcurrentExecutor,
-        ensure_async_engine_loop,
-    )
-    from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
 
 _CLIENT_VERSION: str = get_library_version()
@@ -186,17 +156,13 @@ class DatasetBuilder:
         resource_provider: ResourceProvider,
         registry: DataDesignerRegistry | None = None,
     ):
-        self.batch_manager = DatasetBatchManager(resource_provider.artifact_storage)
         self._resource_provider = resource_provider
-        self._records_to_drop: set[int] = set()
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
-        self._use_async: bool = flags.DATA_DESIGNER_ASYNC_ENGINE
         # Structured signal: set by _build_async if the scheduler hit early shutdown.
-        # Stays at defaults for sync-engine and successful async runs. Reset at
-        # the start of each public run path so reused builder instances don't
-        # leak state across runs.
+        # Reset at the start of each public run path so reused builder instances
+        # don't leak state across runs.
         self._early_shutdown: bool = False
         self._partial_row_groups: tuple[int, ...] = ()
         # Number of records actually written by the most recent async run.
@@ -293,12 +259,12 @@ class DatasetBuilder:
             resume: Controls how interrupted runs are handled.
 
                 - ``ResumeMode.NEVER`` (default): always start a fresh generation run.
-                - ``ResumeMode.ALWAYS``: resume from the last completed batch (sync) or row group
-                  (async). ``buffer_size`` must match the original run. ``num_records`` may be
-                  equal to or greater than what was already generated (you can extend the dataset);
-                  ``num_records`` less than actual records so far raises ``DatasetGenerationError``.
-                  If no checkpoint exists yet (interrupted before the first batch finished), silently
-                  restarts from the beginning. Raises if the stored config is incompatible.
+                - ``ResumeMode.ALWAYS``: resume from the last completed row group. ``buffer_size``
+                  must match the original run. ``num_records`` may be equal to or greater than what
+                  was already generated (you can extend the dataset); ``num_records`` less than
+                  actual records so far raises ``DatasetGenerationError``. If no checkpoint exists
+                  yet (interrupted before the first row group finished), silently restarts from the
+                  beginning. Raises if the stored config is incompatible.
                 - ``ResumeMode.IF_POSSIBLE``: like ``ALWAYS`` when the current config fingerprint
                   matches the stored config; otherwise starts a fresh run without raising an error.
 
@@ -309,12 +275,11 @@ class DatasetBuilder:
             Path to the generated dataset directory.
         """
         self._reset_run_state()
-        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE
 
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC if self._use_async else ClientConcurrencyMode.SYNC,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
         )
 
         # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
@@ -367,34 +332,18 @@ class DatasetBuilder:
         buffer_size = self._resource_provider.run_config.buffer_size
 
         if resume == ResumeMode.ALWAYS and not self.artifact_storage.metadata_file_path.exists():
-            # No metadata.json means the previous run was interrupted before any batch (sync) or
-            # row group (async) completed.  Nothing to resume — discard any leftover partial
-            # results and start fresh.
+            # No metadata.json means the previous run was interrupted before any
+            # row group completed. Nothing to resume, so discard leftover
+            # partial results and start fresh.
             logger.info(
-                "▶️ No metadata.json found — the previous run was interrupted before any batch "
+                "▶️ No metadata.json found — the previous run was interrupted before any row group "
                 "completed. Starting generation from the beginning."
             )
             self.artifact_storage.clear_partial_results()
             resume = ResumeMode.NEVER
             self.artifact_storage.resume = ResumeMode.NEVER
 
-        if self._use_async:
-            self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
-        elif resume == ResumeMode.ALWAYS:
-            self._build_with_resume(generators, num_records, buffer_size, on_batch_complete)
-        else:
-            group_id = uuid.uuid4().hex
-            self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
-            for batch_idx in range(self.batch_manager.num_batches):
-                logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
-                self._run_batch(
-                    generators,
-                    batch_mode="batch",
-                    group_id=group_id,
-                    current_batch_number=batch_idx,
-                    on_batch_complete=on_batch_complete,
-                )
-            self.batch_manager.finish()
+        self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
 
         # After-generation processors run unconditionally on the on-disk dataset
         # (not gated on ``generated``). When resume sees every row group already
@@ -504,12 +453,11 @@ class DatasetBuilder:
         ``num_records`` must be >= the number of records already on disk (you may
         extend a dataset, but cannot shrink it below what has been written).
         ``buffer_size`` must match the original run because it determines row-group
-        boundaries. The sync engine additionally requires contiguous batch IDs;
-        the async engine tolerates holes from out-of-order completion.
+        boundaries. Resume tolerates holes from out-of-order row-group completion.
 
         Raises:
             DatasetGenerationError: If metadata is missing or incompatible, or if
-                the filesystem state is inconsistent with the engine in use.
+                the filesystem state is inconsistent.
         """
         try:
             metadata = self.artifact_storage.read_metadata()
@@ -525,7 +473,7 @@ class DatasetBuilder:
             ) from exc
 
         num_completed_batches, actual_num_records, completed_row_groups = self._recover_progress_from_disk(
-            allow_holes=self._use_async,
+            allow_holes=True,
         )
 
         if num_records < actual_num_records:
@@ -581,75 +529,12 @@ class DatasetBuilder:
             completed_row_groups=completed_row_groups,
         )
 
-    def _build_with_resume(
-        self,
-        generators: list[ColumnGenerator],
-        num_records: int,
-        buffer_size: int,
-        on_batch_complete: Callable[[Path], None] | None,
-    ) -> bool:
-        """Resume generation from the last completed batch.
-
-        Returns:
-            False if the dataset was already complete (no new records generated),
-            True after successfully generating the remaining batches.
-        """
-        state = self._load_resume_state(num_records, buffer_size)
-
-        # Compute the correct per-batch sizes. ceil(num_records/bs) is wrong for a
-        # non-aligned extension: original groups are immutable, so any extension always
-        # adds new groups beyond num_original_batches.
-        original_target = state.original_target_num_records
-        num_original_batches = -(-original_target // buffer_size)
-        extension_records = num_records - original_target
-        num_extension_batches = -(-extension_records // buffer_size)
-        original_sizes = [min(buffer_size, original_target - i * buffer_size) for i in range(num_original_batches)]
-        extension_sizes = [min(buffer_size, extension_records - i * buffer_size) for i in range(num_extension_batches)]
-
-        self.batch_manager.start(
-            num_records=num_records,
-            buffer_size=buffer_size,
-            start_batch=state.num_completed_batches,
-            initial_actual_num_records=state.actual_num_records,
-            num_records_list=original_sizes + extension_sizes,
-            original_target_num_records=original_target,
-        )
-
-        if state.num_completed_batches >= self.batch_manager.num_batches:
-            logger.warning(
-                "⚠️ Dataset is already complete — all batches were found in the existing artifact directory. "
-                "Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
-            )
-            return False
-
-        logger.info(
-            f"▶️ Resuming from batch {state.num_completed_batches + 1} of {self.batch_manager.num_batches} "
-            f"({state.actual_num_records} records already generated)."
-        )
-
-        self.artifact_storage.clear_partial_results()
-
-        group_id = uuid.uuid4().hex
-        for batch_idx in range(state.num_completed_batches, self.batch_manager.num_batches):
-            logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
-            self._run_batch(
-                generators,
-                batch_mode="batch",
-                group_id=group_id,
-                current_batch_number=batch_idx,
-                on_batch_complete=on_batch_complete,
-                row_group_start_offset=sum(self.batch_manager.num_records_list[:batch_idx]),
-            )
-        self.batch_manager.finish()
-        return True
-
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._reset_run_state()
-        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC if self._use_async else ClientConcurrencyMode.SYNC,
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
         )
 
         # Set media storage to DATAFRAME mode for preview - base64 stored directly in DataFrame
@@ -659,14 +544,7 @@ class DatasetBuilder:
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
 
-        if self._use_async:
-            dataset = self._build_async_preview(generators, num_records)
-        else:
-            group_id = uuid.uuid4().hex
-            self.batch_manager.start(num_records=num_records, buffer_size=num_records)
-            self._run_batch(generators, batch_mode="preview", save_partial_results=False, group_id=group_id)
-            dataset = self.batch_manager.get_current_batch(as_dataframe=True)
-            self.batch_manager.reset()
+        dataset = self._build_async_preview(generators, num_records)
 
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
@@ -682,7 +560,7 @@ class DatasetBuilder:
 
     def _build_async_preview(self, generators: list[ColumnGenerator], num_records: int) -> pd.DataFrame:
         """Async preview path - single row group, no disk writes, returns in-memory DataFrame."""
-        logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue preview")
+        logger.info("⚡ Using async task-queue preview")
 
         settings = self._resource_provider.run_config
         trace_enabled = _is_async_trace_enabled(settings)
@@ -739,14 +617,9 @@ class DatasetBuilder:
         ``actual_num_records`` because a crash between
         ``move_partial_result_to_final_file_path`` and the metadata write that follows
         can leave parquet files on disk while metadata still reports stale counters.
-        Both engines use the same scan so resume semantics stay consistent.
-
         Args:
-            allow_holes: ``True`` for the async engine, which schedules row groups
-                concurrently and may complete them out of order. ``False`` for the sync
-                engine, which writes batches sequentially — a non-contiguous set of IDs
-                indicates external mutation or a directory written by an incompatible
-                engine and is rejected with ``DatasetGenerationError``.
+            allow_holes: Whether to tolerate non-contiguous row-group IDs. Async
+                scheduling may complete row groups out of order.
 
         Returns:
             ``(num_completed_batches, actual_num_records, completed_row_groups)``.
@@ -870,7 +743,7 @@ class DatasetBuilder:
             False if the dataset was already complete (no new records generated),
             True after successfully running the scheduler.
         """
-        logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
+        logger.info("⚡ Using async task-queue builder")
 
         settings = self._resource_provider.run_config
         trace_enabled = _is_async_trace_enabled(settings)
@@ -1133,330 +1006,6 @@ class DatasetBuilder:
             self.artifact_storage.base_dataset_path / SDG_CONFIG_FILENAME
         )
 
-    def _run_batch(
-        self,
-        generators: list[ColumnGenerator],
-        *,
-        batch_mode: str,
-        save_partial_results: bool = True,
-        group_id: str,
-        current_batch_number: int | None = None,
-        on_batch_complete: Callable[[Path], None] | None = None,
-        row_group_start_offset: int | None = None,
-    ) -> None:
-        """Run one batch of generators in the sync engine.
-
-        Sets two ContextVars for the duration of the batch so order-dependent
-        generators (e.g. seed dataset under ORDERED sampling) and log helpers
-        can observe the row group's place in the run:
-
-        - ``current_row_group`` is set whenever ``current_batch_number`` is known
-          (both fresh and resumed sync runs), so ``format_row_group_tag()``
-          produces a consistent ``(x/X)`` log prefix in either path.
-        - ``current_row_group_start_offset`` is set only when the caller supplies
-          the planned start offset (sync resume passes it; fresh sync and preview
-          do not), so generators can seek into the correct seed slice without
-          replaying already-consumed rows.
-        """
-        row_group_token = None
-        start_offset_token = None
-        if current_batch_number is not None:
-            row_group_token = current_row_group.set((current_batch_number, self.batch_manager.num_batches))
-        if row_group_start_offset is not None:
-            start_offset_token = current_row_group_start_offset.set(row_group_start_offset)
-
-        try:
-            pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
-            ran_pre_batch = False
-            for generator in generators:
-                generator.log_pre_generation()
-                try:
-                    generation_strategy = generator.get_generation_strategy()
-                    if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
-                        self._run_from_scratch_column_generator(generator)
-                        # Run PRE_BATCH after seed generator, before other columns
-                        if not ran_pre_batch:
-                            self._processor_runner.run_pre_batch(self.batch_manager)
-                            ran_pre_batch = True
-                    elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
-                        self._run_cell_by_cell_generator(generator)
-                    elif generation_strategy == GenerationStrategy.FULL_COLUMN:
-                        self._run_full_column_generator(generator)
-                    else:
-                        logger.error(f"❌ Unknown generation strategy: {generation_strategy}")
-                        raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generation_strategy}")
-                    if save_partial_results:
-                        self.batch_manager.write()
-                except Exception as e:
-                    column_error_str = (
-                        f"columns {generator.config.column_names}"
-                        if hasattr(generator.config, "column_names")
-                        else f"column {generator.config.name!r}"
-                    )
-                    raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
-
-            try:
-                usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
-                self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
-            except Exception:
-                pass
-
-            if current_batch_number is not None:
-                df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
-                df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=current_batch_number)
-                self._write_processed_batch(df_batch)
-                self.batch_manager.finish_batch(on_batch_complete)
-        finally:
-            if start_offset_token is not None:
-                current_row_group_start_offset.reset(start_offset_token)
-            if row_group_token is not None:
-                current_row_group.reset(row_group_token)
-
-    def _run_from_scratch_column_generator(self, generator: ColumnGenerator) -> None:
-        df = generator.generate_from_scratch(self.batch_manager.num_records_batch)
-        self.batch_manager.add_records(df.to_dict(orient="records"))
-
-    def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
-        max_workers = self._resource_provider.run_config.non_inference_max_parallel_workers
-        if isinstance(generator, ColumnGeneratorWithModel):
-            max_workers = generator.inference_parameters.max_parallel_requests
-        if self._use_async:
-            logger.info("⚡ Using async engine for concurrent execution")
-            self._fan_out_with_async(generator, max_workers=max_workers)
-        else:
-            self._fan_out_with_threads(generator, max_workers=max_workers)
-
-    def _column_display_name(self, config: ColumnConfigT) -> str:
-        return f"columns {config.column_names}" if hasattr(config, "column_names") else config.name
-
-    def _require_graph(self) -> ExecutionGraph:
-        """Return the initialized execution graph for the current run."""
-        graph = self._graph
-        if graph is None:
-            raise DatasetGenerationError("Execution graph accessed before generator initialization.")
-        return graph
-
-    def _column_can_skip(self, column_name: str) -> bool:
-        """Fast check: can *column_name* ever be skipped (expression gate or propagation)?
-
-        Returns ``True`` when the column has an expression gate or should
-        propagate skip metadata from required columns.
-        """
-        if self._graph is None:
-            return False
-        if self._graph.get_skip_config(column_name) is not None:
-            return True
-        return self._graph.should_propagate_skip(column_name) and bool(self._graph.get_required_columns(column_name))
-
-    def _should_skip_cell(self, column_name: str, record: dict) -> bool:
-        """Decide whether a single cell should be skipped (propagation or expression gate)."""
-        skip_config = self._graph.get_skip_config(column_name)
-        return should_skip_column_for_record(
-            record,
-            propagate_skip=self._graph.should_propagate_skip(column_name),
-            required_columns=self._graph.get_required_columns(column_name),
-            skip_config_when=skip_config.when if skip_config is not None else None,
-        )
-
-    def _write_skip_to_record(self, column_name: str, record: dict) -> None:
-        """Write skip metadata and the skip value into *record* in-place."""
-        skip_config = self._graph.get_skip_config(column_name)
-        skip_value = skip_config.value if skip_config is not None else None
-        apply_skip_to_record(
-            record,
-            column_name=column_name,
-            cell_value=skip_value,
-            side_effect_columns=self._graph.get_side_effect_columns(column_name),
-        )
-
-    def _run_full_column_generator(self, generator: ColumnGenerator) -> None:
-        column_name = generator.config.name if not isinstance(generator.config, MultiColumnConfig) else None
-
-        if column_name is not None and self._column_can_skip(column_name):
-            self._run_full_column_generator_with_skip(generator, column_name)
-        else:
-            self._run_full_column_generator_without_skip(generator)
-
-    def _run_full_column_generator_without_skip(self, generator: ColumnGenerator) -> None:
-        """Run the generator on the full batch, preserving skip metadata across the replace."""
-        old_records = [record for _, record in self.batch_manager.iter_current_batch()]
-        input_records, restore_context = prepare_records_for_skip_metadata_round_trip(old_records)
-
-        df = generator.generate(lazy.pd.DataFrame(input_records))
-        new_records = df.to_dict(orient="records")
-        if restore_context is not None:
-            try:
-                restore_skip_metadata(new_records, context=restore_context)
-            except ValueError as exc:
-                raise DatasetGenerationError(
-                    f"Unable to restore skip provenance after FULL_COLUMN generation for "
-                    f"{self._column_display_name(generator.config)}: {exc}"
-                ) from exc
-        self.batch_manager.replace_buffer(new_records)
-
-    def _run_full_column_generator_with_skip(self, generator: ColumnGenerator, column_name: str) -> None:
-        """Run a FULL_COLUMN generator with per-row skip evaluation and merge-back.
-
-        Only reachable when ``_column_can_skip`` is True.
-        """
-        active_records: list[dict] = []
-        records_with_skip_status: list[tuple[bool, dict]] = []
-        has_skipped = False
-        for _, record in self.batch_manager.iter_current_batch():
-            skipped = self._should_skip_cell(column_name, record)
-            if skipped:
-                has_skipped = True
-                self._write_skip_to_record(column_name, record)
-            else:
-                active_records.append(record)
-            records_with_skip_status.append((skipped, record))
-
-        if not has_skipped:
-            # No rows were actually skipped — use the normal path to avoid the
-            # overhead of stripping metadata, building a separate active DataFrame,
-            # and merging results back.
-            self._run_full_column_generator_without_skip(generator)
-            return
-
-        batch = self._merge_skipped_and_generated(generator, column_name, active_records, records_with_skip_status)
-        self.batch_manager.replace_buffer(batch)
-
-    def _merge_skipped_and_generated(
-        self,
-        generator: ColumnGenerator,
-        column_name: str,
-        active_records: list[dict],
-        records_with_skip_status: list[tuple[bool, dict]],
-    ) -> list[dict]:
-        """Generate only for active (non-skipped) records and merge back with skipped ones."""
-        if not active_records:
-            return [record for _, record in records_with_skip_status]
-
-        active_df = lazy.pd.DataFrame(strip_skip_metadata_from_records(active_records))
-        result_records = generator.generate(active_df).to_dict(orient="records")
-        if len(result_records) != len(active_records):
-            raise DatasetGenerationError(
-                f"Generator for '{column_name}' returned {len(result_records)} rows "
-                f"but {len(active_records)} active (non-skipped) records were expected."
-            )
-
-        result_iter = iter(result_records)
-        batch: list[dict] = []
-        for skipped, record in records_with_skip_status:
-            if skipped:
-                batch.append(record)
-                continue
-            gen_result = next(result_iter)
-            prior_skipped = record.get(SKIPPED_COLUMNS_RECORD_KEY)
-            if prior_skipped is not None:
-                gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
-            batch.append(gen_result)
-        return batch
-
-    def _setup_fan_out(
-        self,
-        generator: ColumnGeneratorWithModelRegistry,
-        max_workers: int,
-        progress_bar: StickyProgressBar | None = None,
-    ) -> tuple[ProgressTracker, dict[str, Any]]:
-        if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
-            raise DatasetGenerationError(
-                f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
-                "generator so concurrent fan-out is not supported."
-            )
-
-        label = f"{generator.config.column_type} column '{generator.config.name}'"
-        progress_tracker = ProgressTracker(
-            total_records=self.batch_manager.num_records_batch,
-            label=label,
-            progress_bar=progress_bar,
-            progress_bar_key=generator.config.name,
-        )
-        progress_tracker.log_start(max_workers)
-
-        settings = self._resource_provider.run_config
-        executor_kwargs: dict = {
-            "column_name": generator.config.name,
-            "result_callback": self._make_result_callback(progress_tracker),
-            "error_callback": self._make_error_callback(progress_tracker),
-            "shutdown_error_rate": settings.shutdown_error_rate,
-            "shutdown_error_window": settings.shutdown_error_window,
-            "disable_early_shutdown": settings.disable_early_shutdown,
-        }
-
-        return progress_tracker, executor_kwargs
-
-    def _finalize_fan_out(self, progress_tracker: ProgressTracker) -> None:
-        progress_tracker.log_final()
-
-        if len(self._records_to_drop) > 0:
-            self._cleanup_dropped_record_images(self._records_to_drop)
-            self.batch_manager.drop_records(self._records_to_drop)
-            self._records_to_drop.clear()
-
-    def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
-        if getattr(generator.config, "tool_alias", None):
-            logger.info("🛠️ Tool calling enabled")
-        bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
-        can_skip = self._column_can_skip(generator.config.name)
-        with bar or contextlib.nullcontext():
-            progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
-            executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
-            work_items: list[tuple[Any, dict[str, Any]]] = []
-            for i, record in self.batch_manager.iter_current_batch():
-                if can_skip and self._should_skip_cell(generator.config.name, record):
-                    self._write_skip_to_record(generator.config.name, record)
-                    self.batch_manager.update_record(i, record)
-                    progress_tracker.record_skipped()
-                    continue
-                work_items.append(
-                    (
-                        generator.agenerate(record),
-                        {"index": i, "column_name": generator.config.name},
-                    )
-                )
-            executor.run(work_items)
-            self._finalize_fan_out(progress_tracker)
-
-    def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
-        if getattr(generator.config, "tool_alias", None):
-            logger.info("🛠️ Tool calling enabled")
-        bar = StickyProgressBar() if self._resource_provider.run_config.progress_bar else None
-        can_skip = self._column_can_skip(generator.config.name)
-        with bar or contextlib.nullcontext():
-            progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers, progress_bar=bar)
-            with ConcurrentThreadExecutor(max_workers=max_workers, **executor_kwargs) as executor:
-                for i, record in self.batch_manager.iter_current_batch():
-                    if can_skip and self._should_skip_cell(generator.config.name, record):
-                        self._write_skip_to_record(generator.config.name, record)
-                        self.batch_manager.update_record(i, record)
-                        progress_tracker.record_skipped()
-                        continue
-                    executor.submit(
-                        lambda record: generator.generate(record),
-                        record,
-                        context={"index": i, "column_name": generator.config.name},
-                    )
-            self._finalize_fan_out(progress_tracker)
-
-    def _make_result_callback(self, progress_tracker: ProgressTracker) -> Callable[[dict], None]:
-        def callback(result: dict, *, context: dict | None = None) -> None:
-            self._worker_result_callback(result, context=context)
-            progress_tracker.record_success()
-
-        return callback
-
-    def _make_error_callback(self, progress_tracker: ProgressTracker) -> Callable[[Exception], None]:
-        def callback(exc: Exception, *, context: dict | None = None) -> None:
-            self._worker_error_callback(exc, context=context)
-            progress_tracker.record_failure()
-
-        return callback
-
-    def _write_processed_batch(self, dataframe: pd.DataFrame) -> None:
-        self.batch_manager.replace_buffer(dataframe.to_dict(orient="records"))
-        self.batch_manager.write()
-
     def _validate_column_configs(self) -> None:
         if len(self._column_configs) == 0:
             raise DatasetGenerationError("🛑 No column configs provided.")
@@ -1498,90 +1047,6 @@ class DatasetBuilder:
             )
 
         return processors
-
-    def _cleanup_dropped_record_images(self, dropped_indices: set[int]) -> None:
-        """Remove saved image files for records that will be dropped.
-
-        When a record fails during generation, any images already saved to disk
-        for that record in previous columns become dangling. This method deletes
-        those files so they don't accumulate.
-        """
-        media_storage = self.artifact_storage.media_storage
-        if not self._has_image_columns() or media_storage is None or media_storage.mode != StorageMode.DISK:
-            return
-
-        image_col_names = [
-            col.name for col in self.single_column_configs if col.column_type == DataDesignerColumnType.IMAGE
-        ]
-
-        buffer = self.batch_manager.get_current_batch(as_dataframe=False)
-        for idx in dropped_indices:
-            if idx < 0 or idx >= len(buffer):
-                continue
-            for col_name in image_col_names:
-                paths = buffer[idx].get(col_name, [])
-                for path in [paths] if isinstance(paths, str) else paths:
-                    media_storage.delete_image(path)
-
-    @staticmethod
-    def _extract_failure_detail(exc: Exception) -> str:
-        detail = getattr(exc, "detail", None)
-        if isinstance(detail, str):
-            normalized_detail = " ".join(detail.split()).strip()
-            if normalized_detail:
-                return normalized_detail
-        exc_str = str(exc).strip()
-        for line in exc_str.splitlines():
-            if "Cause:" in line:
-                return " ".join(line.split("Cause:", maxsplit=1)[1].split()).strip()
-        return " ".join(exc_str.split()).strip() or type(exc).__name__
-
-    @classmethod
-    def _classify_worker_failure(cls, exc: Exception) -> str:
-        failure_kind = getattr(exc, "failure_kind", None)
-        if isinstance(failure_kind, str) and failure_kind.strip():
-            return failure_kind.replace("_", " ")
-
-        detail = cls._extract_failure_detail(exc).lower()
-        exc_name = type(exc).__name__.lower()
-
-        if "timeout" in exc_name or "timed out" in detail:
-            return "timeout"
-        if "rate" in exc_name and "limit" in exc_name:
-            return "rate limit"
-        if "authentication" in exc_name:
-            return "authentication"
-        if "permission" in exc_name:
-            return "permission denied"
-        if "contextwindow" in exc_name or "context width" in detail:
-            return "context window"
-        if "response_schema" in detail or "schema" in detail:
-            return "schema validation"
-        if "validation" in exc_name or "validation" in detail:
-            return "validation"
-        return "generation error"
-
-    @classmethod
-    def _format_worker_failure_warning(cls, exc: Exception, *, context: dict | None = None) -> str:
-        record_index = context["index"] if context is not None and "index" in context else "unknown"
-        column_name = context.get("column_name") if context is not None else None
-        context_label = f" in column {column_name!r}" if column_name else ""
-        failure_kind = cls._classify_worker_failure(exc)
-        failure_detail = cls._extract_failure_detail(exc)
-        return (
-            f"⚠️ Generation for record at index {record_index} failed{context_label} ({failure_kind}). "
-            f"Will omit this record from the dataset. Detail: {failure_detail}"
-        )
-
-    def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
-        """If a worker fails, we can handle the exception here."""
-        logger.warning(self._format_worker_failure_warning(exc, context=context))
-        if context is None or "index" not in context:
-            raise RuntimeError("Worker error callback called without a valid context index.")
-        self._records_to_drop.add(context["index"])
-
-    def _worker_result_callback(self, result: dict, *, context: dict | None = None) -> None:
-        self.batch_manager.update_record(context["index"], result)
 
     def _emit_batch_inference_events(
         self, batch_mode: str, usage_deltas: dict[str, ModelUsageStats], group_id: str

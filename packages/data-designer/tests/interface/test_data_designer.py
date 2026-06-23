@@ -6,7 +6,6 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -36,7 +35,6 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
-from data_designer.engine import flags
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
@@ -390,49 +388,6 @@ def stub_model_providers():
 @pytest.fixture
 def stub_seed_reader():
     return StubHuggingFaceSeedReader()
-
-
-@pytest.mark.parametrize(
-    "env_value,expected,expect_deprecation",
-    [
-        ("1", "async", False),
-        ("0", "sync", True),
-    ],
-    ids=[
-        "async-on-uses-async-clients",
-        "async-off-uses-sync-clients-and-warns",
-    ],
-)
-def test_resolve_client_concurrency_mode_matches_engine_choice(
-    env_value: str,
-    expected: str,
-    expect_deprecation: bool,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Client mode must match the engine the run will actually use.
-
-    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
-    ``DeprecationWarning`` so users on the legacy sync engine see a
-    pre-removal signal in their logs.
-    """
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
-    builder = DataDesignerConfigBuilder()
-    builder.add_column(
-        SamplerColumnConfig(
-            name="seed",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["a"]),
-        )
-    )
-
-    if expect_deprecation:
-        with pytest.warns(DeprecationWarning, match="legacy sync engine"):
-            mode = DataDesigner._resolve_client_concurrency_mode(builder)
-    else:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
-            mode = DataDesigner._resolve_client_concurrency_mode(builder)
-    assert mode.value == expected
 
 
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
