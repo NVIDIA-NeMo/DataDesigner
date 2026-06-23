@@ -129,7 +129,7 @@ results = workflow.run(
 )
 ```
 
-If the reviewed data replaces a stage's selected output in place, use `rerun_from="expanded"` to force that stage and its descendants to rebuild from the current boundary output.
+If the reviewed data replaces a stage's selected output in place, run with `resume=ResumeMode.IF_POSSIBLE` and `rerun_from="expanded"` to rebuild that stage and its descendants from the current boundary output.
 
 ## Current limits
 

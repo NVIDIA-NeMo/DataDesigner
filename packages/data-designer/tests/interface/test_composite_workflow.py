@@ -493,6 +493,24 @@ def test_composite_workflow_rerun_from_forces_stage_and_descendants(
     assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.NEVER, ResumeMode.NEVER]
 
 
+def test_composite_workflow_rerun_from_requires_resume(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="rerun-from-no-resume")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+
+    with pytest.raises(DataDesignerWorkflowError, match="rerun_from requires resume"):
+        workflow.run(rerun_from="copy")
+
+    assert create_mock.call_count == 0
+
+
 def test_composite_workflow_stage_output_override_seeds_descendants(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -530,6 +548,24 @@ def test_composite_workflow_stage_output_override_seeds_descendants(
     metadata = _load_workflow_metadata(tmp_path / "artifacts", "hitl-override")
     assert metadata["stages"][0]["stage_output_override_path"] == str(approved_path.resolve())
     assert metadata["stages"][1]["seed_path"] == str(approved_path.resolve())
+
+
+def test_composite_workflow_stage_output_override_path_must_exist(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="missing-override")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+
+    with pytest.raises(DataDesignerWorkflowError, match="Invalid stage output override"):
+        workflow.run(targets="copy", stage_output_overrides={"base": stub_artifact_path / "missing.parquet"})
+
+    assert create_mock.call_count == 0
 
 
 def test_composite_workflow_resume_if_possible_skips_completed_stages(

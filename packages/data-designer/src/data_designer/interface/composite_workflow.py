@@ -258,6 +258,10 @@ class CompositeWorkflow:
         """
         if not self._stages:
             raise DataDesignerWorkflowError(f"Workflow {self.name!r} has no stages.")
+        if rerun_from is not None and resume == ResumeMode.NEVER:
+            raise DataDesignerWorkflowError(
+                "rerun_from requires resume to be ResumeMode.IF_POSSIBLE or ResumeMode.ALWAYS."
+            )
 
         stage_indices = _stage_indices_by_name(self._stages)
         target_stage_names = _normalize_stage_names(targets, stage_indices, "target")
@@ -537,6 +541,13 @@ def _validate_stage_output_overrides(
         raise DataDesignerWorkflowError(
             f"Stage output override(s) must be ancestors of a target stage: {', '.join(non_ancestors)}."
         )
+    for name in sorted(stage_output_overrides):
+        override_path = _stage_output_override(name, stage_output_overrides)
+        if override_path is not None:
+            try:
+                _count_parquet_records(override_path)
+            except DataDesignerWorkflowError as exc:
+                raise DataDesignerWorkflowError(f"Invalid stage output override for stage {name!r}: {exc}") from exc
 
 
 def _stage_output_override(
