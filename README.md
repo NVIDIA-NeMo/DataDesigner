@@ -22,11 +22,11 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 
 ---
 
-### 📣 Heads-up: async engine is now the default
+### 📣 Heads-up: async engine
 
 Data Designer now runs pipelines on a cell-level async engine that overlaps independent columns and adapts concurrency per (provider, model). On most pipelines this is faster with no config changes; on slow self-hosted endpoints, set `inference_parameters.timeout` to your real per-request latency. See [Architecture & Performance → Async Engine](https://docs.nvidia.com/nemo/datadesigner/concepts/architecture-performance#async-engine) for the behaviors worth knowing about.
 
-If you hit anything unexpected, fall back to the legacy sync engine for one transitional release with `DATA_DESIGNER_ASYNC_ENGINE=0`, and please [open an issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new) so we can fix the async path.
+If you hit anything unexpected, please [open an issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new).
 
 ---
 

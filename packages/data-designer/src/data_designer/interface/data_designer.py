@@ -615,7 +615,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             Dict mapping alias to ModelFacade instance.
         """
         config_builder = DataDesignerConfigBuilder()
-        resource_provider = self._create_resource_provider("dev", config_builder)
+        resource_provider = self._create_resource_provider(
+            "dev",
+            config_builder,
+            client_concurrency_mode=ClientConcurrencyMode.SYNC,
+        )
         return {alias: resource_provider.model_registry.get_model(model_alias=alias) for alias in model_aliases}
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
@@ -668,6 +672,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         resume: ResumeMode = ResumeMode.NEVER,
         artifact_path: Path | None = None,
+        client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.ASYNC,
     ) -> ResourceProvider:
         artifact_path = artifact_path or self._artifact_path
         ArtifactStorage.mkdir_if_needed(artifact_path)
@@ -687,7 +692,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             run_config=self._run_config,
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
+            client_concurrency_mode=client_concurrency_mode,
             request_admission=self._request_admission,
         )
 

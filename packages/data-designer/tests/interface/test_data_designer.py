@@ -538,6 +538,20 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
     assert data_designer.run_config.shutdown_error_rate == 1.0
 
 
+def test_get_models_uses_sync_clients(stub_artifact_path, stub_model_providers):
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    with patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method:
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.model_registry.get_model.return_value = MagicMock()
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        data_designer.get_models(["stub-model"])
+
+    _, kwargs = mock_resource_provider_method.call_args
+    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.SYNC
+
+
 def test_create_forwards_on_batch_complete_callback(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
