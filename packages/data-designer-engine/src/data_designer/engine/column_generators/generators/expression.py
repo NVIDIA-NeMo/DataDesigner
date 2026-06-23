@@ -47,7 +47,18 @@ class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator
         retained_indexes: list[object] = []
         drop_counts: Counter[str] = Counter()
 
-        for row_index, record in zip(data.index.to_list(), data.to_dict(orient="records"), strict=True):
+        # ``DataFrame.to_dict(orient="records")`` returns ``[]`` for a 0-column
+        # DataFrame regardless of its row count, so a root expression dispatched
+        # against a fresh row group buffer (no upstream columns) would otherwise
+        # skip rendering entirely. Synthesize empty per-row dicts in that case so
+        # the loop still fires once per row and the template can render its
+        # constant value (or drop the row uniformly).
+        row_indexes = data.index.to_list()
+        row_records = data.to_dict(orient="records")
+        if not row_records and row_indexes:
+            row_records = [{} for _ in row_indexes]
+
+        for row_index, record in zip(row_indexes, row_records, strict=True):
             prepared_record = deserialize_json_values(record)
             try:
                 rendered_value = self.render_template(prepared_record)
