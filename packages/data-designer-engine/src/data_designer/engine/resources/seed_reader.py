@@ -697,8 +697,17 @@ class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
         if self._parse_context is not self._PARSE_CONTEXT_UNSET:
             return self._parse_context
 
+        # Agent rollout handlers operate on the local filesystem directly (root_path.glob,
+        # root_path / relative_path), so they require a concrete Path rather than the
+        # PurePath the context type permits for remote providers.
+        root_path = context.root_path
+        if not isinstance(root_path, Path):
+            raise SeedReaderConfigError(
+                f"🛑 Agent rollout seed readers require a local filesystem, but got non-local root path "
+                f"{root_path!r} ({type(root_path).__name__})."
+            )
         handler = self.get_format_handler()
-        self._parse_context = handler.build_parse_context(root_path=context.root_path, recursive=self.source.recursive)
+        self._parse_context = handler.build_parse_context(root_path=root_path, recursive=self.source.recursive)
         return self._parse_context
 
 
