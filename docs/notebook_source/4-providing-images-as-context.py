@@ -40,6 +40,7 @@
 # Standard library imports
 import base64
 import io
+import os
 import uuid
 
 # Third-party imports
@@ -76,6 +77,11 @@ data_designer = DataDesigner()
 
 # %%
 config_builder = dd.DataDesignerConfigBuilder()
+if os.environ.get("DATA_DESIGNER_SKIP_NVIDIA_VISION_HEALTH_CHECK"):
+    for model_config in config_builder.model_configs:
+        if model_config.alias == "nvidia-vision":
+            model_config.skip_health_check = True
+            break
 
 # %% [markdown]
 # ### 🌱 Seed Dataset Creation
