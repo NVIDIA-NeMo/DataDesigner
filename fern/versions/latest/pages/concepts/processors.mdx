@@ -31,7 +31,7 @@ Processors can run at three stages, determined by which callback methods they im
 </Note>
 
 <Warning title="Row-count changes">
-  Data Designer enforces row-count invariance in `process_before_batch()` and `process_after_batch()`. Run row-filtering or expansion logic in `process_after_generation()`, which operates on the final dataset and supports row-count changes, or put the transform at a workflow boundary.
+  Data Designer enforces row-count invariance in generation-time processors: `process_before_batch()` and `process_after_batch()`. Run row-filtering or expansion logic in `process_after_generation()`, which operates on the final dataset and supports row-count changes, or put the transform at a workflow boundary.
 </Warning>
 
 <Warning title="Resume after process_after_generation">

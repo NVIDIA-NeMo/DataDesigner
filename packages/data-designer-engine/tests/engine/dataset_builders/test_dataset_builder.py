@@ -524,13 +524,16 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
     assert call_order == ["a", "b", "c"]
 
 
-def test_pre_batch_processor_row_count_change_rejected(builder_with_seed):
+def test_pre_batch_processor_row_count_change_rejected(builder_with_seed, caplog):
     mock_processor = create_mock_processor("filtering_processor", ["process_before_batch"])
     mock_processor.process_before_batch.side_effect = lambda df: df.iloc[:2].reset_index(drop=True)
     builder_with_seed.set_processor_runner([mock_processor])
 
-    with pytest.raises(DatasetGenerationError, match="Pre-batch processor changed row count"):
-        builder_with_seed.build(num_records=3)
+    with caplog.at_level(logging.INFO):
+        with pytest.raises(DatasetGenerationError, match="Pre-batch processor changed row count"):
+            builder_with_seed.build(num_records=3)
+
+    assert not any("PRE_BATCH processors changed the record count" in record.message for record in caplog.records)
 
 
 def test_process_preview_with_empty_dataframe(simple_builder):
@@ -1350,6 +1353,25 @@ def test_build_resume_always_raises_on_config_mismatch(stub_resource_provider, s
         num_completed_batches=1,
         actual_num_records=2,
     )
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+    with pytest.raises(DatasetGenerationError, match="does not match the config used"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_always_raises_on_unreadable_stored_config(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """resume=ALWAYS rejects legacy stored configs that fail schema validation."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+    )
+    (dataset_dir / "builder_config.json").write_text('{"data_designer": {"columns": [{"allow_resize": true}]}}')
+
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
     with pytest.raises(DatasetGenerationError, match="does not match the config used"):
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)

@@ -58,6 +58,8 @@ class ProcessorRunner:
             except Exception as e:
                 raise DatasetProcessingError(f"🛑 Failed in {stage.value} for {processor.name}: {e}") from e
         if len(df) != original_len:
+            if stage == ProcessorStage.PRE_BATCH:
+                self._raise_if_pre_batch_resized(original_len, len(df))
             delta = len(df) - original_len
             logger.info(f"ℹ️ {stage.name} processors changed the record count by {delta:+d} records.")
         return df
@@ -76,10 +78,7 @@ class ProcessorRunner:
         Args:
             df: Input DataFrame.
         """
-        original_len = len(df)
-        df = self._run_stage(df, ProcessorStage.PRE_BATCH)
-        self._raise_if_pre_batch_resized(original_len, len(df))
-        return df
+        return self._run_stage(df, ProcessorStage.PRE_BATCH)
 
     def run_post_batch(
         self, df: pd.DataFrame, current_batch_number: int | None, *, strict_row_count: bool = False

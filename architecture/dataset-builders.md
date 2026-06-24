@@ -15,7 +15,7 @@ The scheduler produces row-group parquet files managed by `RowGroupBufferManager
 ### DatasetBuilder
 
 Entry point for generation. `build()` runs:
-- `_prepare_async_run` → `AsyncTaskScheduler.run()` → telemetry and metadata
+- `_prepare_async_run` -> `AsyncTaskScheduler.run()` -> telemetry and metadata
 
 ### Async Execution (`_build_async`)
 
