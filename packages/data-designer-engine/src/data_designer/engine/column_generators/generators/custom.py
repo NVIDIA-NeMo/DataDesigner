@@ -174,7 +174,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         return self._generate(data, is_dataframe)
 
-    async def agenerate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame | list[dict]:
+    async def agenerate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
         """Async generate — branches on strategy and detects coroutine functions."""
         is_full_column = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
         if is_full_column:
@@ -226,7 +226,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             models = self._build_models_dict()
             return await fn(data, self.config.generator_params, models)
 
-    def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame | list[dict]:
+    def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame:
         """Unified generation logic for both strategies."""
         get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
 

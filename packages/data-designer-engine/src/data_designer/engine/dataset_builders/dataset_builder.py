@@ -814,6 +814,9 @@ class DatasetBuilder:
                     else _ConfigCompatibility.INCOMPATIBLE
                 )
 
+        if not metadata_path.exists():
+            return _ConfigCompatibility.COMPATIBLE
+
         config_path = dataset_dir / SDG_CONFIG_FILENAME
         if not config_path.exists():
             logger.warning(
@@ -832,10 +835,10 @@ class DatasetBuilder:
             )
         except (OSError, json.JSONDecodeError, ValidationError):
             logger.warning(
-                "⚠️ Could not read stored config at %s for compatibility check — assuming compatible.",
+                "⚠️ Could not read stored config at %s for compatibility check — treating as incompatible.",
                 config_path,
             )
-            return _ConfigCompatibility.COMPATIBLE
+            return _ConfigCompatibility.INCOMPATIBLE
 
     def _dropped_column_artifact_policy_matches(self, metadata: dict[str, Any]) -> bool:
         """Return whether stored dropped-column artifact behavior matches this run.
