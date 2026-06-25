@@ -22,7 +22,7 @@ from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage, ResumeMode
-from data_designer.interface.composite_workflow import SkippedStageResult, SkippedStageStatus
+from data_designer.interface.composite_workflow import RepeatUntil, SkippedStageResult, SkippedStageStatus
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerWorkflowError
 from data_designer.interface.results import DatasetCreationResults
@@ -1028,6 +1028,177 @@ def test_composite_workflow_callback_can_expand_rows_between_real_async_stages(
     assert stage_output["turn"].tolist() == [1, 2, 1, 2]
     assert results["personas"].count_records() == 2
     assert results.count_stage_output_records("personas") == 4
+
+
+def test_composite_workflow_repeat_until_append_accumulates_and_trims(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(
+        stub_model_configs,
+        [
+            {"name": "Ada", "keep": False},
+            {"name": "Grace", "keep": True},
+            {"name": "Linus", "keep": True},
+            {"name": "Margaret", "keep": True},
+        ],
+    )
+    stage_1.add_column(ExpressionColumnConfig(name="candidate", expr="{{ name }} candidate"))
+
+    def keep_rows(stage_path: Path) -> Path:
+        df = lazy.pd.read_parquet(stage_path / "parquet-files")
+        output_path = stage_path / "callback-outputs" / "kept"
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        output_path.mkdir(parents=True)
+        df[df["keep"]].to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    stage_2 = _expression_builder(stub_model_configs, "final", "{{ candidate }} final")
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="repeat-append")
+    workflow.add_stage(
+        "candidates",
+        stage_1,
+        num_records=2,
+        on_success=keep_rows,
+        on_success_version="kept-v1",
+        repeat_until=RepeatUntil(output_records=2, max_iterations=3),
+    )
+    workflow.add_stage("final", stage_2)
+
+    results = workflow.run()
+    final = results.load_dataset().sort_values("name").reset_index(drop=True)
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "repeat-append")
+
+    assert final[["name", "candidate", "final"]].to_dict(orient="records") == [
+        {"name": "Grace", "candidate": "Grace candidate", "final": "Grace candidate final"},
+        {"name": "Linus", "candidate": "Linus candidate", "final": "Linus candidate final"},
+    ]
+    assert results["candidates"].count_records() == 4
+    assert results.count_stage_output_records("candidates") == 2
+    assert metadata["stages"][0]["num_records_requested"] == 4
+    assert metadata["stages"][0]["repeat_iterations"] == 2
+    assert metadata["stages"][0]["repeat_generated_records"] == 4
+    assert metadata["stages"][0]["repeat_satisfied"] is True
+    assert metadata["stages"][0]["repeat_until_output_path"].endswith("stage-0-candidates/repeat-until/selected-output")
+
+
+def test_composite_workflow_repeat_until_returns_partial_when_exhausted(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(
+        stub_model_configs,
+        [
+            {"name": "Ada", "keep": False},
+            {"name": "Grace", "keep": True},
+            {"name": "Linus", "keep": False},
+            {"name": "Margaret", "keep": False},
+        ],
+    )
+    stage_1.add_column(ExpressionColumnConfig(name="candidate", expr="{{ name }} candidate"))
+
+    def keep_rows(stage_path: Path) -> Path:
+        df = lazy.pd.read_parquet(stage_path / "parquet-files")
+        output_path = stage_path / "callback-outputs" / "kept"
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        output_path.mkdir(parents=True)
+        df[df["keep"]].to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="repeat-partial")
+    workflow.add_stage(
+        "candidates",
+        stage_1,
+        num_records=2,
+        on_success=keep_rows,
+        on_success_version="kept-v1",
+        repeat_until=RepeatUntil(output_records=3, max_iterations=2, on_exhausted="return_partial"),
+    )
+
+    results = workflow.run()
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "repeat-partial")
+
+    assert results.load_dataset()["name"].tolist() == ["Grace"]
+    assert results.count_records() == 1
+    assert metadata["stages"][0]["repeat_iterations"] == 2
+    assert metadata["stages"][0]["repeat_generated_records"] == 4
+    assert metadata["stages"][0]["repeat_satisfied"] is False
+
+
+def test_composite_workflow_repeat_until_raises_when_exhausted(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada", "keep": False}])
+    stage.add_column(ExpressionColumnConfig(name="candidate", expr="{{ name }} candidate"))
+
+    def keep_rows(stage_path: Path) -> Path:
+        df = lazy.pd.read_parquet(stage_path / "parquet-files")
+        output_path = stage_path / "callback-outputs" / "kept"
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        output_path.mkdir(parents=True)
+        df[df["keep"]].to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="repeat-raises")
+    workflow.add_stage(
+        "candidates",
+        stage,
+        num_records=1,
+        on_success=keep_rows,
+        repeat_until=RepeatUntil(output_records=1, max_iterations=2),
+    )
+
+    with pytest.raises(DataDesignerWorkflowError, match="repeat_until exhausted"):
+        workflow.run()
+
+
+def test_composite_workflow_repeat_until_discard_keeps_latest_attempt(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(
+        stub_model_configs,
+        [{"name": "Ada"}, {"name": "Grace"}, {"name": "Linus"}],
+    )
+    stage.add_column(ExpressionColumnConfig(name="candidate", expr="{{ name }} candidate"))
+    callback_calls = 0
+
+    def keep_more_each_time(stage_path: Path) -> Path:
+        nonlocal callback_calls
+        callback_calls += 1
+        df = lazy.pd.read_parquet(stage_path / "parquet-files").head(callback_calls)
+        output_path = stage_path / "callback-outputs" / "latest"
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        output_path.mkdir(parents=True)
+        df.to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(name="repeat-discard")
+    workflow.add_stage(
+        "candidates",
+        stage,
+        num_records=3,
+        on_success=keep_more_each_time,
+        repeat_until=RepeatUntil(output_records=2, max_iterations=3, mode="discard"),
+    )
+
+    results = workflow.run()
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "repeat-discard")
+
+    assert callback_calls == 2
+    assert results.load_dataset()["name"].tolist() == ["Ada", "Grace"]
+    assert results["candidates"].count_records() == 3
+    assert metadata["stages"][0]["repeat_iterations"] == 2
+    assert metadata["stages"][0]["repeat_generated_records"] == 6
 
 
 def test_composite_workflow_does_not_forward_dropped_processor_columns(

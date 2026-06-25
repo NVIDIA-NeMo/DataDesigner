@@ -11,6 +11,9 @@ if TYPE_CHECKING:
     from data_designer.interface.composite_workflow import (  # noqa: F401
         CompositeWorkflow,
         CompositeWorkflowResults,
+        RepeatUntil,
+        RepeatUntilExhaustion,
+        RepeatUntilMode,
         SkippedStageResult,
         SkippedStageStatus,
     )
@@ -33,6 +36,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataDesignerWorkflowError": ("data_designer.interface.errors", "DataDesignerWorkflowError"),
     "DatasetCreationResults": ("data_designer.interface.results", "DatasetCreationResults"),
     "ResumeMode": ("data_designer.engine.storage.artifact_storage", "ResumeMode"),
+    "RepeatUntil": ("data_designer.interface.composite_workflow", "RepeatUntil"),
+    "RepeatUntilExhaustion": ("data_designer.interface.composite_workflow", "RepeatUntilExhaustion"),
+    "RepeatUntilMode": ("data_designer.interface.composite_workflow", "RepeatUntilMode"),
     "SkippedStageResult": ("data_designer.interface.composite_workflow", "SkippedStageResult"),
     "SkippedStageStatus": ("data_designer.interface.composite_workflow", "SkippedStageStatus"),
 }

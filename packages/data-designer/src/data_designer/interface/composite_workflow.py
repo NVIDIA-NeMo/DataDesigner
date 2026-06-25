@@ -60,7 +60,67 @@ WORKFLOW_PATH_METADATA_KEYS = (
     "callback_output_path",
     "output_processor_output_path",
     "stage_output_override_path",
+    "repeat_until_output_path",
 )
+
+
+class RepeatUntilMode(StrEnum):
+    APPEND = "append"
+    DISCARD = "discard"
+
+
+class RepeatUntilExhaustion(StrEnum):
+    RAISE = "raise"
+    RETURN_PARTIAL = "return_partial"
+
+
+@dataclass(frozen=True)
+class RepeatUntil:
+    """Bounded stage-level retry policy for exact selected-output counts."""
+
+    output_records: int
+    max_iterations: int
+    mode: RepeatUntilMode | str = RepeatUntilMode.APPEND
+    max_generated_records: int | None = None
+    on_exhausted: RepeatUntilExhaustion | str = RepeatUntilExhaustion.RAISE
+    trim: bool = True
+
+    def __post_init__(self) -> None:
+        if self.output_records < 1:
+            raise DataDesignerWorkflowError("repeat_until.output_records must be at least 1.")
+        if self.max_iterations < 1:
+            raise DataDesignerWorkflowError("repeat_until.max_iterations must be at least 1.")
+        if self.max_generated_records is not None and self.max_generated_records < 1:
+            raise DataDesignerWorkflowError("repeat_until.max_generated_records must be at least 1.")
+        try:
+            mode = RepeatUntilMode(self.mode)
+        except ValueError as exc:
+            raise DataDesignerWorkflowError(
+                f"repeat_until.mode must be one of: {_enum_values(RepeatUntilMode)}."
+            ) from exc
+        try:
+            on_exhausted = RepeatUntilExhaustion(self.on_exhausted)
+        except ValueError as exc:
+            raise DataDesignerWorkflowError(
+                f"repeat_until.on_exhausted must be one of: {_enum_values(RepeatUntilExhaustion)}."
+            ) from exc
+        object.__setattr__(self, "mode", mode)
+        object.__setattr__(self, "on_exhausted", on_exhausted)
+
+
+@dataclass(frozen=True)
+class _StageRunResult:
+    output_result: DatasetCreationResults
+    actual_records: int
+    output_seed_path: Path
+    output_records: int
+    callback_output_path: Path | None
+    output_processor_output_path: Path | None
+    num_records_requested: int
+    repeat_iterations: int | None = None
+    repeat_generated_records: int | None = None
+    repeat_satisfied: bool | None = None
+    repeat_until_output_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +136,7 @@ class _WorkflowStage:
     allow_empty: bool
     sampling_strategy: SamplingStrategy
     selection_strategy: IndexRange | PartitionBlock | None
+    repeat_until: RepeatUntil | None
 
 
 class SkippedStageStatus(StrEnum):
@@ -207,6 +268,7 @@ class CompositeWorkflow:
         allow_empty: bool = False,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
         selection_strategy: IndexRange | PartitionBlock | None = None,
+        repeat_until: RepeatUntil | None = None,
     ) -> CompositeWorkflow:
         """Add a stage to the workflow.
 
@@ -214,7 +276,8 @@ class CompositeWorkflow:
         ``output_processors`` for stage-boundary transforms whose output should
         feed downstream stages by default. ``output="processor:<name>"`` selects
         a named processor artifact, and ``on_success`` can override the selected
-        output by returning a parquet file or directory.
+        output by returning a parquet file or directory. Use ``repeat_until`` to
+        rerun the stage until the selected output reaches an exact row count.
         """
         _validate_dir_name(name, "stage name")
         if any(stage.name == name for stage in self._stages):
@@ -238,6 +301,7 @@ class CompositeWorkflow:
                 allow_empty=allow_empty,
                 sampling_strategy=sampling_strategy,
                 selection_strategy=selection_strategy,
+                repeat_until=repeat_until,
             )
         )
         return self
@@ -409,39 +473,17 @@ class CompositeWorkflow:
 
             start_time = time.monotonic()
             try:
-                result = self._data_designer.create(
-                    stage_builder,
+                run_result = self._run_stage(
+                    stage=stage,
+                    stage_builder=stage_builder,
+                    workflow_path=workflow_path,
+                    stage_dir_name=stage_dir_name,
+                    stage_path=stage_path,
                     num_records=num_records,
-                    dataset_name=stage_dir_name,
-                    artifact_path=workflow_path,
                     resume=stage_resume,
+                    prior_stage_metadata=prior_stage_metadata,
                 )
-                actual_records = result.count_records()
-                output_result = result
-                output_source_result = result
-                if stage.output_processors:
-                    output_processor_path = stage_path / "output-processors"
-                    if output_processor_path.exists():
-                        shutil.rmtree(output_processor_path)
-                    output_processor_builder = _output_processor_config_builder(
-                        stage_builder=stage_builder,
-                        seed_path=result.artifact_storage.final_dataset_path,
-                        output_processors=stage.output_processors,
-                    )
-                    output_result = self._data_designer.create(
-                        output_processor_builder,
-                        num_records=actual_records,
-                        dataset_name="output-processors",
-                        artifact_path=workflow_path / stage_dir_name,
-                    )
-                    output_source_result = _select_output_result(stage, result, output_result)
-
-                callback_output_path = None
-                if stage.on_success is not None:
-                    callback_output_path = Path(stage.on_success(result.artifact_storage.base_dataset_path))
-                    output_seed_path = callback_output_path
-                else:
-                    output_seed_path = _resolve_stage_output_path(output_source_result, stage.output)
+                output_seed_path = run_result.output_seed_path
                 override_path = _stage_output_override(stage.name, stage_output_overrides)
                 if override_path is not None:
                     output_seed_path = override_path
@@ -458,29 +500,45 @@ class CompositeWorkflow:
                 stage_metadata.update(
                     {
                         "status": status,
-                        "num_records_actual": actual_records,
+                        "num_records_requested": run_result.num_records_requested,
+                        "num_records_actual": run_result.actual_records,
                         "output_records": output_records,
                         "output_seed_path": _metadata_path_value(workflow_path, output_seed_path),
                         "callback_output_path": (
-                            _metadata_path_value(workflow_path, callback_output_path) if callback_output_path else None
+                            _metadata_path_value(workflow_path, run_result.callback_output_path)
+                            if run_result.callback_output_path
+                            else None
                         ),
                         "stage_output_override_path": (
                             _metadata_path_value(workflow_path, override_path) if override_path else None
                         ),
                         "output_processor_output_path": (
-                            _metadata_path_value(workflow_path, output_result.artifact_storage.base_dataset_path)
-                            if stage.output_processors
+                            _metadata_path_value(workflow_path, run_result.output_processor_output_path)
+                            if run_result.output_processor_output_path
                             else None
                         ),
                         "duration_sec": time.monotonic() - start_time,
                     }
                 )
+                if run_result.repeat_iterations is not None:
+                    stage_metadata.update(
+                        {
+                            "repeat_iterations": run_result.repeat_iterations,
+                            "repeat_generated_records": run_result.repeat_generated_records,
+                            "repeat_satisfied": run_result.repeat_satisfied,
+                            "repeat_until_output_path": (
+                                _metadata_path_value(workflow_path, run_result.repeat_until_output_path)
+                                if run_result.repeat_until_output_path
+                                else None
+                            ),
+                        }
+                    )
             except Exception:
                 stage_metadata.update({"status": "failed", "duration_sec": time.monotonic() - start_time})
                 _write_workflow_metadata(workflow_path, metadata)
                 raise
 
-            stage_results[stage.name] = output_result
+            stage_results[stage.name] = run_result.output_result
             stage_output_paths[stage.name] = output_seed_path
             previous_seed_path = output_seed_path
             previous_output_records = None if status == "completed_empty" else output_records
@@ -496,9 +554,303 @@ class CompositeWorkflow:
             stage_output_paths=stage_output_paths,
         )
 
+    def _run_stage(
+        self,
+        *,
+        stage: _WorkflowStage,
+        stage_builder: DataDesignerConfigBuilder,
+        workflow_path: Path,
+        stage_dir_name: str,
+        stage_path: Path,
+        num_records: int,
+        resume: ResumeMode,
+        prior_stage_metadata: dict[str, Any] | None,
+    ) -> _StageRunResult:
+        if stage.repeat_until is None:
+            return self._run_stage_attempt(
+                stage=stage,
+                stage_builder=stage_builder,
+                artifact_path=workflow_path,
+                dataset_name=stage_dir_name,
+                num_records=num_records,
+                resume=resume,
+            )
+        if stage.repeat_until.mode == RepeatUntilMode.DISCARD:
+            return self._run_stage_until_discard(
+                stage=stage,
+                stage_builder=stage_builder,
+                workflow_path=workflow_path,
+                stage_dir_name=stage_dir_name,
+                stage_path=stage_path,
+                num_records=num_records,
+            )
+        return self._run_stage_until_append(
+            stage=stage,
+            stage_builder=stage_builder,
+            workflow_path=workflow_path,
+            stage_dir_name=stage_dir_name,
+            stage_path=stage_path,
+            num_records=num_records,
+            resume=resume,
+            prior_stage_metadata=prior_stage_metadata,
+        )
+
+    def _run_stage_attempt(
+        self,
+        *,
+        stage: _WorkflowStage,
+        stage_builder: DataDesignerConfigBuilder,
+        artifact_path: Path,
+        dataset_name: str,
+        num_records: int,
+        resume: ResumeMode,
+    ) -> _StageRunResult:
+        result = self._data_designer.create(
+            stage_builder,
+            num_records=num_records,
+            dataset_name=dataset_name,
+            artifact_path=artifact_path,
+            resume=resume,
+        )
+        actual_records = result.count_records()
+        output_result = result
+        output_source_result = result
+        stage_path = artifact_path / dataset_name
+        output_processor_output_path = None
+        if stage.output_processors:
+            output_processor_path = stage_path / "output-processors"
+            if output_processor_path.exists():
+                shutil.rmtree(output_processor_path)
+            output_processor_builder = _output_processor_config_builder(
+                stage_builder=stage_builder,
+                seed_path=result.artifact_storage.final_dataset_path,
+                output_processors=stage.output_processors,
+            )
+            output_result = self._data_designer.create(
+                output_processor_builder,
+                num_records=actual_records,
+                dataset_name="output-processors",
+                artifact_path=stage_path,
+            )
+            output_source_result = _select_output_result(stage, result, output_result)
+            output_processor_output_path = output_result.artifact_storage.base_dataset_path
+
+        callback_output_path = None
+        if stage.on_success is not None:
+            callback_output_path = Path(stage.on_success(result.artifact_storage.base_dataset_path))
+            output_seed_path = callback_output_path
+        else:
+            output_seed_path = _resolve_stage_output_path(output_source_result, stage.output)
+        output_records = _count_parquet_records(output_seed_path)
+        return _StageRunResult(
+            output_result=output_result,
+            actual_records=actual_records,
+            output_seed_path=output_seed_path,
+            output_records=output_records,
+            callback_output_path=callback_output_path,
+            output_processor_output_path=output_processor_output_path,
+            num_records_requested=num_records,
+        )
+
+    def _run_stage_until_append(
+        self,
+        *,
+        stage: _WorkflowStage,
+        stage_builder: DataDesignerConfigBuilder,
+        workflow_path: Path,
+        stage_dir_name: str,
+        stage_path: Path,
+        num_records: int,
+        resume: ResumeMode,
+        prior_stage_metadata: dict[str, Any] | None,
+    ) -> _StageRunResult:
+        repeat_until = _require_repeat_until(stage)
+        start_iteration = _append_start_iteration(num_records, resume, prior_stage_metadata)
+        last_result = None
+        for iteration in range(start_iteration, repeat_until.max_iterations + 1):
+            requested_records = num_records * iteration
+            if _exceeds_max_generated_records(repeat_until, requested_records):
+                break
+            attempt_resume = resume if iteration == start_iteration else ResumeMode.ALWAYS
+            last_result = self._run_stage_attempt(
+                stage=stage,
+                stage_builder=stage_builder,
+                artifact_path=workflow_path,
+                dataset_name=stage_dir_name,
+                num_records=requested_records,
+                resume=attempt_resume,
+            )
+            if last_result.output_records >= repeat_until.output_records:
+                return _with_repeat_result(
+                    last_result,
+                    stage_path=stage_path,
+                    repeat_until=repeat_until,
+                    iterations=iteration,
+                    generated_records=last_result.actual_records,
+                    satisfied=True,
+                )
+
+        return _handle_repeat_until_exhausted(
+            stage=stage,
+            repeat_until=repeat_until,
+            last_result=last_result,
+            stage_path=stage_path,
+            iterations=(last_result.num_records_requested // num_records if last_result else 0),
+            generated_records=(last_result.actual_records if last_result else 0),
+        )
+
+    def _run_stage_until_discard(
+        self,
+        *,
+        stage: _WorkflowStage,
+        stage_builder: DataDesignerConfigBuilder,
+        workflow_path: Path,
+        stage_dir_name: str,
+        stage_path: Path,
+        num_records: int,
+    ) -> _StageRunResult:
+        repeat_until = _require_repeat_until(stage)
+        last_result = None
+        generated_records = 0
+        iterations_run = 0
+        for iteration in range(1, repeat_until.max_iterations + 1):
+            if _exceeds_max_generated_records(repeat_until, generated_records + num_records):
+                break
+            if stage_path.exists():
+                shutil.rmtree(stage_path)
+            last_result = self._run_stage_attempt(
+                stage=stage,
+                stage_builder=stage_builder,
+                artifact_path=workflow_path,
+                dataset_name=stage_dir_name,
+                num_records=num_records,
+                resume=ResumeMode.NEVER,
+            )
+            iterations_run = iteration
+            generated_records += last_result.actual_records
+            if last_result.output_records >= repeat_until.output_records:
+                return _with_repeat_result(
+                    last_result,
+                    stage_path=stage_path,
+                    repeat_until=repeat_until,
+                    iterations=iteration,
+                    generated_records=generated_records,
+                    satisfied=True,
+                )
+
+        return _handle_repeat_until_exhausted(
+            stage=stage,
+            repeat_until=repeat_until,
+            last_result=last_result,
+            stage_path=stage_path,
+            iterations=iterations_run,
+            generated_records=generated_records,
+        )
+
 
 def _stage_indices_by_name(stages: list[_WorkflowStage]) -> dict[str, int]:
     return {stage.name: index for index, stage in enumerate(stages)}
+
+
+def _require_repeat_until(stage: _WorkflowStage) -> RepeatUntil:
+    if stage.repeat_until is None:
+        raise DataDesignerWorkflowError(f"Stage {stage.name!r} has no repeat_until policy.")
+    return stage.repeat_until
+
+
+def _append_start_iteration(
+    num_records: int,
+    resume: ResumeMode,
+    prior_stage_metadata: dict[str, Any] | None,
+) -> int:
+    if resume != ResumeMode.ALWAYS or prior_stage_metadata is None:
+        return 1
+    prior_requested = prior_stage_metadata.get("num_records_requested")
+    if not isinstance(prior_requested, int) or prior_requested <= num_records:
+        return 1
+    return -(-prior_requested // num_records)
+
+
+def _exceeds_max_generated_records(repeat_until: RepeatUntil, generated_records: int) -> bool:
+    return repeat_until.max_generated_records is not None and generated_records > repeat_until.max_generated_records
+
+
+def _with_repeat_result(
+    result: _StageRunResult,
+    *,
+    stage_path: Path,
+    repeat_until: RepeatUntil,
+    iterations: int,
+    generated_records: int,
+    satisfied: bool,
+) -> _StageRunResult:
+    output_seed_path = result.output_seed_path
+    output_records = result.output_records
+    repeat_until_output_path = None
+    if output_records > repeat_until.output_records and repeat_until.trim:
+        repeat_until_output_path = stage_path / "repeat-until" / "selected-output"
+        _write_parquet_head(output_seed_path, repeat_until_output_path, repeat_until.output_records)
+        output_seed_path = repeat_until_output_path
+        output_records = repeat_until.output_records
+    return _StageRunResult(
+        output_result=result.output_result,
+        actual_records=result.actual_records,
+        output_seed_path=output_seed_path,
+        output_records=output_records,
+        callback_output_path=result.callback_output_path,
+        output_processor_output_path=result.output_processor_output_path,
+        num_records_requested=result.num_records_requested,
+        repeat_iterations=iterations,
+        repeat_generated_records=generated_records,
+        repeat_satisfied=satisfied,
+        repeat_until_output_path=repeat_until_output_path,
+    )
+
+
+def _handle_repeat_until_exhausted(
+    *,
+    stage: _WorkflowStage,
+    repeat_until: RepeatUntil,
+    last_result: _StageRunResult | None,
+    stage_path: Path,
+    iterations: int,
+    generated_records: int,
+) -> _StageRunResult:
+    selected_records = last_result.output_records if last_result is not None else 0
+    if repeat_until.on_exhausted == RepeatUntilExhaustion.RAISE:
+        raise DataDesignerWorkflowError(
+            f"Stage {stage.name!r} repeat_until exhausted after {iterations} iteration(s): "
+            f"selected {selected_records} of {repeat_until.output_records} requested records."
+        )
+    if last_result is None:
+        raise DataDesignerWorkflowError(
+            f"Stage {stage.name!r} repeat_until did not run because max_generated_records was too low."
+        )
+    return _with_repeat_result(
+        last_result,
+        stage_path=stage_path,
+        repeat_until=repeat_until,
+        iterations=iterations,
+        generated_records=generated_records,
+        satisfied=False,
+    )
+
+
+def _repeat_until_payload(repeat_until: RepeatUntil | None) -> dict[str, Any] | None:
+    if repeat_until is None:
+        return None
+    return {
+        "output_records": repeat_until.output_records,
+        "max_iterations": repeat_until.max_iterations,
+        "mode": repeat_until.mode.value,
+        "max_generated_records": repeat_until.max_generated_records,
+        "on_exhausted": repeat_until.on_exhausted.value,
+        "trim": repeat_until.trim,
+    }
+
+
+def _enum_values(enum_type: type[StrEnum]) -> str:
+    return ", ".join(repr(item.value) for item in enum_type)
 
 
 def _normalize_stage_names(
@@ -758,6 +1110,7 @@ def _base_stage_metadata(index: int, stage: _WorkflowStage, stage_dir_name: str)
         "output": stage.output,
         "sampling_strategy": stage.sampling_strategy.value,
         "selection_strategy": _selection_strategy_payload(stage.selection_strategy),
+        "repeat_until": _repeat_until_payload(stage.repeat_until),
     }
 
 
@@ -777,6 +1130,7 @@ def _stage_fingerprint(
         "on_success_version": stage.on_success_version,
         "output_processors": [processor.model_dump(mode="json") for processor in stage.output_processors],
         "output": stage.output,
+        "repeat_until": _repeat_until_payload(stage.repeat_until),
         "library_version": get_library_version(),
         "upstream_fingerprint": upstream_fingerprint,
     }
@@ -839,6 +1193,14 @@ def _load_parquet_dataset(path: Path) -> pd.DataFrame:
         return lazy.pd.concat([lazy.pd.read_parquet(file_path) for file_path in parquet_files], ignore_index=True)
     except Exception as e:
         raise DataDesignerWorkflowError(f"Failed to read parquet files at {str(path)!r}: {e}") from e
+
+
+def _write_parquet_head(source_path: Path, output_path: Path, num_records: int) -> None:
+    df = _load_parquet_dataset(source_path).head(num_records)
+    if output_path.exists():
+        shutil.rmtree(output_path)
+    output_path.mkdir(parents=True)
+    df.to_parquet(output_path / "data.parquet", index=False)
 
 
 def _export_parquet_dataset(source_path: Path, output_path: Path, *, format: ExportFormat | None = None) -> Path:

@@ -138,6 +138,33 @@ workflow.add_stage("enriched", enriched)
 
 `on_success_version` is part of the stage resume identity. Change it when the callback's output semantics change. If a callback returns zero rows, the workflow raises by default; set `allow_empty=True` to mark that stage as completed empty and skip downstream stages.
 
+## Repeating until a filtered count
+
+Use `repeat_until` when a stage should keep generating candidates until its selected output reaches a target row count. This is useful for bounded rejection sampling, such as generating many candidates and keeping only rows that pass a judge or quality gate.
+
+```python
+from data_designer.interface import RepeatUntil
+
+workflow = data_designer.compose_workflow(name="judge-disagreements")
+workflow.add_stage(
+    "judged",
+    judges,
+    num_records=1_000,
+    on_success=keep_disagreements,
+    on_success_version="disagreements-v1",
+    repeat_until=RepeatUntil(
+        output_records=5_000,
+        max_iterations=10,
+        max_generated_records=20_000,
+    ),
+)
+workflow.add_stage("enriched", enriched)
+```
+
+`num_records` is the per-attempt size. In the default `mode="append"`, Data Designer extends the stage by another attempt each iteration, reruns `on_success`, and feeds exactly `output_records` selected rows downstream. Set `on_exhausted="return_partial"` to keep the best partial output when the bounds are reached; otherwise the workflow raises.
+
+Use `mode="discard"` when each attempt should replace the previous selected output instead of accumulating it. Keep bounded limits in place: a low acceptance rate is often a signal to inspect the recipe, not just to run indefinitely.
+
 ## Changing row counts between stages
 
 Each stage has a fixed requested row count while it runs. To resize a workflow, change the selected output at a stage boundary and let the next stage seed from that output.
