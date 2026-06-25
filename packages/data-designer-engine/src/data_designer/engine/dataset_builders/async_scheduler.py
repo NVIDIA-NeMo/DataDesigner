@@ -1823,10 +1823,10 @@ class AsyncTaskScheduler:
             result_operation = "From-scratch generator"
         else:
             # Non-FromScratch generators dispatched as seeds (no upstream columns)
-            # operate on existing buffer rows — same contract as the sync engine's
-            # FULL_COLUMN path. Pass an ``rg_size``-row snapshot so the generator
-            # produces ``rg_size`` rows back, instead of an empty DataFrame which
-            # would yield zero values and fail ``update_batch``.
+            # operate on existing buffer rows. Pass an ``rg_size``-row snapshot
+            # so the generator produces ``rg_size`` rows back, instead of an
+            # empty DataFrame which would yield zero values and fail
+            # ``update_batch``.
             if self._buffer_manager is not None:
                 records = [self._buffer_manager.get_row(task.row_group, ri) for ri in range(rg_size)]
                 input_df = lazy.pd.DataFrame(records)

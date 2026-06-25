@@ -11,7 +11,6 @@ import contextlib
 import hashlib
 import json
 import math
-import os
 import random
 import statistics
 import subprocess
@@ -275,18 +274,6 @@ def _format_stats(stats: MetricStats, *, unit: str, precision: int = 3) -> str:
     ci = fmt.format(stats.ci_half_width)
     stdev = fmt.format(stats.stdev)
     return f"{mean}{unit} ± {ci}{unit} (stdev {stdev}{unit}, n={stats.n})"
-
-
-def _format_speed_stats(stats: MetricStats, *, precision: int = 2) -> str:
-    fmt = f"{{:.{precision}f}}"
-    mean = fmt.format(stats.mean)
-    ci = fmt.format(stats.ci_half_width)
-    stdev = fmt.format(stats.stdev)
-    return f"{mean}x ± {ci}x (stdev {stdev}x, n={stats.n})"
-
-
-def _significant_diff(stats: MetricStats) -> bool:
-    return stats.n > 1 and abs(stats.mean) > stats.ci_half_width
 
 
 def _json_default(value: Any) -> Any:
@@ -589,13 +576,12 @@ def _dataset_fingerprint(df: pd.DataFrame) -> str:
 
 
 def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> BenchmarkResult:
-    # Imports are deferred so engine selection respects DATA_DESIGNER_ASYNC_ENGINE.
-    from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
     from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
     from data_designer.engine.model_provider import resolve_model_provider_registry
     from data_designer.engine.resources.resource_provider import create_resource_provider
     from data_designer.engine.resources.seed_reader import SeedReaderRegistry
     from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
+    from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
     random.seed(settings.seed)
     np.random.seed(settings.seed)
@@ -630,7 +616,6 @@ def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> Benc
             secret_resolver=secret_resolver,
             model_provider_registry=model_provider_registry,
             seed_reader_registry=SeedReaderRegistry(readers=[]),
-            blob_storage=None,
             seed_dataset_source=None,
             run_config=run_config,
             mcp_providers=[mcp_provider],
@@ -664,15 +649,9 @@ def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> Benc
 
 
 def _run_subprocess(settings: BenchmarkSettings, engine_mode: str) -> BenchmarkResult:
-    env = os.environ.copy()
-    if engine_mode == "async":
-        env["DATA_DESIGNER_ASYNC_ENGINE"] = "1"
-    else:
-        env.pop("DATA_DESIGNER_ASYNC_ENGINE", None)
-
     script_path = Path(__file__).resolve()
     cmd = [sys.executable, str(script_path), "--mode", "run", "--engine", engine_mode, *settings.to_cli_args()]
-    completed = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
     if completed.returncode != 0:
         raise RuntimeError(f"Benchmark subprocess failed.\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
@@ -687,12 +666,6 @@ def _run_subprocess(settings: BenchmarkSettings, engine_mode: str) -> BenchmarkR
     )
 
 
-def _format_speedup(sync_time: float, async_time: float) -> str:
-    if async_time <= 0:
-        return "n/a"
-    return f"{(sync_time / async_time):.2f}x"
-
-
 def _run_with_progress(settings: BenchmarkSettings, engine_mode: str, iteration: int, total: int) -> BenchmarkResult:
     print(f"[{iteration}/{total}] Running {engine_mode} benchmark...", end="", flush=True)
     result = _run_subprocess(settings, engine_mode)
@@ -701,68 +674,32 @@ def _run_with_progress(settings: BenchmarkSettings, engine_mode: str, iteration:
 
 
 def _compare_runs(settings: BenchmarkSettings, iterations: int) -> int:
-    sync_results: list[BenchmarkResult] = []
-    async_results: list[BenchmarkResult] = []
+    results: list[BenchmarkResult] = []
     expected_hash: str | None = None
 
     for iteration in range(1, iterations + 1):
-        sync_result = _run_with_progress(settings, "sync", iteration, iterations)
-        async_result = _run_with_progress(settings, "async", iteration, iterations)
-
-        if sync_result.dataset_hash != async_result.dataset_hash:
-            print(
-                "Content mismatch detected: "
-                f"sync hash {sync_result.dataset_hash} vs async hash {async_result.dataset_hash}"
-            )
-            return 1
+        result = _run_with_progress(settings, "async", iteration, iterations)
 
         if expected_hash is None:
-            expected_hash = sync_result.dataset_hash
-        elif expected_hash != sync_result.dataset_hash or expected_hash != async_result.dataset_hash:
+            expected_hash = result.dataset_hash
+        elif expected_hash != result.dataset_hash:
             print("Content mismatch detected across iterations.")
             return 1
 
-        sync_results.append(sync_result)
-        async_results.append(async_result)
+        results.append(result)
 
-    build_sync = [result.build_time_sec for result in sync_results]
-    build_async = [result.build_time_sec for result in async_results]
-    total_sync = [result.total_time_sec for result in sync_results]
-    total_async = [result.total_time_sec for result in async_results]
+    build_times = [result.build_time_sec for result in results]
+    total_times = [result.total_time_sec for result in results]
 
-    build_speedups = [sync / async_ for sync, async_ in zip(build_sync, build_async)]
-    total_speedups = [sync / async_ for sync, async_ in zip(total_sync, total_async)]
-    build_diffs = [sync - async_ for sync, async_ in zip(build_sync, build_async)]
-    total_diffs = [sync - async_ for sync, async_ in zip(total_sync, total_async)]
-
-    build_sync_stats = _compute_stats(build_sync)
-    build_async_stats = _compute_stats(build_async)
-    total_sync_stats = _compute_stats(total_sync)
-    total_async_stats = _compute_stats(total_async)
-
-    build_speed_stats = _compute_stats(build_speedups)
-    total_speed_stats = _compute_stats(total_speedups)
-    build_diff_stats = _compute_stats(build_diffs)
-    total_diff_stats = _compute_stats(total_diffs)
+    build_stats = _compute_stats(build_times)
+    total_stats = _compute_stats(total_times)
 
     latency_label = "on" if settings.simulated_latency else "off"
-    print("\nEngine benchmark summary (95% CI)")
+    print("\nAsync engine benchmark summary (95% CI)")
     print(f"- runs: {iterations} | content match: yes | hash {expected_hash}")
     print(f"- simulated latency: {latency_label}")
-    print(f"- build time sync:  {_format_stats(build_sync_stats, unit='s')}")
-    print(f"- build time async: {_format_stats(build_async_stats, unit='s')}")
-    print(
-        f"- build speedup:    {_format_speed_stats(build_speed_stats)} | "
-        f"paired diff {_format_stats(build_diff_stats, unit='s')} | "
-        f"significant: {'yes' if _significant_diff(build_diff_stats) else 'no'}"
-    )
-    print(f"- total time sync:  {_format_stats(total_sync_stats, unit='s')}")
-    print(f"- total time async: {_format_stats(total_async_stats, unit='s')}")
-    print(
-        f"- total speedup:    {_format_speed_stats(total_speed_stats)} | "
-        f"paired diff {_format_stats(total_diff_stats, unit='s')} | "
-        f"significant: {'yes' if _significant_diff(total_diff_stats) else 'no'}"
-    )
+    print(f"- build time: {_format_stats(build_stats, unit='s')}")
+    print(f"- total time: {_format_stats(total_stats, unit='s')}")
 
     return 0
 
@@ -776,13 +713,13 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         choices=("compare", "run"),
         default="compare",
-        help="Run both engines in subprocesses, or run once in the current process.",
+        help="Run repeated async benchmarks in subprocesses, or run once in the current process.",
     )
     parser.add_argument(
         "--engine",
         type=str,
-        choices=("sync", "async"),
-        default="sync",
+        choices=("async",),
+        default="async",
         help="Engine mode for --mode run.",
     )
     parser.add_argument("--num-records", type=int, default=DEFAULT_NUM_RECORDS, help="Records to generate.")
@@ -792,7 +729,7 @@ def _parse_args() -> argparse.Namespace:
         "--iterations",
         type=int,
         default=DEFAULT_ITERATIONS,
-        help="Number of sync/async runs to include in the compare mode.",
+        help="Number of async runs to include in compare mode.",
     )
     parser.add_argument(
         "--max-parallel-requests",
@@ -828,11 +765,6 @@ def main() -> None:
 
     if args.mode == "compare":
         sys.exit(_compare_runs(settings, args.iterations))
-
-    if args.engine == "async":
-        os.environ["DATA_DESIGNER_ASYNC_ENGINE"] = "1"
-    else:
-        os.environ.pop("DATA_DESIGNER_ASYNC_ENGINE", None)
 
     print(f"Running {args.engine} benchmark...")
     result = _run_single_benchmark(settings, args.engine)
