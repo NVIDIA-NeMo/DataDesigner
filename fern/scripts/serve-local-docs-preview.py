@@ -40,6 +40,8 @@ LOCAL_THEME_CONFIG = {
     },
 }
 
+COMPONENT_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx"}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -79,11 +81,32 @@ def write_local_docs_config(root: Path, preview_root: Path) -> None:
     )
 
 
+def link_components(root: Path, preview_root: Path) -> None:
+    components_root = root / "components"
+    preview_components_root = preview_root / "components"
+    preview_components_root.mkdir()
+
+    for source in sorted(components_root.rglob("*")):
+        target = preview_components_root / source.relative_to(components_root)
+        if source.is_dir():
+            target.mkdir()
+            continue
+
+        target.symlink_to(source)
+        if source.suffix in COMPONENT_EXTENSIONS:
+            alias = target.with_suffix("")
+            if not alias.exists():
+                alias.symlink_to(source)
+
+
 def build_preview_root(root: Path, preview_root: Path) -> None:
     for child in root.iterdir():
         if child.name == "docs.yml":
             continue
         target = preview_root / child.name
+        if child.name == "components":
+            link_components(root, preview_root)
+            continue
         target.symlink_to(child, target_is_directory=child.is_dir())
     write_local_docs_config(root, preview_root)
 
