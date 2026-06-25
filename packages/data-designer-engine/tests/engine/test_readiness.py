@@ -14,22 +14,11 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.models import ModelConfig
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
-from data_designer.engine import flags
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.resources.resource_provider import ResourceProvider
-
-
-@pytest.fixture(autouse=True)
-def _force_sync_engine(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin readiness tests to the sync engine.
-
-    Lets us assert against ``run_health_check`` directly without standing up
-    an event loop.
-    """
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", False)
 
 
 def _build_columns(
@@ -315,14 +304,8 @@ def test_run_readiness_check_passes_skip_flagged_aliases_to_registry(
 def test_run_readiness_check_dispatches_to_async_registry_under_async_engine(
     stub_resource_provider,
     stub_model_configs,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the async engine is selected, model probes route through ``arun_health_check``.
-
-    The autouse fixture pins sync; this test overrides for the async path so the
-    branch in ``readiness._run_model_health_check`` gets coverage.
-    """
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
+    """Async client mode routes model probes through ``arun_health_check``."""
     stub_resource_provider.model_registry.arun_health_check = Mock()
     stub_resource_provider.mcp_registry = None
 
@@ -356,10 +339,8 @@ def test_run_readiness_check_dispatches_to_async_registry_under_async_engine(
 def test_run_readiness_check_cancels_future_and_reraises_on_timeout(
     stub_resource_provider,
     stub_model_configs,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A 180-second timeout cancels the future and re-raises ``TimeoutError``."""
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
     stub_resource_provider.model_registry.arun_health_check = Mock()
     stub_resource_provider.mcp_registry = None
 
@@ -388,10 +369,8 @@ def test_run_readiness_check_cancels_future_and_reraises_on_timeout(
 def test_run_readiness_check_uses_sync_registry_for_sync_mode_clients(
     stub_resource_provider,
     stub_model_configs,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Readiness follows the explicit client mode, not only the raw async env flag."""
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
+    """Readiness follows the explicit client mode."""
     stub_resource_provider.model_registry.run_health_check = Mock()
     stub_resource_provider.model_registry.arun_health_check = Mock()
     stub_resource_provider.mcp_registry = None

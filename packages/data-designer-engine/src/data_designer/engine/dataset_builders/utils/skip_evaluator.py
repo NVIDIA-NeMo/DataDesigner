@@ -38,9 +38,8 @@ _env = NativeSandboxedEnvironment(undefined=StrictUndefined)
 def evaluate_skip_when(expression: str, record: dict) -> bool:
     """Render *expression* against *record*; return ``True`` if result is truthy.
 
-    The caller is responsible for passing a raw record dict — deserialization
-    of JSON string values is handled here so both sync and async engines get
-    identical behavior.  On expected evaluation failures (``UndefinedError``,
+    The caller is responsible for passing a raw record dict. Deserialization
+    of JSON string values is handled here. On expected evaluation failures (``UndefinedError``,
     ``SecurityError``, ``TemplateSyntaxError``, ``TypeError``, ``ValueError``)
     a warning is logged and ``True`` is returned (fail-safe: skip the row
     rather than making an expensive LLM call on a row with unknown filter
@@ -86,7 +85,6 @@ def should_skip_column_for_record(
 ) -> bool:
     """Unified skip decision for a single cell/record.
 
-    Shared by both the sync and async engines so the logic stays in sync.
     Checks propagation first (cheaper), then the expression gate.
 
     Args:

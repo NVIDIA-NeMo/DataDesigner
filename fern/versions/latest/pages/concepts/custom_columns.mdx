@@ -59,7 +59,7 @@ Model aliases are validated before generation starts. If an alias doesn't exist 
 For `full_column`, set `generation_strategy=dd.GenerationStrategy.FULL_COLUMN`.
 
 <Note title="Concurrent dispatch">
-  Sync `cell_by_cell` generators are dispatched concurrently across rows under the async engine. Module-level mutable state (counters, caches, non-thread-safe HTTP clients) needs synchronization or per-row instantiation. For network-bound work, prefer `async def fn(row)` — the engine runs it directly on its event loop and skips the thread bridge.
+  Synchronous `cell_by_cell` generator functions are dispatched concurrently across rows. Module-level mutable state (counters, caches, non-thread-safe HTTP clients) needs synchronization or per-row instantiation. For network-bound work, prefer `async def fn(row)` — the engine runs it directly on its event loop and skips the thread bridge.
 </Note>
 
 ## The Decorator
@@ -150,7 +150,7 @@ from data_designer.engine.models.facade import ModelFacade
 mock_model = MagicMock(spec=ModelFacade)
 ```
 
-Mocking only `generate()` will silently no-op under the async engine because the bridge routes through `agenerate()`.
+Mocking only `generate()` will silently no-op because the bridge routes through `agenerate()`.
 
 ## See Also
 
