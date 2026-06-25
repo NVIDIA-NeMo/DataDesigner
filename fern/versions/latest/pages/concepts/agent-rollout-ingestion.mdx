@@ -171,16 +171,13 @@ You can also explode imported rollouts into a tool-interaction dataset. This exa
 
 ```python
 import data_designer.config as dd
+import pandas as pd
 from data_designer.interface import DataDesigner
 from pydantic import BaseModel, Field
 from typing import Literal
 
 
-@dd.custom_column_generator(
-    required_columns=["messages"],
-    side_effect_columns=["tool_call", "tool_response", "tool_name"],
-)
-def explode_tool_interactions(row: dict) -> list[dict]:
+def extract_tool_interactions(row: dict) -> list[dict]:
     rows = []
     tool_calls_by_id = {}
     context_messages = []
@@ -229,7 +226,23 @@ class ToolInteractionAnalysis(BaseModel):
 
 
 data_designer = DataDesigner()
-config_builder = dd.DataDesignerConfigBuilder(
+rollout_config = dd.DataDesignerConfigBuilder()
+rollout_config.with_seed_dataset(
+    dd.AgentRolloutSeedSource(
+        format=dd.AgentRolloutFormat.CLAUDE_CODE,
+    )
+)
+
+rollout_result = data_designer.create(rollout_config, num_records=100)
+rollout_df = rollout_result.load_dataset()
+tool_rows = [
+    interaction
+    for _, row in rollout_df.iterrows()
+    for interaction in extract_tool_interactions(row.to_dict())
+]
+tool_df = pd.DataFrame(tool_rows)
+
+analysis_config = dd.DataDesignerConfigBuilder(
     model_configs=[
         dd.ModelConfig(
             alias="tool-analyst",
@@ -239,21 +252,9 @@ config_builder = dd.DataDesignerConfigBuilder(
     ]
 )
 
-config_builder.with_seed_dataset(
-    dd.AgentRolloutSeedSource(
-        format=dd.AgentRolloutFormat.CLAUDE_CODE,
-    )
-)
+analysis_config.with_seed_dataset(dd.DataFrameSeedSource(df=tool_df))
 
-config_builder.add_column(
-    dd.CustomColumnConfig(
-        name="tool_interaction_context",
-        generator_function=explode_tool_interactions,
-        allow_resize=True,
-    )
-)
-
-config_builder.add_column(
+analysis_config.add_column(
     dd.LLMStructuredColumnConfig(
         name="tool_interaction_analysis",
         model_alias="tool-analyst",
@@ -279,11 +280,11 @@ Base your answer on the tool call arguments, the tool response, and the immediat
     )
 )
 
-preview = data_designer.preview(config_builder, num_records=5)
+preview = data_designer.preview(analysis_config, num_records=5)
 preview.display_sample_record()
 ```
 
-This pattern is useful when you want to curate evaluator or monitoring datasets from real traces. The resize-enabled custom column turns each tool interaction into its own record, and the structured column adds a consistent outcome label plus a grounded summary. Because the logic operates on normalized `tool_calls` and `tool` messages, the same pattern transfers across supported rollout formats. If your traces are long, consider adding a second custom or expression column that windows the context before sending it to a model.
+This pattern is useful when you want to curate evaluator or monitoring datasets from real traces. The stage-boundary transform turns each tool interaction into its own record, and the structured column adds a consistent outcome label plus a grounded summary. Because the logic operates on normalized `tool_calls` and `tool` messages, the same pattern transfers across supported rollout formats. If your traces are long, consider adding a second custom or expression column that windows the context before sending it to a model.
 
 ## Related Guides
 

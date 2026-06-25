@@ -18,13 +18,11 @@ from pydantic import ValidationError
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import (
-    CustomColumnConfig,
     ExpressionColumnConfig,
     LLMTextColumnConfig,
     SamplerColumnConfig,
 )
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
@@ -394,13 +392,30 @@ def stub_seed_reader():
     return StubHuggingFaceSeedReader()
 
 
-def _builder_with_allow_resize() -> DataDesignerConfigBuilder:
-    """Config with one allow_resize=True column — forces sync-engine fallback."""
+@pytest.mark.parametrize(
+    "env_value,expected,expect_deprecation",
+    [
+        ("1", "async", False),
+        ("0", "sync", True),
+    ],
+    ids=[
+        "async-on-uses-async-clients",
+        "async-off-uses-sync-clients-and-warns",
+    ],
+)
+def test_resolve_client_concurrency_mode_matches_engine_choice(
+    env_value: str,
+    expected: str,
+    expect_deprecation: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Client mode must match the engine the run will actually use.
 
-    @custom_column_generator()
-    def _expander(row: dict) -> list[dict]:
-        return [{**row, "item": i} for i in range(2)]
-
+    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
+    ``DeprecationWarning`` so users on the legacy sync engine see a
+    pre-removal signal in their logs.
+    """
+    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
     builder = DataDesignerConfigBuilder()
     builder.add_column(
         SamplerColumnConfig(
@@ -409,58 +424,6 @@ def _builder_with_allow_resize() -> DataDesignerConfigBuilder:
             params=CategorySamplerParams(values=["a"]),
         )
     )
-    builder.add_column(
-        CustomColumnConfig(
-            name="item",
-            generator_function=_expander,
-            allow_resize=True,
-        )
-    )
-    return builder
-
-
-@pytest.mark.parametrize(
-    "env_value,with_allow_resize,expected,expect_deprecation",
-    [
-        ("1", False, "async", False),
-        ("1", True, "sync", False),
-        ("0", False, "sync", True),
-    ],
-    ids=[
-        "async-on-no-fallback-uses-async-clients",
-        "async-on-allow-resize-falls-back-to-sync-clients",
-        "async-off-uses-sync-clients-and-warns",
-    ],
-)
-def test_resolve_client_concurrency_mode_matches_engine_choice(
-    env_value: str,
-    with_allow_resize: bool,
-    expected: str,
-    expect_deprecation: bool,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Client mode must match the engine the run will actually use.
-
-    Without this alignment, a sync-fallback run (e.g. ``allow_resize=True``)
-    would be left with async-only clients and call sync methods on them,
-    raising ``SyncClientUnavailableError`` from inside the sync engine.
-
-    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
-    ``DeprecationWarning`` so users on the legacy sync engine see a
-    pre-removal signal in their logs. The auto-fallback path
-    (``allow_resize=True``) does not double-warn here; the builder layer
-    emits its own warning when the run actually executes.
-    """
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
-    builder = _builder_with_allow_resize() if with_allow_resize else DataDesignerConfigBuilder()
-    if not with_allow_resize:
-        builder.add_column(
-            SamplerColumnConfig(
-                name="seed",
-                sampler_type=SamplerType.CATEGORY,
-                params=CategorySamplerParams(values=["a"]),
-            )
-        )
 
     if expect_deprecation:
         with pytest.warns(DeprecationWarning, match="legacy sync engine"):
@@ -1372,29 +1335,6 @@ def test_check_models_invokes_readiness_check(
     assert [c.name for c in called_columns] == ["text"]
     assert called_resource_provider is not None
     assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.ASYNC
-
-
-def test_check_models_passes_sync_mode_for_sync_fallback(
-    stub_artifact_path,
-    stub_model_providers,
-    stub_managed_assets_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """check_models readiness uses the resolved client mode, including allow_resize fallback."""
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
-    config_builder = _builder_with_allow_resize()
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
-    )
-
-    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
-        data_designer.check_models(config_builder)
-
-    _, kwargs = mock_check.call_args
-    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.SYNC
 
 
 def test_check_models_propagates_typed_model_error(

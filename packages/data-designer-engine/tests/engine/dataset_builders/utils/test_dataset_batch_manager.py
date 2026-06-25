@@ -169,41 +169,6 @@ def test_replace_buffer_wrong_length(stub_batch_manager_with_data):
         stub_batch_manager_with_data.replace_buffer(wrong_length_records)
 
 
-@pytest.mark.parametrize(
-    "new_size",
-    [6, 1, 0],
-    ids=["expansion", "retraction", "empty"],
-)
-def test_replace_buffer_allow_resize(stub_batch_manager_with_data, new_size):
-    """allow_resize=True permits any record count change and updates bookkeeping."""
-    stub_batch_manager_with_data.add_records([{"id": i} for i in range(3)])
-
-    new_records = [{"id": i} for i in range(new_size)]
-    stub_batch_manager_with_data.replace_buffer(new_records, allow_resize=True)
-
-    assert stub_batch_manager_with_data.num_records_in_buffer == new_size
-    assert stub_batch_manager_with_data._buffer == new_records
-    assert stub_batch_manager_with_data.num_records_batch == new_size
-
-
-def test_actual_num_records_tracks_expansion(stub_batch_manager_with_data):
-    """Test that actual_num_records correctly tracks when buffer is resized."""
-    # Add 3 records, then expand to 6
-    records = [{"id": i} for i in range(3)]
-    stub_batch_manager_with_data.add_records(records)
-    expanded = [{"id": i} for i in range(6)]
-    stub_batch_manager_with_data.replace_buffer(expanded, allow_resize=True)
-
-    # Finish batch and check metadata
-    stub_batch_manager_with_data.finish_batch()
-
-    with open(stub_batch_manager_with_data.artifact_storage.metadata_file_path) as f:
-        metadata = json.load(f)
-
-    assert metadata["target_num_records"] == 13  # [6, 3, 3, 1] after resize from [3, 3, 3, 1]
-    assert metadata["actual_num_records"] == 6  # actual expanded count
-
-
 # Test write method
 def test_write_empty_buffer(stub_batch_manager_with_data):
     result = stub_batch_manager_with_data.write()

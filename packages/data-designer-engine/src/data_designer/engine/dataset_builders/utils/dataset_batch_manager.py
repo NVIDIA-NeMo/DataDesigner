@@ -213,18 +213,14 @@ class DatasetBatchManager:
             raise IndexError(f"🛑 Index {index} is out of bounds for buffer of size {len(self._buffer)}.")
         self._buffer[index] = record
 
-    def replace_buffer(self, records: list[dict], *, allow_resize: bool = False) -> None:
+    def replace_buffer(self, records: list[dict]) -> None:
         """Replace the buffer contents.
 
         Args:
             records: New records to replace the buffer.
-            allow_resize: If True, allows the number of records to differ from the current
-                buffer size (1:N or N:1 patterns). Defaults to False for strict 1:1 mapping.
         """
-        if not allow_resize and len(records) != len(self._buffer):
+        if len(records) != len(self._buffer):
             raise DatasetBatchManagementError(
                 f"🛑 Number of records ({len(records)}) must match the current buffer size ({len(self._buffer)})."
             )
         self._buffer = records
-        if allow_resize and self._num_records_list is not None:
-            self._num_records_list[self._current_batch_number] = len(records)

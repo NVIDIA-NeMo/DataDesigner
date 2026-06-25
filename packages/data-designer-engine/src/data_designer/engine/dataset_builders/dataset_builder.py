@@ -27,7 +27,6 @@ from data_designer.config.processors import (
     ProcessorType,
 )
 from data_designer.config.utils.type_helpers import StrEnum
-from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.config.version import get_library_version
 from data_designer.engine import flags
 from data_designer.engine.column_generators.generators.base import (
@@ -54,6 +53,7 @@ from data_designer.engine.dataset_builders.utils.progress_tracker import Progres
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     SKIPPED_COLUMNS_RECORD_KEY,
+    SkipMetadataRestoreContext,
     apply_skip_to_record,
     prepare_records_for_skip_metadata_round_trip,
     restore_skip_metadata,
@@ -110,6 +110,45 @@ PRESERVE_DROPPED_COLUMNS_METADATA_KEY = "preserve_dropped_columns"
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
     return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+
+def _restore_skip_metadata_for_retained_records(
+    records: list[dict],
+    *,
+    context: SkipMetadataRestoreContext,
+) -> None:
+    """Partial-restore variant of :func:`restore_skip_metadata` for row-drop generators.
+
+    ``restore_skip_metadata`` enforces a strict 1:1 input/output mapping (see
+    PR #766), which is incompatible with expression columns that may drop
+    invalid rows. This helper restores skip provenance for the rows that
+    survived while still validating that each retained record carries a valid
+    restore-ID and that no source row is duplicated. Rows that were dropped by
+    the generator are silently expected to be missing from ``records``.
+    """
+    seen_source_ids: set[str] = set()
+    for record in records:
+        if context.restore_id_column not in record:
+            raise ValueError(
+                f"Records returned from the DataFrame round-trip must preserve "
+                f"the internal column {context.restore_id_column!r} so skip "
+                "provenance can be restored."
+            )
+        source_id = str(record.pop(context.restore_id_column))
+        if source_id not in context.source_ids:
+            raise ValueError(
+                f"Record returned unknown restore ID {source_id!r}. Skip provenance "
+                "can only be restored for rows derived from the original input."
+            )
+        if source_id in seen_source_ids:
+            raise ValueError(
+                f"Record returned duplicate restore ID {source_id!r}. Row-dropping generators "
+                "must preserve a unique source-row mapping for surviving rows."
+            )
+        seen_source_ids.add(source_id)
+        meta = context.skipped_columns_by_source_id.get(source_id)
+        if meta is not None:
+            record[SKIPPED_COLUMNS_RECORD_KEY] = set(meta)
 
 
 class _ConfigCompatibility(StrEnum):
@@ -191,8 +230,6 @@ class DatasetBuilder:
         self.batch_manager = DatasetBatchManager(resource_provider.artifact_storage)
         self._resource_provider = resource_provider
         self._records_to_drop: set[int] = set()
-        self._cell_resize_results: list[dict | list[dict] | None] = []
-        self._cell_resize_mode = False
         self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
         self._graph: ExecutionGraph | None = None
@@ -313,7 +350,7 @@ class DatasetBuilder:
             Path to the generated dataset directory.
         """
         self._reset_run_state()
-        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE
 
         run_readiness_check(
             self.single_column_configs,
@@ -382,13 +419,6 @@ class DatasetBuilder:
             resume = ResumeMode.NEVER
             self.artifact_storage.resume = ResumeMode.NEVER
 
-        if resume == ResumeMode.ALWAYS and self._has_allow_resize_columns():
-            raise DatasetGenerationError(
-                "🛑 Cannot resume when any column has allow_resize=True. Resized batches change row boundaries, "
-                "so the original batch plan cannot be reconstructed safely. Use resume=ResumeMode.NEVER to "
-                "start a new generation run."
-            )
-
         if self._use_async:
             self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
         elif resume == ResumeMode.ALWAYS:
@@ -442,9 +472,6 @@ class DatasetBuilder:
                 PRESERVE_DROPPED_COLUMNS_METADATA_KEY: self._resource_provider.run_config.preserve_dropped_columns,
             }
         )
-
-    def _has_allow_resize_columns(self) -> bool:
-        return any(getattr(config, "allow_resize", False) for config in self.single_column_configs)
 
     def _post_generation_processed_resume_result(self, resume: ResumeMode, num_records: int) -> Path | None:
         """Decide whether to short-circuit resume based on after-generation processor state.
@@ -659,7 +686,7 @@ class DatasetBuilder:
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._reset_run_state()
-        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE and self._resolve_async_compatibility()
+        self._use_async = flags.DATA_DESIGNER_ASYNC_ENGINE
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
@@ -726,34 +753,6 @@ class DatasetBuilder:
         dataset = buffer_manager.get_dataframe(0)
         buffer_manager.free_row_group(0)
         return dataset
-
-    def _resolve_async_compatibility(self) -> bool:
-        """Check if the async engine can be used; auto-fallback to sync if not.
-
-        Returns True if async is usable, False if allow_resize forces sync fallback.
-        """
-        offending = [config.name for config in self.single_column_configs if getattr(config, "allow_resize", False)]
-        if offending:
-            msg = (
-                f"allow_resize=True detected on column(s) {offending}. "
-                "Falling back to sync engine for this run. "
-                "allow_resize is deprecated and will be removed in a future release; "
-                "use workflow chaining instead (see issue #552)."
-            )
-            logger.warning(f"⚠️ {msg}")
-            # ``warn_at_caller`` rather than ``warnings.warn(stacklevel=N)`` so
-            # attribution lands on the user's call site instead of an internal
-            # ``DatasetBuilder.build`` / ``data_designer.interface`` frame.
-            # The exact internal-frame depth from this method up to user code
-            # depends on which entry point invoked the builder (build vs.
-            # build_preview, sync vs. async wrapping), so a hard-coded
-            # ``stacklevel`` is brittle; ``warn_at_caller`` walks past every
-            # ``data_designer.*`` frame regardless of chain shape. Library
-            # attribution would also be silenced under Python's default
-            # ``ignore::DeprecationWarning`` filter. See PR #594 review.
-            warn_at_caller(msg, DeprecationWarning)
-            return False
-        return True
 
     def _find_completed_row_groups(self) -> dict[int, int]:
         """Scan final parquet files and return row-group IDs with persisted row counts.
@@ -856,6 +855,9 @@ class DatasetBuilder:
                     else _ConfigCompatibility.INCOMPATIBLE
                 )
 
+        if not metadata_path.exists():
+            return _ConfigCompatibility.COMPATIBLE
+
         config_path = dataset_dir / SDG_CONFIG_FILENAME
         if not config_path.exists():
             logger.warning(
@@ -874,10 +876,10 @@ class DatasetBuilder:
             )
         except (OSError, json.JSONDecodeError, ValidationError):
             logger.warning(
-                "⚠️ Could not read stored config at %s for compatibility check — assuming compatible.",
+                "⚠️ Could not read stored config at %s for compatibility check — treating as incompatible.",
                 config_path,
             )
-            return _ConfigCompatibility.COMPATIBLE
+            return _ConfigCompatibility.INCOMPATIBLE
 
     def _dropped_column_artifact_policy_matches(self, metadata: dict[str, Any]) -> bool:
         """Return whether stored dropped-column artifact behavior matches this run.
@@ -1092,7 +1094,7 @@ class DatasetBuilder:
         # If it raises, the scheduler propagates the error as DatasetGenerationError (fail-fast).
         def on_seeds_complete(rg_id: int, rg_size: int) -> FrontierDelta:
             df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner.run_pre_batch_on_df(df, strict_row_count=True)
+            df = self._processor_runner.run_pre_batch_on_df(df)
             buffer_manager.replace_dataframe(rg_id, df)
             deltas: list[FrontierDelta] = []
             for ri in range(rg_size):
@@ -1271,15 +1273,6 @@ class DatasetBuilder:
     def _column_display_name(self, config: ColumnConfigT) -> str:
         return f"columns {config.column_names}" if hasattr(config, "column_names") else config.name
 
-    def _log_resize_if_changed(self, column_name: str, original_count: int, new_count: int, allow_resize: bool) -> None:
-        if not allow_resize or new_count == original_count:
-            return
-        if new_count == 0:
-            logger.warning(f"⚠️ Column '{column_name}' reduced batch to 0 records. This batch will be skipped.")
-        else:
-            emoji = "💥" if new_count > original_count else "✂️"
-            logger.info(f"{emoji} Column '{column_name}' resized batch: {original_count} -> {new_count} records.")
-
     def _require_graph(self) -> ExecutionGraph:
         """Return the initialized execution graph for the current run."""
         graph = self._graph
@@ -1290,14 +1283,10 @@ class DatasetBuilder:
     def _column_can_skip(self, column_name: str) -> bool:
         """Fast check: can *column_name* ever be skipped (expression gate or propagation)?
 
-        Returns ``False`` for ``allow_resize=True`` columns because 1:N generators
-        change the row count — the skip-aware merge path assumes a 1:1 mapping
-        between input and output rows and would raise on the row-count check.
+        Returns ``True`` when the column has an expression gate or should
+        propagate skip metadata from required columns.
         """
         if self._graph is None:
-            return False
-        config = self.single_column_config_by_name.get(column_name)
-        if config is not None and config.allow_resize:
             return False
         if self._graph.get_skip_config(column_name) is not None:
             return True
@@ -1334,42 +1323,93 @@ class DatasetBuilder:
 
     def _run_full_column_generator_without_skip(self, generator: ColumnGenerator) -> None:
         """Run the generator on the full batch, preserving skip metadata across the replace."""
-        original_count = self.batch_manager.num_records_in_buffer
-        allow_resize = generator.config.allow_resize if not isinstance(generator.config, MultiColumnConfig) else False
         supports_row_drops = self._generator_supports_row_drops(generator)
         old_records = [record for _, record in self.batch_manager.iter_current_batch()]
+        original_count = len(old_records)
         input_records, restore_context = prepare_records_for_skip_metadata_round_trip(old_records)
 
         df = generator.generate(lazy.pd.DataFrame(input_records))
-        if supports_row_drops and len(df) > original_count:
-            raise DatasetGenerationError(
-                f"Generator for {self._column_display_name(generator.config)} returned {len(df)} rows "
-                f"but at most {original_count} were expected."
-            )
-        self._log_resize_if_changed(self._column_display_name(generator.config), original_count, len(df), allow_resize)
         new_records = df.to_dict(orient="records")
+
+        if supports_row_drops:
+            self._handle_row_dropping_full_column_generator(
+                generator=generator,
+                result_df=df,
+                new_records=new_records,
+                restore_context=restore_context,
+                original_count=original_count,
+            )
+            return
+
         if restore_context is not None:
             try:
-                restore_skip_metadata(
-                    new_records,
-                    context=restore_context,
-                    allow_resize=allow_resize or supports_row_drops,
-                )
+                restore_skip_metadata(new_records, context=restore_context)
             except ValueError as exc:
                 raise DatasetGenerationError(
                     f"Unable to restore skip provenance after FULL_COLUMN generation for "
                     f"{self._column_display_name(generator.config)}: {exc}"
                 ) from exc
-        self.batch_manager.replace_buffer(new_records, allow_resize=allow_resize or supports_row_drops)
+        self.batch_manager.replace_buffer(new_records)
 
     def _generator_supports_row_drops(self, generator: ColumnGenerator) -> bool:
         return isinstance(generator.config, ExpressionColumnConfig)
 
+    def _handle_row_dropping_full_column_generator(
+        self,
+        *,
+        generator: ColumnGenerator,
+        result_df: pd.DataFrame,
+        new_records: list[dict],
+        restore_context: SkipMetadataRestoreContext | None,
+        original_count: int,
+    ) -> None:
+        """Apply a row-drop-capable generator's results to the active batch.
+
+        The generator (currently only ``ExpressionColumnGenerator``) returns a
+        DataFrame whose index preserves the original buffer positions of the
+        rows it kept. Missing positions are dropped from the buffer so the
+        batch can shrink without re-introducing the legacy ``allow_resize``
+        flag removed in #766. Skip provenance is restored manually for the
+        retained rows because ``restore_skip_metadata`` enforces a strict 1:1
+        input/output mapping.
+        """
+        retained_indexes = result_df.index.to_list()
+        if len(retained_indexes) != len(set(retained_indexes)):
+            raise DatasetGenerationError(
+                f"Generator for {self._column_display_name(generator.config)} returned duplicate row indexes "
+                "after row drops."
+            )
+        valid_indexes = set(range(original_count))
+        unexpected_indexes = set(retained_indexes) - valid_indexes
+        if unexpected_indexes:
+            raise DatasetGenerationError(
+                f"Generator for {self._column_display_name(generator.config)} returned row indexes outside "
+                f"the input batch: {sorted(unexpected_indexes)!r}."
+            )
+        if len(retained_indexes) > original_count:
+            raise DatasetGenerationError(
+                f"Generator for {self._column_display_name(generator.config)} returned {len(retained_indexes)} "
+                f"rows but at most {original_count} were expected."
+            )
+
+        if restore_context is not None:
+            try:
+                _restore_skip_metadata_for_retained_records(new_records, context=restore_context)
+            except ValueError as exc:
+                raise DatasetGenerationError(
+                    f"Unable to restore skip provenance after FULL_COLUMN generation for "
+                    f"{self._column_display_name(generator.config)}: {exc}"
+                ) from exc
+
+        dropped_indexes = valid_indexes - set(retained_indexes)
+        if dropped_indexes:
+            self.batch_manager.drop_records(dropped_indexes)
+        self.batch_manager.replace_buffer(new_records)
+
     def _run_full_column_generator_with_skip(self, generator: ColumnGenerator, column_name: str) -> None:
         """Run a FULL_COLUMN generator with per-row skip evaluation and merge-back.
 
-        Only reachable when ``_column_can_skip`` is True, which excludes
-        ``allow_resize=True`` columns, so resize handling is not needed here.
+        Only reachable when ``_column_can_skip`` is True.
         """
         active_records: list[dict] = []
         records_with_skip_status: list[tuple[bool, dict]] = []
@@ -1390,8 +1430,12 @@ class DatasetBuilder:
             self._run_full_column_generator_without_skip(generator)
             return
 
-        batch = self._merge_skipped_and_generated(generator, column_name, active_records, records_with_skip_status)
-        self.batch_manager.replace_buffer(batch, allow_resize=self._generator_supports_row_drops(generator))
+        batch, dropped_buffer_positions = self._merge_skipped_and_generated(
+            generator, column_name, active_records, records_with_skip_status
+        )
+        if dropped_buffer_positions:
+            self.batch_manager.drop_records(dropped_buffer_positions)
+        self.batch_manager.replace_buffer(batch)
 
     def _merge_skipped_and_generated(
         self,
@@ -1399,10 +1443,17 @@ class DatasetBuilder:
         column_name: str,
         active_records: list[dict],
         records_with_skip_status: list[tuple[bool, dict]],
-    ) -> list[dict]:
-        """Generate only for active (non-skipped) records and merge back with skipped ones."""
+    ) -> tuple[list[dict], set[int]]:
+        """Generate only for active (non-skipped) records and merge back with skipped ones.
+
+        Returns ``(batch, dropped_buffer_positions)`` where ``batch`` is the new
+        record list in buffer order (excluding any rows the generator dropped),
+        and ``dropped_buffer_positions`` enumerates the original buffer
+        positions that need to be removed before ``replace_buffer`` is called.
+        Non-row-dropping generators always return an empty drop set.
+        """
         if not active_records:
-            return [record for _, record in records_with_skip_status]
+            return [record for _, record in records_with_skip_status], set()
 
         active_df = lazy.pd.DataFrame(strip_skip_metadata_from_records(active_records))
         result_df = generator.generate(active_df)
@@ -1432,7 +1483,7 @@ class DatasetBuilder:
             if prior_skipped is not None:
                 gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
             batch.append(gen_result)
-        return batch
+        return batch, set()
 
     def _merge_row_dropped_generated_records(
         self,
@@ -1441,7 +1492,7 @@ class DatasetBuilder:
         result_records: list[dict],
         active_record_count: int,
         records_with_skip_status: list[tuple[bool, dict]],
-    ) -> list[dict]:
+    ) -> tuple[list[dict], set[int]]:
         result_indexes = result_df.index.to_list()
         if len(result_indexes) != len(set(result_indexes)):
             raise DatasetGenerationError("Expression generator returned duplicate row indexes after row drops.")
@@ -1455,8 +1506,9 @@ class DatasetBuilder:
             )
 
         batch: list[dict] = []
+        dropped_buffer_positions: set[int] = set()
         active_index = 0
-        for skipped, record in records_with_skip_status:
+        for buffer_position, (skipped, record) in enumerate(records_with_skip_status):
             if skipped:
                 batch.append(record)
                 continue
@@ -1464,6 +1516,7 @@ class DatasetBuilder:
             gen_result = result_by_active_index.get(active_index)
             active_index += 1
             if gen_result is None:
+                dropped_buffer_positions.add(buffer_position)
                 continue
 
             prior_skipped = record.get(SKIPPED_COLUMNS_RECORD_KEY)
@@ -1471,7 +1524,7 @@ class DatasetBuilder:
                 gen_result[SKIPPED_COLUMNS_RECORD_KEY] = prior_skipped
             batch.append(gen_result)
 
-        return batch
+        return batch, dropped_buffer_positions
 
     def _setup_fan_out(
         self,
@@ -1484,14 +1537,6 @@ class DatasetBuilder:
                 f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
                 "generator so concurrent fan-out is not supported."
             )
-
-        allow_resize = generator.config.allow_resize
-        if allow_resize:
-            self._cell_resize_results = [None] * self.batch_manager.num_records_batch
-            self._cell_resize_mode = True
-            self._current_column_display_name = self._column_display_name(generator.config)
-        else:
-            self._cell_resize_mode = False
 
         label = f"{generator.config.column_type} column '{generator.config.name}'"
         progress_tracker = ProgressTracker(
@@ -1517,27 +1562,7 @@ class DatasetBuilder:
     def _finalize_fan_out(self, progress_tracker: ProgressTracker) -> None:
         progress_tracker.log_final()
 
-        if self._cell_resize_mode:
-            # Flatten results in index order; skip indices in _records_to_drop (failed cells),
-            # so those rows are omitted from the new buffer.
-            new_records: list[dict] = []
-            for i in range(len(self._cell_resize_results)):
-                if i in self._records_to_drop:
-                    continue
-                r = self._cell_resize_results[i]
-                if r is not None:
-                    new_records.extend(r if isinstance(r, list) else [r])
-            self._log_resize_if_changed(
-                self._current_column_display_name,
-                self.batch_manager.num_records_in_buffer,
-                len(new_records),
-                True,
-            )
-            self.batch_manager.replace_buffer(new_records, allow_resize=True)
-            self._records_to_drop.clear()
-            self._cell_resize_mode = False
-            self._cell_resize_results = []
-        elif len(self._records_to_drop) > 0:
+        if len(self._records_to_drop) > 0:
             self._cleanup_dropped_record_images(self._records_to_drop)
             self.batch_manager.drop_records(self._records_to_drop)
             self._records_to_drop.clear()
@@ -1602,7 +1627,7 @@ class DatasetBuilder:
         return callback
 
     def _write_processed_batch(self, dataframe: pd.DataFrame) -> None:
-        self.batch_manager.replace_buffer(dataframe.to_dict(orient="records"), allow_resize=False)
+        self.batch_manager.replace_buffer(dataframe.to_dict(orient="records"))
         self.batch_manager.write()
 
     def _validate_column_configs(self) -> None:
@@ -1728,11 +1753,8 @@ class DatasetBuilder:
             raise RuntimeError("Worker error callback called without a valid context index.")
         self._records_to_drop.add(context["index"])
 
-    def _worker_result_callback(self, result: dict | list[dict], *, context: dict | None = None) -> None:
-        if self._cell_resize_mode:
-            self._cell_resize_results[context["index"]] = result
-        else:
-            self.batch_manager.update_record(context["index"], result)
+    def _worker_result_callback(self, result: dict, *, context: dict | None = None) -> None:
+        self.batch_manager.update_record(context["index"], result)
 
     def _emit_batch_inference_events(
         self, batch_mode: str, usage_deltas: dict[str, ModelUsageStats], group_id: str

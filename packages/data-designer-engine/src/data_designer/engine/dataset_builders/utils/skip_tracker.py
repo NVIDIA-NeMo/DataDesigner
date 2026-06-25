@@ -97,7 +97,6 @@ def restore_skip_metadata(
     records: Sequence[dict],
     *,
     context: SkipMetadataRestoreContext,
-    allow_resize: bool,
 ) -> None:
     """Restore skip provenance using hidden restore IDs instead of row position."""
     restored_source_ids: list[str] = []
@@ -121,13 +120,11 @@ def restore_skip_metadata(
         if meta is not None:
             record[SKIPPED_COLUMNS_RECORD_KEY] = set(meta)
 
-    if not allow_resize:
-        if len(restored_source_ids) != len(context.source_ids) or set(restored_source_ids) != context.source_ids:
-            raise ValueError(
-                "Full-column generation changed the row identity mapping while "
-                "allow_resize=False. Returned rows must preserve a 1:1 mapping "
-                "to the original input so skip provenance can be restored."
-            )
+    if len(restored_source_ids) != len(context.source_ids) or set(restored_source_ids) != context.source_ids:
+        raise ValueError(
+            "Full-column generation changed the row identity mapping. Returned rows must preserve "
+            "a 1:1 mapping to the original input so skip provenance can be restored."
+        )
 
 
 def _choose_restore_id_column(records: Sequence[dict]) -> str:

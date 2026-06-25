@@ -142,10 +142,9 @@ def create_resource_provider(
         )
 
     # Default the client mode from the env var when the caller hasn't decided.
-    # The interface (DataDesigner) computes the mode based on env var AND the
-    # config (e.g. allow_resize columns force a sync fallback) and passes the
-    # result explicitly. Direct callers of this factory still get the env-var
-    # default for backward compatibility.
+    # The interface (DataDesigner) computes the mode and passes the result
+    # explicitly. Direct callers still get the env-var default for backward
+    # compatibility.
     if client_concurrency_mode is None:
         client_concurrency_mode = (
             ClientConcurrencyMode.ASYNC if flags.DATA_DESIGNER_ASYNC_ENGINE else ClientConcurrencyMode.SYNC

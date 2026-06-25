@@ -5,9 +5,8 @@ from __future__ import annotations
 
 import math
 import tracemalloc
-import warnings
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -78,48 +77,6 @@ class MockFullCol(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
     def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
         data["expr_out"] = "computed"
         return data
-
-
-# -- allow_resize validation test ---------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "configs,expected",
-    [
-        pytest.param(
-            [Mock(name="col_a", allow_resize=True), Mock(name="col_b", allow_resize=False)],
-            False,
-            id="fallback_on_allow_resize",
-        ),
-        pytest.param(
-            [Mock(name="col_a", allow_resize=False), Mock(name="col_b", allow_resize=False)],
-            True,
-            id="async_without_allow_resize",
-        ),
-    ],
-)
-def test_resolve_async_compatibility(configs: list[Mock], expected: bool) -> None:
-    """allow_resize=True triggers auto-fallback to sync with a deprecation warning."""
-    builder = Mock(spec=DatasetBuilder)
-    builder.single_column_configs = configs
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = DatasetBuilder._resolve_async_compatibility(builder)
-    assert result is expected
-    if not expected:
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-        assert "allow_resize" in str(w[0].message)
-        # Regression for PR #594 review: the warning must attribute to the
-        # caller's frame (this test file), not to a ``data_designer.*`` library
-        # frame. Library-attributed ``DeprecationWarning`` entries fall under
-        # Python's default ``ignore::DeprecationWarning`` filter and are
-        # silenced. A regression to ``warnings.warn(..., stacklevel=N)`` would
-        # land somewhere inside the engine package and silently break the
-        # user-facing nudge.
-        assert w[0].filename == __file__
-    else:
-        assert len(w) == 0
 
 
 # -- _build_async integration test with mock generators -----------------------

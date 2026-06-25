@@ -155,11 +155,8 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         """Return strategy based on config."""
         return self.config.generation_strategy
 
-    def generate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame | list[dict]:
-        """Generate column value(s) for a row (dict) or batch (DataFrame).
-
-        For cell_by_cell with allow_resize=True, may return dict or list[dict] (0, 1, or N rows).
-        """
+    def generate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
+        """Generate column value(s) for a row (dict) or batch (DataFrame)."""
         is_full_column = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
         is_dataframe = not isinstance(data, dict)
 
@@ -177,7 +174,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         return self._generate(data, is_dataframe)
 
-    async def agenerate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame | list[dict]:
+    async def agenerate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
         """Async generate — branches on strategy and detects coroutine functions."""
         is_full_column = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
         if is_full_column:
@@ -229,7 +226,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             models = self._build_models_dict()
             return await fn(data, self.config.generator_params, models)
 
-    def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame | list[dict]:
+    def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame:
         """Unified generation logic for both strategies."""
         get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
 
@@ -265,28 +262,11 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def _postprocess_result(
         self,
-        result: dict | pd.DataFrame | list[dict],
+        result: dict | pd.DataFrame,
         is_dataframe: bool,
         keys_before: set[str],
-    ) -> dict | pd.DataFrame | list[dict]:
+    ) -> dict | pd.DataFrame:
         """Validate type and output columns of a generation result."""
-        # Cell-by-cell with allow_resize: accept dict or list[dict]
-        if not is_dataframe and self.config.allow_resize:
-            if isinstance(result, dict):
-                return self._validate_output(result, keys_before, is_dataframe)
-            if isinstance(result, list):
-                if not all(isinstance(r, dict) for r in result):
-                    raise CustomColumnGenerationError(
-                        f"Custom generator for column '{self.config.name}' with allow_resize must return "
-                        "dict or list[dict]; list elements must be dicts."
-                    )
-                return [self._validate_cell_output(r, keys_before) for r in result]
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' with allow_resize must return "
-                f"dict or list[dict], got {type(result).__name__}"
-            )
-
-        # Validate return type for non-resize paths
         expected_type = lazy.pd.DataFrame if is_dataframe else dict
         type_name = "DataFrame" if is_dataframe else "dict"
         if not isinstance(result, expected_type):
@@ -425,5 +405,3 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             logger.info(f"{LOG_INDENT}model_aliases: {self.config.model_aliases}")
         if self.config.generator_params:
             logger.info(f"{LOG_INDENT}generator_params: {self.config.generator_params}")
-        if self.config.allow_resize:
-            logger.info(f"{LOG_INDENT}allow_resize: {self.config.allow_resize}")

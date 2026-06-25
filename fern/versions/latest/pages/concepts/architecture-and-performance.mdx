@@ -185,7 +185,7 @@ Resume has a few important invariants:
 
 - `buffer_size` must match the original run.
 - `num_records` must be at least the original target; you may extend a run by requesting more records.
-- Runs with `allow_resize=True` columns are not resumable because row boundaries can change.
+- Row counts must stay stable within a run. Put filtering, expansion, aggregation, or deduplication at workflow boundaries.
 - Once `process_after_generation()` has run, the dataset is considered terminal for resume. Re-running with the same target returns the existing dataset; extending requires a fresh run.
 - If a run crashed after every row group was written but before `process_after_generation()` could start, resume runs after-generation on the existing on-disk dataset (the parquet files are still clean) and marks it terminal afterwards. A crash _during_ `process_after_generation()` still raises — the parquet files may have been partially rewritten and starting fresh is the only safe option.
 
