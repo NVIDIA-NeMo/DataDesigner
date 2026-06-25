@@ -6,7 +6,6 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -36,7 +35,6 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
-from data_designer.engine import flags
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
@@ -392,49 +390,6 @@ def stub_seed_reader():
     return StubHuggingFaceSeedReader()
 
 
-@pytest.mark.parametrize(
-    "env_value,expected,expect_deprecation",
-    [
-        ("1", "async", False),
-        ("0", "sync", True),
-    ],
-    ids=[
-        "async-on-uses-async-clients",
-        "async-off-uses-sync-clients-and-warns",
-    ],
-)
-def test_resolve_client_concurrency_mode_matches_engine_choice(
-    env_value: str,
-    expected: str,
-    expect_deprecation: bool,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Client mode must match the engine the run will actually use.
-
-    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
-    ``DeprecationWarning`` so users on the legacy sync engine see a
-    pre-removal signal in their logs.
-    """
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
-    builder = DataDesignerConfigBuilder()
-    builder.add_column(
-        SamplerColumnConfig(
-            name="seed",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["a"]),
-        )
-    )
-
-    if expect_deprecation:
-        with pytest.warns(DeprecationWarning, match="legacy sync engine"):
-            mode = DataDesigner._resolve_client_concurrency_mode(builder)
-    else:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
-            mode = DataDesigner._resolve_client_concurrency_mode(builder)
-    assert mode.value == expected
-
-
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
     """Test DataDesigner initialization with custom secret resolver."""
     designer = DataDesigner(
@@ -581,6 +536,20 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
         )
     )
     assert data_designer.run_config.shutdown_error_rate == 1.0
+
+
+def test_get_models_uses_sync_clients(stub_artifact_path, stub_model_providers):
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    with patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method:
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.model_registry.get_model.return_value = MagicMock()
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        data_designer.get_models(["stub-model"])
+
+    _, kwargs = mock_resource_provider_method.call_args
+    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.SYNC
 
 
 def test_create_forwards_on_batch_complete_callback(

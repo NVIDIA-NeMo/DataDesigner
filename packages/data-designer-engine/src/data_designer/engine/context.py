@@ -5,8 +5,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 
-# Set per row group by both engines: the async scheduler sets it before each
-# task executes, and the sync engine's ``_run_batch`` sets it for each batch.
+# Set per row group by the async scheduler before each task executes.
 # Value: (current_rg_index, total_rg_count) or None.
 current_row_group: ContextVar[tuple[int, int] | None] = ContextVar("current_row_group", default=None)
 

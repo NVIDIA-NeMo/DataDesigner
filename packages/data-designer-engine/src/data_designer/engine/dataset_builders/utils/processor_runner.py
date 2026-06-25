@@ -14,7 +14,6 @@ from data_designer.engine.storage.artifact_storage import BatchStage
 if TYPE_CHECKING:
     import pandas as pd
 
-    from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
     from data_designer.engine.processing.processors.base import Processor
     from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
@@ -72,15 +71,6 @@ class ProcessorRunner:
                 f"Pre-batch processor changed row count from {original_len} to {new_len}. "
                 "Row-count changes in pre-batch processors are not supported; use workflow chaining instead."
             )
-
-    def run_pre_batch(self, batch_manager: DatasetBatchManager) -> None:
-        """Run process_before_batch() on current batch."""
-        if not self.has_processors_for(ProcessorStage.PRE_BATCH):
-            return
-
-        df = batch_manager.get_current_batch(as_dataframe=True)
-        df = self._run_stage(df, ProcessorStage.PRE_BATCH)
-        batch_manager.replace_buffer(df.to_dict(orient="records"))
 
     def run_pre_batch_on_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """Run PRE_BATCH processors on a DataFrame and return the result.
