@@ -535,7 +535,7 @@ serve-fern-docs-dev:
 	fi
 
 serve-fern-docs-local-theme:
-	PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true $(DOCS_PYTHON) fern/scripts/serve-local-docs-preview.py --root fern -- $(FERN) docs dev
+	@PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true $(DOCS_PYTHON) fern/scripts/serve-local-docs-preview.py --root fern -- $(FERN) docs dev
 
 convert-execute-notebooks:
 ifeq ($(USE_CACHE),1)

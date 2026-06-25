@@ -184,4 +184,4 @@ Raw Fern CLI commands, normally wrapped by Make:
 
 | Symptom | Fix |
 |---------|-----|
-| Local preview uses the local fallback theme | Sign in to https://dashboard.buildwithfern.com, run `cd fern && npx -y fern-api@5.41.1 login`, then retry. If it still falls back, export a privileged `DOCS_FERN_TOKEN` as `FERN_TOKEN`. |
+| Local preview uses the local fallback theme | Sign in to https://dashboard.buildwithfern.com, run `cd fern && npx -y fern-api@$(jq -r .version fern.config.json) login`, then retry. If it still falls back, export a privileged `DOCS_FERN_TOKEN` as `FERN_TOKEN`. |
