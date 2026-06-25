@@ -32,9 +32,17 @@ from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_stub_completion_response
 
 
-def _make_response(content: str | None = None, **kwargs: Any) -> ChatCompletionResponse:
+def _make_response(
+    content: str | None = None,
+    raw: Any | None = None,
+    finish_reason: str | None = None,
+    **kwargs: Any,
+) -> ChatCompletionResponse:
     """Shorthand for creating a ChatCompletionResponse in tests."""
-    return make_stub_completion_response(content=content, **kwargs)
+    response = make_stub_completion_response(content=content, **kwargs)
+    response.raw = raw
+    response.choices[0].finish_reason = finish_reason
+    return response
 
 
 def _assert_no_multi_choice_request(
@@ -258,6 +266,103 @@ async def test_agenerate_includes_parser_validation_detail_in_user_facing_error(
 
     assert exc_info.value.detail == "Response doesn't match requested <response_schema> 'name' is a required property"
     assert exc_info.value.failure_kind == "schema_validation"
+
+
+@pytest.mark.parametrize(
+    ("finish_reason", "raw_response", "expected_truncated"),
+    [
+        ("length", None, True),
+        ("max_tokens", None, True),
+        ("stop", None, False),
+        (None, {"choices": [{"finish_reason": "length"}]}, True),
+        (None, {"stop_reason": "max_tokens"}, True),
+        (None, None, False),
+    ],
+    ids=[
+        "canonical_openai_length",
+        "canonical_anthropic_max_tokens",
+        "canonical_stop",
+        "raw_openai_length_fallback",
+        "raw_anthropic_max_tokens_fallback",
+        "missing_raw",
+    ],
+)
+@patch.object(ModelFacade, "completion", autospec=True)
+def test_generate_sets_truncation_metadata_on_parser_failure(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+    finish_reason: str | None,
+    raw_response: dict[str, Any] | None,
+    expected_truncated: bool,
+) -> None:
+    mock_completion.return_value = _make_response("bad response", raw=raw_response, finish_reason=finish_reason)
+
+    def _failing_parser(response: str) -> str:
+        raise ParserException("Response doesn't match requested <response_schema>\n'name' is a required property")
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        stub_model_facade.generate(
+            prompt="foo",
+            parser=_failing_parser,
+            max_correction_steps=0,
+            max_conversation_restarts=0,
+        )
+
+    assert exc_info.value.truncated_by_max_tokens is expected_truncated
+    if expected_truncated:
+        assert "cut off by max_tokens" in str(exc_info.value)
+        assert "Increase inference_parameters.max_tokens in the model config" in str(exc_info.value)
+    else:
+        assert "cut off by max_tokens" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("finish_reason", "raw_response", "expected_truncated"),
+    [
+        ("length", None, True),
+        ("max_tokens", None, True),
+        ("stop", None, False),
+        (None, {"choices": [{"finish_reason": "length"}]}, True),
+        (None, {"stop_reason": "max_tokens"}, True),
+        (None, None, False),
+    ],
+    ids=[
+        "canonical_openai_length",
+        "canonical_anthropic_max_tokens",
+        "canonical_stop",
+        "raw_openai_length_fallback",
+        "raw_anthropic_max_tokens_fallback",
+        "missing_raw",
+    ],
+)
+@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_sets_truncation_metadata_on_parser_failure(
+    mock_acompletion: AsyncMock,
+    stub_model_facade: ModelFacade,
+    finish_reason: str | None,
+    raw_response: dict[str, Any] | None,
+    expected_truncated: bool,
+) -> None:
+    mock_acompletion.return_value = _make_response("bad response", raw=raw_response, finish_reason=finish_reason)
+
+    def _failing_parser(response: str) -> str:
+        raise ParserException("Response doesn't match requested <response_schema>\n'name' is a required property")
+
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        await stub_model_facade.agenerate(
+            prompt="foo",
+            parser=_failing_parser,
+            max_correction_steps=0,
+            max_conversation_restarts=0,
+        )
+
+    assert exc_info.value.truncated_by_max_tokens is expected_truncated
+    if expected_truncated:
+        assert "cut off by max_tokens" in str(exc_info.value)
+        assert "Increase inference_parameters.max_tokens in the model config" in str(exc_info.value)
+    else:
+        assert "cut off by max_tokens" not in str(exc_info.value)
 
 
 @pytest.mark.parametrize(

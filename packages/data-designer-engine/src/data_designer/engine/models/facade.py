@@ -58,6 +58,27 @@ def _identity(x: Any) -> Any:
 logger = logging.getLogger(__name__)
 
 
+_MAX_TOKENS_FINISH_REASONS = frozenset({"length", "max_tokens"})
+
+
+def _is_max_tokens_finish_reason(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() in _MAX_TOKENS_FINISH_REASONS
+
+
+def _get_response_value(source: Any, key: str) -> Any:
+    if source is None:
+        return None
+    if isinstance(source, dict):
+        return source.get(key)
+    return getattr(source, key, None)
+
+
+def _get_first_response_item(values: Any) -> Any | None:
+    if isinstance(values, list) and values:
+        return values[0]
+    return None
+
+
 def _classify_generation_failure_kind(exc: ParserException) -> str:
     detail = " ".join(str(get_exception_primary_cause(exc)).split()).lower()
     if "response_schema" in detail or "model_validate" in detail:
@@ -67,11 +88,34 @@ def _classify_generation_failure_kind(exc: ParserException) -> str:
     return "parse_error"
 
 
-def _build_generation_validation_error(summary: str, exc: ParserException) -> GenerationValidationFailureError:
+def _response_was_truncated_by_max_tokens(completion_response: ChatCompletionResponse) -> bool:
+    if any(_is_max_tokens_finish_reason(choice.finish_reason) for choice in completion_response.choices):
+        return True
+
+    raw_response = completion_response.raw
+    if raw_response is None:
+        return False
+
+    first_choice = _get_first_response_item(_get_response_value(raw_response, "choices"))
+    finish_reason = _get_response_value(first_choice, "finish_reason")
+    if _is_max_tokens_finish_reason(finish_reason):
+        return True
+
+    stop_reason = _get_response_value(raw_response, "stop_reason")
+    return _is_max_tokens_finish_reason(stop_reason)
+
+
+def _build_generation_validation_error(
+    summary: str,
+    exc: ParserException,
+    *,
+    truncated_by_max_tokens: bool = False,
+) -> GenerationValidationFailureError:
     return GenerationValidationFailureError(
         summary,
         detail=str(get_exception_primary_cause(exc)),
         failure_kind=_classify_generation_failure_kind(exc),
+        truncated_by_max_tokens=truncated_by_max_tokens,
     )
 
 
@@ -400,10 +444,12 @@ class ModelFacade:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
                 break
             except ParserException as exc:
+                truncated_by_max_tokens = _response_was_truncated_by_max_tokens(completion_response)
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise _build_generation_validation_error(
                         "Unsuccessful generation attempt. No retries were attempted.",
                         exc,
+                        truncated_by_max_tokens=truncated_by_max_tokens,
                     ) from exc
 
                 if parse_attempts <= max_correction_steps:
@@ -423,6 +469,7 @@ class ModelFacade:
                             f"and {max_conversation_restarts} conversation restarts."
                         ),
                         exc,
+                        truncated_by_max_tokens=truncated_by_max_tokens,
                     ) from exc
 
         if not skip_usage_tracking and mcp_facade is not None:
@@ -505,10 +552,12 @@ class ModelFacade:
                 output_obj = parser(response)
                 break
             except ParserException as exc:
+                truncated_by_max_tokens = _response_was_truncated_by_max_tokens(completion_response)
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise _build_generation_validation_error(
                         "Unsuccessful generation attempt. No retries were attempted.",
                         exc,
+                        truncated_by_max_tokens=truncated_by_max_tokens,
                     ) from exc
 
                 if parse_attempts <= max_correction_steps:
@@ -527,6 +576,7 @@ class ModelFacade:
                             f"and {max_conversation_restarts} conversation restarts."
                         ),
                         exc,
+                        truncated_by_max_tokens=truncated_by_max_tokens,
                     ) from exc
 
         if not skip_usage_tracking and mcp_facade is not None:
