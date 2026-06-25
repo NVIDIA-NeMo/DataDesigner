@@ -102,6 +102,42 @@ workflow.add_stage("cleanup", cleanup)
 
 This is useful for final cleanup, schema transforms, and format-specific export preparation.
 
+## Postprocessing hooks
+
+Use `output_processors` for structured transforms that can be expressed as processor configs. Use `on_success` when a stage boundary needs arbitrary Python code, such as filtering rows before the next stage runs.
+
+The callback receives the completed stage artifact directory and must return a parquet file or directory that can seed downstream stages.
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+
+def keep_disagreements(stage_path: Path) -> Path:
+    df = pd.read_parquet(stage_path / "parquet-files")
+    df = df[df["judge_a"] != df["judge_b"]]
+
+    out = stage_path / "callback-outputs" / "disagreements-v1"
+    out.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out / "data.parquet", index=False)
+    return out
+
+
+workflow = data_designer.compose_workflow(name="judge-disagreements")
+workflow.add_stage("candidates", candidates, num_records=10_000)
+workflow.add_stage(
+    "judged",
+    judges,
+    on_success=keep_disagreements,
+    on_success_version="disagreements-v1",
+    allow_empty=True,
+)
+workflow.add_stage("enriched", enriched)
+```
+
+`on_success_version` is part of the stage resume identity. Change it when the callback's output semantics change. If a callback returns zero rows, the workflow raises by default; set `allow_empty=True` to mark that stage as completed empty and skip downstream stages.
+
 ## Resume
 
 Workflow names are durable artifact identities. Reusing the same name with `resume=ResumeMode.IF_POSSIBLE` reuses compatible completed stages, resumes a matching partial stage through `DataDesigner.create(..., resume=ResumeMode.ALWAYS)`, and reruns the first changed or missing stage plus its descendants.
