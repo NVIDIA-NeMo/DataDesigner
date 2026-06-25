@@ -94,7 +94,9 @@ def link_components(root: Path, preview_root: Path) -> None:
 
         target.symlink_to(source)
         if source.suffix in COMPONENT_EXTENSIONS:
-            target.with_suffix("").symlink_to(source)
+            alias = target.with_suffix("")
+            if not alias.exists():
+                alias.symlink_to(source)
 
 
 def build_preview_root(root: Path, preview_root: Path) -> None:
