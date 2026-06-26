@@ -133,7 +133,11 @@ class FileSystemSeedSource(SeedSource, ABC):
     def validate_path(cls, value: str | None) -> str | None:
         # Signature is str | None because AgentRolloutSeedSource overrides path to str | None
         # and inherited validators fire for all subclasses.
-        return _validate_filesystem_seed_source_path(value)
+        if value is None:
+            return None
+        if not value.strip():
+            raise InvalidFilePathError("🛑 FileSystemSeedSource.path must be a non-empty string.")
+        return value
 
     @field_validator("file_pattern", mode="after")
     def validate_file_pattern(cls, value: str | None) -> str | None:
@@ -195,14 +199,6 @@ def get_hermes_agent_default_path() -> str:
 
 def get_pi_coding_agent_default_path() -> str:
     return str(Path("~/.pi/agent/sessions").expanduser())
-
-
-def _validate_filesystem_seed_source_path(value: str | None) -> str | None:
-    if value is None:
-        return None
-    if not value.strip():
-        raise InvalidFilePathError("🛑 FileSystemSeedSource.path must be a non-empty string.")
-    return value
 
 
 def _validate_filesystem_seed_source_file_pattern(value: str | None) -> str | None:
