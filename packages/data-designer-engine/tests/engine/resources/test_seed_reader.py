@@ -11,6 +11,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from fsspec.implementations.memory import MemoryFileSystem
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange
@@ -29,6 +30,8 @@ from data_designer.engine.resources.seed_reader import (
     FileContentsSeedReader,
     FileSystemSeedReader,
     LocalFileSeedReader,
+    LocalFileSystemProvider,
+    SeedReaderConfigError,
     SeedReaderError,
     SeedReaderFileSystemContext,
     SeedReaderRegistry,
@@ -49,6 +52,20 @@ class TrackingFileContentsSeedReader(FileContentsSeedReader):
     ) -> dict[str, str]:
         self.hydrated_relative_paths.append(manifest_row["relative_path"])
         return super().hydrate_row(manifest_row=manifest_row, context=context)
+
+
+class StubFileSystemProvider:
+    def __init__(self, context: SeedReaderFileSystemContext) -> None:
+        self.context = context
+        self.ensure_root_exists_calls: list[str] = []
+        self.create_context_calls: list[str] = []
+
+    def ensure_root_exists(self, *, runtime_path: str) -> None:
+        self.ensure_root_exists_calls.append(runtime_path)
+
+    def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext:
+        self.create_context_calls.append(runtime_path)
+        return self.context
 
 
 class PluginStyleDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
@@ -184,6 +201,16 @@ class ContextCountingDirectorySeedReader(FileSystemSeedReader[DirectorySeedSourc
             recursive=self.source.recursive,
         )
         return [{"relative_path": relative_path} for relative_path in matched_paths]
+
+
+class ContextCapturingDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    def __init__(self, fs_provider: StubFileSystemProvider) -> None:
+        super().__init__(fs_provider=fs_provider)
+        self.manifest_context: SeedReaderFileSystemContext | None = None
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, str]]:
+        self.manifest_context = context
+        return [{"label": "captured"}]
 
 
 class TrackingAgentRolloutSeedReader(AgentRolloutSeedReader):
@@ -475,6 +502,61 @@ def test_plugin_style_filesystem_seed_reader_can_fan_out_rows(tmp_path: Path) ->
     assert list(df["relative_path"]) == ["alpha.txt", "alpha.txt", "beta.txt"]
     assert list(df["line_index"]) == [0, 1, 0]
     assert list(df["line"]) == ["alpha-0", "alpha-1", "beta-0"]
+
+
+def test_filesystem_seed_reader_uses_injected_filesystem_provider() -> None:
+    context = SeedReaderFileSystemContext(
+        fs=MemoryFileSystem(),
+        root_path=Path("remote-root"),
+    )
+    context.fs.pipe("alpha.txt", b"alpha")
+    provider = StubFileSystemProvider(context)
+    reader = DirectorySeedReader(fs_provider=provider)
+    reader.attach(
+        DirectorySeedSource(path="remote-root", file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+    assert provider.ensure_root_exists_calls == ["remote-root"]
+    assert provider.create_context_calls == ["remote-root"]
+    assert list(df["relative_path"]) == ["alpha.txt"]
+    assert list(df["source_path"]) == ["remote-root/alpha.txt"]
+
+
+def test_filesystem_seed_reader_passes_provider_context_to_manifest_builder() -> None:
+    context = SeedReaderFileSystemContext(
+        fs=MemoryFileSystem(),
+        root_path=Path("captured-root"),
+    )
+    provider = StubFileSystemProvider(context)
+    reader = ContextCapturingDirectorySeedReader(fs_provider=provider)
+    reader.attach(
+        DirectorySeedSource(path="captured-root"),
+        PlaintextResolver(),
+    )
+
+    assert reader.get_column_names() == ["label"]
+    assert reader.manifest_context is context
+
+
+def test_local_filesystem_provider_creates_context_for_existing_directory(tmp_path: Path) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+
+    provider = LocalFileSystemProvider()
+    provider.ensure_root_exists(runtime_path=str(tmp_path))
+    context = provider.create_context(runtime_path=str(tmp_path))
+
+    assert context.root_path == tmp_path.resolve()
+    assert context.fs.find("", withdirs=False) == ["alpha.txt"]
+
+
+def test_local_filesystem_provider_rejects_missing_directory(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "missing"
+
+    with pytest.raises(SeedReaderConfigError, match="Seed source directory .* does not exist"):
+        LocalFileSystemProvider().ensure_root_exists(runtime_path=str(missing_dir))
 
 
 def test_directory_seed_reader_matches_files_recursively(tmp_path: Path) -> None:
