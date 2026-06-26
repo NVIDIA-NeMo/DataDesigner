@@ -103,6 +103,10 @@ navigation:
         contents:
           - page: Agent Rollout Trace Distillation
             path: ./latest/pages/recipes/trace_ingestion/agent_rollout_distillation.mdx
+      - section: Workflow Chaining
+        contents:
+          - page: Document Review Gate
+            path: ./latest/pages/recipes/workflow_chaining/document_review_gate.mdx
       - section: MCP and Tool Use
         contents:
           - page: Basic MCP Tool Use
@@ -145,6 +149,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Pause, Inspect, Resume
+        path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
       - page: Designing Nemotron-Personas
         path: ./latest/pages/devnotes/posts/nemotron-personas.mdx
       - page: Prompt Sensitivity

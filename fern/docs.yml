@@ -33,6 +33,10 @@ versions:
   slug: latest
 
 redirects:
+  - source: "/nemo/datadesigner/dev-notes/annotate-the-hard-pages"
+    destination: "/nemo/datadesigner/dev-notes/pause-inspect-resume"
+    permanent: false
+
   # ---- Section-only landing ----
   # Mirrors Curator's /home -> /home/welcome convention.
   - source: "/nemo/datadesigner/getting-started"
