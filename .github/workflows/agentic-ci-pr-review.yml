@@ -9,6 +9,9 @@ on:
       pr_number:
         description: "PR number to review"
         required: true
+      timeout_minutes:
+        description: "Review job timeout in minutes. Defaults to AGENTIC_CI_TIMEOUT_MINUTES or 15."
+        required: false
 
 permissions:
   checks: write
@@ -88,7 +91,7 @@ jobs:
     if: needs.gate.outputs.allowed == 'true'
     runs-on: [self-hosted, agentic-ci]
     environment: agentic-ci
-    timeout-minutes: 15
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || vars.AGENTIC_CI_TIMEOUT_MINUTES || '15') }}
     steps:
       - name: Determine PR number
         id: pr
