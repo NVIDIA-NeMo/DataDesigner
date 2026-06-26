@@ -277,8 +277,6 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         if self.path is not None:
             return self.path
         default_path, _ = get_agent_rollout_format_defaults(self.format)
-        if default_path is None:
-            raise ValueError(f"🛑 AgentRolloutSeedSource.path is required for format {self.format.value!r}.")
         return default_path
 
     @property
