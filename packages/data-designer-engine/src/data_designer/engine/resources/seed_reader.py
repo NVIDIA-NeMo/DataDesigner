@@ -267,12 +267,6 @@ class SeedReader(ABC, Generic[SourceT]):
         query_result = conn.query(read_query)
         return DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
 
-    def create_filesystem_context(self, root_path: Path | str) -> SeedReaderFileSystemContext:
-        """Create a rooted filesystem context for directory-backed seed readers."""
-        resolved_root_path = Path(root_path).expanduser().resolve()
-        rooted_fs = DirFileSystem(path=str(resolved_root_path), fs=LocalFileSystem())
-        return SeedReaderFileSystemContext(fs=rooted_fs, root_path=resolved_root_path)
-
     def get_matching_relative_paths(
         self,
         *,
