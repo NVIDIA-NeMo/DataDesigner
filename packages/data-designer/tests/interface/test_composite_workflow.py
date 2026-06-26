@@ -1129,6 +1129,47 @@ def test_composite_workflow_repeat_until_returns_partial_when_exhausted(
     assert metadata["stages"][0]["repeat_satisfied"] is False
 
 
+def test_composite_workflow_repeat_until_returns_empty_partial_when_exhausted(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(
+        stub_model_configs,
+        [{"name": "Ada", "keep": False}, {"name": "Grace", "keep": False}],
+    )
+    stage.add_column(ExpressionColumnConfig(name="candidate", expr="{{ name }} candidate"))
+
+    def keep_rows(stage_path: Path) -> Path:
+        df = lazy.pd.read_parquet(stage_path / "parquet-files")
+        output_path = stage_path / "callback-outputs" / "kept"
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        output_path.mkdir(parents=True)
+        df[df["keep"]].to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="repeat-empty-partial"
+    )
+    workflow.add_stage(
+        "candidates",
+        stage,
+        num_records=1,
+        on_success=keep_rows,
+        on_success_version="kept-v1",
+        repeat_until=RepeatUntil(output_records=1, max_iterations=2, on_exhausted="return_partial"),
+    )
+
+    results = workflow.run()
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "repeat-empty-partial")
+
+    assert results.count_records() == 0
+    assert results.load_dataset().empty
+    assert metadata["stages"][0]["status"] == "completed_empty"
+    assert metadata["stages"][0]["repeat_satisfied"] is False
+
+
 def test_composite_workflow_repeat_until_raises_when_exhausted(
     tmp_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -1199,6 +1240,85 @@ def test_composite_workflow_repeat_until_discard_keeps_latest_attempt(
     assert results["candidates"].count_records() == 3
     assert metadata["stages"][0]["repeat_iterations"] == 2
     assert metadata["stages"][0]["repeat_generated_records"] == 6
+
+
+def test_composite_workflow_repeat_until_discard_warns_when_resuming(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="repeat-discard-resume")
+    workflow.add_stage(
+        "candidates",
+        _category_builder(stub_model_configs),
+        num_records=2,
+        repeat_until=RepeatUntil(output_records=1, max_iterations=2, mode="discard"),
+    )
+    workflow.run()
+
+    metadata_path = stub_artifact_path / "repeat-discard-resume" / "workflow-metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    _mark_stage_resumable(metadata, 0, "failed")
+    metadata_path.write_text(json.dumps(metadata))
+
+    resumed = data_designer.compose_workflow(name="repeat-discard-resume")
+    resumed.add_stage(
+        "candidates",
+        _category_builder(stub_model_configs),
+        num_records=2,
+        repeat_until=RepeatUntil(output_records=1, max_iterations=2, mode="discard"),
+    )
+
+    with caplog.at_level("WARNING", logger="data_designer.interface.composite_workflow"):
+        resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert "previous attempts cannot be resumed" in caplog.text
+
+
+def test_composite_workflow_repeat_until_uses_processor_output(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(
+        stub_model_configs,
+        [{"name": "Ada"}, {"name": "Linus"}, {"name": "Grace"}],
+    )
+    stage_1.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage_2 = _expression_builder(stub_model_configs, "final", "{{ compact_name }} final")
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="repeat-processor-output"
+    )
+    workflow.add_stage(
+        "compact",
+        stage_1,
+        num_records=1,
+        output_processors=[SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"})],
+        output="processor:compact",
+        repeat_until=RepeatUntil(output_records=2, max_iterations=3),
+    )
+    workflow.add_stage("final", stage_2)
+
+    results = workflow.run()
+    final = results.load_dataset().sort_values("compact_name").reset_index(drop=True)
+    stage_output = results.load_stage_output("compact").sort_values("compact_name").reset_index(drop=True)
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "repeat-processor-output")
+
+    assert stage_output.to_dict(orient="records") == [{"compact_name": "Ada"}, {"compact_name": "Linus"}]
+    assert final.to_dict(orient="records") == [
+        {"compact_name": "Ada", "final": "Ada final"},
+        {"compact_name": "Linus", "final": "Linus final"},
+    ]
+    assert metadata["stages"][0]["num_records_requested"] == 2
+    assert metadata["stages"][0]["repeat_iterations"] == 2
+    assert metadata["stages"][0]["output_seed_path"].endswith(
+        "stage-0-compact/output-processors/processors-files/compact"
+    )
 
 
 def test_composite_workflow_does_not_forward_dropped_processor_columns(

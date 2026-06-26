@@ -490,7 +490,7 @@ class CompositeWorkflow:
                 output_records = _count_parquet_records(output_seed_path)
 
                 if output_records == 0:
-                    if not stage.allow_empty:
+                    if not _allows_empty_stage_output(stage, run_result):
                         raise DataDesignerWorkflowError(f"Stage {stage.name!r} produced an empty output.")
                     status = "completed_empty"
                     skipped_upstream_stage = stage.name
@@ -583,6 +583,7 @@ class CompositeWorkflow:
                 stage_dir_name=stage_dir_name,
                 stage_path=stage_path,
                 num_records=num_records,
+                resume=resume,
             )
         return self._run_stage_until_append(
             stage=stage,
@@ -708,8 +709,14 @@ class CompositeWorkflow:
         stage_dir_name: str,
         stage_path: Path,
         num_records: int,
+        resume: ResumeMode,
     ) -> _StageRunResult:
         repeat_until = _require_repeat_until(stage)
+        if resume == ResumeMode.ALWAYS:
+            logger.warning(
+                "Stage %r uses repeat_until mode='discard'; previous attempts cannot be resumed and will be replaced.",
+                stage.name,
+            )
         last_result = None
         generated_records = 0
         iterations_run = 0
@@ -824,7 +831,7 @@ def _handle_repeat_until_exhausted(
         )
     if last_result is None:
         raise DataDesignerWorkflowError(
-            f"Stage {stage.name!r} repeat_until did not run because max_generated_records was too low."
+            f"Stage {stage.name!r} repeat_until did not run because no iteration fit within the configured limits."
         )
     return _with_repeat_result(
         last_result,
@@ -833,6 +840,16 @@ def _handle_repeat_until_exhausted(
         iterations=iterations,
         generated_records=generated_records,
         satisfied=False,
+    )
+
+
+def _allows_empty_stage_output(stage: _WorkflowStage, run_result: _StageRunResult) -> bool:
+    if stage.allow_empty:
+        return True
+    return (
+        stage.repeat_until is not None
+        and stage.repeat_until.on_exhausted == RepeatUntilExhaustion.RETURN_PARTIAL
+        and run_result.repeat_satisfied is False
     )
 
 

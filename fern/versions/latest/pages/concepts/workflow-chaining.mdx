@@ -161,9 +161,11 @@ workflow.add_stage(
 workflow.add_stage("enriched", enriched)
 ```
 
-`num_records` is the per-attempt size. In the default `mode="append"`, Data Designer extends the stage by another attempt each iteration, reruns `on_success`, and feeds exactly `output_records` selected rows downstream. Set `on_exhausted="return_partial"` to keep the best partial output when the bounds are reached; otherwise the workflow raises.
+`num_records` is the per-attempt size. In the default `mode="append"`, each iteration requests the cumulative stage size (`num_records`, then `2 * num_records`, and so on), reruns `on_success` over the accumulated stage output, and feeds exactly `output_records` selected rows downstream.
 
-Use `mode="discard"` when each attempt should replace the previous selected output instead of accumulating it. Keep bounded limits in place: a low acceptance rate is often a signal to inspect the recipe, not just to run indefinitely.
+Set `on_exhausted="return_partial"` to keep the best partial output when the bounds are reached; otherwise the workflow raises. If no rows pass, the stage completes empty and downstream stages are skipped, matching `allow_empty=True` behavior.
+
+Use `mode="discard"` when each attempt should replace the previous selected output instead of accumulating it. Discard mode restarts the stage on resume because previous attempts are intentionally replaced. Keep bounded limits in place: a low acceptance rate is often a signal to inspect the recipe, not just to run indefinitely. In append mode, `max_generated_records` caps the cumulative requested stage size; in discard mode, it caps records produced across attempts.
 
 ## Changing row counts between stages
 
