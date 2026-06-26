@@ -481,7 +481,6 @@ class CompositeWorkflow:
                     stage_path=stage_path,
                     num_records=num_records,
                     resume=stage_resume,
-                    prior_stage_metadata=prior_stage_metadata,
                 )
                 output_seed_path = run_result.output_seed_path
                 override_path = _stage_output_override(stage.name, stage_output_overrides)
@@ -564,7 +563,6 @@ class CompositeWorkflow:
         stage_path: Path,
         num_records: int,
         resume: ResumeMode,
-        prior_stage_metadata: dict[str, Any] | None,
     ) -> _StageRunResult:
         if stage.repeat_until is None:
             return self._run_stage_attempt(
@@ -593,7 +591,6 @@ class CompositeWorkflow:
             stage_path=stage_path,
             num_records=num_records,
             resume=resume,
-            prior_stage_metadata=prior_stage_metadata,
         )
 
     def _run_stage_attempt(
@@ -663,16 +660,14 @@ class CompositeWorkflow:
         stage_path: Path,
         num_records: int,
         resume: ResumeMode,
-        prior_stage_metadata: dict[str, Any] | None,
     ) -> _StageRunResult:
         repeat_until = _require_repeat_until(stage)
-        start_iteration = _append_start_iteration(num_records, resume, prior_stage_metadata)
         last_result = None
-        for iteration in range(start_iteration, repeat_until.max_iterations + 1):
+        for iteration in range(1, repeat_until.max_iterations + 1):
             requested_records = num_records * iteration
             if _exceeds_max_generated_records(repeat_until, requested_records):
                 break
-            attempt_resume = resume if iteration == start_iteration else ResumeMode.ALWAYS
+            attempt_resume = resume if iteration == 1 else ResumeMode.ALWAYS
             last_result = self._run_stage_attempt(
                 stage=stage,
                 stage_builder=stage_builder,
@@ -763,19 +758,6 @@ def _require_repeat_until(stage: _WorkflowStage) -> RepeatUntil:
     if stage.repeat_until is None:
         raise DataDesignerWorkflowError(f"Stage {stage.name!r} has no repeat_until policy.")
     return stage.repeat_until
-
-
-def _append_start_iteration(
-    num_records: int,
-    resume: ResumeMode,
-    prior_stage_metadata: dict[str, Any] | None,
-) -> int:
-    if resume != ResumeMode.ALWAYS or prior_stage_metadata is None:
-        return 1
-    prior_requested = prior_stage_metadata.get("num_records_requested")
-    if not isinstance(prior_requested, int) or prior_requested <= num_records:
-        return 1
-    return -(-prior_requested // num_records)
 
 
 def _exceeds_max_generated_records(repeat_until: RepeatUntil, generated_records: int) -> bool:
