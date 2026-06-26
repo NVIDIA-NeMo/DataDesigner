@@ -1,0 +1,309 @@
+---
+title: "Airport Baggage Screening Scans"
+description: "Generate defensive synthetic baggage-screening style images with controlled clutter, material mix, scanner style, and threat-type labels."
+---
+<Info title="Download Recipe">
+  [Download the complete recipe script](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/fern/assets/recipes/image_generation/airport_security_scans.py)
+</Info>
+
+```python
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+# ]
+# ///
+"""Airport Baggage Screening Image Generation Recipe
+
+Generate synthetic airport baggage-screening style images with controlled
+variation over scanner style, bag density, benign clutter, material mix, object
+overlap, and high-level defensive threat-type labels.
+
+Security note:
+    This recipe is intended for defensive model development, evaluation,
+    curriculum data, and human-review tooling. Do not use it to plan, optimize,
+    or describe ways to bypass real screening systems. The prompts avoid
+    operational bypass details and use high-level threat types rather than
+    concealment instructions.
+
+Prerequisites:
+    - An image-generation provider key for the selected model. The defaults use
+      OpenRouter, so set OPENROUTER_API_KEY before running.
+
+Run:
+    uv run airport_security_scans.py --num-records 10
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
+
+DEFAULT_MODEL_PROVIDER = "openrouter"
+DEFAULT_MODEL_ID = "google/gemini-3.1-flash-image-preview"
+DEFAULT_MODEL_ALIAS = "baggage-screening-image-model"
+
+
+def build_model_configs(
+    *,
+    model_provider: str,
+    model_id: str,
+    model_alias: str,
+    image_size: str,
+    aspect_ratio: str,
+    max_parallel_requests: int,
+) -> list[dd.ModelConfig]:
+    """Build a provider-agnostic image-generation model config."""
+    return [
+        dd.ModelConfig(
+            alias=model_alias,
+            model=model_id,
+            provider=model_provider,
+            inference_parameters=dd.ImageInferenceParams(
+                extra_body={
+                    "n": 1,
+                    "generationConfig": {
+                        "imageConfig": {
+                            "aspectRatio": aspect_ratio,
+                            "imageSize": image_size,
+                        }
+                    },
+                },
+                max_parallel_requests=max_parallel_requests,
+            ),
+            skip_health_check=True,
+        )
+    ]
+
+
+def add_category(config_builder: dd.DataDesignerConfigBuilder, name: str, values: list[str]) -> None:
+    """Add a categorical sampler column."""
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name=name,
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=values),
+        )
+    )
+
+
+def add_visual_variation_id(config_builder: dd.DataDesignerConfigBuilder) -> None:
+    """Add a unique row-level key that discourages duplicate image generations."""
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="visual_variation_id",
+            sampler_type=dd.SamplerType.UUID,
+            params=dd.UUIDSamplerParams(prefix="scan-", short_form=True),
+        )
+    )
+
+
+def build_config(
+    *,
+    model_provider: str = DEFAULT_MODEL_PROVIDER,
+    model_id: str = DEFAULT_MODEL_ID,
+    model_alias: str = DEFAULT_MODEL_ALIAS,
+    image_size: str = "1024",
+    aspect_ratio: str = "4:3",
+    max_parallel_requests: int = 10,
+) -> dd.DataDesignerConfigBuilder:
+    """Build an airport baggage-screening image-generation pipeline."""
+    model_configs = build_model_configs(
+        model_provider=model_provider,
+        model_id=model_id,
+        model_alias=model_alias,
+        image_size=image_size,
+        aspect_ratio=aspect_ratio,
+        max_parallel_requests=max_parallel_requests,
+    )
+    config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
+    add_visual_variation_id(config_builder)
+
+    add_category(
+        config_builder,
+        "scanner_style",
+        [
+            "dual-energy X-ray baggage scan with pseudo-color material mapping",
+            "computed tomography baggage scan slice rendered as pseudo-color X-ray",
+            "top-down carry-on baggage screening view",
+            "side-view checked-bag screening image",
+        ],
+    )
+
+    add_category(
+        config_builder,
+        "bag_type",
+        [
+            "small carry-on roller bag",
+            "soft backpack",
+            "messenger bag",
+            "hard-shell suitcase",
+            "duffel bag",
+            "camera equipment case",
+        ],
+    )
+
+    add_category(
+        config_builder,
+        "bag_density",
+        [
+            "sparse packing with many empty regions",
+            "moderate packing density",
+            "dense packing with overlapping objects",
+            "very dense packing with cluttered object boundaries",
+        ],
+    )
+
+    add_category(
+        config_builder,
+        "benign_contents",
+        [
+            "clothing, shoes, toiletries, and paperback books",
+            "laptop, chargers, headphones, notebooks, and snacks",
+            "camera body, lenses, batteries, cables, and clothing",
+            "children's toys, folded clothing, tablet, and water bottle",
+            "sports gear, towel, shoes, and plastic accessories",
+            "business travel items, documents, laptop, and power adapters",
+        ],
+    )
+
+    add_category(
+        config_builder,
+        "material_mix",
+        [
+            "mostly fabric and plastic with a few small metal objects",
+            "electronics-heavy bag with cables and batteries",
+            "mixed organic, plastic, and metal materials",
+            "mostly low-density organic material with scattered dense regions",
+            "many small overlapping metal and plastic objects",
+        ],
+    )
+
+    add_category(
+        config_builder,
+        "threat_type",
+        [
+            "none - clear benign bag with no threat-like visual pattern",
+            "dense electronics cluster requiring secondary review",
+            "oversized liquid-container-like region requiring secondary review",
+            "sharp-object-like silhouette requiring secondary review",
+            "unknown dense object requiring secondary review",
+            "clutter and overlapping objects preventing confident clearance",
+            "organic anomaly requiring secondary review",
+            "ambiguous tool-like silhouette requiring secondary review",
+        ],
+    )
+
+    add_category(
+        config_builder,
+        "image_quality",
+        [
+            "clean scanner output with crisp object boundaries",
+            "slightly noisy scanner output",
+            "low-contrast scan with compressed dynamic range",
+            "scan with mild motion blur",
+            "scan with color palette shifted toward orange and blue material classes",
+        ],
+    )
+
+    config_builder.add_column(
+        dd.ImageColumnConfig(
+            name="baggage_scan",
+            prompt=AIRPORT_SECURITY_SCAN_PROMPT,
+            model_alias=model_alias,
+        )
+    )
+
+    return config_builder
+
+
+def create_dataset(
+    config_builder: dd.DataDesignerConfigBuilder,
+    *,
+    num_records: int,
+    dataset_name: str,
+    artifact_path: Path | str | None = None,
+) -> DatasetCreationResults:
+    data_designer = DataDesigner(artifact_path=artifact_path)
+    data_designer.validate(config_builder)
+    return data_designer.create(config_builder, num_records=num_records, dataset_name=dataset_name)
+
+
+AIRPORT_SECURITY_SCAN_PROMPT = """\
+Create a synthetic airport baggage-screening training image that shows only the scan content.
+
+Image requirements:
+- Visual variation ID, for internal diversity only: {{ visual_variation_id }}
+- Scanner style: {{ scanner_style }}
+- Bag type: {{ bag_type }}
+- Bag density: {{ bag_density }}
+- Benign contents: {{ benign_contents }}
+- Material mix: {{ material_mix }}
+- Threat type metadata target, not text to render: {{ threat_type }}
+- Image quality: {{ image_quality }}
+
+Render the image as a realistic pseudo-color baggage scan, not a normal photo.
+Show overlapping objects, material-color variation, partial occlusion, and
+scanner-like attenuation. The image should be useful for defensive model
+development and human-review training.
+
+Generate exactly one final scan image for this row. Do not return alternate
+versions, a grid, a pair of examples, a before/after image, multiple scans, or
+multiple panels. Use the visual variation ID only as an internal diversity key
+for object placement, scanner angle, and material pattern; never render it as
+text.
+
+The output must be the scan image only. Do not add labels, legends, captions,
+classification text, bounding boxes, arrows, callouts, segmentation overlays,
+heatmaps, UI panels, scanner controls, watermarks, timestamps, filenames, row
+IDs, colored outlines, or any additional layer of text. Do not include
+operational airport details, real airport names, passenger names, barcodes,
+boarding passes, bypass instructions, or anything that describes how to hide or
+evade detection. Use the threat type only to shape the broad visual contents of
+the bag scan.
+"""
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate synthetic airport baggage-screening images.")
+    parser.add_argument("--num-records", type=int, default=10, help="Number of baggage scan images to generate.")
+    parser.add_argument("--dataset-name", default="synthetic-baggage-screening-scans", help="Output dataset name.")
+    parser.add_argument("--artifact-path", type=Path, default=None, help="Optional Data Designer artifact directory.")
+    parser.add_argument("--model-provider", default=DEFAULT_MODEL_PROVIDER, help="Image model provider name.")
+    parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="Provider model ID.")
+    parser.add_argument("--model-alias", default=DEFAULT_MODEL_ALIAS, help="Alias used by image columns.")
+    parser.add_argument("--image-size", default="1024", help="Provider-specific image size value.")
+    parser.add_argument("--aspect-ratio", default="4:3", help="Provider-specific aspect ratio value.")
+    parser.add_argument("--max-parallel-requests", type=int, default=10, help="Maximum parallel image requests.")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    config_builder = build_config(
+        model_provider=args.model_provider,
+        model_id=args.model_id,
+        model_alias=args.model_alias,
+        image_size=args.image_size,
+        aspect_ratio=args.aspect_ratio,
+        max_parallel_requests=args.max_parallel_requests,
+    )
+    results = create_dataset(
+        config_builder,
+        num_records=args.num_records,
+        dataset_name=args.dataset_name,
+        artifact_path=args.artifact_path,
+    )
+    dataset = results.load_dataset()
+    print(f"Generated {len(dataset)} synthetic baggage-screening rows.")
+    print(f"Dataset artifacts: {results.artifact_storage.base_dataset_path}")
+
+
+if __name__ == "__main__":
+    main()
+```

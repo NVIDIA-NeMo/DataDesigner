@@ -1,0 +1,1101 @@
+---
+title: "Image Generation for Multimodal Data Pipelines"
+description: "From document VQA to autonomous-vehicle scenes, X-rays, drone frames, and funny pet edits — controlled image datasets you can inspect row by row."
+---
+
+import { Authors } from "@/components/Authors";
+import { ImageExample } from "@/components/ImageExample";
+
+<Authors ids={["nmulepati"]} />
+
+At [PyData London 2026](https://www.youtube.com/watch?v=QSpVpNcDqso&list=PLGVZCDnMOq0rFQykYJg7t441AEpN4SszE&index=5), we ran a hands-on session on synthetic data pipelines with [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner/) and [NeMo Anonymizer](https://github.com/NVIDIA-NeMo/Anonymizer/). We put together a set of notebooks that ramped up gradually: text QA first, then multimodal visual QA, then privacy-safe feedback data.
+
+For the VQA notebook, it would have been more straightforward to start from an existing PDF dataset on Hugging Face. The catch is that we would still need to inspect and filter that dataset until it had the document types we wanted for the workshop: layouts, charts, tables, annotations, scan artifacts, and enough visual evidence to support real questions. It was more interesting, and honestly easier, to build that seed dataset with Data Designer and declare the distribution directly.
+
+It worked out better than I expected. Each generated document stayed tied to the sampler controls that produced it, which made the dataset easy to inspect, tweak, and reuse. Folding images into a synthetic data generation (SDG) workflow unlocks a lot of interesting use cases, and Data Designer makes the transition seamless: moving from text to images feels familiar, so you can focus on designing the dataset instead of wrestling with the plumbing of the pipeline.
+
+In this dev note, we'll briefly touch on the document-generation use case from PyData, then explore other image SDG use cases while having some fun along the way. Hint: funny pet images are involved. 😂
+
+{/* more */}
+
+![A Data Designer palette mascot photographing funny pets on a sunny backyard patio](/assets/image-generation-for-multimodal-data-pipelines/image-generation-hero.jpg)
+
+## Not Just Model Training
+
+Training data is the obvious headline when it comes to SDG. It is also too narrow. Generated images are also useful wherever you need controlled visual cases: evaluation datasets, benchmark slices, reviewer training, privacy-safe demos, etc. For many teams, those datasets become core development infrastructure.
+
+The common need is control. What you really want is to define the parameters that guide your dataset's distribution. That gives you ground-truth metadata for every image, which you can lean on later in your workflows: you know what is in each image, what change was applied, and what behavior the row is supposed to exercise. Did the VLM answer from evidence in the document, or from a plausible guess? Did a reviewer catch the dense electronics cluster in a baggage scan? Did an apparel edit preserve the garment after changing the scene? Did a prompt regress on rainy-night ego-camera frames after a model upgrade?
+
+There is also a very practical reason: image pipelines are fun to build. The effect of a sampler change is visible. If you change weather, camera angle, crop severity, scan quality, garment styling, or robot viewpoint, you can usually see the distribution move in the preview rows very easily. Text pipelines can be harder to reason about because the differences are often subtle or buried inside longer generations. With images, the iteration loop has a nice immediacy: change a control, preview a few rows, and your eyes tell you whether the pipeline is moving in the right direction.
+
+That immediacy is not just a nicer authoring experience. It turns generated images into practical development assets across a few recurring workflows:
+
+| Workflow | Concrete example |
+| --- | --- |
+| Evaluation dataset creation | Build a 500-row document VQA set where only scan quality, chart type, and table density vary, then measure whether a VLM still answers evidence-grounded questions. |
+| Benchmark datasets | Publish a fixed slice of rainy-night traffic scenes with known road type, weather, lighting, and hazard metadata so model releases can be compared against the same visual conditions. |
+| Human training and calibration | Give reviewers airport-screening-style or crop-disease examples with known high-level labels so teams can practice a rubric before touching governed real data. |
+| Regression testing | Keep a small suite of product image edits that should preserve the product shape and color while changing the background, then rerun it after model, prompt, or provider changes. |
+| Failure analysis | Generate variants around a known weak spot, such as low-contrast charts with glare, cluttered robot workspaces, partially occluded products, or creased phone-photo scans. |
+| Labeling taxonomy design | Create synthetic agriculture, humanoid-robot, or airport-baggage examples to decide where labels such as "minor occlusion," "severe stress," or "unsafe obstruction" should begin and end. |
+| Product demos and sales engineering | Show invoice extraction, product QA, or drone damage-assessment workflows with realistic synthetic examples instead of customer documents, patient imagery, facility photos, or operational scans. |
+| Privacy-safe sharing | Reproduce a multimodal bug with synthetic medical-style, logistics, or security-review images so another team can debug the pipeline without receiving sensitive source imagery. |
+| Synthetic monitoring | Run a nightly canary set of generated documents, product variants, traffic scenes, and robot-view images to catch drift in deployed prompts, judges, or model endpoints. |
+
+Model training can still be the destination. But generated images are just as valuable as controlled visual test cases: small enough to inspect, repeatable enough to compare over time, and structured enough to become evaluation rows, review exercises, benchmark slices, monitoring canaries, or debugging cases.
+
+## The Image Building Blocks
+
+Here is the part I like most: moving from text to images does not feel like switching frameworks.
+
+You still declare columns, dependencies, model aliases, samplers, structured outputs, validators, and processors. The engine still resolves the DAG. `preview()` still gives you a small thing to look at before you scale. `create()` still writes the artifact-backed dataset. The difference is that some columns now produce images, and other columns can edit, caption, inspect, extract, score, or transform those images.
+
+In `create()` mode, the image bytes are saved with the dataset, typically under `images/<column_name>/` with UUID-style filenames. The dataframe stores relative paths instead of giant image blobs, which keeps large image payloads out of memory-heavy row data as pipelines scale. That small detail matters: a generated image can be opened from disk, rendered in a preview table, or passed into the next image-aware column through `ImageContext`, while the same row keeps the sampler values that explain why the image exists.
+
+That gives you three building blocks that feel familiar once you have written any Data Designer pipeline. Text-to-image columns generate visual examples from controlled metadata and prompt templates. Image-to-image columns use an existing or generated image as context, then produce controlled variants. Image-to-text columns send images into VLM-backed columns for captions, QA pairs, labels, extraction, or judge decisions.
+
+That last part is the real developer-experience win. The image is not an orphaned file on disk with a mysterious filename. It remains part of the row. It can move into a VLM judge, become a benchmark example, feed an editing step, or sit in a preview gallery with the exact metadata that produced it.
+
+## A Quick Document QA Preview
+
+For the PyData workshop, the document seed dataset came from the optional [`bonus_generate_documents.ipynb`](https://github.com/nabinchha/pydata-london-2026-data-designer-anonymizer/blob/main/notebooks/bonus_generate_documents.ipynb) notebook. It is a small notebook with a useful job: make business-document pages where I can choose the document type, layout, visual content, annotation style, and scan condition instead of hoping those cases exist in a downloaded dataset.
+
+The full notebook includes the model setup, sampler columns, export step, and preview helpers. The core image column is just a normal Data Designer column:
+
+```python
+config_builder.add_column(
+    dd.ImageColumnConfig(
+        name="document_image",
+        prompt="""
+Create a realistic single-page business document image with rich visual information.
+
+Document requirements:
+- Document type: {{ document_type }}
+- Layout style: {{ layout_style }}
+- Physical/rendering condition: {{ document_condition }}
+- Annotation layer: {{ annotation_layer }}
+
+Required visual content:
+- Primary visual: {{ primary_visual }}
+- Secondary visual: {{ secondary_visual }}
+- At least one readable table with row and column labels
+- At least one chart, timeline, heatmap, diagram, or KPI-card cluster
+- Enough visual evidence to ask questions about values, trends, labels, dates, and relationships
+""",
+        model_alias="document-generation-model",
+    )
+)
+```
+
+Those generated pages became the visual seed data for the document VQA notebook. We do not need to unpack the full VQA pipeline here. The useful bit is simpler: during preview, each image sits beside the metadata that shaped it. You can immediately see whether the run is giving you the document types and visual conditions you intended.
+
+Here are a few rows from that generated dataset. The image is the fun part. The sampler values are what make the image useful.
+
+<ImageExample
+  title={"Example 1: product launch readiness plan · formal memo with letterhead, dense paragraphs, and one embedded chart"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/01.jpg"}
+  alt={"Synthetic rich business document page"}
+  imageWidth={"50%"}
+  controls={[
+    ["document type", "product launch readiness plan"],
+    ["layout style", "formal memo with letterhead, dense paragraphs, and one embedded chart"],
+    ["primary visual", "donut chart with callout labels and percentages"],
+    ["secondary visual", "dense financial table with subtotals and variance arrows"],
+    ["document condition", "low-contrast scan with light shadow near the binding edge"],
+    ["annotation layer", "blue sticky note partially covering the lower right table"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: quarterly business review · research brief with abstract, sidebar definitions, and figure captions"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/02.jpg"}
+  alt={"Synthetic rich business document page"}
+  imageWidth={"75%"}
+  controls={[
+    ["document type", "quarterly business review"],
+    ["layout style", "research brief with abstract, sidebar definitions, and figure captions"],
+    ["primary visual", "stacked area chart showing category mix over six months"],
+    ["secondary visual", "two-column risk register with owner, due date, and mitigation note"],
+    ["document condition", "high-resolution office scanner output"],
+    ["annotation layer", "handwritten margin note asking for follow-up"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: customer support incident review · dashboard export with a top filter bar and grid of panels"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/03.jpg"}
+  alt={"Synthetic rich business document page"}
+  imageWidth={"50%"}
+  controls={[
+    ["document type", "customer support incident review"],
+    ["layout style", "dashboard export with a top filter bar and grid of panels"],
+    ["primary visual", "waterfall chart showing contributors to budget variance"],
+    ["secondary visual", "signature block plus approval checklist"],
+    ["document condition", "creased printout with a clipped corner"],
+    ["annotation layer", "yellow highlights over two key numbers"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: employee engagement summary · clean consulting report page with narrow margins and section dividers"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/04.jpg"}
+  alt={"Synthetic rich business document page"}
+  imageWidth={"50%"}
+  controls={[
+    ["document type", "employee engagement summary"],
+    ["layout style", "clean consulting report page with narrow margins and section dividers"],
+    ["primary visual", "heatmap matrix with risk severity by team and region"],
+    ["secondary visual", "compact map inset with region labels and numeric badges"],
+    ["document condition", "high-resolution office scanner output"],
+    ["annotation layer", "handwritten margin note asking for follow-up"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: quarterly business review · board-pack page with title ribbon, footnotes, and small-print source notes"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/05.jpg"}
+  alt={"Synthetic rich business document page"}
+  imageWidth={"50%"}
+  controls={[
+    ["document type", "quarterly business review"],
+    ["layout style", "board-pack page with title ribbon, footnotes, and small-print source notes"],
+    ["primary visual", "clustered bar chart comparing three regions across four quarters"],
+    ["secondary visual", "signature block plus approval checklist"],
+    ["document condition", "faded photocopy with mild paper texture"],
+    ["annotation layer", "red pen circle around one chart outlier"],
+  ]}
+/>
+
+## Image Editing Is Just Another Dependency
+
+Image-to-image editing uses the same idea. Generate one image or use an existing one from a seed dataset, pass it forward as context, and ask the next column to make a controlled change. The dependency is declared with `ImageContext`:
+
+```python
+config_builder.add_column(
+    dd.ImageColumnConfig(
+        name="animal_portrait",
+        prompt="A close-up portrait photograph of a {{ animal }} looking at the camera, studio lighting, high quality.",
+        model_alias="image-model",
+    )
+)
+
+config_builder.add_column(
+    dd.ImageColumnConfig(
+        name="edited_portrait",
+        prompt=(
+            "Edit this {{ animal }} portrait photo. "
+            "Add {{ accessory }} on the animal. "
+            "Place the {{ animal }} in {{ setting }}. "
+            "Render the result in {{ art_style }}. "
+            "Keep the animal's face, expression, and features faithful to the original photo."
+        ),
+        model_alias="image-model",
+        multi_modal_context=[dd.ImageContext(column_name="animal_portrait")],
+    )
+)
+```
+
+There is a little bit of plumbing under the hood. In preview mode, the first image is base64 and can be passed directly to the second column. In create mode, the first image is stored as a relative path under the output artifact directory; Data Designer resolves it back to base64 before sending it to a remote model endpoint.
+
+As a user, you do not have to write that glue code. You declare the dependency. The engine handles the mechanics.
+
+That is enough to build some very practical loops:
+
+- Generate a clean document, then edit it into a low-quality scan.
+- Generate a product image, then produce regional packaging variants.
+- Generate a base traffic scene, then add weather, lighting, or hazard conditions.
+- Generate an image, caption it with a VLM, then judge whether the caption matches.
+
+The important constraint is model capability. Diffusion-style image routes are excellent for text-to-image generation, but they generally do not consume image context. Autoregressive multimodal image models can support image-to-image workflows through the chat-completions route. Data Designer exposes both through the same column API while leaving model choice explicit.
+
+<Note title="Model Choice Sets the Quality Ceiling">
+The examples in this dev note use `google/gemini-3.1-flash-image-preview`. Data Designer makes the workflow consistent across models, but the selected model still sets the ceiling for visual quality, text rendering, instruction following, editing fidelity, domain realism, and how closely the output follows your sampler controls.
+</Note>
+
+## A Tour Across Domains
+
+Instead of walking through one giant example line by line, let's look at a few use cases. Image generation gets more interesting when you see it jump domains: documents, apparel, ego-camera traffic scenes, robot viewpoints, baggage scans, X-rays, crops, drone frames, and one deliberately unserious pet-editing example at the end. The code shape stays familiar, but the distributions change completely. Each use case also has an accompanying recipe linked at the bottom if you want to explore it on your own.
+
+For each one, the image is paired with the sampler controls that produced it. That pairing matters. A pretty image is nice. A pretty image with the exact knobs that created it is something you can debug, filter, rerun, judge, or hand to a reviewer.
+
+<Warning title="Specialized Domains Need Experts">
+Some examples in this section touch specialized or safety-sensitive domains: medical imaging, airport screening, autonomous vehicles, robotics, agriculture, and infrastructure inspection. Treat them as synthetic examples for prototyping, evaluation, curriculum design, and review workflows. Domain experts should define the distributions, review the outputs, and decide what is appropriate before anything operational.
+</Warning>
+
+### Product image variations
+
+Product imagery is a nice place to start because the pain is easy to understand. A brand may have one clean catalog image of an adult model wearing a garment, but the downstream needs multiply quickly: white-background thumbnails, lifestyle shots, fit-guide photos, adaptive-fashion examples, seasonal campaign images, and inclusive catalog coverage across adult age groups, ethnicities, body types, poses, and accessibility contexts.
+
+In Data Designer, the reference product image can come from a seed dataset or from an upstream `ImageColumnConfig`. The edit column receives that image through `ImageContext` and changes the scene while trying to preserve the product's identity:
+
+```python
+config_builder.add_column(
+    dd.ImageColumnConfig(
+        name="product_variant_image",
+        prompt=PRODUCT_VARIATION_PROMPT,
+        model_alias="product-image-model",
+        multi_modal_context=[dd.ImageContext(column_name="base_product_image")],
+    )
+)
+```
+
+The important thing is that the creative brief is not trapped inside one long prompt. Apparel item, colorway, variation goal, adult model age group, ethnicity, body type, accessibility context, styling context, composition, and lighting are all columns. That means you can inspect the distribution, filter it, rerun slices, and add a VLM judge to check whether the garment stayed consistent or whether the edit introduced unwanted logos, text, minors, or unsafe styling.
+
+<ImageExample
+  title={"Example 1: adaptive zip-front jacket · adaptive-fashion catalog image focused on ease of wear"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/01.jpg"}
+  alt={"Before and after adult apparel image variation"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["apparel item", "adaptive zip-front jacket"],
+        ["base colorway", "brushed silver"],
+        ["base view", "front-facing standing full-body catalog photo with one synthetic adult model"],
+        ["base model profile", "young adult South Asian model with a plus-size build"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["variation goal", "adaptive-fashion catalog image focused on ease of wear"],
+        ["model age group", "middle-aged adult model"],
+        ["model ethnicity", "White or European model"],
+        ["body type", "broad-shouldered build"],
+        ["accessibility context", "seated model without visible mobility aids"],
+        ["composition", "single seated full-body pose showing garment fit with the whole body visible"],
+        ["lighting", "softbox studio lighting"],
+      ],
+    },
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: quilted puffer vest · editorial fashion image with soft premium lighting"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/02.png"}
+  alt={"Before and after adult apparel image variation"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["apparel item", "quilted puffer vest"],
+        ["base colorway", "denim blue"],
+        ["base view", "walking-pose full-body catalog photo with one synthetic adult model"],
+        ["base model profile", "young adult Indigenous model with a broad-shouldered build"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["variation goal", "editorial fashion image with soft premium lighting"],
+        ["edit scene delta", "move from a neutral studio catalog reference into a smart-casual workplace corridor scene"],
+        ["model age group", "senior adult model"],
+        ["model ethnicity", "Pacific Islander model"],
+        ["body type", "petite build"],
+        ["accessibility context", "model with no specific accessibility cue"],
+        ["styling context", "minimal geometric studio set"],
+        ["composition", "side-angle full-body pose with clear garment silhouette"],
+        ["lighting", "natural window light"],
+      ],
+    },
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: ribbed knit cardigan · lifestyle lookbook image in an everyday urban setting"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/03.png"}
+  alt={"Before and after adult apparel image variation"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["apparel item", "ribbed knit cardigan"],
+        ["base colorway", "terracotta"],
+        ["base view", "three-quarter standing full-body catalog photo with one synthetic adult model"],
+        ["base model profile", "older White model with a curvy build"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["variation goal", "lifestyle lookbook image in an everyday urban setting"],
+        ["edit scene delta", "move from a neutral studio catalog reference into a premium editorial studio set with draped fabric"],
+        ["model age group", "middle-aged adult model"],
+        ["model ethnicity", "South Asian model"],
+        ["body type", "tall build"],
+        ["accessibility context", "model with no specific accessibility cue"],
+        ["styling context", "weekend park setting"],
+        ["composition", "single walking full-body pose with natural garment movement"],
+        ["lighting", "softbox studio lighting"],
+      ],
+    },
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: water-resistant rain jacket · editorial fashion image with soft premium lighting"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/04.jpg"}
+  alt={"Before and after adult apparel image variation"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["apparel item", "water-resistant rain jacket"],
+        ["base colorway", "sunflower yellow"],
+        ["base view", "walking-pose full-body catalog photo with one synthetic adult model"],
+        ["base model profile", "young adult South Asian model with a plus-size build"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["variation goal", "editorial fashion image with soft premium lighting"],
+        ["model age group", "young adult model"],
+        ["model ethnicity", "Black or African diaspora model"],
+        ["body type", "broad-shouldered build"],
+        ["accessibility context", "model leaning lightly against a studio block"],
+        ["composition", "front-facing full-body catalog pose with the entire person visible"],
+        ["lighting", "soft overcast outdoor light"],
+      ],
+    },
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: wide-leg linen trousers · editorial fashion image with soft premium lighting"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/05.png"}
+  alt={"Before and after adult apparel image variation"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["apparel item", "wide-leg linen trousers"],
+        ["base colorway", "charcoal gray"],
+        ["base view", "front-facing standing full-body catalog photo with one synthetic adult model"],
+        ["base model profile", "young adult multiracial model with a slender build"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["variation goal", "editorial fashion image with soft premium lighting"],
+        ["edit scene delta", "move from a neutral studio catalog reference into a warm home entryway lookbook scene"],
+        ["model age group", "senior adult model"],
+        ["model ethnicity", "Black or African diaspora model"],
+        ["body type", "tall build"],
+        ["accessibility context", "seated model without visible mobility aids"],
+        ["styling context", "minimal geometric studio set"],
+        ["composition", "single seated full-body pose showing garment fit with the whole body visible"],
+        ["lighting", "natural window light"],
+      ],
+    },
+  ]}
+/>
+
+### Autonomous vehicles
+
+Autonomous-vehicle teams care about the long tail: the thing that happens rarely, in bad weather, at an awkward intersection, with just enough weirdness to matter. Those cases are hard to collect deliberately, and many are not safe to stage.
+
+The recipe generates ego-camera views from the self-driving vehicle itself. Each row also carries the scenario metadata that explains what the frame is trying to test:
+
+<Warning title="Not Safety Validation">
+Synthetic traffic scenes are useful for scenario exploration, prompt development, visual QA, and review workflows. They do not replace simulator testing, closed-course validation, real sensor logs, or safety analysis by autonomous-vehicle experts.
+</Warning>
+
+The controls cover geographic region, road type, weather, time of day, traffic density, vehicle mix, road surface, traffic control, and the scenario element.
+
+The `scenario_element` sampler is where the recipe earns its keep: a child chasing a ball, a school bus with a flashing stop sign, a jaywalking pedestrian at night, a cyclist riding against traffic, a fire truck in the oncoming lane, a malfunctioning traffic light, debris in the roadway. Synthetic images do not replace simulation, closed-course testing, or sensor logs. They do give you a fast way to build controlled perception and review sets around situations you want to discuss before you go hunting for them in real data.
+
+<ImageExample
+  title={"Example 1: rural two-lane country road · pedestrian jaywalking mid-block"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/01.jpg"}
+  alt={"Autonomous vehicle ego-camera traffic scene"}
+  controls={[
+    ["geographic region", "US - sprawling suburban (Los Angeles-style)"],
+    ["road type", "rural two-lane country road"],
+    ["weather", "dense fog - visibility under 50ft"],
+    ["time of day", "mid-morning - bright sun, long shadows"],
+    ["traffic density", "light - 3-5 vehicles visible"],
+    ["vehicle mix", "includes delivery vans/box trucks"],
+    ["scenario element", "pedestrian jaywalking mid-block"],
+    ["road surface", "potholes and road damage visible"],
+    ["traffic control", "construction signage and cones"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: urban street with mixed retail/residential · cyclist making left turn"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/02.jpg"}
+  alt={"Autonomous vehicle ego-camera traffic scene"}
+  controls={[
+    ["geographic region", "US - rural Midwest"],
+    ["road type", "urban street with mixed retail/residential"],
+    ["weather", "dense fog - visibility under 50ft"],
+    ["time of day", "late afternoon - golden hour"],
+    ["traffic density", "stop-and-go - bumper-to-bumper"],
+    ["vehicle mix", "sedans and compact cars"],
+    ["scenario element", "cyclist making left turn"],
+    ["road surface", "recent patching - uneven surface"],
+    ["traffic control", "construction signage and cones"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: intersection - 4-way with traffic lights · traffic light malfunctioning - flashing red"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/03.jpg"}
+  alt={"Autonomous vehicle ego-camera traffic scene"}
+  controls={[
+    ["geographic region", "US - sprawling suburban (Los Angeles-style)"],
+    ["road type", "intersection - 4-way with traffic lights"],
+    ["weather", "light rain - misty windshield"],
+    ["time of day", "mid-morning - bright sun, long shadows"],
+    ["traffic density", "empty - no other vehicles visible"],
+    ["vehicle mix", "includes large trucks/semi-trailers"],
+    ["scenario element", "traffic light malfunctioning - flashing red"],
+    ["road surface", "recent patching - uneven surface"],
+    ["traffic control", "speed limit sign - 25 mph"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: bridge - concrete overpass · traffic barrel knocked into lane"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/04.jpg"}
+  alt={"Autonomous vehicle ego-camera traffic scene"}
+  controls={[
+    ["geographic region", "US - rural Midwest"],
+    ["road type", "bridge - concrete overpass"],
+    ["weather", "moderate rain - active wipers"],
+    ["time of day", "early morning - golden-gray light"],
+    ["traffic density", "stop-and-go - bumper-to-bumper"],
+    ["vehicle mix", "sedans and compact cars"],
+    ["scenario element", "traffic barrel knocked into lane"],
+    ["road surface", "wet with puddles"],
+    ["traffic control", "lane-closure arrow board and construction barrels"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: rural motorway · disabled vehicle on shoulder"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/05.jpg"}
+  alt={"Autonomous vehicle ego-camera traffic scene"}
+  controls={[
+    ["geographic region", "Europe - orderly infrastructure (German autobahn)"],
+    ["road type", "rural motorway / autobahn-style highway"],
+    ["weather", "clear dusk"],
+    ["time of day", "dusk - post-sunset twilight"],
+    ["traffic density", "sparse - 1-2 vehicles in distance"],
+    ["vehicle mix", "includes bus/coach"],
+    ["scenario element", "disabled vehicle on shoulder with warning triangle"],
+    ["road surface", "dry pavement with clear lane markings"],
+    ["traffic control", "right-lane merge advisory sign"],
+  ]}
+/>
+
+### Humanoid robot scene understanding
+
+Humanoid robot examples get interesting when the camera has a body. The question is not just "what objects are in the room?" It is what the robot can see from its pose, what it can reach, whether the path is safe, what changed on the table, and whether a nearby adult matters to the task.
+
+Synthetic scenes let you vary the room, camera pose, object set, hazard, clutter, lighting, and adult human presence without collecting imagery from real homes, labs, hospitals, or workplaces.
+
+For robotics, the fun part is also the hard part: the frame only matters if it resembles what the robot could actually see. Human factors, safety, environment design, and robotics experts should review any dataset meant to influence embodied behavior.
+
+<ImageExample
+  title={"Example 1: hospital supply room · power cable crossing the walking path"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/01.jpg"}
+  alt={"Egocentric humanoid robot scene-understanding image"}
+  controls={[
+    ["environment", "hospital supply room with carts, bins, and sealed supplies"],
+    ["robot viewpoint", "chest-mounted camera with both robot hands barely visible at the bottom edge"],
+    ["task goal", "identify which objects are reachable from the current pose"],
+    ["object set", "meal tray, sealed supplies, clipboard, and rolling cart"],
+    ["scene state", "container open with mixed contents visible"],
+    ["safety condition", "power cable crossing the walking path"],
+    ["human presence", "adult caregiver standing in the background with face turned away"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: mock apartment living room · close manipulation view"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/02.jpg"}
+  alt={"Egocentric humanoid robot scene-understanding image"}
+  controls={[
+    ["environment", "mock apartment living room arranged for assistive robotics"],
+    ["robot viewpoint", "close manipulation view with one robot hand near the target object"],
+    ["task goal", "verify that a cleanup task is complete"],
+    ["object set", "pipette rack, beaker, nitrile gloves, and small screwdriver"],
+    ["scene state", "container open with mixed contents visible"],
+    ["safety condition", "no visible hazard"],
+    ["human presence", "adult office worker's arm visible near the handoff area"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: office break room · inspect a spill or obstacle"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/03.jpg"}
+  alt={"Egocentric humanoid robot scene-understanding image"}
+  controls={[
+    ["environment", "office break room with appliances, tableware, and waste bins"],
+    ["robot viewpoint", "chest-mounted camera with both robot hands barely visible at the bottom edge"],
+    ["task goal", "inspect a spill or obstacle before moving closer"],
+    ["object set", "mug, kettle, sponge, dish towel, and cereal bowl"],
+    ["scene state", "task area partly blocked by a chair or cart"],
+    ["safety condition", "power cable crossing the walking path"],
+    ["lighting", "high-contrast backlighting from a nearby window"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: low crouched inspection · power cable crossing the walking path"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/04.jpg"}
+  alt={"Egocentric humanoid robot scene-understanding image"}
+  controls={[
+    ["environment", "mock apartment living room arranged for assistive robotics"],
+    ["robot viewpoint", "low crouched inspection angle looking under a table or cart"],
+    ["task goal", "decide whether fragile items are too close to an edge"],
+    ["object set", "barcode scanner, tote, tape dispenser, folded shirt, and box cutter"],
+    ["scene state", "container open with mixed contents visible"],
+    ["safety condition", "power cable crossing the walking path"],
+    ["lighting", "dim hallway light with localized task lamp"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: retail stockroom · fragile item near the table edge"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/05.jpg"}
+  alt={"Egocentric humanoid robot scene-understanding image"}
+  controls={[
+    ["environment", "retail stockroom with shelves, totes, and handheld items"],
+    ["robot viewpoint", "head-mounted camera at standing adult height"],
+    ["task goal", "identify which objects are reachable from the current pose"],
+    ["object set", "pliers, hex keys, small bolts, tape measure, and plastic bins"],
+    ["scene state", "fragile item near the table edge"],
+    ["safety condition", "no visible hazard"],
+    ["human presence", "no person visible"],
+  ]}
+/>
+
+### Airport security screening
+
+Airport baggage-screening is a place where realistic-looking examples are valuable but real data is hard to move around. Scans are sensitive, operationally constrained, and not something you casually paste into a notebook.
+
+A synthetic pipeline can vary scanner style, bag type, packing density, benign clutter, material mix, image quality, and high-level `threat_type` labels.
+
+The point is not to describe bypass tactics. The useful workflow is defensive: scanner-like images for model evaluation, human-review training, curriculum data, and visual QA around whether a bag should receive secondary review. The same generate-inspect-judge loop applies, with extra care around what the prompts should and should not encode.
+
+<ImageExample
+  title={"Example 1: messenger bag · clutter and overlap preventing confident clearance"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/01.jpg"}
+  alt={"Synthetic defensive airport baggage screening image"}
+  controls={[
+    ["scanner style", "dual-energy X-ray baggage scan with pseudo-color material mapping"],
+    ["bag type", "messenger bag"],
+    ["bag density", "very dense packing with cluttered object boundaries"],
+    ["benign contents", "business travel items, documents, laptop, and power adapters"],
+    ["material mix", "many small overlapping metal and plastic objects"],
+    ["threat type", "clutter and overlapping objects preventing confident clearance"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: hard-shell suitcase · oversized liquid-container-like region"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/02.jpg"}
+  alt={"Synthetic defensive airport baggage screening image"}
+  controls={[
+    ["scanner style", "side-view checked-bag screening image"],
+    ["bag type", "hard-shell suitcase"],
+    ["bag density", "sparse packing with many empty regions"],
+    ["benign contents", "camera body, lenses, batteries, cables, and clothing"],
+    ["material mix", "mostly fabric and plastic with a few small metal objects"],
+    ["threat type", "oversized liquid-container-like region requiring secondary review"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: soft backpack · unknown dense object"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/03.jpg"}
+  alt={"Synthetic defensive airport baggage screening image"}
+  controls={[
+    ["scanner style", "computed tomography baggage scan slice rendered as pseudo-color X-ray"],
+    ["bag type", "soft backpack"],
+    ["bag density", "dense packing with overlapping objects"],
+    ["benign contents", "clothing, shoes, toiletries, and paperback books"],
+    ["material mix", "many small overlapping metal and plastic objects"],
+    ["threat type", "unknown dense object requiring secondary review"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: duffel bag · dense electronics cluster"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/04.jpg"}
+  alt={"Synthetic defensive airport baggage screening image"}
+  controls={[
+    ["scanner style", "top-down carry-on baggage screening view"],
+    ["bag type", "duffel bag"],
+    ["bag density", "very dense packing with cluttered object boundaries"],
+    ["benign contents", "laptop, chargers, headphones, notebooks, and snacks"],
+    ["material mix", "electronics-heavy bag with cables and batteries"],
+    ["threat type", "dense electronics cluster requiring secondary review"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: soft backpack · oversized liquid-container-like region"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/05.jpg"}
+  alt={"Synthetic defensive airport baggage screening image"}
+  controls={[
+    ["scanner style", "dual-energy X-ray baggage scan with pseudo-color material mapping"],
+    ["bag type", "soft backpack"],
+    ["bag density", "very dense packing with cluttered object boundaries"],
+    ["benign contents", "children's toys, folded clothing, tablet, and water bottle"],
+    ["material mix", "mixed organic, plastic, and metal materials"],
+    ["threat type", "oversized liquid-container-like region requiring secondary review"],
+  ]}
+/>
+
+### Medical imaging
+
+This is where we slow down. The X-ray example uses the same Data Designer shape, but with extra caution. It samples a synthetic patient persona, anatomical region, view, equipment type, imaging context, exposure quality, positioning, primary finding, secondary findings, and image quality. The outputs are for AI research, education, data-pipeline prototyping, and evaluation workflows. They are not diagnostic images.
+
+<Warning title="Research Only">
+These are synthetic radiograph-style images. They are not real medical images, are not diagnostic, and must not be used for clinical decision-making. Medical domain experts should review any medical-imaging distribution, prompt, label schema, and generated output before it is used in a serious workflow.
+</Warning>
+
+The appeal here is distribution design. Real medical data is often scarce, private, and skewed toward common findings. A generated dataset can deliberately oversample rare fracture patterns, technical artifacts, positioning issues, or demographic slices, then attach ground-truth metadata because the pipeline produced the image in the first place.
+
+The next obvious columns are not image columns at all: radiology reports, severity scores, anatomical-consistency validators, and judge columns. That is the point. Once the image is a row, the rest of the Data Designer stack can work around it.
+
+<ImageExample
+  title={"Example 1: left hip · osteoarthritis with joint space narrowing and osteophytes"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/01.jpg"}
+  alt={"Synthetic research-only extremity X-ray style image"}
+  controls={[
+    ["anatomical region", "left hip"],
+    ["xray view", "oblique external rotation"],
+    ["primary finding", "osteoarthritis with joint space narrowing and osteophytes"],
+    ["secondary findings", "old healed fracture with callus formation"],
+    ["exposure quality", "high kVp technique with better soft tissue visualization"],
+    ["image quality", "limited by patient body habitus"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: left tibia and fibula · boxer's fracture of the fifth metacarpal neck"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/02.jpg"}
+  alt={"Synthetic research-only extremity X-ray style image"}
+  controls={[
+    ["anatomical region", "left tibia and fibula"],
+    ["xray view", "stress view"],
+    ["primary finding", "boxer's fracture of the fifth metacarpal neck"],
+    ["secondary findings", "soft tissue calcifications"],
+    ["exposure quality", "optimal exposure with clear cortical and trabecular detail"],
+    ["image quality", "fair with mild motion artifact"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: right shoulder · osteomyelitis with cortical destruction"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/03.jpg"}
+  alt={"Synthetic research-only extremity X-ray style image"}
+  imageWidth={"50%"}
+  controls={[
+    ["anatomical region", "right shoulder"],
+    ["xray view", "lateral"],
+    ["primary finding", "osteomyelitis with cortical destruction"],
+    ["secondary findings", "osteopenia"],
+    ["exposure quality", "underexposed with cortical margins poorly defined"],
+    ["image quality", "fair with mild noise or graininess"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: left ankle · radial head fracture"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/04.jpg"}
+  alt={"Synthetic research-only extremity X-ray style image"}
+  imageWidth={"50%"}
+  controls={[
+    ["anatomical region", "left ankle"],
+    ["xray view", "weight-bearing AP"],
+    ["primary finding", "radial head fracture"],
+    ["secondary findings", "old healed fracture with callus formation"],
+    ["exposure quality", "low kVp technique with high bone contrast"],
+    ["image quality", "limited by patient body habitus"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: right knee · osteoarthritis with joint space narrowing and osteophytes"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/05.jpg"}
+  alt={"Synthetic research-only extremity X-ray style image"}
+  imageWidth={"50%"}
+  controls={[
+    ["anatomical region", "right knee"],
+    ["xray view", "anteroposterior (AP)"],
+    ["primary finding", "osteoarthritis with joint space narrowing and osteophytes"],
+    ["secondary findings", "soft tissue calcifications"],
+    ["exposure quality", "underexposed with cortical margins poorly defined"],
+    ["image quality", "fair with cast or splint partially obscuring detail"],
+  ]}
+/>
+
+### Agriculture
+
+Agriculture became more compelling once we framed it as crop disease detection instead of generic crop imagery. Now the controls have a job: vary crop type, growth stage, viewpoint, disease or confounding condition, severity, field condition, and weather. The output can help teams evaluate prompts, calibrate reviewers, or design a disease-labeling taxonomy before moving to governed field imagery.
+
+Crop pathology is its own discipline, so generated crop-disease images should be reviewed by agronomists or crop-health experts before they shape field decisions, label taxonomies, or benchmark claims.
+
+<ImageExample
+  title={"Example 1: soybean · insect feeding damage as a disease confounder"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/01.jpg"}
+  alt={"Synthetic crop disease detection image"}
+  controls={[
+    ["crop type", "soybean"],
+    ["growth stage", "flowering"],
+    ["viewpoint", "top-down drone crop-row view"],
+    ["disease or condition", "insect feeding damage as a disease confounder"],
+    ["severity", "high severity affecting large field sections"],
+    ["field condition", "mulched bed system"],
+    ["weather lighting", "hazy smoky sky"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: grape vineyard · early blight with concentric brown leaf spots"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/02.jpg"}
+  alt={"Synthetic crop disease detection image"}
+  controls={[
+    ["crop type", "grape vineyard"],
+    ["growth stage", "flowering"],
+    ["viewpoint", "greenhouse bench view"],
+    ["disease or condition", "early blight with concentric brown leaf spots"],
+    ["severity", "low severity affecting isolated plants"],
+    ["field condition", "visible irrigation lines"],
+    ["weather lighting", "golden hour light"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: potato · late blight with irregular dark lesions"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/03.jpg"}
+  alt={"Synthetic crop disease detection image"}
+  controls={[
+    ["crop type", "potato"],
+    ["growth stage", "flowering"],
+    ["viewpoint", "orchard row view"],
+    ["disease or condition", "late blight with irregular dark lesions"],
+    ["severity", "low severity affecting isolated plants"],
+    ["field condition", "dry cracked soil"],
+    ["weather lighting", "golden hour light"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: grape vineyard · downy mildew patches on leaf undersides"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/04.jpg"}
+  alt={"Synthetic crop disease detection image"}
+  controls={[
+    ["crop type", "grape vineyard"],
+    ["growth stage", "grain fill"],
+    ["viewpoint", "close-up leaf-level scouting photo"],
+    ["disease or condition", "downy mildew patches on leaf undersides"],
+    ["severity", "low severity affecting isolated plants"],
+    ["field condition", "patchy emergence"],
+    ["weather lighting", "golden hour light"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: tomato · insect feeding damage as a disease confounder"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/05.jpg"}
+  alt={"Synthetic crop disease detection image"}
+  controls={[
+    ["crop type", "tomato"],
+    ["growth stage", "fruiting"],
+    ["viewpoint", "orchard row view"],
+    ["disease or condition", "insect feeding damage as a disease confounder"],
+    ["severity", "high severity affecting large field sections"],
+    ["field condition", "uniform crop stand"],
+    ["weather lighting", "greenhouse diffuse lighting"],
+  ]}
+/>
+
+### Drone aerial inspection
+
+Drone aerial inspection gives you controlled, asset-level views that are wider than ground photos but still specific enough to ask about roof condition, bridge decks, culverts, pipelines, construction progress, storm damage, debris, and access paths.
+
+For the examples here, the prompt asks for clean raw drone frames: no HUDs, no boxes, no callouts, no labels, and no inspection-report overlays. That makes the images better suited for VLM evaluation because the model has to rely on the scene instead of helpful text stamped on top of it.
+
+Inspection imagery can drift into real-world safety, insurance, and compliance decisions quickly. Synthetic drone examples are best treated as review and evaluation fixtures unless qualified inspectors or domain teams approve the task design.
+
+<ImageExample
+  title={"Example 1: utility pipeline corridor · erosion or washout near an edge"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/01.jpg"}
+  alt={"Synthetic drone aerial inspection image"}
+  controls={[
+    ["site type", "utility pipeline corridor"],
+    ["inspection target", "standing water"],
+    ["altitude", "very low drone pass, about 10 meters above the target"],
+    ["camera angle", "overview frame with the target centered"],
+    ["defect or event", "erosion or washout near an edge"],
+    ["severity", "none"],
+    ["occlusion", "partially occluded by shadows"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: construction site · vegetation growth obscuring part of the asset"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/02.jpg"}
+  alt={"Synthetic drone aerial inspection image"}
+  controls={[
+    ["site type", "construction site"],
+    ["inspection target", "roof covering condition"],
+    ["altitude", "very low drone pass, about 10 meters above the target"],
+    ["camera angle", "oblique 45-degree inspection angle"],
+    ["defect or event", "vegetation growth obscuring part of the asset"],
+    ["severity", "minor and easy to miss"],
+    ["occlusion", "partially occluded by temporary equipment"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: commercial flat roof · small crack or seam separation"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/03.jpg"}
+  alt={"Synthetic drone aerial inspection image"}
+  controls={[
+    ["site type", "commercial flat roof"],
+    ["inspection target", "debris blocking access"],
+    ["altitude", "higher overview pass, about 100 meters above the target"],
+    ["camera angle", "shallow side-looking pass"],
+    ["defect or event", "small crack or seam separation"],
+    ["severity", "severe and clearly visible"],
+    ["occlusion", "motion blur from drone movement"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: roadway and drainage culvert · surface discoloration"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/04.jpg"}
+  alt={"Synthetic drone aerial inspection image"}
+  controls={[
+    ["site type", "roadway and drainage culvert"],
+    ["inspection target", "debris blocking access"],
+    ["altitude", "low drone pass, about 25 meters above the target"],
+    ["camera angle", "close detail view with wide-angle lens"],
+    ["defect or event", "surface discoloration that may be benign"],
+    ["severity", "moderate and localized"],
+    ["occlusion", "partially occluded by temporary equipment"],
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: bridge deck and support structure · vegetation obscuring part of the asset"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/05.jpg"}
+  alt={"Synthetic drone aerial inspection image"}
+  controls={[
+    ["site type", "bridge deck and support structure"],
+    ["inspection target", "surface cracking"],
+    ["altitude", "medium drone pass, about 60 meters above the target"],
+    ["camera angle", "overview frame with the target centered"],
+    ["defect or event", "vegetation growth obscuring part of the asset"],
+    ["severity", "severe and clearly visible"],
+    ["occlusion", "partially occluded by tree branches"],
+  ]}
+/>
+
+### Funny pet image edits 🐾
+
+And then there is the important scientific frontier of making pets slightly more ridiculous.
+
+This one is intentionally playful, but the pattern is the same as the product-editing examples: generate a controlled reference image, pass it forward through `ImageContext`, and sample edit conditions that change the scene while preserving the subject.
+
+The controls are not "make funny image" as one giant prompt. They are ordinary columns: pet type, breed, age, activity, setting, expression, base photo style, comedy goal, prop, scene escalation, and humor style. The breed and age columns are conditioned on `pet_type` with `SubcategorySamplerParams`, so dog rows sample dog breeds and dog age bands, while cat rows sample cat breeds and cat age bands.
+
+It is useful for creative-review workflows, image-editing demos, identity-preservation evaluation, safety checks around benign edits, and human preference exercises. It also makes the dev note less solemn, which feels only fair after X-rays, baggage scans, crop disease, and drone inspection.
+
+```python
+config_builder.add_column(
+    dd.ImageColumnConfig(
+        name="funny_pet_image",
+        prompt=FUNNY_PET_EDIT_PROMPT,
+        model_alias="funny-pet-image-model",
+        multi_modal_context=[dd.ImageContext(column_name="base_pet_image")],
+    )
+)
+```
+
+<ImageExample
+  title={"Example 1: gray tabby cat · very serious chef inspecting a tiny bowl"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/01.png"}
+  alt={"Before and after funny pet image edit"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["pet type", "cat"],
+        ["pet breed", "gray tabby"],
+        ["pet age", "adult cat, 4 to 10 years old"],
+        ["base activity", "posing beside a cardboard box"],
+        ["base setting", "tidy kitchen corner"],
+        ["pet expression", "proud little smirk"],
+        ["base photo style", "warm editorial pet portrait"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["comedy goal", "stage the pet as a very serious chef inspecting a tiny bowl"],
+        ["funny prop", "miniature necktie"],
+        ["scene escalation", "add a neatly arranged set of miniature props around the pet"],
+        ["humor style", "cozy wholesome comedy"],
+      ],
+    },
+  ]}
+/>
+
+<ImageExample
+  title={"Example 2: tiny long-haired dog · orchestra conductor for squeaky toys"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/02.png"}
+  alt={"Before and after funny pet image edit"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["pet type", "dog"],
+        ["pet breed", "Shih Tzu"],
+        ["pet age", "adult dog, 4 to 7 years old"],
+        ["base activity", "balanced calmly beside a pile of toys"],
+        ["base setting", "laundry room with folded towels"],
+        ["pet expression", "sleepy but determined expression"],
+        ["base photo style", "slightly low-angle comedic portrait"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["comedy goal", "stage the pet as a tiny orchestra conductor for squeaky toys"],
+        ["funny prop", "tiny blanket cape"],
+        ["scene escalation", "add a neatly arranged set of miniature props around the pet"],
+        ["humor style", "overly dramatic tiny-professional energy"],
+      ],
+    },
+  ]}
+/>
+
+<ImageExample
+  title={"Example 3: scruffy terrier · blanket-cape superhero with plush audience"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/03.png"}
+  alt={"Before and after funny pet image edit"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["pet type", "dog"],
+        ["pet breed", "mixed-breed terrier"],
+        ["pet age", "young adult dog, 1 to 4 years old"],
+        ["base activity", "looking directly at the camera with dramatic seriousness"],
+        ["base setting", "soft studio backdrop"],
+        ["pet expression", "proud little smirk"],
+        ["base photo style", "clean studio portrait with gentle shadows"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["comedy goal", "stage the pet as a blanket-cape superhero in a cozy room"],
+        ["funny prop", "blank tiny clipboard with no writing"],
+        ["scene escalation", "add an audience of plush toys in the background"],
+        ["humor style", "gentle visual slapstick without distress"],
+      ],
+    },
+  ]}
+/>
+
+<ImageExample
+  title={"Example 4: wide-eyed corgi · cardboard-spaceship pilot"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/04.png"}
+  alt={"Before and after funny pet image edit"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["pet type", "dog"],
+        ["pet breed", "Pembroke Welsh corgi"],
+        ["pet age", "young adult dog, 1 to 4 years old"],
+        ["base activity", "sitting proudly at a small table"],
+        ["base setting", "soft studio backdrop"],
+        ["pet expression", "wide-eyed confused expression"],
+        ["base photo style", "natural phone photo with soft daylight"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["comedy goal", "stage the pet as a cardboard-spaceship pilot with abstract controls"],
+        ["funny prop", "miniature trophy with no writing"],
+        ["scene escalation", "add a whimsical but tidy tabletop set"],
+        ["humor style", "deadpan absurdity"],
+      ],
+    },
+  ]}
+/>
+
+<ImageExample
+  title={"Example 5: scruffy terrier · toy stage performer under a tiny spotlight"}
+  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/05.png"}
+  alt={"Before and after funny pet image edit"}
+  controlGroups={[
+    {
+      label: "Initial image controls",
+      controls: [
+        ["pet type", "dog"],
+        ["pet breed", "mixed-breed terrier"],
+        ["pet age", "adult dog, 4 to 7 years old"],
+        ["base activity", "sitting proudly at a small table"],
+        ["base setting", "soft studio backdrop"],
+        ["pet expression", "deeply serious expression"],
+        ["base photo style", "slightly low-angle comedic portrait"],
+      ],
+    },
+    {
+      label: "Edit conditions",
+      controls: [
+        ["comedy goal", "stage the pet as a toy stage performer under a tiny spotlight"],
+        ["funny prop", "miniature trophy with no writing"],
+        ["scene escalation", "add a playful spotlight and dramatic shadows"],
+        ["humor style", "cozy wholesome comedy"],
+      ],
+    },
+  ]}
+/>
+
+## Other Use Cases Worth Building
+
+There are plenty of other production-relevant lanes to build out: manufacturing inspection, insurance claims, enterprise UI screenshots, packaging and compliance labels, industrial safety, education and science diagrams, e-commerce imagery, and accessibility datasets. The world really is your oyster!
+
+Those are better as focused follow-up recipes. Each one needs a real distribution to control, a failure mode to isolate, and a reviewer or model behavior to measure.
+
+Some domains need subject-matter review, policy constraints, or explicit disclaimers. That does not make them off-limits for synthetic data work. It means the bar for distribution design and review is higher.
+
+## The Practical Loop
+
+The workflow I keep coming back to is small and repeatable: declare the distribution you want, generate a tiny preview, inspect images beside their metadata, add VLM checks or human review notes, revise the prompts, then scale with `create()`.
+
+`preview()` is where you find out whether your idea survives contact with the model. `create()` writes the artifact-backed dataset: image files live with the dataset, dataframe rows keep references and metadata, downstream columns can use generated images as context, and judges or validators can score the outputs. The result is not just "more images." It is a dataset you can reason about.
+
+## Try It
+
+Start with the official image tutorials:
+
+- [Generating Images](/tutorials/generating-images)
+- [Providing Images as Context](/tutorials/providing-images-as-context)
+- [Image-to-Image Editing](/tutorials/image-to-image-editing)
+- [Rich Document Image Generation](/recipes/image-generation/rich-document-image-generation)
+- [Product Image Variations](/recipes/image-generation/product-image-variations)
+- [Autonomous Vehicle Traffic Scenarios](/recipes/image-generation/autonomous-vehicle-traffic-scenarios)
+- [Synthetic Extremity X-rays](/recipes/image-generation/synthetic-extremity-x-rays)
+- [Airport Baggage Screening Scans](/recipes/image-generation/airport-baggage-screening-scans)
+- [Humanoid Robot Scene Understanding](/recipes/image-generation/humanoid-robot-scene-understanding)
+- [Crop Disease Detection Images](/recipes/image-generation/crop-disease-detection-images)
+- [Drone Aerial Inspection](/recipes/image-generation/drone-aerial-inspection)
+- [Funny Pet Image Edits](/recipes/image-generation/funny-pet-image-edits)
+
+For the full PyData workshop arc, see the [workshop repository](https://github.com/nabinchha/pydata-london-2026-data-designer-anonymizer) and the [session recording](https://www.youtube.com/watch?v=QSpVpNcDqso&list=PLGVZCDnMOq0rFQykYJg7t441AEpN4SszE&index=5).
