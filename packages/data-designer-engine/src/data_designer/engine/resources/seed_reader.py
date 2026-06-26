@@ -428,7 +428,10 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         This hook is preserved for existing plugin readers. New host integrations
         should prefer passing a ``FileSystemProvider`` to the reader constructor.
         """
-        return self._get_fs_provider().create_context(runtime_path=str(root_path))
+        runtime_path = str(root_path)
+        provider = self._get_fs_provider()
+        provider.ensure_root_exists(runtime_path=runtime_path)
+        return provider.create_context(runtime_path=runtime_path)
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
         return self.create_dataframe_duckdb_connection(
@@ -531,7 +534,6 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         self._ensure_attached()
         context = getattr(self, "_filesystem_context", None)
         if context is None:
-            self._get_fs_provider().ensure_root_exists(runtime_path=self.source.runtime_path)
             context = self.create_filesystem_context(self.source.runtime_path)
             self._filesystem_context = context
         return context
