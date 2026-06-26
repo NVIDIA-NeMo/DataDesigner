@@ -335,6 +335,61 @@ def test_full_column_custom_generator_failure_sets_first_error(stub_resource_pro
     )
 
 
+def test_expression_column_row_drops_shrink_sync_batch(
+    stub_resource_provider: Mock,
+    stub_model_configs: dict[str, object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"seed_id": [1, 2, 3, 4], "text": ["a", "", "c", "d"]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(seed_source)
+    config_builder.add_column(ExpressionColumnConfig(name="copy", expr="{{ text }}"))
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = builder.build_preview(num_records=4)
+
+    assert result["seed_id"].tolist() == [1, 3, 4]
+    assert result["copy"].tolist() == ["a", "c", "d"]
+    assert "Expression column 'copy' dropped 1/4 rows after render: EmptyRenderedExpression=1." in caplog.text
+
+
+def test_expression_column_row_drops_shrink_sync_skip_aware_batch(
+    stub_resource_provider: Mock,
+    stub_model_configs: dict[str, object],
+) -> None:
+    seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"seed_id": [1, 2, 3], "text": ["skip-me", "", "keep"]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(seed_source)
+    config_builder.add_column(
+        ExpressionColumnConfig(
+            name="copy",
+            expr="{{ text }}",
+            skip=SkipConfig(when="{{ seed_id == 1 }}", value="skipped"),
+        )
+    )
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    result = builder.build_preview(num_records=3)
+
+    assert result["seed_id"].tolist() == [1, 3]
+    assert result["copy"].tolist() == ["skipped", "keep"]
+
+
 def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_freed(
     stub_resource_provider,
     stub_test_config_builder,
