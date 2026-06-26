@@ -412,6 +412,11 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     def _reset_attachment_state(self) -> None:
         super()._reset_attachment_state()
+        # Plugin readers have historically been allowed to define __init__ without
+        # calling super().__init__(). Attach-time initialization keeps that contract
+        # while preserving any provider explicitly injected through the base init.
+        if not hasattr(self, "_fs_provider"):
+            self._fs_provider = LocalFileSystemProvider()
         self._filesystem_context = None
         self._output_df = None
         self._row_manifest_df = None
@@ -533,11 +538,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         return context
 
     def _get_fs_provider(self) -> FileSystemProvider:
-        provider = getattr(self, "_fs_provider", None)
-        if provider is None:
-            provider = LocalFileSystemProvider()
-            self._fs_provider = provider
-        return provider
+        return self._fs_provider
 
     def _get_manifest_dataset_uri(self) -> str:
         return self._build_internal_table_name("manifest")
