@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -36,7 +35,6 @@ from data_designer.config.utils.constants import (
     MODEL_PROVIDERS_FILE_PATH,
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
-from data_designer.engine import flags
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
@@ -308,9 +306,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             # Surface the original task error when the run produced 0 records due to a
             # deterministic non-retryable failure (e.g. bad seed source). Without this,
             # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
-            # ``actual_num_records`` is set only on the async path; sync runs leave it at
-            # ``-1`` and ``first_non_retryable_error`` at ``None``, so this branch is
-            # async-only by construction.
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
                 raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
@@ -536,7 +531,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         run_readiness_check(
             config_builder.build().columns,
             resource_provider,
-            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
+            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
         )
 
     def get_default_model_configs(self) -> list[ModelConfig]:
@@ -620,7 +615,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             Dict mapping alias to ModelFacade instance.
         """
         config_builder = DataDesignerConfigBuilder()
-        resource_provider = self._create_resource_provider("dev", config_builder)
+        resource_provider = self._create_resource_provider(
+            "dev",
+            config_builder,
+            client_concurrency_mode=ClientConcurrencyMode.SYNC,
+        )
         return {alias: resource_provider.model_registry.get_model(model_alias=alias) for alias in model_aliases}
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
@@ -673,6 +672,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         resume: ResumeMode = ResumeMode.NEVER,
         artifact_path: Path | None = None,
+        client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.ASYNC,
     ) -> ResourceProvider:
         artifact_path = artifact_path or self._artifact_path
         ArtifactStorage.mkdir_if_needed(artifact_path)
@@ -692,7 +692,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             run_config=self._run_config,
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
-            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
+            client_concurrency_mode=client_concurrency_mode,
             request_admission=self._request_admission,
         )
 
@@ -700,26 +700,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         from data_designer.engine.models.factory import create_request_admission_controller
 
         return create_request_admission_controller(self._run_config)
-
-    @staticmethod
-    def _resolve_client_concurrency_mode(config_builder: DataDesignerConfigBuilder) -> ClientConcurrencyMode:
-        """Pick the model-client mode that matches the engine the run will use.
-
-        The async engine is the default. Users can still opt into the legacy sync
-        engine with ``DATA_DESIGNER_ASYNC_ENGINE=0`` for the transitional release.
-        """
-        if not flags.DATA_DESIGNER_ASYNC_ENGINE:
-            # Deliberate opt-out via env var. Surface the deprecation so users
-            # know the sync path is going away.
-            msg = (
-                "DATA_DESIGNER_ASYNC_ENGINE=0 selects the legacy sync engine, which is "
-                "deprecated and will be removed in a future release. Unset the variable "
-                "(or set it to 1) to use the async engine."
-            )
-            logger.warning(f"⚠️ {msg}")
-            warnings.warn(msg, DeprecationWarning, stacklevel=3)
-            return ClientConcurrencyMode.SYNC
-        return ClientConcurrencyMode.ASYNC
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:
         return InterfaceInfo(model_providers=model_providers)

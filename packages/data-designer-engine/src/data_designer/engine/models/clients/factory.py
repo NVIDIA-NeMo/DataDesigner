@@ -40,8 +40,8 @@ def create_model_client(
         model_provider_registry: Registry of model provider configurations used
             to look up endpoint, provider type, and API key reference.
         retry_config: Optional retry configuration for HTTP adapters.
-        client_concurrency_mode: ``"sync"`` (default) for the sync engine path,
-            ``"async"`` for the async engine path.  Native HTTP adapters are
+        client_concurrency_mode: ``"sync"`` for synchronous adapter calls or
+            ``"async"`` for async adapter calls. Native HTTP adapters are
             constrained to a single concurrency mode.
         request_admission: Optional request-admission controller for per-request
             provider/model/domain admission. When provided, the returned client

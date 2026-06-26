@@ -462,17 +462,6 @@ def test_prepare_async_run_uses_compact_plan_for_large_fresh_runs(monkeypatch: p
     assert peak_bytes < 5 * 1024 * 1024
 
 
-# -- Test that existing sync path is unaffected --------------------------------
-
-
-def test_sync_path_unaffected_by_async_engine_flag() -> None:
-    """DATA_DESIGNER_ASYNC_ENGINE=0 keeps the sync path unchanged."""
-    from data_designer.engine import flags
-
-    assert hasattr(flags, "DATA_DESIGNER_ASYNC_ENGINE")
-    assert isinstance(flags.DATA_DESIGNER_ASYNC_ENGINE, bool)
-
-
 # -- Test execution graph integration with real column configs -----------------
 
 
