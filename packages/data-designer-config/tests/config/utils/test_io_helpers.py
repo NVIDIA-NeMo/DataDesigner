@@ -64,7 +64,7 @@ def test_smart_load_dataframe(mock_read_parquet, mock_read_json, mock_read_csv, 
 
     mock_path = MagicMock(autospec=Path)
     mock_path.exists.return_value = True
-    mock_path.suffix.lower.return_value = "csv"
+    mock_path.suffix = ".csv"
     mock_path_cls.return_value = mock_path
 
     stub_base_path_str = "/some/path/to/data.{extension}"
@@ -73,11 +73,29 @@ def test_smart_load_dataframe(mock_read_parquet, mock_read_json, mock_read_csv, 
     mock_read_csv.assert_called_once_with(mock_path)
 
     mock_path.reset_mock()
-    mock_path.suffix.lower.return_value = "json"
+    mock_path.suffix = ".json"
     mock_path.exists.return_value = False
     path_json = stub_base_path_str.format(extension="json")
     with pytest.raises(FileNotFoundError):
         _ = smart_load_dataframe(Path(path_json))
+
+
+@pytest.mark.parametrize("extension", ["csv", "json", "parquet"])
+@pytest.mark.parametrize("path_type", [Path, str], ids=["path", "string"])
+def test_smart_load_dataframe_from_real_local_files(tmp_path: Path, extension: str, path_type) -> None:
+    expected = lazy.pd.DataFrame({"id": [1, 2], "value": ["alpha", "beta"]})
+    file_path = tmp_path / f"data.{extension}"
+
+    if extension == "csv":
+        expected.to_csv(file_path, index=False)
+    elif extension == "json":
+        expected.to_json(file_path, orient="records", lines=True)
+    else:
+        expected.to_parquet(file_path, index=False)
+
+    loaded = smart_load_dataframe(path_type(file_path))
+
+    lazy.pd.testing.assert_frame_equal(loaded, expected)
 
 
 def test_smart_load_yaml():
