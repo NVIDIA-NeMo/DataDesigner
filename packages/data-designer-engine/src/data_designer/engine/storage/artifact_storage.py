@@ -73,8 +73,12 @@ class ArtifactStorage(BaseModel):
         return self.artifact_path.exists()
 
     @cached_property
+    def resolved_artifact_path(self) -> Path:
+        return self.artifact_path.resolve()
+
+    @cached_property
     def resolved_dataset_name(self) -> str:
-        dataset_path = self.artifact_path / self.dataset_name
+        dataset_path = self._resolve_artifact_subpath(self.dataset_name)
         if dataset_path.exists() and len(list(dataset_path.iterdir())) > 0:
             if self.resume in (ResumeMode.ALWAYS, ResumeMode.IF_POSSIBLE):
                 return self.dataset_name
@@ -93,27 +97,27 @@ class ArtifactStorage(BaseModel):
 
     @property
     def base_dataset_path(self) -> Path:
-        return self.artifact_path / self.resolved_dataset_name
+        return self._resolve_artifact_subpath(self.resolved_dataset_name)
 
     @property
     def dropped_columns_dataset_path(self) -> Path:
-        return self.base_dataset_path / self.dropped_columns_folder_name
+        return self._resolve_artifact_subpath(self.resolved_dataset_name, self.dropped_columns_folder_name)
 
     @property
     def final_dataset_path(self) -> Path:
-        return self.base_dataset_path / self.final_dataset_folder_name
+        return self._resolve_artifact_subpath(self.resolved_dataset_name, self.final_dataset_folder_name)
 
     @property
     def metadata_file_path(self) -> Path:
-        return self.base_dataset_path / METADATA_FILENAME
+        return self._resolve_artifact_subpath(self.resolved_dataset_name, METADATA_FILENAME)
 
     @property
     def partial_results_path(self) -> Path:
-        return self.base_dataset_path / self.partial_results_folder_name
+        return self._resolve_artifact_subpath(self.resolved_dataset_name, self.partial_results_folder_name)
 
     @property
     def processors_outputs_path(self) -> Path:
-        return self.base_dataset_path / self.processors_outputs_folder_name
+        return self._resolve_artifact_subpath(self.resolved_dataset_name, self.processors_outputs_folder_name)
 
     @field_validator("artifact_path")
     def validate_artifact_path(cls, v: Path | str) -> Path:
@@ -143,6 +147,8 @@ class ArtifactStorage(BaseModel):
         for name in folder_names:
             if any(char in invalid_chars for char in name):
                 raise ArtifactStorageError(f"🛑 Directory name '{name}' contains invalid characters.")
+            if name in {".", ".."}:
+                raise ArtifactStorageError(f"🛑 Directory name '{name}' must not be '.' or '..'.")
 
         # Initialize media storage with DISK mode by default
         self._media_storage = MediaStorage(
@@ -363,6 +369,17 @@ class ArtifactStorage(BaseModel):
 
         existing_metadata.update(updates)
         return self.write_metadata(existing_metadata)
+
+    def _resolve_artifact_subpath(self, *parts: str) -> Path:
+        candidate_path = self.resolved_artifact_path.joinpath(*parts).resolve()
+        try:
+            candidate_path.relative_to(self.resolved_artifact_path)
+        except ValueError as exc:
+            joined_parts = str(Path(*parts)) if parts else "."
+            raise ArtifactStorageError(
+                f"🛑 Directory name '{joined_parts}' resolves outside the artifact path."
+            ) from exc
+        return candidate_path
 
     def _get_stage_path(self, stage: BatchStage) -> Path:
         return getattr(self, resolve_string_enum(stage, BatchStage).value)

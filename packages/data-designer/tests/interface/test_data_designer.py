@@ -35,6 +35,7 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
+from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
@@ -734,6 +735,20 @@ def test_create_raises_error_when_builder_fails(
         ) as exc_info:
             data_designer.create(stub_sampler_only_config_builder, num_records=3)
         assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+def test_create_rejects_reserved_dataset_name(
+    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
+):
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with pytest.raises(ArtifactStorageError, match=r"must not be '\.' or '\.\.'"):
+        data_designer.create(stub_sampler_only_config_builder, num_records=1, dataset_name="..")
 
 
 def test_create_raises_error_when_profiler_fails(
