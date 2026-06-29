@@ -51,6 +51,20 @@ def test_importing_config_module_does_not_eagerly_import_pandas() -> None:
     assert lines == ["0", "0"]
 
 
+def test_model_errors_import_before_client_factory_in_fresh_process() -> None:
+    lines = _run_python_snippet(
+        "\n".join(
+            [
+                "from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS",
+                "from data_designer.engine.models.clients import create_model_client",
+                "print(len(RETRYABLE_MODEL_ERRORS))",
+                "print(create_model_client.__name__)",
+            ]
+        )
+    )
+    assert lines == ["4", "create_model_client"]
+
+
 def test_runtime_src_avoids_from_lazy_heavy_imports_pattern() -> None:
     repo_root = Path(__file__).resolve().parents[3]
     pattern = re.compile(r"^\s*from\s+data_designer\.lazy_heavy_imports\s+import\b", re.MULTILINE)
