@@ -30,6 +30,7 @@ from data_designer.config.seed_source import (
     SeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.engine.resources.agent_rollout import (
     AgentRolloutFormatHandler,
     AgentRolloutParseContext,
@@ -441,10 +442,22 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     def get_dataset_uri(self) -> str:
         return self._build_internal_table_name("rows")
 
-    def get_output_column_names(self) -> list[str]:
+    def _get_output_column_names(self) -> list[str]:
+        # This is an internal schema resolution helper. To fetch column names
+        # as a client of a FileSystemSeedReader, prefer ``get_column_names``
+        # to ensure preflight filesystem context validation runs.
         if self.output_columns is not None:
             return self.output_columns
         return list(self._get_row_manifest_dataframe().columns)
+
+    def get_output_column_names(self) -> list[str]:
+        warn_at_caller(
+            "``get_output_column_names`` is deprecated. Prefer ``get_column_names`` for fetching "
+            "column names as an external client of the reader, or ``_get_output_column_names`` as "
+            "an internal schema helper method.",
+            DeprecationWarning,
+        )
+        return self._get_output_column_names()
 
     @abstractmethod
     def build_manifest(self, *, context: SeedReaderFileSystemContext) -> pd.DataFrame | list[dict[str, Any]]: ...
@@ -458,8 +471,11 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         return manifest_row
 
     def get_column_names(self) -> list[str]:
+        # Calling `_get_filesystem_context` ensures that subclasses with fixed column names
+        # (e.g. see FileContentsSeedReader.output_columns) are still validated when this method
+        # is called during validation / config compilation.
         self._get_filesystem_context()
-        return self.get_output_column_names()
+        return self._get_output_column_names()
 
     def get_seed_dataset_size(self) -> int:
         self._ensure_attached()
@@ -491,7 +507,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
                 manifest_rows=manifest_records,
                 context=context,
             ),
-            output_columns=self.get_output_column_names(),
+            output_columns=self._get_output_column_names(),
             no_rows_error_message=self._get_empty_selected_manifest_rows_error_message(),
         )
 
@@ -526,7 +542,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
         self._output_df = create_seed_reader_output_dataframe(
             records=hydrated_records,
-            output_columns=self.get_output_column_names(),
+            output_columns=self._get_output_column_names(),
         )
         return self._output_df
 
