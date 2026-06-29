@@ -27,7 +27,6 @@ navbar-links:
 experimental:
   mdx-components:
   - ./components
-  basepath-aware: true
 versions:
 - display-name: "Latest"
   path: versions/latest.yml
