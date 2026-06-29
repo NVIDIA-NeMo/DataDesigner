@@ -213,6 +213,13 @@ class ContextCapturingDirectorySeedReader(FileSystemSeedReader[DirectorySeedSour
         return [{"label": "captured"}]
 
 
+class FixedSchemaDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    output_columns = ["label"]
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, str]]:
+        return [{"label": str(context.root_path)}]
+
+
 class TrackingAgentRolloutSeedReader(AgentRolloutSeedReader):
     def __init__(self) -> None:
         super().__init__()
@@ -541,6 +548,23 @@ def test_filesystem_seed_reader_passes_provider_context_to_manifest_builder() ->
     assert reader.manifest_context is context
 
 
+def test_fixed_schema_filesystem_seed_reader_get_column_names_runs_provider_preflight() -> None:
+    context = SeedReaderFileSystemContext(
+        fs=MemoryFileSystem(),
+        root_path=Path("fixed-root"),
+    )
+    provider = StubFileSystemProvider(context)
+    reader = FixedSchemaDirectorySeedReader(fs_provider=provider)
+    reader.attach(
+        DirectorySeedSource(path="fixed-root"),
+        PlaintextResolver(),
+    )
+
+    assert reader.get_column_names() == ["label"]
+    assert provider.ensure_root_exists_calls == ["fixed-root"]
+    assert provider.create_context_calls == ["fixed-root"]
+
+
 def test_local_filesystem_provider_creates_context_for_existing_directory(tmp_path: Path) -> None:
     (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
 
@@ -656,6 +680,18 @@ def test_file_contents_seed_reader_wraps_unknown_encoding_errors(tmp_path: Path)
 
     with pytest.raises(SeedReaderError, match="Failed to decode file .* using encoding 'utf-999'"):
         reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+
+def test_file_contents_seed_reader_get_column_names_rejects_missing_root(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "missing"
+    reader = FileContentsSeedReader()
+    reader.attach(
+        FileContentsSeedSource(path=str(missing_dir), file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    with pytest.raises(SeedReaderConfigError, match="Seed source directory .* does not exist"):
+        reader.get_column_names()
 
 
 def test_file_contents_seed_reader_hydrates_only_selected_manifest_rows(tmp_path: Path) -> None:
@@ -1197,6 +1233,18 @@ def test_agent_rollout_seed_reader_wraps_os_errors_as_seed_reader_error(
     ):
         with pytest.raises(SeedReaderError, match="Failed to read agent rollout file"):
             reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+
+def test_agent_rollout_seed_reader_get_column_names_rejects_missing_root(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "missing"
+    reader = AgentRolloutSeedReader()
+    reader.attach(
+        AgentRolloutSeedSource(path=str(missing_dir), format=AgentRolloutFormat.ATIF),
+        PlaintextResolver(),
+    )
+
+    with pytest.raises(SeedReaderConfigError, match="Seed source directory .* does not exist"):
+        reader.get_column_names()
 
 
 def test_agent_rollout_seed_reader_uses_resolved_file_pattern_when_model_construct_skips_validation(

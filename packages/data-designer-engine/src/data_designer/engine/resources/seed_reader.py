@@ -458,6 +458,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         return manifest_row
 
     def get_column_names(self) -> list[str]:
+        self._get_filesystem_context()
         return self.get_output_column_names()
 
     def get_seed_dataset_size(self) -> int:
