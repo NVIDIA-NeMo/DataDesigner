@@ -56,12 +56,10 @@ def build_model_configs(
             provider=model_provider,
             inference_parameters=dd.ImageInferenceParams(
                 extra_body={
-                    "n": 1,
-                    "generationConfig": {
-                        "imageConfig": {
-                            "aspectRatio": aspect_ratio,
-                            "imageSize": image_size,
-                        }
+                    "modalities": ["image", "text"],
+                    "image_config": {
+                        "aspect_ratio": aspect_ratio,
+                        "image_size": image_size,
                     },
                 },
                 max_parallel_requests=max_parallel_requests,
@@ -87,7 +85,7 @@ def build_config(
     model_provider: str = DEFAULT_MODEL_PROVIDER,
     model_id: str = DEFAULT_MODEL_ID,
     model_alias: str = DEFAULT_MODEL_ALIAS,
-    image_size: str = "1024",
+    image_size: str = "1K",
     aspect_ratio: str = "16:9",
     max_parallel_requests: int = 10,
 ) -> dd.DataDesignerConfigBuilder:
@@ -197,19 +195,32 @@ def build_config(
         ],
     )
 
-    add_category(
-        config_builder,
-        "vehicle_mix",
-        [
-            "sedans and compact cars",
-            "mix of cars and SUVs",
-            "includes large trucks/semi-trailers",
-            "includes buses",
-            "includes motorcycles and scooters",
-            "includes bicycles and e-bikes",
-            "includes delivery vans/box trucks",
-            "mixed vehicle types - diverse traffic",
-        ],
+    sparse_vehicle_mix = [
+        "sedans and compact cars",
+        "mix of cars and SUVs",
+        "includes large trucks/semi-trailers",
+        "includes buses",
+        "includes motorcycles and scooters",
+        "includes bicycles and e-bikes",
+        "includes delivery vans/box trucks",
+    ]
+    flowing_vehicle_mix = [*sparse_vehicle_mix, "mixed vehicle types - diverse traffic"]
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="vehicle_mix",
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
+                category="traffic_density",
+                values={
+                    "empty - no other vehicles visible": ["no other vehicles visible"],
+                    "sparse - 1-2 vehicles in distance": sparse_vehicle_mix,
+                    "light - 3-5 vehicles visible": flowing_vehicle_mix,
+                    "moderate - steady flow of traffic": flowing_vehicle_mix,
+                    "heavy - congested, slow-moving": flowing_vehicle_mix,
+                    "stop-and-go - bumper-to-bumper": flowing_vehicle_mix,
+                },
+            ),
+        )
     )
 
     add_category(
@@ -402,7 +413,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-provider", default=DEFAULT_MODEL_PROVIDER, help="Image model provider name.")
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="Provider model ID.")
     parser.add_argument("--model-alias", default=DEFAULT_MODEL_ALIAS, help="Alias used by image columns.")
-    parser.add_argument("--image-size", default="1024", help="Provider-specific image size value.")
+    parser.add_argument("--image-size", default="1K", help="OpenRouter image size tier, such as 1K, 2K, or 4K.")
     parser.add_argument("--aspect-ratio", default="16:9", help="Provider-specific aspect ratio value.")
     parser.add_argument("--max-parallel-requests", type=int, default=10, help="Maximum parallel image requests.")
     return parser.parse_args()

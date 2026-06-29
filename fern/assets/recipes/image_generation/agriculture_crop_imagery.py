@@ -53,12 +53,10 @@ def build_model_configs(
             provider=model_provider,
             inference_parameters=dd.ImageInferenceParams(
                 extra_body={
-                    "n": 1,
-                    "generationConfig": {
-                        "imageConfig": {
-                            "aspectRatio": aspect_ratio,
-                            "imageSize": image_size,
-                        }
+                    "modalities": ["image", "text"],
+                    "image_config": {
+                        "aspect_ratio": aspect_ratio,
+                        "image_size": image_size,
                     },
                 },
                 max_parallel_requests=max_parallel_requests,
@@ -94,7 +92,7 @@ def build_config(
     model_provider: str = DEFAULT_MODEL_PROVIDER,
     model_id: str = DEFAULT_MODEL_ID,
     model_alias: str = DEFAULT_MODEL_ALIAS,
-    image_size: str = "1024",
+    image_size: str = "1K",
     aspect_ratio: str = "4:3",
     max_parallel_requests: int = 10,
 ) -> dd.DataDesignerConfigBuilder:
@@ -153,6 +151,7 @@ def build_config(
         config_builder,
         "disease_or_condition",
         [
+            "healthy crop with no visible disease",
             "powdery mildew on leaves",
             "rust-colored fungal pustules on leaf surfaces",
             "early blight with concentric brown leaf spots",
@@ -164,14 +163,33 @@ def build_config(
             "nutrient deficiency yellowing as a disease confounder",
         ],
     )
-    add_category(
-        config_builder,
-        "severity",
-        [
-            "low severity affecting isolated plants",
-            "moderate severity affecting patches",
-            "high severity affecting large field sections",
-        ],
+    disease_severity_values = [
+        "low severity affecting isolated plants",
+        "moderate severity affecting patches",
+        "high severity affecting large field sections",
+    ]
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="severity",
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
+                category="disease_or_condition",
+                values={
+                    "healthy crop with no visible disease": ["none - healthy negative"],
+                    "powdery mildew on leaves": disease_severity_values,
+                    "rust-colored fungal pustules on leaf surfaces": disease_severity_values,
+                    "early blight with concentric brown leaf spots": disease_severity_values,
+                    "late blight with irregular dark lesions": disease_severity_values,
+                    "bacterial leaf spot with small dark speckles": disease_severity_values,
+                    "downy mildew patches on leaf undersides": disease_severity_values,
+                    "leaf curl with mosaic discoloration": disease_severity_values,
+                    "insect feeding damage as a disease confounder": ["confounder - not a disease severity label"],
+                    "nutrient deficiency yellowing as a disease confounder": [
+                        "confounder - not a disease severity label"
+                    ],
+                },
+            ),
+        )
     )
     add_category(
         config_builder,
@@ -257,7 +275,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-provider", default=DEFAULT_MODEL_PROVIDER, help="Image model provider name.")
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="Provider model ID.")
     parser.add_argument("--model-alias", default=DEFAULT_MODEL_ALIAS, help="Alias used by image columns.")
-    parser.add_argument("--image-size", default="1024", help="Provider-specific image size value.")
+    parser.add_argument("--image-size", default="1K", help="OpenRouter image size tier, such as 1K, 2K, or 4K.")
     parser.add_argument("--aspect-ratio", default="4:3", help="Provider-specific aspect ratio value.")
     parser.add_argument("--max-parallel-requests", type=int, default=10, help="Maximum parallel image requests.")
     return parser.parse_args()

@@ -23,7 +23,7 @@ Run:
     # Generate 5 rich document images with the default OpenRouter model.
     uv run rich_document_images.py --num-records 5
 
-    # Export a VQA-ready seed parquet with base64 PNGs plus orientation fields.
+    # Export a VQA-ready seed parquet with base64 image bytes and image metadata.
     uv run rich_document_images.py --num-records 25 --export-seed rich_document_seed.parquet
 
     # Use a different provider or image model.
@@ -34,10 +34,11 @@ from __future__ import annotations
 
 import argparse
 import base64
-from collections.abc import Sequence
+from collections.abc import Iterable
 from pathlib import Path
 
 import pandas as pd
+from PIL import Image
 
 import data_designer.config as dd
 from data_designer.interface import DataDesigner, DatasetCreationResults
@@ -72,12 +73,10 @@ def build_model_configs(
             provider=model_provider,
             inference_parameters=dd.ImageInferenceParams(
                 extra_body={
-                    "n": 1,
-                    "generationConfig": {
-                        "imageConfig": {
-                            "aspectRatio": aspect_ratio,
-                            "imageSize": image_size,
-                        }
+                    "modalities": ["image", "text"],
+                    "image_config": {
+                        "aspect_ratio": aspect_ratio,
+                        "image_size": image_size,
                     },
                 },
                 max_parallel_requests=max_parallel_requests,
@@ -119,7 +118,7 @@ def build_config(
     model_provider: str = DEFAULT_MODEL_PROVIDER,
     model_id: str = DEFAULT_MODEL_ID,
     model_alias: str = DEFAULT_MODEL_ALIAS,
-    image_size: str = "1024",
+    image_size: str = "1K",
     aspect_ratio: str = "2:3",
     max_parallel_requests: int = 10,
 ) -> dd.DataDesignerConfigBuilder:
@@ -334,18 +333,23 @@ def create_dataset(
 
 
 def export_seed_parquet(results: DatasetCreationResults, output_path: Path) -> None:
-    """Export generated images as base64 PNG seed rows for VLM pipelines."""
+    """Export generated images as format-neutral base64 seed rows for VLM pipelines."""
     dataset = results.load_dataset()
     base_path = results.artifact_storage.base_dataset_path
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, str | int]] = []
 
-    for _, row in dataset.iterrows():
-        image_ref = _first_image_ref(row["document_image"])
+    for row in dataset.itertuples(index=False):
+        image_ref = _first_image_ref(row.document_image)
         image_path = base_path / image_ref
+        image_format, image_mime_type, image_width, image_height = _image_metadata(image_path)
         output_row = {
-            "png_base64": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+            "image_base64": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+            "image_format": image_format,
+            "image_mime_type": image_mime_type,
+            "image_width": image_width,
+            "image_height": image_height,
         }
-        output_row.update({column: row[column] for column in SEED_METADATA_COLUMNS})
+        output_row.update({column: getattr(row, column) for column in SEED_METADATA_COLUMNS})
         rows.append(output_row)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -355,11 +359,19 @@ def export_seed_parquet(results: DatasetCreationResults, output_path: Path) -> N
 def _first_image_ref(value: object) -> str:
     if isinstance(value, str):
         return value
-    if isinstance(value, Sequence) and value:
-        first = value[0]
+    if isinstance(value, Iterable):
+        first = next(iter(value), None)
         if isinstance(first, str):
             return first
-    raise ValueError(f"Expected document_image to be a string path or non-empty sequence, got {type(value)!r}")
+    raise ValueError(f"Expected document_image to be a string path or non-empty iterable, got {type(value)!r}")
+
+
+def _image_metadata(image_path: Path) -> tuple[str, str, int, int]:
+    with Image.open(image_path) as image:
+        image_format = image.format or image_path.suffix.lstrip(".").upper() or "UNKNOWN"
+        image_mime_type = Image.MIME.get(image_format, "application/octet-stream")
+        image_width, image_height = image.size
+    return image_format, image_mime_type, image_width, image_height
 
 
 RICH_DOCUMENT_IMAGE_PROMPT = """\
@@ -404,14 +416,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-provider", default=DEFAULT_MODEL_PROVIDER, help="Image model provider name.")
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="Provider model ID.")
     parser.add_argument("--model-alias", default=DEFAULT_MODEL_ALIAS, help="Alias used by image columns.")
-    parser.add_argument("--image-size", default="1024", help="Provider-specific image size value.")
+    parser.add_argument("--image-size", default="1K", help="OpenRouter image size tier, such as 1K, 2K, or 4K.")
     parser.add_argument("--aspect-ratio", default="2:3", help="Provider-specific aspect ratio value.")
     parser.add_argument("--max-parallel-requests", type=int, default=10, help="Maximum parallel image requests.")
     parser.add_argument(
         "--export-seed",
         type=Path,
         default=None,
-        help="Optional parquet path for a VQA-ready seed with base64 PNGs and orientation fields.",
+        help="Optional parquet path for a VQA-ready seed with base64 image bytes and image metadata.",
     )
     return parser.parse_args()
 

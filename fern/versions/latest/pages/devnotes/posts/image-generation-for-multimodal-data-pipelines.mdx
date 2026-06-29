@@ -679,12 +679,12 @@ The next obvious columns are not image columns at all: radiology reports, severi
 />
 
 <ImageExample
-  title={"Example 2: left tibia and fibula · boxer's fracture of the fifth metacarpal neck"}
+  title={"Example 2: left hand and fingers · boxer's fracture of the fifth metacarpal neck"}
   src={"/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/02.jpg"}
   alt={"Synthetic research-only extremity X-ray style image"}
   controls={[
-    ["anatomical region", "left tibia and fibula"],
-    ["xray view", "stress view"],
+    ["anatomical region", "left hand and fingers"],
+    ["xray view", "anteroposterior (AP)"],
     ["primary finding", "boxer's fracture of the fifth metacarpal neck"],
     ["secondary findings", "soft tissue calcifications"],
     ["exposure quality", "optimal exposure with clear cortical and trabecular detail"],
@@ -708,17 +708,17 @@ The next obvious columns are not image columns at all: radiology reports, severi
 />
 
 <ImageExample
-  title={"Example 4: left ankle · radial head fracture"}
+  title={"Example 4: left tibia and fibula · displaced fracture through the imaged bone"}
   src={"/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/04.jpg"}
   alt={"Synthetic research-only extremity X-ray style image"}
   imageWidth={"50%"}
   controls={[
-    ["anatomical region", "left ankle"],
-    ["xray view", "weight-bearing AP"],
-    ["primary finding", "radial head fracture"],
-    ["secondary findings", "old healed fracture with callus formation"],
+    ["anatomical region", "left tibia and fibula"],
+    ["xray view", "stress view"],
+    ["primary finding", "displaced fracture through the imaged bone"],
+    ["secondary findings", "none"],
     ["exposure quality", "low kVp technique with high bone contrast"],
-    ["image quality", "limited by patient body habitus"],
+    ["image quality", "fair with cast or splint partially obscuring detail"],
   ]}
 />
 
@@ -857,17 +857,17 @@ Inspection imagery can drift into real-world safety, insurance, and compliance d
 />
 
 <ImageExample
-  title={"Example 3: commercial flat roof · small crack or seam separation"}
+  title={"Example 3: commercial flat roof · moderate staining or water pooling"}
   src={"/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/03.jpg"}
   alt={"Synthetic drone aerial inspection image"}
   controls={[
     ["site type", "commercial flat roof"],
-    ["inspection target", "debris blocking access"],
-    ["altitude", "higher overview pass, about 100 meters above the target"],
-    ["camera angle", "shallow side-looking pass"],
-    ["defect or event", "small crack or seam separation"],
+    ["inspection target", "construction progress milestone"],
+    ["altitude", "very low drone pass, about 10 meters above the target"],
+    ["camera angle", "close detail view with wide-angle lens"],
+    ["defect or event", "moderate staining or water pooling"],
     ["severity", "severe and clearly visible"],
-    ["occlusion", "motion blur from drone movement"],
+    ["occlusion", "partially occluded by temporary equipment"],
   ]}
 />
 

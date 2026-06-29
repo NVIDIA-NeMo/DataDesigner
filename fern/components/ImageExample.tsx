@@ -124,56 +124,6 @@ const IMAGE_EXAMPLE_CSS = `
   font-size: 0.76rem;
   overflow-wrap: anywhere;
 }
-.image-example__lightbox {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-}
-.image-example__lightbox:target {
-  display: flex;
-}
-.image-example__lightbox-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.82);
-}
-.image-example__lightbox-panel {
-  position: relative;
-  z-index: 1;
-  max-width: min(94vw, 1200px);
-  max-height: 90vh;
-}
-.image-example__lightbox-image {
-  display: block;
-  max-width: 100%;
-  max-height: 90vh;
-  width: auto;
-  height: auto;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-}
-.image-example__lightbox-close {
-  position: absolute;
-  top: -0.85rem;
-  right: -0.85rem;
-  display: flex;
-  width: 2rem;
-  height: 2rem;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: #fff;
-  color: #111;
-  font-size: 1.25rem;
-  line-height: 1;
-  text-decoration: none !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.32);
-}
 @media (max-width: 720px) {
   .image-example {
     padding: 0.55rem;
@@ -184,9 +134,6 @@ const IMAGE_EXAMPLE_CSS = `
   }
   .image-example__image-link {
     max-width: 100% !important;
-  }
-  .image-example__lightbox {
-    padding: 1rem;
   }
 }
 `;
@@ -223,11 +170,6 @@ function handleImageError(event: React.SyntheticEvent<HTMLImageElement>) {
   image.src = fallbackSrc;
 }
 
-function lightboxIdFor(src: string): string {
-  const slug = src.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return `image-example-${slug.slice(-96)}`;
-}
-
 function renderGroup(group: ImageExampleControlGroup, groupIndex: number) {
   return (
     <div className="image-example__group" key={groupIndex}>
@@ -258,7 +200,6 @@ export const ImageExample = ({
       : [{ label: "Sampler controls", controls }];
   const fallbackSrc = withBasepath(src);
   const hasFallback = fallbackSrc !== src;
-  const lightboxId = lightboxIdFor(src);
   const imageFallbackProps = hasFallback
     ? { "data-fallback-src": fallbackSrc, onError: handleImageError }
     : {};
@@ -270,36 +211,21 @@ export const ImageExample = ({
       <figure className="image-example__figure">
         <a
           className="image-example__image-link"
-          href={`#${lightboxId}`}
+          href={fallbackSrc}
           style={imageWidth ? { maxWidth: imageWidth } : undefined}
-          aria-label={`Open image preview: ${title}`}
+          aria-label={`Open full-size image: ${title}`}
+          target="_blank"
+          rel="noopener noreferrer"
         >
-          <img className="image-example__image" src={src} alt={alt} {...imageFallbackProps} />
-        </a>
-        <div
-          className="image-example__lightbox"
-          id={lightboxId}
-          role="dialog"
-          aria-modal="true"
-          aria-label={title}
-        >
-          <a
-            className="image-example__lightbox-backdrop"
-            href="#_"
-            aria-label="Close image preview"
+          <img
+            className="image-example__image"
+            src={src}
+            alt={alt}
+            loading="lazy"
+            decoding="async"
+            {...imageFallbackProps}
           />
-          <div className="image-example__lightbox-panel">
-            <a className="image-example__lightbox-close" href="#_" aria-label="Close image preview">
-              &times;
-            </a>
-            <img
-              className="image-example__lightbox-image"
-              src={src}
-              alt={alt}
-              {...imageFallbackProps}
-            />
-          </div>
-        </div>
+        </a>
         <figcaption className="image-example__caption">{title}</figcaption>
       </figure>
       <div

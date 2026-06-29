@@ -56,12 +56,10 @@ def build_model_configs(
             provider=model_provider,
             inference_parameters=dd.ImageInferenceParams(
                 extra_body={
-                    "n": 1,
-                    "generationConfig": {
-                        "imageConfig": {
-                            "aspectRatio": aspect_ratio,
-                            "imageSize": image_size,
-                        }
+                    "modalities": ["image", "text"],
+                    "image_config": {
+                        "aspect_ratio": aspect_ratio,
+                        "image_size": image_size,
                     },
                 },
                 max_parallel_requests=max_parallel_requests,
@@ -103,7 +101,7 @@ def build_config(
     model_provider: str = DEFAULT_MODEL_PROVIDER,
     model_id: str = DEFAULT_MODEL_ID,
     model_alias: str = DEFAULT_MODEL_ALIAS,
-    image_size: str = "1024",
+    image_size: str = "1K",
     aspect_ratio: str = "3:4",
     max_parallel_requests: int = 10,
 ) -> dd.DataDesignerConfigBuilder:
@@ -284,16 +282,49 @@ def build_config(
         ],
     )
 
-    add_category(
-        config_builder,
-        "composition",
-        [
-            "front-facing full-body catalog pose with the entire person visible",
-            "three-quarter full-body pose with the entire person visible",
-            "single seated full-body pose showing garment fit with the whole body visible",
-            "single walking full-body pose with natural garment movement",
-            "side-angle full-body pose with clear garment silhouette",
-        ],
+    standing_compositions = [
+        "front-facing full-body catalog pose with the entire person visible",
+        "three-quarter full-body pose with the entire person visible",
+        "side-angle full-body pose with clear garment silhouette",
+    ]
+    seated_compositions = [
+        "single seated full-body pose showing garment fit with the whole body visible",
+    ]
+    wheelchair_compositions = [
+        "single seated full-body pose showing garment fit with the whole body and wheelchair visible",
+    ]
+    walking_compositions = [
+        "single walking full-body pose with natural garment movement",
+    ]
+    prosthetic_compositions = [
+        "standing full-body pose with visible prosthetic limb and clear garment fit",
+        "single walking full-body pose with visible prosthetic limb and natural garment movement",
+    ]
+    crutch_compositions = [
+        "standing full-body pose with forearm crutches visible and clear garment fit",
+        "single walking full-body pose with forearm crutches visible and natural garment movement",
+    ]
+    flexible_compositions = standing_compositions + seated_compositions + walking_compositions
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="composition",
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
+                category="accessibility_context",
+                values={
+                    "standing model without visible mobility aids": standing_compositions,
+                    "model with no specific accessibility cue": flexible_compositions,
+                    "standing model in a relaxed catalog pose": standing_compositions,
+                    "model walking naturally without visible mobility aids": walking_compositions,
+                    "model seated on a simple studio stool": seated_compositions,
+                    "model leaning lightly against a studio block": standing_compositions,
+                    "model holding a small neutral accessory": standing_compositions,
+                    "seated model using a wheelchair": wheelchair_compositions,
+                    "model with a visible prosthetic limb": prosthetic_compositions,
+                    "model using forearm crutches": crutch_compositions,
+                },
+            ),
+        )
     )
 
     add_category(
@@ -421,7 +452,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-provider", default=DEFAULT_MODEL_PROVIDER, help="Image model provider name.")
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="Provider model ID.")
     parser.add_argument("--model-alias", default=DEFAULT_MODEL_ALIAS, help="Alias used by image columns.")
-    parser.add_argument("--image-size", default="1024", help="Provider-specific image size value.")
+    parser.add_argument("--image-size", default="1K", help="OpenRouter image size tier, such as 1K, 2K, or 4K.")
     parser.add_argument("--aspect-ratio", default="3:4", help="Provider-specific aspect ratio value.")
     parser.add_argument("--max-parallel-requests", type=int, default=10, help="Maximum parallel image requests.")
     return parser.parse_args()
