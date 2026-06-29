@@ -57,7 +57,7 @@ ConfigurableTask
         └── ColumnGeneratorFullColumn (strategy: FULL_COLUMN, generate(DataFrame))
 ```
 
-Each concrete generator (e.g., `SamplerColumnGenerator`, `LLMTextColumnGenerator`) combines the appropriate base classes. The `GenerationStrategy` enum (`CELL_BY_CELL` or `FULL_COLUMN`) determines how the dataset builder dispatches work.
+Each concrete generator (e.g., `SamplerColumnGenerator`, `LLMTextCellGenerator`) combines the appropriate base classes. The `GenerationStrategy` enum (`CELL_BY_CELL` or `FULL_COLUMN`) determines how the dataset builder dispatches work.
 
 ### ResourceProvider
 

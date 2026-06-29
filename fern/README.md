@@ -43,6 +43,7 @@ make serve-fern-docs-locally
 ```
 
 `serve-fern-docs-locally` generates notebook artifacts before starting `fern docs dev`. It does not publish.
+It uses the real NVIDIA global theme when Fern auth can access it. Without that access, it serves from a temporary local preview config with a close NVIDIA-style fallback.
 
 ## CI and publishing
 
@@ -146,6 +147,10 @@ render-time guard (`document.getElementById`, a module flag) would risk an SSR
 hydration mismatch. If per-instance duplication ever matters, revisit once Fern
 supports React's `<style precedence>` hoisting.
 
+The only checked-in standalone CSS is `styles/local-preview.css`, used by
+`make serve-fern-docs-locally` only when the Fern global theme is inaccessible.
+It is not referenced from `docs.yml`.
+
 ## Common commands
 
 Primary local commands:
@@ -174,3 +179,9 @@ Raw Fern CLI commands, normally wrapped by Make:
 | `fern docs dev` | Local preview at `http://localhost:3000` |
 | `fern check` | Validate `docs.yml` and MDX |
 | `fern generate --docs --preview` | Hosted preview on `*.docs.buildwithfern.com` (needs Fern token) |
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Local preview uses the local fallback theme | Sign in to https://dashboard.buildwithfern.com, run `cd fern && npx -y fern-api@$(jq -r .version fern.config.json) login`, then retry. If it still falls back, export a privileged `DOCS_FERN_TOKEN` as `FERN_TOKEN`. |

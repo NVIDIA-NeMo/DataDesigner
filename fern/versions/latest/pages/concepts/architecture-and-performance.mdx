@@ -50,36 +50,36 @@ This guide explains the architecture, execution model, and how to tune performan
 
 ## Execution Model
 
-<Note title="Two execution engines">
-  The default execution path is the **async engine**, which dispatches work at the cell level and overlaps independent columns — see [Async Engine](#async-engine) below for its semantics. The legacy **sync engine** is still available for one transitional release via `DATA_DESIGNER_ASYNC_ENGINE=0` and is what this section describes. The configuration knobs documented below (`buffer_size`, `max_parallel_requests`, AIMD throttle config, error handling) apply to both engines; the differences are flagged inline.
+<Note title="Async execution">
+  Data Designer uses the **async engine**, which dispatches work at the cell level and overlaps independent columns. The configuration knobs documented below (`buffer_size`, `max_parallel_requests`, AIMD throttle config, error handling) apply to that engine.
 </Note>
 
-The sync engine processes datasets in **batches**, with **parallel** operations within each batch.
+The async engine processes datasets in **row groups**, with **parallel** operations across ready cells and independent columns.
 
-### How It Works (sync engine)
+### How It Works
 
-**Step 1: Split into batches**
+**Step 1: Split into row groups**
 
-Your dataset is divided into batches of `buffer_size` records. Each batch is processed completely before moving to the next.
+Your dataset is divided into row groups of `buffer_size` records. Row groups checkpoint independently so interrupted runs can resume from durable parquet files.
 
-**Step 2: Process columns sequentially**
+**Step 2: Schedule ready work**
 
-Within a batch, columns are generated one at a time following the dependency graph. The order depends on column dependencies—expression columns may come before LLM columns if the LLM columns depend on them. (The async engine relaxes this: columns whose per-cell dependencies are satisfied can run concurrently with columns earlier in the order.)
+Data Designer builds an execution graph from column dependencies. Cells and full-column tasks whose dependencies are satisfied can run concurrently, while order-dependent columns are protected by scheduler locks.
 
 Example workflow:
 
 ```
-Batch 1 (100 records)
+Row group 1 (100 records)
 │
 ├─► Column 1: category (Sampler)      ──── All 100 values generated
 ├─► Column 2: prompt (LLM Text)       ──── All 100 values generated
 ├─► Column 3: response (LLM Text)     ──── All 100 values generated
 ├─► Column 4: score (Expression)      ──── All 100 values computed
 │
-└─► Write batch to disk
+└─► Checkpoint row group to disk
     │
     ▼
-Batch 2 (100 records)
+Row group 2 (100 records)
     ...repeat...
 ```
 
@@ -97,9 +97,9 @@ Within each column, cells are processed **in parallel** up to the configured lim
 
 | Concept | Description |
 |---------|-------------|
-| **Batching** | Records are split into batches of `buffer_size`. In the sync engine, each batch completes entirely before the next begins; in the async engine, multiple row groups (the async equivalent) can be in flight concurrently. |
-| **Sequential columns** | Sync-engine only: columns within a batch are generated one at a time, respecting the dependency graph. The async engine schedules at the cell level instead. |
-| **Parallel cells** | Within a column, individual cells (records) are generated in parallel up to the configured limit. Same on both engines. |
+| **Row groups** | Records are split into checkpointable groups of `buffer_size`; multiple row groups can be in flight concurrently. |
+| **Dependency graph** | Columns and cells become runnable when their upstream dependencies are complete. |
+| **Parallel cells** | Individual cells are generated in parallel up to the configured limit. |
 
 ### Concurrency Formula
 
@@ -107,7 +107,7 @@ At any moment, the number of concurrent LLM requests is:
 
 ```python
 concurrent_requests = min(
-    buffer_size,                # Records in current batch
+    buffer_size,                # Records in an active row group
     current_throttle_limit,     # AIMD-managed limit (≤ max_parallel_requests)
     remaining_cells_in_column   # Cells left to generate
 )
@@ -121,10 +121,6 @@ concurrent_requests = min(
 
 This means Data Designer automatically finds the right concurrency level for your server without manual tuning.
 
-<Note title="Engine paths">
-  AIMD adaptive concurrency is fully active on the default **async engine**. The legacy **sync engine** is available for one transitional release via `DATA_DESIGNER_ASYNC_ENGINE=0`; on that path 429s are first retried at the HTTP transport layer and AIMD only engages as a fallback. See [Async engine](#async-engine) below.
-</Note>
-
 **Example**: With `buffer_size=100` and `max_parallel_requests=32`, Data Designer can send up to 32 requests in parallel. If `rampup_seconds=30`, it starts at one request and climbs linearly toward 32 over 30 seconds. If the server returns 429s, startup ramp stops, concurrency drops automatically (e.g., to 24, then 18), and normal AIMD recovery takes over once the server catches up.
 
 ---
@@ -133,7 +129,7 @@ This means Data Designer automatically finds the right concurrency level for you
 
 ### `buffer_size` (RunConfig)
 
-Controls how many records are processed per batch.
+Controls how many records are processed per row group.
 
 ```python
 import data_designer.config as dd
@@ -179,13 +175,13 @@ Resume modes:
 - `ResumeMode.ALWAYS`: resume the existing dataset directory. Raises if the checkpoint is incompatible or cannot be resumed safely.
 - `ResumeMode.IF_POSSIBLE`: resume when the stored config fingerprint matches the current config; otherwise start a fresh timestamped run.
 
-Data Designer stores the run configuration in `metadata.json` (`buffer_size`, `target_num_records`, config fingerprint) and `builder_config.json`. Both engines recover progress the same way: they scan completed `batch_*.parquet` row groups and read parquet metadata for the row count actually persisted. That keeps resume crash-safe even if a run was interrupted between writing a batch parquet and updating metadata, because the filesystem reflects the durable state even when metadata lags by a step.
+Data Designer stores the run configuration in `metadata.json` (`buffer_size`, `target_num_records`, config fingerprint) and `builder_config.json`. Resume scans completed `batch_*.parquet` row groups and reads parquet metadata for the row count actually persisted. That keeps resume crash-safe even if a run was interrupted between writing a row-group parquet and updating metadata, because the filesystem reflects the durable state even when metadata lags by a step.
 
 Resume has a few important invariants:
 
 - `buffer_size` must match the original run.
 - `num_records` must be at least the original target; you may extend a run by requesting more records.
-- Runs with `allow_resize=True` columns are not resumable because row boundaries can change.
+- Row counts must stay stable within a run. Put filtering, expansion, aggregation, or deduplication at workflow boundaries.
 - Once `process_after_generation()` has run, the dataset is considered terminal for resume. Re-running with the same target returns the existing dataset; extending requires a fresh run.
 - If a run crashed after every row group was written but before `process_after_generation()` could start, resume runs after-generation on the existing on-disk dataset (the parquet files are still clean) and marks it terminal afterwards. A crash _during_ `process_after_generation()` still raises — the parquet files may have been partially rewritten and starting fresh is the only safe option.
 
@@ -216,7 +212,7 @@ model = dd.ModelConfig(
 
 **Default**: 4
 
-**When to increase**: Your inference backend has high throughput capacity, you're using a cloud API with generous rate limits, or you're running vLLM/TensorRT-LLM with multiple GPUs. With AIMD, setting an aggressively high value is safer than before — the system will self-correct downward if the server can't keep up. The salvage queue on the async engine (default) reclaims failed rows; on the sync engine the initial burst of 429s before AIMD stabilizes can drop rows, so start with a more conservative ceiling if you've opted into sync.
+**When to increase**: Your inference backend has high throughput capacity, you're using a cloud API with generous rate limits, or you're running vLLM/TensorRT-LLM with multiple GPUs. With AIMD, setting an aggressively high value is safer than before — the system will self-correct downward if the server can't keep up, and salvage rounds can reclaim transiently failed rows.
 
 **When to decrease**: You want to cap resource usage to a known safe level, or you want more predictable/debuggable execution.
 
@@ -249,10 +245,6 @@ designer.set_run_config(run_config)
 ### Adaptive Throttling (RunConfig)
 
 Data Designer uses an AIMD (Additive Increase / Multiplicative Decrease) controller to automatically adjust concurrency per model based on rate-limit feedback from the inference server. The defaults work well for most workloads. Override them via `ThrottleConfig` only when you understand the trade-offs.
-
-<Note title="Engine paths">
-  Adaptive throttling is fully active on the default **async engine**, where 429 responses propagate directly to the AIMD controller. On the legacy **sync engine** (`DATA_DESIGNER_ASYNC_ENGINE=0`), 429s are first retried at the HTTP transport layer; `ThrottleConfig` settings only take effect as a fallback if transport retries are exhausted.
-</Note>
 
 ```python
 import data_designer.config as dd
@@ -316,7 +308,7 @@ designer.set_run_config(run_config)
 
 ## Async Engine
 
-The async engine is the default execution path. It dispatches work at the cell level rather than the column level, so independent columns overlap in time and per-(provider, model) AIMD pools tune themselves independently. See the [Async All the Way Down](/dev-notes/async-all-the-way-down) dev note for the full architecture.
+The async engine is the execution path. It dispatches work at the cell level rather than the column level, so independent columns overlap in time and per-(provider, model) AIMD pools tune themselves independently. See the [Async All the Way Down](/dev-notes/async-all-the-way-down) dev note for the full architecture.
 
 ### Per-model timeouts drive every deadline
 
@@ -352,18 +344,6 @@ except DataDesignerEarlyShutdownError:
     # e.g. retry against a different model alias
     ...
 ```
-
-### Opting out
-
-<Warning title="Deprecated">
-  `DATA_DESIGNER_ASYNC_ENGINE=0` selects the legacy sync engine. This is a deprecated escape hatch for the transitional release and will be removed in a future version. The opt-out also emits a `DeprecationWarning` at run time so it shows up in your logs.
-</Warning>
-
-```bash
-DATA_DESIGNER_ASYNC_ENGINE=0 python my_pipeline.py
-```
-
----
 
 ## Common Problems
 

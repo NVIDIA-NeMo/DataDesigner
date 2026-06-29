@@ -34,7 +34,7 @@ from data_designer.config.column_configs import CustomColumnConfig
 if TYPE_CHECKING:
     from data_designer.config.data_designer_config import DataDesignerConfig
 
-CONFIG_HASH_VERSION = 1
+CONFIG_HASH_VERSION = 2
 CONFIG_HASH_ALGO = "sha256"
 
 
