@@ -51,18 +51,19 @@ def test_importing_config_module_does_not_eagerly_import_pandas() -> None:
     assert lines == ["0", "0"]
 
 
-def test_model_errors_import_before_client_factory_in_fresh_process() -> None:
-    lines = _run_python_snippet(
+def test_health_checks_entrypoint_imports_in_fresh_process() -> None:
+    script_path = Path(__file__).resolve().parents[3] / "scripts" / "health_checks.py"
+    _run_python_snippet(
         "\n".join(
             [
-                "from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS",
-                "from data_designer.engine.models.clients import create_model_client",
-                "print(len(RETRYABLE_MODEL_ERRORS))",
-                "print(create_model_client.__name__)",
+                "import os",
+                "import runpy",
+                "for key in ('NVIDIA_API_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY'):",
+                "    os.environ.pop(key, None)",
+                f"runpy.run_path({str(script_path)!r}, run_name='__main__')",
             ]
         )
     )
-    assert lines == ["4", "create_model_client"]
 
 
 def test_runtime_src_avoids_from_lazy_heavy_imports_pattern() -> None:
