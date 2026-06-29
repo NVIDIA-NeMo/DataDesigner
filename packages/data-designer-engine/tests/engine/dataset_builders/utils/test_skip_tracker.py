@@ -172,14 +172,14 @@ def test_restore_skip_metadata_uses_restore_ids_after_reorder() -> None:
         {"a": 10, restore_id_column: prepared_rows[0][restore_id_column]},
         {"a": 20, restore_id_column: prepared_rows[1][restore_id_column]},
     ]
-    restore_skip_metadata(new, context=restore_context, allow_resize=False)
+    restore_skip_metadata(new, context=restore_context)
 
     assert new[0][SKIPPED_COLUMNS_RECORD_KEY] == {"col_z"}
     assert new[1][SKIPPED_COLUMNS_RECORD_KEY] == {"col_x"}
     assert SKIPPED_COLUMNS_RECORD_KEY not in new[2]
 
 
-def test_restore_skip_metadata_allow_resize_handles_filtered_rows() -> None:
+def test_restore_skip_metadata_rejects_filtered_rows() -> None:
     old = [{"a": 1}, {"a": 2}]
     prepared_rows, restore_context = prepare_records_for_skip_metadata_round_trip(old)
     assert restore_context is None
@@ -193,9 +193,9 @@ def test_restore_skip_metadata_allow_resize_handles_filtered_rows() -> None:
     restore_id_column = restore_context.restore_id_column
 
     new = [{"a": 20, restore_id_column: prepared_rows[1][restore_id_column]}]
-    restore_skip_metadata(new, context=restore_context, allow_resize=True)
 
-    assert SKIPPED_COLUMNS_RECORD_KEY not in new[0]
+    with pytest.raises(ValueError, match="1:1 mapping"):
+        restore_skip_metadata(new, context=restore_context)
 
 
 def test_restore_skip_metadata_rejects_missing_restore_id_column() -> None:
@@ -204,4 +204,4 @@ def test_restore_skip_metadata_rejects_missing_restore_id_column() -> None:
     assert restore_context is not None
 
     with pytest.raises(ValueError, match="must preserve the internal column"):
-        restore_skip_metadata([{"a": 10}], context=restore_context, allow_resize=False)
+        restore_skip_metadata([{"a": 10}], context=restore_context)

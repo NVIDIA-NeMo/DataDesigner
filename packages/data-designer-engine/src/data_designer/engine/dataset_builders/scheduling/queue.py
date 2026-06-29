@@ -46,6 +46,9 @@ class FairTaskQueue:
         self._queued: dict[str, SchedulableTask] = {}
         self._task_groups: dict[str, TaskGroupKey] = {}
         self._group_specs: dict[TaskGroupKey, TaskGroupSpec] = {}
+        self._queued_by_group: Counter[TaskGroupKey] = Counter()
+        self._queued_resource_demand_by_group: dict[TaskGroupKey, Counter[SchedulerResourceKey]] = defaultdict(Counter)
+        self._queued_peer_demand_by_resource: Counter[SchedulerResourceKey] = Counter()
         self._group_finish: dict[TaskGroupKey, float] = {}
         self._heap: list[tuple[float, int, TaskGroupKey]] = []
         self._active_heap_keys: set[TaskGroupKey] = set()
@@ -69,6 +72,7 @@ class FairTaskQueue:
             queue.append(item)
             self._queued[item.task_id] = item
             self._task_groups[item.task_id] = item.group.key
+            self._increment_queue_accounting(item)
             self._activate_group(item.group.key)
             accepted.append(item.task_id)
         if accepted:
@@ -77,10 +81,8 @@ class FairTaskQueue:
 
     def discard(self, task_id: str) -> None:
         """Remove a queued task lazily if it is no longer dispatchable."""
-        if task_id in self._queued:
+        if self._remove_queued_item(task_id) is not None:
             self._sequence_version += 1
-        self._queued.pop(task_id, None)
-        self._task_groups.pop(task_id, None)
 
     def discard_where(self, predicate: Callable[[SchedulableTask], bool]) -> None:
         """Remove queued tasks matching a predicate."""
@@ -125,8 +127,7 @@ class FairTaskQueue:
             return None
 
         queue.popleft()
-        self._queued.pop(item.task_id, None)
-        self._task_groups.pop(item.task_id, None)
+        self._remove_queued_item(item.task_id)
         self._active_heap_keys.discard(key)
         self._active_heap_entries.pop(key, None)
         group = self._group_specs[key]
@@ -140,35 +141,28 @@ class FairTaskQueue:
         return item
 
     def view(self) -> QueueView:
-        queued_by_group: Counter[TaskGroupKey] = Counter()
-        demand_by_group: dict[TaskGroupKey, dict[SchedulerResourceKey, int]] = defaultdict(lambda: defaultdict(int))
         first_by_group: dict[TaskGroupKey, Mapping[SchedulerResourceKey, int]] = {}
         first_tasks_by_group: dict[TaskGroupKey, SchedulableTask] = {}
         first_group_specs: dict[TaskGroupKey, TaskGroupSpec] = {}
-        demand_by_resource: Counter[SchedulerResourceKey] = Counter()
 
-        for item in self._queued.values():
-            key = item.group.key
-            queued_by_group[key] += 1
-            for resource, amount in item.resource_request.amounts.items():
-                demand_by_group[key][resource] += amount
-                demand_by_resource[resource] += amount
-
-        for key, queue in self._queues.items():
+        for key in self._queued_by_group:
             first = self._first_valid_item(key)
-            if first is not None:
-                first_by_group[key] = dict(first.resource_request.amounts)
-                first_tasks_by_group[key] = first
-                first_group_specs[key] = first.group
+            if first is None:
+                continue
+            first_by_group[key] = dict(first.resource_request.amounts)
+            first_tasks_by_group[key] = first
+            first_group_specs[key] = first.group
 
         return QueueView(
             queued_total=len(self._queued),
-            queued_by_group=dict(queued_by_group),
-            queued_resource_demand_by_group={key: dict(value) for key, value in demand_by_group.items()},
+            queued_by_group=dict(self._queued_by_group),
+            queued_resource_demand_by_group={
+                key: dict(value) for key, value in self._queued_resource_demand_by_group.items()
+            },
             first_candidate_resources_by_group=first_by_group,
             first_candidate_tasks_by_group=first_tasks_by_group,
             first_candidate_group_specs_by_group=first_group_specs,
-            queued_peer_demand_by_resource=dict(demand_by_resource),
+            queued_peer_demand_by_resource=dict(self._queued_peer_demand_by_resource),
         )
 
     def _activate_group(self, key: TaskGroupKey) -> None:
@@ -183,13 +177,11 @@ class FairTaskQueue:
         self._active_heap_entries[key] = (finish, self._sequence)
 
     def _first_valid_item(self, key: TaskGroupKey) -> SchedulableTask | None:
+        self._purge_queue_head(key)
         queue = self._queues.get(key)
-        if queue is None:
+        if not queue:
             return None
-        for item in queue:
-            if item.task_id in self._queued and self._task_groups.get(item.task_id) == key:
-                return item
-        return None
+        return queue[0]
 
     def _purge_queue_head(self, key: TaskGroupKey) -> None:
         queue = self._queues.get(key)
@@ -200,3 +192,37 @@ class FairTaskQueue:
             if item.task_id in self._queued and self._task_groups.get(item.task_id) == key:
                 break
             queue.popleft()
+
+    def _increment_queue_accounting(self, item: SchedulableTask) -> None:
+        key = item.group.key
+        self._queued_by_group[key] += 1
+        for resource, amount in item.resource_request.amounts.items():
+            self._queued_resource_demand_by_group[key][resource] += amount
+            self._queued_peer_demand_by_resource[resource] += amount
+
+    def _remove_queued_item(self, task_id: str) -> SchedulableTask | None:
+        item = self._queued.pop(task_id, None)
+        key = self._task_groups.pop(task_id, None)
+        if item is None or key is None:
+            return item
+        self._decrement_queue_accounting(item, key)
+        return item
+
+    def _decrement_queue_accounting(self, item: SchedulableTask, key: TaskGroupKey) -> None:
+        self._queued_by_group[key] -= 1
+        if self._queued_by_group[key] <= 0:
+            del self._queued_by_group[key]
+
+        group_demand = self._queued_resource_demand_by_group.get(key)
+        if group_demand is not None:
+            for resource, amount in item.resource_request.amounts.items():
+                group_demand[resource] -= amount
+                if group_demand[resource] <= 0:
+                    del group_demand[resource]
+            if not group_demand:
+                del self._queued_resource_demand_by_group[key]
+
+        for resource, amount in item.resource_request.amounts.items():
+            self._queued_peer_demand_by_resource[resource] -= amount
+            if self._queued_peer_demand_by_resource[resource] <= 0:
+                del self._queued_peer_demand_by_resource[resource]

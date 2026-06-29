@@ -102,10 +102,120 @@ workflow.add_stage("cleanup", cleanup)
 
 This is useful for final cleanup, schema transforms, and format-specific export preparation.
 
+## Postprocessing hooks
+
+Use `output_processors` for structured transforms that can be expressed as processor configs. Use `on_success` when a stage boundary needs arbitrary Python code, such as filtering rows before the next stage runs.
+
+The callback receives the completed stage artifact directory and must return a parquet file or directory that can seed downstream stages.
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+
+def keep_disagreements(stage_path: Path) -> Path:
+    df = pd.read_parquet(stage_path / "parquet-files")
+    df = df[df["judge_a"] != df["judge_b"]]
+
+    out = stage_path / "callback-outputs" / "disagreements-v1"
+    out.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out / "data.parquet", index=False)
+    return out
+
+
+workflow = data_designer.compose_workflow(name="judge-disagreements")
+workflow.add_stage("candidates", candidates, num_records=10_000)
+workflow.add_stage(
+    "judged",
+    judges,
+    on_success=keep_disagreements,
+    on_success_version="disagreements-v1",
+    allow_empty=True,
+)
+workflow.add_stage("enriched", enriched)
+```
+
+`on_success_version` is part of the stage resume identity. Change it when the callback's output semantics change. If a callback returns zero rows, the workflow raises by default; set `allow_empty=True` to mark that stage as completed empty and skip downstream stages.
+
+## Changing row counts between stages
+
+Each stage has a fixed requested row count while it runs. To resize a workflow, change the selected output at a stage boundary and let the next stage seed from that output.
+
+Filtering is the shrink case: a callback can write fewer rows than the stage generated, and the next stage defaults to that filtered row count when `num_records` is omitted.
+
+Growing is the explode case. If a downstream stage asks for more rows than the upstream selected output contains, the seed reader cycles through the seed rows in order.
+
+```python
+workflow = data_designer.compose_workflow(name="persona-conversations")
+workflow.add_stage("personas", personas, num_records=100)
+workflow.add_stage("conversations", conversations, num_records=1_000)
+```
+
+The `conversations` stage receives 100 persona rows as its seed and requests 1,000 output rows. Data Designer reuses persona rows in order, so each persona seeds about 10 conversation rows. Add downstream sampler or LLM columns when each repeated seed row should produce distinct outputs.
+
+For custom upsampling, make the expanded dataset the selected output of the upstream stage:
+
+```python
+def repeat_each_persona(stage_path: Path) -> Path:
+    df = pd.read_parquet(stage_path / "parquet-files")
+
+    expanded = df.reset_index(drop=True)
+    expanded = expanded.loc[expanded.index.repeat(10)].copy()
+    expanded["variant_id"] = expanded.groupby(level=0).cumcount()
+    expanded = expanded.reset_index(drop=True)
+
+    out = stage_path / "callback-outputs" / "repeat-personas-v1"
+    out.mkdir(parents=True, exist_ok=True)
+    expanded.to_parquet(out / "data.parquet", index=False)
+    return out
+
+
+workflow = data_designer.compose_workflow(name="custom-persona-conversations")
+workflow.add_stage(
+    "personas",
+    personas,
+    num_records=100,
+    on_success=repeat_each_persona,
+    on_success_version="repeat-personas-v1",
+)
+workflow.add_stage("conversations", conversations)
+```
+
+In this version, `conversations` defaults to the 1,000-row callback output and can use `variant_id` to diversify prompts.
+
+## Resume
+
+Workflow names are durable artifact identities. Reusing the same name with `resume=ResumeMode.IF_POSSIBLE` reuses compatible completed stages, resumes a matching partial stage through `DataDesigner.create(..., resume=ResumeMode.ALWAYS)`, and reruns the first changed or missing stage plus its descendants.
+
+```python
+from data_designer.interface import ResumeMode
+
+results = workflow.run(resume=ResumeMode.IF_POSSIBLE)
+```
+
+Use `ResumeMode.ALWAYS` for strict resume before the first recovered checkpoint. A changed stage or missing selected output raises instead of starting fresh. If a matching partial stage resumes successfully, descendants are recreated from that stage's current output.
+
+## Review gates
+
+Use `targets` to materialize an intermediate stage without running the rest of the workflow. `export_stage()` writes the selected stage output for review. After review, pass the approved parquet as a stage output override and resume the downstream target.
+
+```python
+draft_results = workflow.run(targets="drafts")
+draft_results.export_stage("drafts", "drafts_for_review.parquet")
+
+results = workflow.run(
+    targets="expanded",
+    resume=ResumeMode.IF_POSSIBLE,
+    stage_output_overrides={"drafts": "approved.parquet"},
+)
+```
+
+If the reviewed data replaces a stage's selected output in place, run with `resume=ResumeMode.IF_POSSIBLE` and `rerun_from="expanded"` to rebuild that stage and its descendants from the current boundary output.
+
 ## Current limits
 
 - Stages are linear. DAGs, parallel branches, and joins are planned separately.
-- Stage-level resume is not implemented yet.
 - `push_to_hub()` does not support selected processor or callback outputs yet. Use `export()` for the selected workflow output.
 - `on_success` callbacks are trusted user code. If a callback returns a path, Data Designer reads that path as the next stage input.
 - The artifact layout is intended for inspection, but it is not yet a stable public contract.

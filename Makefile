@@ -87,7 +87,6 @@ help:
 	@echo "  check-fern-docs           - Generate local Fern artifacts and run fern check"
 	@echo "  check-fern-docs-locally   - Install deps, generate Fern artifacts, and run fern check"
 	@echo "  serve-fern-docs-locally   - Generate local Fern artifacts and serve Fern docs"
-	@echo "  serve-docs-locally        - Serve legacy MkDocs documentation locally"
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
@@ -465,15 +464,16 @@ update-license-headers:
 # DOCUMENTATION
 # ==============================================================================
 
-# Pin docs setup to a Python with prebuilt pyarrow wheels.
-# pyarrow doesn't yet ship wheels for Python 3.14+, so docs builds fall back to
-# a from-source compile (cmake + Apache Arrow C++) on those interpreters and fail.
+# Pin docs setup to a Python version covered by all docs/notebook deps. We
+# default to 3.13 to match the published docs builds; override with
+# DOCS_PYTHON_VERSION=... to test on another interpreter.
 DOCS_PYTHON_VERSION ?= 3.13
 DOCS_PYTHON ?= .venv/bin/python
 DOCS_JUPYTEXT ?= .venv/bin/jupytext
-DOCS_MKDOCS ?= .venv/bin/mkdocs
 FERN_VERSION ?= $(shell jq -r .version fern/fern.config.json)
 FERN ?= npx -y fern-api@$(FERN_VERSION)
+FERN_ORG ?= $(shell jq -r .organization fern/fern.config.json)
+FERN_GLOBAL_THEME ?= $(shell awk '/^global-theme:/ { print $$2; exit }' fern/docs.yml)
 
 # Route urllib/requests/httpx through certifi's CA bundle. Necessary when uv
 # resolves $(DOCS_PYTHON_VERSION) to a python.org installer build, which ships without
@@ -484,11 +484,6 @@ DOCS_CERTS = SSL_CERT_FILE=$$($(DOCS_PYTHON) -c "import certifi; print(certifi.w
 install-docs-deps:
 	@echo "📦 Installing docs dependencies (Python $(DOCS_PYTHON_VERSION))..."
 	uv sync --python $(DOCS_PYTHON_VERSION) --all-packages --group docs --group notebooks
-
-serve-docs-locally:
-	@$(MAKE) install-docs-deps
-	@echo "📝 Building and serving docs (Python $(DOCS_PYTHON_VERSION))..."
-	$(DOCS_MKDOCS) serve --livereload
 
 prepare-fern-release:
 ifndef VERSION
@@ -513,10 +508,34 @@ check-fern-docs-locally:
 	@$(MAKE) check-fern-docs
 	@echo "✅ Fern docs check complete"
 
+check-fern-theme-access:
+	@if [ -n "$(FERN_GLOBAL_THEME)" ]; then \
+		cd fern && $(FERN) docs theme list --org $(FERN_ORG) --json >/dev/null || { \
+			echo ""; \
+			echo "Unable to access Fern global theme '$(FERN_GLOBAL_THEME)' for org '$(FERN_ORG)'."; \
+			echo "Fix: sign in to https://dashboard.buildwithfern.com, then run:"; \
+			echo "  cd fern && $(FERN) login"; \
+			echo "If it still fails, export a privileged DOCS_FERN_TOKEN as FERN_TOKEN."; \
+			exit 1; \
+		}; \
+	fi
+
 serve-fern-docs-locally:
 	@$(MAKE) install-docs-deps
 	@$(MAKE) prepare-fern-docs
-	cd fern && PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true $(FERN) docs dev
+	@$(MAKE) serve-fern-docs-dev
+
+serve-fern-docs-dev:
+	@if $(MAKE) check-fern-theme-access >/dev/null 2>&1; then \
+		cd fern && PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true $(FERN) docs dev; \
+	else \
+		echo "Unable to access Fern global theme '$(FERN_GLOBAL_THEME)' for org '$(FERN_ORG)'."; \
+		echo "Serving with the local NVIDIA-style fallback. Run 'make check-fern-theme-access' for auth details."; \
+		$(MAKE) serve-fern-docs-local-theme; \
+	fi
+
+serve-fern-docs-local-theme:
+	@PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true $(DOCS_PYTHON) fern/scripts/serve-local-docs-preview.py --root fern -- $(FERN) docs dev
 
 convert-execute-notebooks:
 ifeq ($(USE_CACHE),1)
@@ -727,7 +746,7 @@ clean-test-coverage:
 .PHONY: bench-cli-startup bench-cli-startup-verbose \
         build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
-        check-fern-docs check-fern-docs-locally check-fern-release-version check-license-headers \
+        check-fern-docs check-fern-docs-locally check-fern-release-version check-fern-theme-access check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
         convert-execute-notebooks \
         coverage coverage-config coverage-engine coverage-interface \
@@ -736,7 +755,7 @@ clean-test-coverage:
         generate-colab-notebooks generate-fern-notebooks generate-fern-notebooks-with-outputs help \
         install install-dev install-dev-notebooks install-dev-recipes install-docs-deps \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
-        perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-docs-locally serve-fern-docs-locally show-versions \
+        perf-import perf-import-runtime prepare-fern-docs prepare-fern-release publish serve-fern-docs-dev serve-fern-docs-local-theme serve-fern-docs-locally show-versions \
         health-checks \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
         test-interface test-interface-isolated test-isolated \

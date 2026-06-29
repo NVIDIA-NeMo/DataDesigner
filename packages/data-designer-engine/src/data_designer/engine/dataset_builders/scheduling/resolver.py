@@ -10,9 +10,11 @@ from typing import TYPE_CHECKING
 from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError
 from data_designer.engine.dataset_builders.scheduling.resources import (
     SchedulableTask,
+    SchedulerResourceKey,
     SchedulerResourceRequest,
     TaskGroupKey,
     TaskGroupSpec,
+    request_scheduler_resource_key,
     stable_task_id,
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
@@ -48,10 +50,15 @@ class TaskSchedulingResolver:
         self._diagnostics: list[dict[str, object]] = []
         for generator in dict.fromkeys(generators.values()):
             self._metadata_by_generator_id[id(generator)] = self._resolve_metadata(generator)
+        self._request_resource_limits = self._build_request_resource_limits()
 
     @property
     def diagnostics(self) -> tuple[dict[str, object], ...]:
         return tuple(self._diagnostics)
+
+    @property
+    def request_resource_limits(self) -> Mapping[SchedulerResourceKey, int]:
+        return dict(self._request_resource_limits)
 
     def scheduling_for_task(self, task: Task, flow_identity: tuple[str, ...]) -> ResolvedTaskScheduling:
         generator = self._generators[task.column]
@@ -100,15 +107,29 @@ class TaskSchedulingResolver:
         identity = (*metadata.identity, *flow_identity)
         admitted_limit = max(1, min(self._model_group_limit_cap, self._model_group_limit_multiplier * weight))
         request_resource_key = _request_resource_key(metadata)
+        resource_request = {"submission": 1, "llm_wait": 1}
+        if request_resource_key is not None:
+            resource_request[request_scheduler_resource_key(request_resource_key)] = 1
         return ResolvedTaskScheduling(
             group=TaskGroupSpec(
                 key=TaskGroupKey(kind=metadata.kind, identity=identity),
                 weight=float(weight),
                 admitted_limit=admitted_limit,
             ),
-            resource_request=SchedulerResourceRequest({"submission": 1, "llm_wait": 1}),
+            resource_request=SchedulerResourceRequest(resource_request),
             request_resource_key=request_resource_key,
         )
+
+    def _build_request_resource_limits(self) -> dict[SchedulerResourceKey, int]:
+        limits: dict[SchedulerResourceKey, int] = {}
+        for metadata in self._metadata_by_generator_id.values():
+            resource = _request_resource_key(metadata)
+            if resource is None:
+                continue
+            key = request_scheduler_resource_key(resource)
+            cap = max(1, metadata.weight)
+            limits[key] = min(limits.get(key, cap), cap)
+        return limits
 
 
 def _request_resource_key(metadata: SchedulingMetadata) -> RequestResourceKey | None:

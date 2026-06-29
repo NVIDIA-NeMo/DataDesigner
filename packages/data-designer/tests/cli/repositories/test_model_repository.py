@@ -3,7 +3,13 @@
 
 from pathlib import Path
 
-from data_designer.cli.repositories.model_repository import ModelConfigRegistry, ModelRepository
+import pytest
+
+from data_designer.cli.repositories.model_repository import (
+    LegacyModelConfigMigrationError,
+    ModelConfigRegistry,
+    ModelRepository,
+)
 from data_designer.config.models import ModelConfig
 from data_designer.config.utils.constants import MODEL_CONFIGS_FILE_NAME
 from data_designer.config.utils.io_helpers import save_config_file
@@ -34,3 +40,22 @@ def test_save(tmp_path: Path, stub_model_configs: list[ModelConfig]):
     repository.save(ModelConfigRegistry(model_configs=stub_model_configs))
     assert repository.load() is not None
     assert repository.load().model_configs == stub_model_configs
+
+
+def test_load_legacy_missing_provider_raises(tmp_path: Path) -> None:
+    model_configs_file_path = tmp_path / MODEL_CONFIGS_FILE_NAME
+    save_config_file(
+        model_configs_file_path,
+        {
+            "model_configs": [
+                {
+                    "alias": "legacy-alias",
+                    "model": "test-model",
+                    "inference_parameters": {"generation_type": "chat-completion"},
+                }
+            ]
+        },
+    )
+    repository = ModelRepository(tmp_path)
+    with pytest.raises(LegacyModelConfigMigrationError, match="legacy-alias"):
+        repository.load()

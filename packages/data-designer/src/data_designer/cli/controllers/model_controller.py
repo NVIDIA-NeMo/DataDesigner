@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from data_designer.cli.forms.model_builder import ModelFormBuilder
-from data_designer.cli.repositories.model_repository import ModelRepository
+from data_designer.cli.repositories.model_repository import LegacyModelConfigMigrationError, ModelRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.services.model_service import ModelService
 from data_designer.cli.services.provider_service import ProviderService
@@ -54,7 +54,11 @@ class ModelController:
         console.print()
 
         # Check for existing configuration
-        models = self.model_service.list_all()
+        try:
+            models = self.model_service.list_all()
+        except LegacyModelConfigMigrationError as e:
+            print_error(str(e))
+            return
 
         if models:
             self._show_existing_config()

@@ -96,7 +96,7 @@ def stub_model_service(tmp_path: Path, stub_model_configs: list[ModelConfig]) ->
 @pytest.fixture
 def stub_provider_service(tmp_path: Path, stub_model_providers: list[ModelProvider]) -> ProviderService:
     repository = ProviderRepository(tmp_path)
-    repository.save(ModelProviderRegistry(providers=stub_model_providers, default=stub_model_providers[0].name))
+    repository.save(ModelProviderRegistry(providers=stub_model_providers))
     return ProviderService(repository)
 
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import Mock, patch
 
 import pytest
@@ -12,7 +13,7 @@ from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.config.run_config import JinjaRenderingEngine, RunConfig
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.utils.errors import ExpressionTemplateRenderError
-from data_designer.engine.processing.ginja.exceptions import UserTemplateUnsupportedFiltersError
+from data_designer.engine.processing.ginja.exceptions import UserTemplateError, UserTemplateUnsupportedFiltersError
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
@@ -27,6 +28,7 @@ def _create_test_generator(config=None, resource_provider=None):
         config = _create_test_config()
     if resource_provider is None:
         resource_provider = Mock(spec=ResourceProvider)
+        resource_provider.run_config = RunConfig()
     return ExpressionColumnGenerator(config=config, resource_provider=resource_provider)
 
 
@@ -162,6 +164,63 @@ def test_generate_with_missing_columns():
         match=r"There was an error preparing the Jinja2 expression template. The following columns \['col1'\] are missing!",
     ):
         generator.generate(df)
+
+
+def test_generate_drops_empty_rendered_rows_and_warns(caplog: pytest.LogCaptureFixture) -> None:
+    config = _create_test_config("output", "{{ answer }}", "str")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"answer": ["42", "", "   ", "7"]})
+
+    with caplog.at_level(logging.WARNING):
+        result = generator.generate(df)
+
+    assert result["output"].tolist() == ["42", "7"]
+    assert result.index.tolist() == [0, 3]
+    assert "Expression column 'output' dropped 2/4 rows after render: EmptyRenderedExpression=2." in caplog.text
+    assert "Continuing with 2 rows." in caplog.text
+
+
+def test_generate_drops_row_specific_template_errors(caplog: pytest.LogCaptureFixture) -> None:
+    config = _create_test_config("ratio", "{{ 1 / denominator }}", "float")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"denominator": [1, 0, 2]})
+
+    with caplog.at_level(logging.WARNING):
+        result = generator.generate(df)
+
+    assert result["ratio"].tolist() == [1.0, 0.5]
+    assert result.index.tolist() == [0, 2]
+    assert "TemplateRenderError=1" in caplog.text
+
+
+def test_generate_drops_type_cast_errors(caplog: pytest.LogCaptureFixture) -> None:
+    config = _create_test_config("number", "{{ value }}", "int")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"value": ["1", "not-a-number", "3"]})
+
+    with caplog.at_level(logging.WARNING):
+        result = generator.generate(df)
+
+    assert result["number"].tolist() == [1, 3]
+    assert result.index.tolist() == [0, 2]
+    assert "TypeCastError=1" in caplog.text
+
+
+def test_generate_raises_when_all_rows_drop(caplog: pytest.LogCaptureFixture) -> None:
+    config = _create_test_config("output", "{{ answer }}", "str")
+    generator = _create_test_generator(config)
+    df = lazy.pd.DataFrame({"answer": ["", "   "]})
+
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(
+            UserTemplateError,
+            match="Expression column 'output' produced no valid rows.",
+        ),
+    ):
+        generator.generate(df)
+
+    assert "Expression column 'output' dropped 2/2 rows after render: EmptyRenderedExpression=2." in caplog.text
 
 
 def test_generate_respects_run_config_jinja_rendering_engine() -> None:

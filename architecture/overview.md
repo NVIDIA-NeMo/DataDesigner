@@ -29,7 +29,7 @@ Users declare what their data should look like through config objects (columns, 
 |-----------|---------|-------------|
 | `DataDesigner` | `data-designer` | Public API — `create()`, `preview()`, `validate()` |
 | `DataDesignerConfigBuilder` | `data-designer-config` | Fluent builder for dataset configs |
-| `DatasetBuilder` | `data-designer-engine` | Orchestrates generation (sync or async) |
+| `DatasetBuilder` | `data-designer-engine` | Orchestrates async generation |
 | `ModelFacade` / `ModelRegistry` | `data-designer-engine` | LLM client abstraction with retry, request admission, usage tracking |
 | `MCPFacade` / `MCPRegistry` | `data-designer-engine` | Tool execution via Model Context Protocol |
 | `ColumnGeneratorRegistry` | `data-designer-engine` | Maps column types to generator implementations |
@@ -42,9 +42,7 @@ Users declare what their data should look like through config objects (columns, 
 
 2. **Compilation** — `compile_data_designer_config` enriches the config (seed columns, internal UUID column), runs static validation (Jinja references, code columns, processors), and produces a compiled column order via topological sort.
 
-3. **Generation** — `DatasetBuilder` instantiates column generators from the registry, then executes one of two paths:
-   - **Sequential** (default): batch loop over columns in topological order. Each generator produces its column via `CELL_BY_CELL` (threaded fan-out) or `FULL_COLUMN` strategy.
-   - **Async** (`DATA_DESIGNER_ASYNC_ENGINE=1`): builds an `ExecutionGraph`, partitions rows into groups, and dispatches tasks via `AsyncTaskScheduler` with `FairTaskQueue` selection, `TaskAdmissionController` scheduler-resource leases, salvage rounds, and per-row-group checkpointing.
+3. **Generation** — `DatasetBuilder` instantiates column generators from the registry, builds an `ExecutionGraph`, partitions rows into groups, and dispatches tasks via `AsyncTaskScheduler` with `FairTaskQueue` selection, `TaskAdmissionController` scheduler-resource leases, salvage rounds, and per-row-group checkpointing.
 
 4. **Post-processing** — `ProcessorRunner` applies transformations (pre-batch, post-batch, after-generation). Profilers analyze the generated dataset.
 
@@ -54,7 +52,7 @@ Users declare what their data should look like through config objects (columns, 
 
 - **PEP 420 namespace packages** allow the three packages to be installed independently while sharing the `data_designer` namespace. This enables lighter installs (e.g., config-only for validation tooling) without import conflicts.
 - **Lazy imports throughout** — `__getattr__`-based lazy loading in `data_designer.config` and `data_designer.interface`, plus `lazy_heavy_imports` for numpy/pandas, keep startup fast.
-- **Dual execution engines** share the same `DatasetBuilder` API. The async engine adds row-group parallelism and DAG-aware scheduling without changing the public interface.
+- **Async-only execution** gives `DatasetBuilder` one scheduling path with row-group parallelism and DAG-aware dispatch behind the public interface.
 - **`TaskRegistry` subclasses: one instance per class** — `TaskRegistry.__new__` (`registry/base.py`) ensures a single instance of each concrete registry (column generators, profilers, processors). **`ModelRegistry`** and **`MCPRegistry`** are ordinary classes, constructed per run with injected dependencies. **`PluginRegistry`** (`plugins/registry.py`) uses `__new__` so entry points are discovered once per process.
 
 ## Cross-References
@@ -62,7 +60,7 @@ Users declare what their data should look like through config objects (columns, 
 - [Config Layer](config.md) — builder API, column types, model configs, plugin system
 - [Engine Layer](engine.md) — compilation, generators, registries
 - [Models](models.md) — model facade, adapters, retry, request admission
-- [Dataset Builders](dataset-builders.md) — sync/async orchestration, DAG, batching
+- [Dataset Builders](dataset-builders.md) — async orchestration, DAG, row groups
 - [MCP](mcp.md) — tool execution, session pooling
 - [Sampling](sampling.md) — statistical generators, person/entity data
 - [CLI](cli.md) — command structure, controller/service/repo pattern

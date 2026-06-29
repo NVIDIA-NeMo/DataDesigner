@@ -6,17 +6,19 @@ description: >
   docs", "rename page", "fix broken link", "add redirect", "preview docs",
   "publish docs", "regenerate notebooks", "update dev note", any request
   that touches `fern/`.
+metadata:
+    internal: true
 ---
 
 # Data Designer Docs Maintenance
 
 Unified skill for adding, updating, moving, and removing pages on the NeMo Data Designer Fern docs site.
 
-Current URL: **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`** (see `instances` in [`fern/docs.yml`](../../../fern/docs.yml)). Source of truth for everything user-facing is `fern/`.
+Current URL: **`docs.nvidia.com/nemo/datadesigner`** (see `instances` in [`fern/docs.yml`](../../../fern/docs.yml)). Source of truth for everything user-facing is `fern/`.
 
 ## Scope Rule
 
-**ALL doc edits happen under `fern/`.** The legacy `docs/` directory is the original MkDocs source. `docs/notebook_source/*.py` remains canonical for notebook code, but **do not add new top-level prose pages under `docs/`**. Concept pages, recipes, plugins, and Dev Notes prose live under `fern/versions/latest/pages/`.
+**ALL doc prose edits happen under `fern/`.** The remaining `docs/` directory is only for notebook source, generated Colab notebooks, docs scripts, and downloadable recipe scripts. `docs/notebook_source/*.py` remains canonical for notebook code. Concept pages, recipes, plugins, and Dev Notes prose live under `fern/versions/latest/pages/`.
 
 ## Versioning Model
 
@@ -43,7 +45,7 @@ fern/
 ├── fern.config.json           ← organization + fern-api version pin
 ├── main.css                   ← bundled NVIDIA theme CSS
 ├── assets/                    ← logos, favicon, recipe assets, devnote post images (shared)
-├── images/                    ← /images/* references from MDX (mirrors docs/images/)
+├── images/                    ← /images/* references from MDX
 ├── styles/                    ← per-component CSS (notebook-viewer, authors, metrics-table, …)
 ├── components/                ← React/JSX MDX components
 │   ├── NotebookViewer.tsx     ← renders converted .ipynb cells with outputs
@@ -375,7 +377,7 @@ The `.ts` is what the wrapper MDX imports. Fern's bundler doesn't follow `.json`
 | `make generate-fern-notebooks` | Notebook prose changed, no need to re-execute. Per file, prefers `docs/notebooks/` (executed) and falls back to converting `docs/notebook_source/*.py` directly. |
 | `make generate-fern-notebooks-with-outputs` | Notebook code changed, want fresh outputs. Needs `NVIDIA_API_KEY` (and `OPENROUTER_API_KEY` for image notebooks 5–6). |
 
-Install notebook docs dependencies first with `make install-dev-notebooks`. Docs setup pins to `DOCS_PYTHON_VERSION ?= 3.13` because `pyarrow` lacks Python 3.14 wheels. Override via `DOCS_PYTHON_VERSION=3.12 make ...`.
+Install notebook docs dependencies first with `make install-dev-notebooks`. Docs setup pins to `DOCS_PYTHON_VERSION ?= 3.13` to match the published docs builds. Override via `DOCS_PYTHON_VERSION=3.14 make ...` (or any other supported version) when needed.
 
 The `convert-execute-notebooks` step loops per file so one notebook missing an API key does not prevent later notebooks from running. Any failure is reported after the loop and the make target exits non-zero.
 
@@ -434,7 +436,7 @@ git commit -s -m "docs: <add|update|remove> <page-title>"
 
 DCO sign-off (`-s`) is required by CONTRIBUTING. Use `docs:` prefix (matches recent commit history). Subject line ≤ 50 chars (hard limit 72).
 
-When the team adds a Fern preview workflow (modeled after Gym's `fern-docs-preview-comment.yml`), PRs touching `fern/**` will get an automatic preview URL posted as a comment. Until that lands, share local dev-server screenshots in PR descriptions.
+PRs touching Fern docs inputs get an automatic Fern preview URL posted as a comment. Fork PRs still run checks, but hosted preview publishing is skipped because it requires deployment secrets.
 
 ## Cutting a New Version Train
 
@@ -453,7 +455,7 @@ Do not copy page trees by hand on `main`. The release workflow copies `latest/pa
 | Notebook page renders raw `<a href=colab...>` HTML | `.ts` was generated before the colab-strip improvement; re-run `make generate-fern-notebooks` |
 | Notebook page has no cell outputs | Ran without `NVIDIA_API_KEY` or `convert-execute-notebooks` failed; run `make generate-fern-notebooks-with-outputs` |
 | `URLError: [SSL: CERTIFICATE_VERIFY_FAILED]` during notebook execution | `DOCS_CERTS` not propagated; ensure you're invoking via the make target, not raw Python |
-| `Failed to build pyarrow==X` from source | `DOCS_PYTHON_VERSION` resolved to 3.14+; override with `DOCS_PYTHON_VERSION=3.13 make ...` (or just rely on the default) |
+| `Failed to build pyarrow==X` from source | `DOCS_PYTHON_VERSION` resolved to an interpreter without prebuilt pyarrow wheels; fall back to `DOCS_PYTHON_VERSION=3.13 make ...` (the default) |
 | Cards on landing all link to the same wrong URL | `href` not matching Fern's slugified-title rule — recompute as `/<section-slug>/<page-title-slug>` |
 | Image broken in preview, file exists at `fern/assets/...` | Reference uses relative `../assets/...` — change to absolute `/assets/...` (relative paths break across version slugs) |
 
@@ -461,4 +463,4 @@ Do not copy page trees by hand on `main`. The release workflow copies `latest/pa
 
 - Editing Python source under `packages/` — that's a code change, not a docs change.
 - Adding a notebook tutorial's *code*: edit `docs/notebook_source/<name>.py`, not the converted `.ipynb` or the wrapper MDX.
-- Editing dev note *prose*: edit the migrated MDX under `fern/versions/latest/pages/devnotes/posts/<name>.mdx`. (The original `docs/devnotes/posts/<name>.md` is no longer the source of truth — Fern is.)
+- Editing dev note *prose*: edit the MDX under `fern/versions/latest/pages/devnotes/posts/<name>.mdx`.

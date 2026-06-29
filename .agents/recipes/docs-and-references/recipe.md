@@ -3,8 +3,8 @@ name: docs-and-references
 description: Audit documentation freshness - docstrings vs signatures, broken links, architecture refs, docs site content accuracy
 trigger: schedule
 tool: claude-code
-timeout_minutes: 20
-max_turns: 30
+timeout_minutes: 40
+max_turns: 50
 permissions:
   contents: write
 ---
@@ -33,11 +33,31 @@ even when their report row is suppressed for being unchanged.
 
 ## Instructions
 
+### Turn budget
+
+This suite must finish before the `max_turns` limit. Do not attempt a
+repo-wide audit in one run.
+
+1. Read runner memory.
+2. Write `/tmp/audit-{{suite}}.md` immediately with the required headings and
+   empty tables. If the run is interrupted later, the workflow must still have
+   a usable partial report.
+3. Use targeted searches to find candidates, then read only the files needed
+   to verify a specific finding.
+4. Stop after either:
+   - 20 tool calls
+   - 2 new findings in a section
+   - all sections have been sampled
+5. Finalize the report, update runner memory, and stop. If no new findings
+   were verified, replace the report with `NO_FINDINGS`.
+
 ### 1. Docstring vs signature drift
 
 This repo uses Google-style docstrings (`Args:`, `Returns:`, `Raises:`).
-Scan public functions and methods in `packages/` for mismatches between the
-docstring and the actual function signature:
+Sample public functions and methods in `packages/` for mismatches between the
+docstring and the actual function signature. Do not scan every source file.
+Use `rg "Args:|Returns:|Raises:" packages/*/src/ --glob '*.py'` to find
+candidates, then inspect at most 5 high-value files:
 
 - Parameters in the `Args:` section that no longer exist in the signature
 - Parameters in the signature that are missing from `Args:`
@@ -57,17 +77,20 @@ interface package is what users see first.
 Check links in these locations:
 - `README.md` - all relative links and URLs
 - `architecture/*.md` - cross-references to other architecture docs and code
-- `docs/` - MkDocs content links, code references, cross-page links
+- `fern/versions/latest/pages/` - Fern content links, code references, cross-page links
 - `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md` - relative links
 
-For each link, verify the target file or anchor exists. Report broken links
-with the source file, line number, and broken target.
+Use targeted link extraction and inspect at most 10 candidate links. Prefer
+high-value docs and links changed recently. For each sampled link, verify the
+target file or anchor exists. Report broken links with the source file, line
+number, and broken target.
 
 ### 3. Architecture doc references
 
 The 10 files in `architecture/` reference specific classes, functions, files,
 and registries by name. These are high-value docs that agents and developers
-rely on for orientation. For each code reference:
+rely on for orientation. Sample at most 3 architecture files per run,
+prioritizing files changed recently. For each code reference:
 - Verify the referenced class, function, or module still exists at the stated
   location
 - If renamed or moved, flag with the old and new location
@@ -80,10 +103,10 @@ ls architecture/
 
 ### 4. Docs site content accuracy
 
-The MkDocs site under `docs/` is the primary user-facing documentation.
+The Fern site under `fern/versions/latest/pages/` is the primary user-facing documentation.
 Review for accuracy against the current code:
 
-**Concepts pages** (`docs/concepts/`):
+**Concepts pages** (`fern/versions/latest/pages/concepts/`):
 - Do code examples use correct imports, class names, and method signatures?
   Check against actual source - e.g., verify `DataDesigner.create()`,
   `DataDesigner.preview()`, builder patterns match the real API.
@@ -91,18 +114,18 @@ Review for accuracy against the current code:
   or renamed?
 - Are new features or column types missing from the docs?
 
-**Recipes** (`docs/recipes/`):
+**Recipes** (`fern/versions/latest/pages/recipes/`):
 - Do step-by-step instructions reference correct file paths, class names,
   and CLI commands? Run `grep` for class names mentioned in recipe docs and
   verify they resolve in the source.
 
-**Dev notes** (`docs/devnotes/posts/`):
+**Dev notes** (`fern/versions/latest/pages/devnotes/posts/`):
 - Dev notes describe implementation details that may have changed. Spot-check
   the most recent 3-5 posts for references to functions, classes, or
   architecture that have since been modified.
 
 **Prioritize by risk of drift**: pages with the most code symbols referenced
-are most likely to be stale. Don't read every page - sample 5-10 high-value
+are most likely to be stale. Don't read every page - sample 3-5 high-value
 pages and flag patterns.
 
 ## Output format

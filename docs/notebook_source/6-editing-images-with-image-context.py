@@ -23,11 +23,11 @@
 # - 🔗 **Chaining image columns**: Use `ImageContext` to pass generated images to a follow-up editing column
 # - 🎲 **Sampler-driven diversity**: Combine sampled accessories and settings for varied edits
 #
-# This tutorial uses an **autoregressive** model (one that supports both text-to-image *and* image-to-image generation via the chat completions API). Diffusion models (DALL·E, Stable Diffusion, etc.) do not support image context—see [Tutorial 5](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) for text-to-image generation with diffusion models.
+# This tutorial uses an **autoregressive** model (one that supports both text-to-image *and* image-to-image generation via the chat completions API). Diffusion models (DALL·E, Stable Diffusion, etc.) do not support image context—see [Tutorial 5](https://docs.nvidia.com/nemo/datadesigner/tutorials/generating-images) for text-to-image generation with diffusion models.
 #
 # > **Prerequisites**: This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro model. Set `OPENROUTER_API_KEY` in your environment before running.
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://docs.nvidia.com/nemo/datadesigner/tutorials/the-basics) in this tutorial series.
 #
 
 # %% [markdown]
@@ -39,6 +39,7 @@
 
 # %%
 import base64
+import os
 from pathlib import Path
 
 from IPython.display import Image as IPImage
@@ -244,7 +245,12 @@ for index, row in preview.dataset.iterrows():
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=5, dataset_name="tutorial-6-edited-images")
+create_num_records = int(os.environ.get("DATA_DESIGNER_FLUX_2_PRO_CREATE_NUM_RECORDS", "5"))
+results = data_designer.create(
+    config_builder,
+    num_records=create_num_records,
+    dataset_name="tutorial-6-edited-images",
+)
 
 # %%
 dataset = results.load_dataset()
@@ -264,7 +270,7 @@ for index, row in dataset.head(10).iterrows():
 #
 # Related tutorials:
 #
-# - [The basics](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/): samplers and LLM text columns
-# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/): image-to-text with VLMs
-# - [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/): text-to-image generation with diffusion models
+# - [The basics](https://docs.nvidia.com/nemo/datadesigner/tutorials/the-basics): samplers and LLM text columns
+# - [Providing images as context](https://docs.nvidia.com/nemo/datadesigner/tutorials/providing-images-as-context): image-to-text with VLMs
+# - [Generating images](https://docs.nvidia.com/nemo/datadesigner/tutorials/generating-images): text-to-image generation with diffusion models
 #

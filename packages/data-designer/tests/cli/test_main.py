@@ -180,6 +180,18 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
     )
 
 
+@patch("data_designer.cli.commands.check_models.GenerationController")
+def test_app_dispatches_lazy_check_models_command(mock_controller_cls: Mock) -> None:
+    """The Typer app dispatches the lazy-loaded check-models command."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    result = runner.invoke(app, ["check-models", "config.yaml"])
+
+    assert result.exit_code == 0
+    mock_controller.run_check_models.assert_called_once_with(config_source="config.yaml")
+
+
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")
 def test_app_dispatches_lazy_plugin_list_command(mock_controller_cls: Mock) -> None:
     """The plugin group lazily resolves command callbacks without loading a catalog."""

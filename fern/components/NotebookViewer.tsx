@@ -48,6 +48,161 @@ import type { ReactNode } from "react";
  *   />
  */
 
+/**
+ * Notebook styles, injected by the component rather than loaded via docs.yml
+ * `css:`. `css` is theme-owned, so under `global-theme: nvidia` a local `css:`
+ * list is dropped at publish — styling ships with the component. See fern/docs.yml.
+ */
+const NOTEBOOK_VIEWER_CSS = `
+.notebook-viewer {
+  margin: 1.5rem 0;
+}
+/* Colab banner — uses Fern's .fern-button styling */
+.notebook-viewer__colab-banner {
+  margin-bottom: 1rem;
+}
+/* Render the Colab link as a button, not a green prose link */
+.notebook-viewer__colab-link,
+.notebook-viewer__colab-link:hover,
+.notebook-viewer__colab-link:visited,
+.notebook-viewer__colab-link:focus-visible {
+  color: white;
+  text-decoration: none;
+}
+.notebook-viewer__colab-link .fern-button-text {
+  color: inherit;
+}
+.notebook-viewer__cells {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.notebook-viewer__cell {
+  margin: 0;
+}
+.notebook-viewer__cell--markdown .notebook-viewer__markdown {
+  line-height: 1.6;
+}
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h1,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h2,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h3,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h4 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h1:first-child,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h2:first-child,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h3:first-child,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h4:first-child {
+  margin-top: 0;
+}
+.notebook-viewer__cell--markdown .notebook-viewer__markdown p {
+  margin: 0.5rem 0;
+}
+/* Code block line numbers (Fern structure) — gutter + content */
+.fern-scroll-area-viewport .code-block-line-gutter {
+  padding-right: 1rem;
+  padding-left: 1rem;
+  text-align: right;
+  user-select: none;
+  color: var(--grayscale-a9, #6b7280);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.fern-scroll-area-viewport .code-block-line-content {
+  padding-right: 1.25rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.fern-scroll-area-viewport .code-block-line-content .line {
+  display: block;
+  min-width: min-content;
+}
+.code-block-line-content span[style*="border:"] {
+  border: none !important;
+}
+.fern-feedback-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  color: var(--grayscale-a11, #374151);
+  background: transparent;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.fern-feedback-button:hover {
+  color: var(--accent-11, #2563eb);
+  background-color: var(--grayscale-a3, rgba(0, 0, 0, 0.05));
+}
+.notebook-viewer__markdown .external-link-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: middle;
+  margin-left: 0.125rem;
+}
+.notebook-viewer__copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  color: var(--grayscale-a11, #374151);
+  background: transparent;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.notebook-viewer__copy-btn:hover {
+  color: var(--accent-11, #2563eb);
+  background-color: var(--grayscale-a3, rgba(0, 0, 0, 0.05));
+}
+.dark .notebook-viewer__copy-btn {
+  color: var(--grayscale-a11, #9ca3af);
+}
+.dark .notebook-viewer__copy-btn:hover {
+  color: var(--accent-11, #60a5fa);
+  background-color: var(--grayscale-a3, rgba(255, 255, 255, 0.08));
+}
+.notebook-viewer__output-block {
+  margin-top: 0.5rem !important;
+}
+.notebook-viewer__output-content {
+  padding: 1rem 1.25rem;
+}
+.notebook-viewer__outputs-inner {
+  overflow-x: auto;
+}
+.notebook-viewer__output-text,
+.notebook-viewer__output-html {
+  margin: 0;
+  font-size: 0.875rem;
+}
+.notebook-viewer__output-text {
+  overflow-x: auto;
+  min-width: min-content;
+}
+.notebook-viewer__output-html table {
+  border-collapse: collapse;
+}
+.notebook-viewer__output-html th,
+.notebook-viewer__output-html td {
+  border: 1px solid #e5e7eb;
+  padding: 0.25rem 0.5rem;
+}
+.dark .notebook-viewer__output-html th,
+.dark .notebook-viewer__output-html td {
+  border-color: #374151;
+}
+.notebook-viewer__output-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+`;
+
 export interface CellOutput {
   type: "text" | "image";
   data: string;
@@ -397,6 +552,8 @@ export const NotebookViewer = ({
 
   return (
     <div className="notebook-viewer">
+      {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
+      <style dangerouslySetInnerHTML={{ __html: NOTEBOOK_VIEWER_CSS }} />
       {colabUrl && (
         <div className="notebook-viewer__colab-banner">
           <a

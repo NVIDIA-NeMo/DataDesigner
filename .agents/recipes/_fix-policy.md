@@ -25,7 +25,9 @@ A finding may be converted to a fix only if all hold:
   | `packages/data-designer-config` | `make test-config` |
   | `packages/data-designer-engine` | `make test-engine` |
   | `packages/data-designer` | `make test-interface` |
-- **Single concern**: one finding per PR.
+- **Single concern**: one finding per PR, except suite-declared batchable
+  mechanical fixes. A batch must share one suite/category and satisfy the
+  localized-fix bar as a single combined diff.
 - **Allowlisted paths**: matches the suite's path allowlist.
 
 If the top-ranked candidate fails the bar, try the next. If none of the top
@@ -37,7 +39,7 @@ If the top-ranked candidate fails the bar, try the next. If none of the top
 
 | Suite | Paths the recipe MAY modify |
 |-------|-----------------------------|
-| docs-and-references | `architecture/**`, `docs/**`, `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
+| docs-and-references | `architecture/**`, `fern/versions/latest/pages/**`, `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
 | dependencies | `packages/*/pyproject.toml` |
 | structure | `packages/*/src/**/*.py` |
 | code-quality | `packages/*/src/**/*.py` |
@@ -79,6 +81,9 @@ Each daily recipe maintains two arrays in
 Also: `draft_until_proven` (boolean, per-suite, default `true` for
 code-quality and unset elsewhere) controls draft-PR mode.
 
+Batch PRs still record one `attempted_fixes` entry per finding. Multiple
+entries may point to the same `pr_number` and `branch`.
+
 ### `fix_backlog` rules (audit phase populates this)
 
 - Append every detected finding in an eligible category. If `id` is already
@@ -90,6 +95,9 @@ code-quality and unset elsewhere) controls draft-PR mode.
 - Cap at 200 entries (drop oldest by `first_seen`).
 - Populated **before** the `known_issues` filter so fixable findings persist
   even when their report row is suppressed for being unchanged.
+- Batchable categories must include enough information in `data` to group
+  siblings safely. For package-scoped Python fixes, derive `test_target` from
+  the package containing the source file.
 
 ### `attempted_fixes` rules
 
@@ -101,9 +109,9 @@ code-quality and unset elsewhere) controls draft-PR mode.
   `open` attempts that have a `pr_number`: query the PR and flip the
   attempt to `merged` or `closed` if it is no longer open. Then recover
   from crashes that left state un-updated: list open PRs (`gh pr list`)
-  whose bodies contain the
-  `<!-- agentic-ci finding=<id> suite=<suite> -->` marker, parse out
-  each `<id>`, and back-fill any missing `attempted_fixes` entries with
+  whose bodies contain one or more
+  `<!-- agentic-ci finding=<id> suite=<suite> -->` markers, parse out
+  every `<id>`, and back-fill any missing `attempted_fixes` entries with
   `outcome: "open"` and the parsed `pr_number` and `branch`.
 - Prune: drop `merged` entries older than 90 days. Do **not** prune
   `closed` or `abandoned` entries by age — pruning a single-strike entry
@@ -175,7 +183,7 @@ Earlier criteria override later ones:
 
 4. **Recency** — newer findings rank above long-standing ones.
 
-Record the chosen finding's id, scores, and rationale at the top of
+Record the chosen finding id(s), scores, and rationale at the top of
 `/tmp/audit-{{suite}}.md`.
 
 ## Standard fix procedure
@@ -191,29 +199,38 @@ declare only the parts that vary (eligible categories, branch type,
    `merged`; surface two-strike entries in the report's
    `Repeatedly-failed fix attempts` section and drop them from selection.
 3. Rank the remainder per the Ranking section.
-4. For each candidate, top 5 max:
-   1. Re-verify the finding still applies (re-grep / re-read). If not,
-      remove from `fix_backlog` and continue.
-   2. Apply the fix. If the diff exceeds the localized-fix bar or touches
-      a non-allowlisted path, abandon and continue.
-   3. If the category sets `test_required: true`, run the per-package
-      test target (see the mapping table in "Localized fix bar" above)
-      for the package containing the change. On failure: abandon and
+4. For each primary candidate, top 5 max:
+   1. If the suite declares the category batchable, collect sibling
+      `fix_backlog` entries for the same suite/category that share the same
+      test target and branch type. Do not discover new findings; use only
+      existing backlog entries. Batch at most 3 entries to stay within the
+      localized-fix file cap.
+   2. Re-verify every finding still applies (re-grep / re-read). If a
+      sibling no longer applies, remove it from `fix_backlog`; if the
+      primary no longer applies, remove it from `fix_backlog` and continue
+      to the next primary candidate.
+   3. Apply the fix or batch. If the combined diff exceeds the
+      localized-fix bar or touches a non-allowlisted path, abandon and
       continue.
-   4. Branch: `agentic-ci/<type>/<suite>-YYYYMMDD-<short-slug>`. Commit:
+   4. If the category sets `test_required: true`, run the per-package
+      test target (see the mapping table in "Localized fix bar" above)
+      for the package containing the change(s). On failure: abandon and
+      continue.
+   5. Branch: `agentic-ci/<type>/<suite>-YYYYMMDD-<short-slug>`. Commit:
       `<type>(agentic-ci): <one-line>`. Push.
-   5. Write the PR body to `/tmp/pr-body-{{suite}}.md`, including the
-      hidden metadata block:
+   6. Write the PR body to `/tmp/pr-body-{{suite}}.md`, including one
+      hidden metadata block per fixed finding:
       `<!-- agentic-ci finding=<id> suite=<suite> -->`
-   6. `gh pr create --body-file /tmp/pr-body-{{suite}}.md` with `--draft`
+   7. `gh pr create --body-file /tmp/pr-body-{{suite}}.md` with `--draft`
       iff `draft_until_proven` is true for the suite.
-   7. `gh pr edit <num> --add-label agentic-ci --add-label agentic-ci/<suite>`.
-   8. Record `attempted_fixes` entry with `outcome: "open"` and exit.
+   8. `gh pr edit <num> --add-label agentic-ci --add-label agentic-ci/<suite>`.
+   9. Record one `attempted_fixes` entry per fixed finding with
+      `outcome: "open"` and exit.
 5. If all 5 candidates were abandoned, append a one-line note to the
    report and exit cleanly. The state already reflects the abandonments.
 
 On any failure mid-flow: record `outcome: "abandoned"` for the chosen
-finding (with `pr_number: null`), leave any pushed branch in place
+finding(s) (with `pr_number: null`), leave any pushed branch in place
 (`pr-stale.yml` will reap it; branch deletion is forbidden), and continue
 to the next candidate.
 
@@ -223,6 +240,8 @@ to the next candidate.
   interactive-only and shells the body inline; CI needs determinism.
 - **Title**: conventional, `<type>(agentic-ci): <one-line>`.
 - **Labels**: `agentic-ci`, `agentic-ci/<suite>`.
+- **Batch markers**: batch PRs include one hidden finding marker per fixed
+  finding so crash recovery can reconstruct every `attempted_fixes` entry.
 - **Draft PRs**: `code-quality` opens draft until a maintainer flips
   `draft_until_proven` to `false` in runner-state, after at least two
   non-draft PRs from that suite have landed clean. This flip is
