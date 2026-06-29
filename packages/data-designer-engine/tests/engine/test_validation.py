@@ -460,27 +460,9 @@ def test_validate_skip_on_sampler_seed() -> None:
         params={"low": 0, "high": 10},
         skip=SkipConfig(when="{{ y }}"),
         drop=False,
-        allow_resize=False,
         propagate_skip=True,
     )
     violations = validate_skip_references([col], allowed_references=["y"])
     assert len(violations) == 1
     assert violations[0].type == ViolationType.SKIP_ON_SAMPLER_SEED
     assert violations[0].column == "sampler_with_skip"
-
-
-def test_validate_skip_with_allow_resize() -> None:
-    col = LLMTextColumnConfig.model_construct(
-        name="with_skip",
-        column_type="llm-text",
-        prompt="test {{ gate }}",
-        model_alias=STUB_MODEL_ALIAS,
-        skip=SkipConfig(when="{{ gate == 0 }}"),
-        allow_resize=True,
-        drop=False,
-        propagate_skip=True,
-    )
-    violations = validate_skip_references([col], allowed_references=["gate"])
-    assert len(violations) == 1
-    assert violations[0].type == ViolationType.SKIP_WITH_ALLOW_RESIZE
-    assert violations[0].column == "with_skip"

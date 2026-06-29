@@ -28,7 +28,7 @@ The config layer provides:
 
 ### Column Configs
 
-All column configs inherit from `SingleColumnConfig(ConfigBase, ABC)`, which provides `name`, `drop`, `allow_resize`, and the `column_type` discriminator field.
+All column configs inherit from `SingleColumnConfig(ConfigBase, ABC)`, which provides `name`, `drop`, `skip`, `propagate_skip`, and the `column_type` discriminator field.
 
 Concrete types include: `SamplerColumnConfig`, `LLMTextColumnConfig`, `LLMStructuredColumnConfig`, `LLMCodeColumnConfig`, `LLMJudgeColumnConfig`, `EmbeddingColumnConfig`, `ImageColumnConfig`, `ValidationColumnConfig`, `ExpressionColumnConfig`, `SeedDatasetColumnConfig`, `CustomColumnConfig`.
 

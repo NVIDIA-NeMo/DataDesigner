@@ -24,8 +24,7 @@ class RowGroupBufferManager:
     writes (``update_cell``) are the only write path — whole-record replacement
     is unsafe under parallel column execution.
 
-    The existing ``DatasetBatchManager`` is untouched; this class is used
-    exclusively by the async scheduler.
+    This class is used by the async scheduler.
     """
 
     def __init__(

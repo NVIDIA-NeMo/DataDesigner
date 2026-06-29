@@ -12,7 +12,6 @@ from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
 from data_designer.config.utils.type_helpers import StrEnum
-from data_designer.engine import flags
 from data_designer.engine.mcp.factory import create_mcp_registry
 from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.model_provider import (
@@ -141,15 +140,8 @@ def create_resource_provider(
             mcp_provider_registry=mcp_provider_registry,
         )
 
-    # Default the client mode from the env var when the caller hasn't decided.
-    # The interface (DataDesigner) computes the mode based on env var AND the
-    # config (e.g. allow_resize columns force a sync fallback) and passes the
-    # result explicitly. Direct callers of this factory still get the env-var
-    # default for backward compatibility.
     if client_concurrency_mode is None:
-        client_concurrency_mode = (
-            ClientConcurrencyMode.ASYNC if flags.DATA_DESIGNER_ASYNC_ENGINE else ClientConcurrencyMode.SYNC
-        )
+        client_concurrency_mode = ClientConcurrencyMode.ASYNC
 
     effective_run_config = run_config or RunConfig()
 
