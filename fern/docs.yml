@@ -1,6 +1,7 @@
 instances:
 - url: datadesigner.docs.buildwithfern.com/nemo/datadesigner
   custom-domain: docs.nvidia.com/nemo/datadesigner
+  multi-source: true
 title: NVIDIA NeMo Data Designer
 
 # NVIDIA branding (logo, favicon, colors, fonts, footer, base CSS/JS, layout) is
