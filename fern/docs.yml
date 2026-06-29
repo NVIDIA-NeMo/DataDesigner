@@ -2,6 +2,7 @@ instances:
 - url: datadesigner.docs.buildwithfern.com/nemo/datadesigner
   custom-domain: docs.nvidia.com/nemo/datadesigner
 title: NVIDIA NeMo Data Designer
+multi-source: true
 
 # NVIDIA branding (logo, favicon, colors, fonts, footer, base CSS/JS, layout) is
 # inherited from the canonical NVIDIA Fern global theme. Theme source of truth:
