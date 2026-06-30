@@ -163,11 +163,28 @@ def test_artifact_storage_invalid_characters_in_folder_names(tmp_path, invalid_c
         {"final_dataset_folder_name": f"invalid{invalid_char}name"},
         {"partial_results_folder_name": f"invalid{invalid_char}name"},
         {"dropped_columns_folder_name": f"invalid{invalid_char}name"},
+        {"processors_outputs_folder_name": f"invalid{invalid_char}name"},
     ]
 
     for params in invalid_params:
         with pytest.raises(ArtifactStorageError, match="contains invalid characters"):
             ArtifactStorage(artifact_path=tmp_path, **params)
+
+
+@pytest.mark.parametrize("reserved_name", [".", ".."])
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "dataset_name",
+        "final_dataset_folder_name",
+        "partial_results_folder_name",
+        "dropped_columns_folder_name",
+        "processors_outputs_folder_name",
+    ],
+)
+def test_artifact_storage_rejects_reserved_directory_names(tmp_path, field_name, reserved_name):
+    with pytest.raises(ArtifactStorageError, match=r"must not be '\.' or '\.\.'"):
+        ArtifactStorage(artifact_path=tmp_path, **{field_name: reserved_name})
 
 
 def test_artifact_storage_read_parquet_files(stub_artifact_storage):
@@ -195,6 +212,14 @@ def test_artifact_storage_path_validation(stub_artifact_storage):
     assert stub_artifact_storage.partial_results_path.is_absolute()
     assert stub_artifact_storage.final_dataset_path.is_absolute()
     assert stub_artifact_storage.dropped_columns_dataset_path.is_absolute()
+
+
+def test_base_dataset_path_rejects_paths_outside_artifact_root(tmp_path):
+    storage = ArtifactStorage(artifact_path=tmp_path, dataset_name="dataset")
+    storage.__dict__["resolved_dataset_name"] = ".."
+
+    with pytest.raises(ArtifactStorageError, match="resolves outside the artifact path"):
+        _ = storage.base_dataset_path
 
 
 def test_artifact_storage_file_operations(stub_artifact_storage):
