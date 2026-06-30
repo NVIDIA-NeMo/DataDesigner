@@ -1,0 +1,224 @@
+---
+title: "Pause, Inspect, Resume: Workflow Chaining as a Control Surface"
+description: ""
+---
+
+import { Authors } from "@/components/Authors";
+
+<Authors ids={["amanoel"]} />
+
+One of the traps in synthetic data generation is treating the run as the unit of work. The button goes green, a dataset appears, and the system looks finished.
+
+Real pipelines are rarely that tidy. The interesting moment often happens halfway through: an evaluator finds a risky slice, a reviewer needs to fix a small subset, a team wants to compare two downstream strategies, or an expensive upstream stage should not be replayed just because the last step changed.
+
+Without a first-class boundary, those moments turn into side artifacts, one-off cache folders, and brittle restart scripts. The pipeline has a checkpoint in practice, but the system does not know how to operate around it.
+
+Workflow chaining is the control surface for those moments. It lets a Data Designer workflow pause at a named stage, export the stage output as a durable artifact, allow something outside the workflow to inspect or replace that artifact, and then resume downstream from the replacement.
+
+![Workflow chaining hero showing the Data Designer palette character beside a pause, inspect, resume control surface](/assets/document-hitl/workflow-chaining-hero.png)
+
+{/* more */}
+
+## Workflow Chaining In One Minute
+
+A workflow chain is a sequence of named stages. Each stage is still an ordinary Data Designer config: it can generate columns, run processors, write artifacts, and choose which output becomes the seed dataset for the next stage.
+
+The new part is the boundary. Because the boundary has a name, you can stop there, inspect the selected output, replace it with an approved artifact, and resume downstream without rerunning the trusted upstream work.
+
+```python
+from data_designer.interface import ResumeMode
+
+workflow = data_designer.compose_workflow(name="quality-gated-candidates")
+workflow.add_stage("draft_rows", draft_rows_builder, num_records=1_000)
+workflow.add_stage("quality_gate", quality_gate_builder)
+workflow.add_stage("final_dataset", final_dataset_builder)
+
+checkpoint = workflow.run(targets="quality_gate")
+checkpoint.export_stage("quality_gate", "quality_gate.parquet")
+
+results = workflow.run(
+    resume=ResumeMode.ALWAYS,
+    stage_output_overrides={
+        "quality_gate": "approved_output.parquet",
+    },
+)
+```
+
+In that shape, `quality_gate` is both a normal stage and a contract. Upstream work promises a schema. Downstream work consumes that schema. A reviewer, evaluator, dashboard, or cleanup script only has to preserve the contract.
+
+![Linear workflow chain showing source rows, named stages, a durable stage boundary, and downstream resume](/assets/document-hitl/workflow-chaining-linear-chain.png)
+
+## The Story
+
+Picture a long generation workflow that starts with source data, proposes labels, scores quality, repairs weak examples, and writes a final training dataset. The early stages are expensive and deterministic enough to trust once they finish. The later stages are where judgment enters.
+
+Maybe the quality scorer says 25 percent of rows need human eyes. Maybe a policy evaluator says one cluster should be removed. Maybe the team wants to try two cleanup strategies against the same upstream candidates. In each case, the useful operation is not "rerun the whole pipeline." It is:
+
+1. Stop at the boundary.
+2. Look at the boundary artifact.
+3. Change or approve it.
+4. Resume from there.
+
+That is one workflow-chaining pattern.
+
+The stage name becomes a contract. Upstream work produces a dataset with a known schema. Downstream work consumes that schema. Anything in between can participate as long as it preserves the contract.
+
+## What It Enables
+
+Human-in-the-loop review is the easiest pattern to recognize, but it is not the only one. The same boundary mechanism makes several operational moves feel native:
+
+| Pattern | What changes at the boundary |
+| --- | --- |
+| Human review | A reviewer edits only rows selected by uncertainty or policy |
+| Evaluation gate | A judge score decides which rows continue |
+| Cleanup pass | A separate tool normalizes or removes rows before resume |
+| A/B comparison | Two downstream branches resume from the same upstream output |
+| Cost control | Expensive upstream generations are reused across experiments |
+| Team handoff | One person exports a stage; another resumes from it |
+
+The value is not only that these things are possible. They were always possible with enough scripts. The value is that the workflow model can treat the boundary as a named artifact and resume from it.
+
+## A Review Gate Example
+
+The demo task is document field extraction: generate synthetic invoices and forms, propose boxes around the fields to extract, and turn those boxes into structured rows. A weak detector proposes boxes on each page and assigns uncertainty. The workflow pauses at `review_candidates`, where all rows are still present but only the uncertain rows are marked for review.
+
+The reviewer corrects the proposed boxes for that uncertain slice. They do not relabel the whole dataset, and they do not change the workflow shape. They write a replacement artifact with the same row count and schema, then the downstream stages use human-corrected boxes where they exist and calibrated detector boxes everywhere else.
+
+![Screenshot of the review dashboard showing a selected high-uncertainty page with proposed boxes ready for review](/assets/document-hitl/review-gate-dashboard-composite.png)
+
+The implementation is deliberately ordinary Data Designer. The review gate is a custom column that proposes boxes, scores uncertainty, and marks the rows that should leave the automated path for a moment. This snippet is simplified for readability; the downloadable recipe implements the same steps inline.
+
+```python
+@dd.custom_column_generator(
+    required_columns=["page_id", "image_path", "ground_truth_boxes"],
+    side_effect_columns=["box_confidences", "uncertainty", "selected_for_review", "human_boxes"],
+)
+def select_review_candidates(df: pd.DataFrame, generator_params: ReviewSelectionParams) -> pd.DataFrame:
+    df = df.copy()
+    df["proposed_boxes"] = propose_boxes(df, jitter_px=generator_params.jitter_px)
+    df["uncertainty"] = score_uncertainty(df["proposed_boxes"])
+    df["selected_for_review"] = pick_highest_uncertainty(df, limit=generator_params.max_review_pages)
+    df["human_boxes"] = "[]"
+    return df
+```
+
+In the demo, the "classifier" is a small calibration profile learned from reviewed rows. In a real pipeline, this stage could train a classifier, fit thresholds, update prompts, or build a routing policy. The important thing is that it is still just a downstream custom column consuming the reviewed artifact:
+
+```python
+@dd.custom_column_generator(
+    required_columns=["human_boxes", "proposed_boxes", "selected_for_review"],
+)
+def calibrate_from_reviewed_boxes(df: pd.DataFrame, generator_params: CalibrationParams) -> pd.DataFrame:
+    profile = fit_calibration_profile(rows_with_human_boxes(df), generator_params)
+    df["calibration_profile"] = json.dumps(profile)
+    return df
+
+
+@dd.custom_column_generator(
+    required_columns=["calibration_profile", "human_boxes", "proposed_boxes", "uncertainty"],
+    side_effect_columns=["extraction_confidence", "extraction_source", "final_boxes"],
+)
+def extract_with_calibrated_boxes(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["final_boxes"] = choose_human_or_calibrated_boxes(df)
+    df["extraction_source"] = source_for_each_row(df)
+    return df
+```
+
+The workflow wires those custom columns into named stages, so `review_candidates` becomes the pause/resume boundary:
+
+```python
+workflow.add_stage("review_candidates", review_candidates_builder())
+workflow.add_stage("calibrate_extractor", calibration_builder())
+workflow.add_stage("extract_remaining", extraction_builder())
+workflow.add_stage("final_dataset", final_dataset_builder())
+```
+
+Downstream stages do not need a special "review mode." They read the same columns either way:
+
+| Stage | Role |
+| --- | --- |
+| `document_pages` | Load generated page metadata |
+| `review_candidates` | Propose boxes, score uncertainty, mark review rows |
+| `calibrate_extractor` | Read reviewed rows and build a calibration profile |
+| `extract_remaining` | Use human boxes where present and calibrated boxes elsewhere |
+| `final_dataset` | Emit fields, boxes, confidence, source, and provenance |
+
+The important detail is that `review_candidates` is not just a dataframe in memory. It is the handoff point. A dashboard, annotation vendor, evaluation job, or cleanup script can all produce the replacement as long as the replacement honors the stage contract.
+
+## What Happened In The Demo
+
+The demo is intentionally small. It measures the workflow mechanics rather than extraction quality: did the boundary concentrate attention, preserve the dataset contract, and resume with traceable provenance?
+
+![Results summary showing review budget, source mix, row preservation, and confidence signals](/assets/document-hitl/workflow-chaining-results-summary.png)
+
+For the 12-page run used in the screenshots:
+
+| Metric | Result |
+| --- | --- |
+| Pages generated | 12 |
+| Pages selected for review | 3 |
+| Manual review budget | 25% of rows |
+| Rows preserved through the reviewed artifact | 12 of 12 |
+| Final `human_review` rows | 3 |
+| Final `calibrated_weak_detector` rows | 9 |
+| Mean confidence for reviewed rows | 0.990 |
+| Mean confidence for resumed detector rows | 0.555 |
+
+The selected rows were the highest-uncertainty pages:
+
+| page_id | document_type | uncertainty |
+| --- | --- | --- |
+| synthetic-page-001 | service_form | 0.739 |
+| synthetic-page-005 | service_form | 0.606 |
+| synthetic-page-010 | invoice | 0.597 |
+
+The final output keeps the source of each row explicit:
+
+![Final dataset preview with human-reviewed and calibrated detector rows](/assets/document-hitl/final-results-preview.png)
+
+That provenance is the pay-off. Later consumers can distinguish "a person corrected this" from "the calibrated extractor handled this," without needing to know how the review happened.
+
+## Why This Matters
+
+As generation systems get larger, the cost of throwing everything into one run goes up. You lose the ability to stop at a meaningful point, reuse trusted work, compare downstream strategies, or invite a person into the loop without breaking the workflow apart.
+
+Workflow chaining lets the pipeline stay declarative while the process around it becomes more realistic. A stage can be a checkpoint, an interface, an approval gate, a cache key, or a team handoff. The document example is just one concrete version of that pattern.
+
+The real feature is not "review these forms." It is "make the middle of the workflow operable."
+
+## What Comes Next
+
+The current workflow-chaining API is intentionally linear: stage A hands a selected output to stage B, then stage B hands a selected output to stage C. That is enough to make review gates, cleanup passes, and cached downstream experiments feel natural.
+
+The same boundary idea gets more interesting once the workflow shape grows. Planned DAG support would let a workflow fan out into independent evaluators, checks, or downstream experiments, then join their outputs back into a named downstream artifact. The contract stays the same: every edge is still an output that another stage can consume.
+
+The other direction is bounded repetition. A draft `RepeatUntil` stage policy explores the rejection-sampling shape: generate a batch, filter it, append or discard according to policy, and stop when enough accepted rows exist or a budget is exhausted. In that model, the loop is not an accidental rerun script. It is workflow metadata.
+
+![Future workflow shapes showing planned DAG branches, joins, and a bounded repeat-until loop](/assets/document-hitl/workflow-chaining-next-dag-loop.png)
+
+The goal is the same as the review gate: make the workflow's middle visible enough for a reviewer or evaluator to act without breaking the pipeline apart.
+
+## Try The Workflow Chain
+
+The dashboard in this post is a visual review surface for the story. The reusable artifact is a headless recipe that runs the same workflow-chaining pattern: run to a named review stage, write a reviewed artifact, and resume downstream from that artifact.
+
+Recipe page: [Document Review Gate](/recipes/workflow-chaining/document-review-gate)
+
+Script:
+
+```text
+docs/assets/recipes/workflow_chaining/document_review_gate.py
+```
+
+It writes runtime-generated images, intermediate parquet files, reviewed parquet files, and final outputs under `--artifact-path`. Keep those artifacts out of the repo. From the repo root with the dev environment active:
+
+```bash
+.venv/bin/python docs/assets/recipes/workflow_chaining/document_review_gate.py \
+  --artifact-path /tmp/datadesigner-workflow-chaining \
+  --num-records 12 \
+  --overwrite
+
+.venv/bin/pytest packages/data-designer/tests/docs/test_document_review_gate_recipe.py
+rm -rf /tmp/datadesigner-workflow-chaining
+```
