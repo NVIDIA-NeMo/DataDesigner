@@ -138,7 +138,7 @@ Directory-backed seed datasets expose these columns:
 
 <Note>
 Filesystem matching
-`file_pattern` matches file names only, not relative paths. `recursive=True` is the default, so nested subdirectories are searched unless you turn it off.
+`file_pattern` matches file names only, not relative paths. `recursive=True` is the default, so nested subdirectories are searched unless you turn it off. Relative local `path` values are resolved by the active filesystem provider when the seed is validated or read, not when the config object is constructed.
 </Note>
 
 ### 📄 FileContentsSeedSource

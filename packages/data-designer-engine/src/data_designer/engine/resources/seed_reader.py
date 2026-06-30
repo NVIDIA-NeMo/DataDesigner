@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Sequence
 from copy import copy
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, get_args, get_origin
 
 from fsspec.implementations.dirfs import DirFileSystem
@@ -30,6 +30,7 @@ from data_designer.config.seed_source import (
     SeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.config.utils.warning_helpers import warn_at_caller
 from data_designer.engine.resources.agent_rollout import (
     AgentRolloutFormatHandler,
     AgentRolloutParseContext,
@@ -50,12 +51,37 @@ logger = logging.getLogger(__name__)
 class SeedReaderError(DataDesignerError): ...
 
 
+class SeedReaderConfigError(SeedReaderError): ...
+
+
 @dataclass(frozen=True)
 class SeedReaderFileSystemContext:
     """Filesystem and root path available to filesystem seed-reader plugins."""
 
     fs: AbstractFileSystem
-    root_path: Path
+    root_path: PurePath
+
+
+class FileSystemProvider(Protocol):
+    """Resolves a runtime path into a rooted fsspec filesystem."""
+
+    def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext: ...
+
+    def ensure_root_exists(self, *, runtime_path: str) -> None: ...
+
+
+class LocalFileSystemProvider:
+    """Default filesystem provider backed by the local disk."""
+
+    def create_context(self, *, runtime_path: str) -> SeedReaderFileSystemContext:
+        resolved_root_path = Path(runtime_path).expanduser().resolve()
+        rooted_fs = DirFileSystem(path=str(resolved_root_path), fs=LocalFileSystem())
+        return SeedReaderFileSystemContext(fs=rooted_fs, root_path=resolved_root_path)
+
+    def ensure_root_exists(self, *, runtime_path: str) -> None:
+        resolved_root_path = Path(runtime_path).expanduser().resolve()
+        if not resolved_root_path.is_dir():
+            raise SeedReaderConfigError(f"🛑 Seed source directory '{resolved_root_path}' does not exist.")
 
 
 class SeedReaderBatch(Protocol):
@@ -242,12 +268,6 @@ class SeedReader(ABC, Generic[SourceT]):
         query_result = conn.query(read_query)
         return DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
 
-    def create_filesystem_context(self, root_path: Path | str) -> SeedReaderFileSystemContext:
-        """Create a rooted filesystem context for directory-backed seed readers."""
-        resolved_root_path = Path(root_path).expanduser().resolve()
-        rooted_fs = DirFileSystem(path=str(resolved_root_path), fs=LocalFileSystem())
-        return SeedReaderFileSystemContext(fs=rooted_fs, root_path=resolved_root_path)
-
     def get_matching_relative_paths(
         self,
         *,
@@ -388,11 +408,30 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     output_columns: ClassVar[list[str] | None] = None
 
+    def __init__(self, fs_provider: FileSystemProvider | None = None) -> None:
+        self._fs_provider = fs_provider or LocalFileSystemProvider()
+
     def _reset_attachment_state(self) -> None:
         super()._reset_attachment_state()
+        # Plugin readers have historically been allowed to define __init__ without
+        # calling super().__init__(). Attach-time initialization keeps that contract
+        # while preserving any provider explicitly injected through the base init.
+        if not hasattr(self, "_fs_provider"):
+            self._fs_provider = LocalFileSystemProvider()
         self._filesystem_context = None
         self._output_df = None
         self._row_manifest_df = None
+
+    def create_filesystem_context(self, root_path: Path | str) -> SeedReaderFileSystemContext:
+        """Create a rooted filesystem context for directory-backed seed readers.
+
+        This hook is preserved for existing plugin readers. New host integrations
+        should prefer passing a ``FileSystemProvider`` to the reader constructor.
+        """
+        runtime_path = str(root_path)
+        provider = self._get_fs_provider()
+        provider.ensure_root_exists(runtime_path=runtime_path)
+        return provider.create_context(runtime_path=runtime_path)
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
         return self.create_dataframe_duckdb_connection(
@@ -403,10 +442,22 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     def get_dataset_uri(self) -> str:
         return self._build_internal_table_name("rows")
 
-    def get_output_column_names(self) -> list[str]:
+    def _get_output_column_names(self) -> list[str]:
+        # This is an internal schema resolution helper. To fetch column names
+        # as a client of a FileSystemSeedReader, prefer ``get_column_names``
+        # to ensure preflight filesystem context validation runs.
         if self.output_columns is not None:
             return self.output_columns
         return list(self._get_row_manifest_dataframe().columns)
+
+    def get_output_column_names(self) -> list[str]:
+        warn_at_caller(
+            "``get_output_column_names`` is deprecated. Prefer ``get_column_names`` for fetching "
+            "column names as an external client of the reader, or ``_get_output_column_names`` as "
+            "an internal schema helper method.",
+            DeprecationWarning,
+        )
+        return self._get_output_column_names()
 
     @abstractmethod
     def build_manifest(self, *, context: SeedReaderFileSystemContext) -> pd.DataFrame | list[dict[str, Any]]: ...
@@ -420,7 +471,11 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         return manifest_row
 
     def get_column_names(self) -> list[str]:
-        return self.get_output_column_names()
+        # Calling `_get_filesystem_context` ensures that subclasses with fixed column names
+        # (e.g. see FileContentsSeedReader.output_columns) are still validated when this method
+        # is called during validation / config compilation.
+        self._get_filesystem_context()
+        return self._get_output_column_names()
 
     def get_seed_dataset_size(self) -> int:
         self._ensure_attached()
@@ -452,7 +507,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
                 manifest_rows=manifest_records,
                 context=context,
             ),
-            output_columns=self.get_output_column_names(),
+            output_columns=self._get_output_column_names(),
             no_rows_error_message=self._get_empty_selected_manifest_rows_error_message(),
         )
 
@@ -487,7 +542,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
         self._output_df = create_seed_reader_output_dataframe(
             records=hydrated_records,
-            output_columns=self.get_output_column_names(),
+            output_columns=self._get_output_column_names(),
         )
         return self._output_df
 
@@ -498,6 +553,9 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
             context = self.create_filesystem_context(self.source.runtime_path)
             self._filesystem_context = context
         return context
+
+    def _get_fs_provider(self) -> FileSystemProvider:
+        return self._fs_provider
 
     def _get_manifest_dataset_uri(self) -> str:
         return self._build_internal_table_name("manifest")
@@ -653,8 +711,17 @@ class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
         if self._parse_context is not self._PARSE_CONTEXT_UNSET:
             return self._parse_context
 
+        # Agent rollout handlers operate on the local filesystem directly (root_path.glob,
+        # root_path / relative_path), so they require a concrete Path rather than the
+        # PurePath the context type permits for remote providers.
+        root_path = context.root_path
+        if not isinstance(root_path, Path):
+            raise SeedReaderConfigError(
+                f"🛑 Agent rollout seed readers require a local filesystem, but got non-local root path "
+                f"{root_path!r} ({type(root_path).__name__})."
+            )
         handler = self.get_format_handler()
-        self._parse_context = handler.build_parse_context(root_path=context.root_path, recursive=self.source.recursive)
+        self._parse_context = handler.build_parse_context(root_path=root_path, recursive=self.source.recursive)
         return self._parse_context
 
 
