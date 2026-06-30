@@ -40,7 +40,7 @@ If the top-ranked candidate fails the bar, try the next. If none of the top
 | Suite | Paths the recipe MAY modify |
 |-------|-----------------------------|
 | docs-and-references | `architecture/**`, `fern/versions/latest/pages/**`, `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `STYLEGUIDE.md`, `packages/*/src/**/*.py` (docstring-only edits) |
-| dependencies | `packages/*/pyproject.toml` |
+| dependencies | `packages/*/pyproject.toml`, `uv.lock` |
 | structure | `packages/*/src/**/*.py` |
 | code-quality | `packages/*/src/**/*.py` |
 | test-health | (no fix phase) |
@@ -174,9 +174,9 @@ Earlier criteria override later ones:
 
    | Severity | Examples |
    |----------|----------|
-   | high | missing transitive dep, heavy import bypassing lazy system |
+   | high | imported dependency not guaranteed by any required package, heavy import bypassing lazy system |
    | medium | broken doc link visible on docs site, bare-except hiding errors, docstring drift on public API |
-   | low | broken link in dev-notes, missing `__future__ import annotations`, unused dep |
+   | low | direct-dependency gap already guaranteed by a required package, broken link in dev-notes, missing `__future__ import annotations`, unused dep |
 
 3. **User-facing impact** — visible to docs-site readers or plugin
    consumers vs internal-only.
@@ -202,9 +202,9 @@ declare only the parts that vary (eligible categories, branch type,
 4. For each primary candidate, top 5 max:
    1. If the suite declares the category batchable, collect sibling
       `fix_backlog` entries for the same suite/category that share the same
-      test target and branch type. Do not discover new findings; use only
-      existing backlog entries. Batch at most 3 entries to stay within the
-      localized-fix file cap.
+      target package, test target, and branch type. Do not discover new
+      findings; use only existing backlog entries. Batch at most 3 entries
+      to stay within the localized-fix file cap.
    2. Re-verify every finding still applies (re-grep / re-read). If a
       sibling no longer applies, remove it from `fix_backlog`; if the
       primary no longer applies, remove it from `fix_backlog` and continue

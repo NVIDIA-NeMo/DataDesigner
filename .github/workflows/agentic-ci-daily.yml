@@ -131,6 +131,14 @@ jobs:
           python -m venv /tmp/graphify-venv
           /tmp/graphify-venv/bin/python -m pip install graphifyy==0.4.23 --quiet 2>&1 | tail -3
 
+      - name: Build dependency inventory
+        if: matrix.suite == 'dependencies'
+        run: |
+          .venv/bin/python scripts/audit_package_dependencies.py \
+            --output /tmp/dependency-inventory.json
+          jq '.packages[] | {package, missing, unresolved_modules}' \
+            /tmp/dependency-inventory.json
+
       - name: Configure git identity
         run: |
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -342,7 +350,7 @@ jobs:
                 ALLOW='^(architecture/|docs/|README\.md$|CONTRIBUTING\.md$|DEVELOPMENT\.md$|STYLEGUIDE\.md$|packages/[^/]+/src/.*\.py$)'
                 ;;
               dependencies)
-                ALLOW='^packages/[^/]+/pyproject\.toml$'
+                ALLOW='^(packages/[^/]+/pyproject\.toml|uv\.lock)$'
                 ;;
               structure|code-quality)
                 ALLOW='^packages/[^/]+/src/.*\.py$'
@@ -542,9 +550,7 @@ jobs:
 
       - name: Verify dependencies lockfile
         # Dependencies suite only: re-run make install-dev against the
-        # agent's pyproject.toml changes. This catches the failure mode
-        # where the per-package test target passed against the *old*
-        # lockfile but the proposed dep does not actually resolve.
+        # pushed branch and require the committed uv.lock to remain clean.
         id: lockfile_gate
         if: always() && matrix.suite == 'dependencies' && steps.snapshot.outcome == 'success' && steps.scope_gate.outcome == 'success'
         env:
@@ -637,8 +643,36 @@ jobs:
               continue
             fi
 
+            if ! git diff --name-only origin/main...HEAD -- uv.lock | grep -qx 'uv.lock'; then
+              REJECTED=1
+              echo "::error::Dependency PR for ${FINDING_ID} does not include uv.lock"
+              if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+                MSG="Closed by workflow lockfile verification. Dependency PRs must include the regenerated \`uv.lock\`."
+                gh pr close "$PR_NUMBER" --comment "$MSG" --delete-branch || \
+                  echo "::warning::gh pr close failed"
+              elif [ -n "$BRANCH" ]; then
+                git push origin --delete "$BRANCH" || true
+              fi
+              abandon_open_attempt "$FINDING_ID" "lockfile_missing"
+              continue
+            fi
+
             if make install-dev 2>&1 | tee /tmp/install-dev-verify.log; then
-              echo "Lockfile resolves cleanly for ${FINDING_ID}."
+              if git diff --quiet -- uv.lock; then
+                echo "Committed lockfile resolves cleanly for ${FINDING_ID}."
+                continue
+              fi
+
+              REJECTED=1
+              echo "::error::uv.lock changed after make install-dev for ${FINDING_ID}"
+              if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+                MSG="Closed by workflow lockfile verification. \`make install-dev\` changed \`uv.lock\`; dependency PRs must commit the regenerated lockfile."
+                gh pr close "$PR_NUMBER" --comment "$MSG" --delete-branch || \
+                  echo "::warning::gh pr close failed"
+              elif [ -n "$BRANCH" ]; then
+                git push origin --delete "$BRANCH" || true
+              fi
+              abandon_open_attempt "$FINDING_ID" "lockfile_not_committed"
               continue
             fi
 
@@ -701,6 +735,7 @@ jobs:
             /tmp/claude-audit-log.txt
             /tmp/claude-fix-log.txt
             /tmp/audit-${{ matrix.suite }}.md
+            /tmp/dependency-inventory.json
             /tmp/pr-body-${{ matrix.suite }}.md
             /tmp/install-dev-verify.log
             .agentic-ci-state/runner-state.json
