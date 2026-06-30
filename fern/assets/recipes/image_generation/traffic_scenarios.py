@@ -164,22 +164,85 @@ def build_config(
         ],
     )
 
-    add_category(
-        config_builder,
-        "time_of_day",
-        [
-            "dawn - pre-sunrise twilight",
-            "early morning - golden hour light",
-            "mid-morning - bright sun, long shadows",
-            "midday - overhead sun, minimal shadows",
-            "afternoon - sun starting to lower",
-            "late afternoon - golden hour",
-            "dusk - post-sunset twilight",
-            "night - well-lit with streetlights",
-            "night - moderately lit urban",
-            "night - poorly lit rural",
-            "night - headlights only, no street lighting",
-        ],
+    clear_times = [
+        "dawn - pre-sunrise twilight",
+        "early morning - golden hour light",
+        "mid-morning - bright sun, long shadows",
+        "midday - overhead sun, minimal shadows",
+        "afternoon - sun starting to lower",
+        "late afternoon - golden hour",
+        "dusk - post-sunset twilight",
+        "night - well-lit with streetlights",
+        "night - moderately lit urban",
+        "night - poorly lit rural",
+        "night - headlights only, no street lighting",
+    ]
+    diffuse_times = [
+        "dawn - cool diffuse light",
+        "mid-morning - diffuse daylight",
+        "midday - flat muted daylight",
+        "late afternoon - low muted sun",
+        "dusk - low-contrast twilight",
+        "night - well-lit with streetlights",
+        "night - moderately lit urban",
+    ]
+    wet_times = [
+        "dawn - wet low light",
+        "mid-morning - rain-muted daylight",
+        "midday - overcast wet pavement light",
+        "late afternoon - wet road reflections",
+        "dusk - rain-darkened twilight",
+        "night - streetlights reflecting on wet pavement",
+        "night - headlights through precipitation",
+    ]
+    fog_times = [
+        "dawn - foggy low-contrast twilight",
+        "mid-morning - diffuse daylight through fog",
+        "midday - flat fog-muted daylight",
+        "dusk - low-visibility fog",
+        "night - streetlights diffused by fog",
+        "night - headlights through fog",
+    ]
+    snow_times = [
+        "dawn - blue-gray snowy light",
+        "mid-morning - snow-muted daylight",
+        "midday - flat snowy daylight",
+        "dusk - snowy twilight",
+        "night - streetlights reflecting on snow",
+        "night - headlights through snow",
+    ]
+    dusty_times = [
+        "dawn - dusty low-contrast light",
+        "mid-morning - sun diffused by dust",
+        "midday - dust-muted harsh light",
+        "late afternoon - orange dust haze",
+        "dusk - low-visibility dust haze",
+        "night - headlights through dust",
+    ]
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="time_of_day",
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
+                category="weather",
+                values={
+                    "clear sunny day": clear_times,
+                    "partly cloudy": [*clear_times, *diffuse_times],
+                    "overcast with gray skies": diffuse_times,
+                    "light rain - misty windshield": wet_times,
+                    "moderate rain - active wipers": wet_times,
+                    "heavy rain - reduced visibility under 100ft": wet_times,
+                    "light fog - moderate visibility": fog_times,
+                    "dense fog - visibility under 50ft": fog_times,
+                    "light snow - flurries": snow_times,
+                    "moderate snow - accumulating on road": snow_times,
+                    "heavy snow - whiteout conditions": snow_times,
+                    "sleet/freezing rain": wet_times,
+                    "dust storm - desert conditions": dusty_times,
+                    "high winds - debris visible": [*clear_times, *diffuse_times],
+                },
+            ),
+        )
     )
 
     add_category(

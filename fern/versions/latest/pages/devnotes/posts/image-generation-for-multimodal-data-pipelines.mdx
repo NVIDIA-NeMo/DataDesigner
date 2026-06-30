@@ -14,7 +14,7 @@ For the VQA notebook, it would have been more straightforward to start from an e
 
 It worked out better than I expected. Each generated document stayed tied to the sampler controls that produced it, which made the dataset easy to inspect, tweak, and reuse. Folding images into a synthetic data generation (SDG) workflow unlocks a lot of interesting use cases, and Data Designer makes the transition seamless: moving from text to images feels familiar, so you can focus on designing the dataset instead of wrestling with the plumbing of the pipeline.
 
-In this dev note, we'll briefly touch on the document-generation use case from PyData, then explore other image SDG use cases while having some fun along the way. Hint: funny pet images are involved. 😂
+In this dev note, we'll briefly touch on the document-generation use case from the PyData London workshop, then explore other image SDG use cases while having some fun along the way. Hint: funny pet images are involved. 😂
 
 {/* more */}
 
@@ -24,7 +24,7 @@ In this dev note, we'll briefly touch on the document-generation use case from P
 
 Training data is the obvious headline when it comes to SDG. It is also too narrow. Generated images are also useful wherever you need controlled visual cases: evaluation datasets, benchmark slices, reviewer training, privacy-safe demos, etc. For many teams, those datasets become core development infrastructure.
 
-The common need is control. What you really want is to define the parameters that guide your dataset's distribution. That gives you ground-truth metadata for every image, which you can lean on later in your workflows: you know what is in each image, what change was applied, and what behavior the row is supposed to exercise. Did the VLM answer from evidence in the document, or from a plausible guess? Did a reviewer catch the dense electronics cluster in a baggage scan? Did an apparel edit preserve the garment after changing the scene? Did a prompt regress on rainy-night ego-camera frames after a model upgrade?
+The common need is control. What you really want is to define the parameters that guide your dataset's distribution. That gives you intended metadata for every image: the controls the model was asked to render, the change that was requested, and the behavior the row is supposed to exercise. After inspection, validation, or filtering, the rows that actually match those controls can become ground-truth-labeled examples. Did the VLM answer from evidence in the document, or from a plausible guess? Did a reviewer catch the dense electronics cluster in a baggage scan? Did an apparel edit preserve the garment after changing the scene? Did a prompt regress on rainy-night ego-camera frames after a model upgrade?
 
 There is also a very practical reason: image pipelines are fun to build. The effect of a sampler change is visible. If you change weather, camera angle, crop severity, scan quality, garment styling, or robot viewpoint, you can usually see the distribution move in the preview rows very easily. Text pipelines can be harder to reason about because the differences are often subtle or buried inside longer generations. With images, the iteration loop has a nice immediacy: change a control, preview a few rows, and your eyes tell you whether the pipeline is moving in the right direction.
 
@@ -56,7 +56,7 @@ That gives you three building blocks that feel familiar once you have written an
 
 That last part is the real developer-experience win. The image is not an orphaned file on disk with a mysterious filename. It remains part of the row. It can move into a VLM judge, become a benchmark example, feed an editing step, or sit in a preview gallery with the exact metadata that produced it.
 
-## A Quick Document QA Preview
+## A Quick Document Generation Preview
 
 For the PyData workshop, the document seed dataset came from the optional [`bonus_generate_documents.ipynb`](https://github.com/nabinchha/pydata-london-2026-data-designer-anonymizer/blob/main/notebooks/bonus_generate_documents.ipynb) notebook. It is a small notebook with a useful job: make business-document pages where I can choose the document type, layout, visual content, annotation style, and scan condition instead of hoping those cases exist in a downloaded dataset.
 
@@ -206,7 +206,7 @@ That is enough to build some very practical loops:
 - Generate a base traffic scene, then add weather, lighting, or hazard conditions.
 - Generate an image, caption it with a VLM, then judge whether the caption matches.
 
-The important constraint is model capability. Diffusion-style image routes are excellent for text-to-image generation, but they generally do not consume image context. Autoregressive multimodal image models can support image-to-image workflows through the chat-completions route. Data Designer exposes both through the same column API while leaving model choice explicit.
+The important constraint is model capability. Diffusion-style image routes are excellent for text-to-image generation, but they generally do not consume image context. If you configure one for an edit column that depends on an input image, the request will usually fail at the provider boundary, or the provider may ignore the image context and behave like text-to-image. Use an image-to-image-capable multimodal model for edit workflows. Data Designer exposes both routes through the same column API while leaving model choice explicit.
 
 <Note title="Model Choice Sets the Quality Ceiling">
 The examples in this dev note use `google/gemini-3.1-flash-image-preview`. Data Designer makes the workflow consistent across models, but the selected model still sets the ceiling for visual quality, text rendering, instruction following, editing fidelity, domain realism, and how closely the output follows your sampler controls.
@@ -216,7 +216,7 @@ The examples in this dev note use `google/gemini-3.1-flash-image-preview`. Data 
 
 Instead of walking through one giant example line by line, let's look at a few use cases. Image generation gets more interesting when you see it jump domains: documents, apparel, ego-camera traffic scenes, robot viewpoints, baggage scans, X-rays, crops, and drone frames. The code shape stays familiar, but the distributions change completely. Each use case also has an accompanying recipe linked at the bottom if you want to explore it on your own.
 
-For each one, the image is paired with the sampler controls that produced it. That pairing matters. A pretty image is nice. A pretty image with the exact knobs that created it is something you can debug, filter, rerun, judge, or hand to a reviewer.
+For each one, the image is paired with the sampler controls that produced it. That pairing matters. A nice-looking image is useful; one paired with the exact knobs that created it is something you can debug, filter, rerun, judge, or hand to a reviewer.
 
 <Warning title="Specialized Domains Need Experts">
 Some examples in this section touch specialized or safety-sensitive domains: medical imaging, airport screening, autonomous vehicles, robotics, agriculture, and infrastructure inspection. Treat them as synthetic examples for prototyping, evaluation, curriculum design, and review workflows. Domain experts should define the distributions, review the outputs, and decide what is appropriate before anything operational.
@@ -414,7 +414,7 @@ The `scenario_element` sampler is where the recipe earns its keep: a child chasi
     ["geographic region", "US - sprawling suburban (Los Angeles-style)"],
     ["road type", "rural two-lane country road"],
     ["weather", "dense fog - visibility under 50ft"],
-    ["time of day", "mid-morning - bright sun, long shadows"],
+    ["time of day", "mid-morning - diffuse daylight through fog"],
     ["traffic density", "light - 3-5 vehicles visible"],
     ["vehicle mix", "includes delivery vans/box trucks"],
     ["scenario element", "pedestrian jaywalking mid-block"],
@@ -431,7 +431,7 @@ The `scenario_element` sampler is where the recipe earns its keep: a child chasi
     ["geographic region", "US - rural Midwest"],
     ["road type", "urban street with mixed retail/residential"],
     ["weather", "dense fog - visibility under 50ft"],
-    ["time of day", "late afternoon - golden hour"],
+    ["time of day", "dusk - low-visibility fog"],
     ["traffic density", "stop-and-go - bumper-to-bumper"],
     ["vehicle mix", "sedans and compact cars"],
     ["scenario element", "cyclist making left turn"],
@@ -441,19 +441,19 @@ The `scenario_element` sampler is where the recipe earns its keep: a child chasi
 />
 
 <ImageExample
-  title={"Example 3: intersection - 4-way with traffic lights · traffic light malfunctioning - flashing red"}
+  title={"Example 3: intersection - 4-way with traffic lights · animal darting across road"}
   src={"/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/03.jpg"}
   alt={"Autonomous vehicle ego-camera traffic scene"}
   controls={[
-    ["geographic region", "US - sprawling suburban (Los Angeles-style)"],
+    ["geographic region", "Asia - mixed traffic (India/Thailand)"],
     ["road type", "intersection - 4-way with traffic lights"],
-    ["weather", "light rain - misty windshield"],
-    ["time of day", "mid-morning - bright sun, long shadows"],
-    ["traffic density", "empty - no other vehicles visible"],
+    ["weather", "dust storm - desert conditions"],
+    ["time of day", "night - moderately lit urban"],
+    ["traffic density", "sparse - 1-2 vehicles in distance"],
     ["vehicle mix", "includes large trucks/semi-trailers"],
-    ["scenario element", "traffic light malfunctioning - flashing red"],
-    ["road surface", "recent patching - uneven surface"],
-    ["traffic control", "speed limit sign - 25 mph"],
+    ["scenario element", "animal (coyote/fox) darting across road"],
+    ["road surface", "dry asphalt - good condition"],
+    ["traffic control", "traffic light - green"],
   ]}
 />
 

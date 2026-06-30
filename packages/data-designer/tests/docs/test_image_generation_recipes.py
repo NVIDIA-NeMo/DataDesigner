@@ -56,7 +56,7 @@ def test_image_generation_recipes_use_openrouter_chat_image_request_shape(recipe
         ("agriculture_crop_imagery", {"severity": "disease_or_condition"}),
         ("drone_aerial_inspection", {"severity": "defect_or_event"}),
         ("product_image_variations", {"composition": "accessibility_context"}),
-        ("traffic_scenarios", {"vehicle_mix": "traffic_density"}),
+        ("traffic_scenarios", {"time_of_day": "weather", "vehicle_mix": "traffic_density"}),
     ],
 )
 def test_image_generation_conditional_recipe_columns_use_subcategories(
