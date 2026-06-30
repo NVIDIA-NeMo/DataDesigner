@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 import traceback
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -30,12 +29,10 @@ from data_designer.config.utils.constants import (
     PREDEFINED_PROVIDERS,
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
-from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
 from data_designer.interface import DataDesigner
 
 MAX_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 5
-HEALTH_CHECK_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 PROVIDER_API_KEY_ENV_VARS = {
     NVIDIA_PROVIDER_NAME: NVIDIA_API_KEY_ENV_VAR_NAME,
     OPENAI_PROVIDER_NAME: OPENAI_API_KEY_ENV_VAR_NAME,
@@ -93,20 +90,12 @@ def _check_model(provider_name: str, model_type: str) -> None:
     model_config = _get_model_config(provider_name, model_type)
     config_builder = _build_check_config(model_config, model_type)
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        try:
-            with TemporaryDirectory(prefix="data-designer-health-check-") as temp_dir:
-                DataDesigner(artifact_path=Path(temp_dir), model_providers=[provider]).check_models(config_builder)
-            return
-        except HEALTH_CHECK_RETRYABLE_ERRORS as exc:
-            if attempt == MAX_ATTEMPTS:
-                raise
-            delay = attempt * RETRY_BACKOFF_SECONDS
-            print(
-                f"RETRY {provider_name}/{model_type} after {type(exc).__name__}: {exc} "
-                f"(attempt {attempt + 1}/{MAX_ATTEMPTS}, sleeping {delay}s)"
-            )
-            time.sleep(delay)
+    with TemporaryDirectory(prefix="data-designer-health-check-") as temp_dir:
+        DataDesigner(artifact_path=Path(temp_dir), model_providers=[provider]).check_models(
+            config_builder,
+            max_attempts=MAX_ATTEMPTS,
+            retry_backoff_seconds=RETRY_BACKOFF_SECONDS,
+        )
 
 
 def main() -> int:

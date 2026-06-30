@@ -165,4 +165,11 @@ If you need more control, `FileSystemSeedReader` also lets you override:
 - `on_attach(...)` for per-attachment setup
 - `create_filesystem_context(...)` for custom rooted filesystem behavior
 
-Most filesystem plugins do not need either hook.
+For new non-local backends, prefer passing a `FileSystemProvider` to the reader
+constructor. The default `create_filesystem_context(...)` implementation calls
+the provider's existence preflight and then asks it to create the rooted
+filesystem context. Overriding `create_filesystem_context(...)` remains supported
+for existing plugins, but that override takes ownership of any backend-specific
+existence checks.
+
+Most filesystem plugins do not need these hooks.
