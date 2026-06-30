@@ -477,6 +477,12 @@ def test_manual_distribution_weight_normalization():
     assert dist.params.weights == [0.5, 0.5]
 
 
+@pytest.mark.parametrize("weights", ([0, 0], [1, -1]))
+def test_manual_distribution_zero_sum_weights(weights):
+    with pytest.raises(ValidationError, match="`weights` must sum to a non-zero value"):
+        ManualDistributionParams(values=[0.2, 0.8], weights=weights)
+
+
 def test_invalid_manual_distribution():
     # Empty list should fail
     with pytest.raises(ValidationError):
