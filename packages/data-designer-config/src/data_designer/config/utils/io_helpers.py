@@ -196,7 +196,7 @@ def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
         ext = PurePosixPath(urlparse(dataframe).path).suffix.lstrip(".").lower()
     else:
         dataframe = Path(dataframe)
-        ext = dataframe.suffix.lower()
+        ext = dataframe.suffix.lstrip(".").lower()
         if not dataframe.exists():
             raise FileNotFoundError(f"File not found: {dataframe}")
 
