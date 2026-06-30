@@ -47,7 +47,6 @@ from data_designer.engine.dataset_builders.utils.config_compiler import compile_
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
-from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
@@ -279,7 +278,6 @@ class DatasetBuilder:
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
         )
 
         # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
@@ -534,7 +532,6 @@ class DatasetBuilder:
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
         )
 
         # Set media storage to DATAFRAME mode for preview - base64 stored directly in DataFrame
