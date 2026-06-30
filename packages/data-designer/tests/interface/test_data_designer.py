@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 from pydantic import ValidationError
@@ -36,6 +36,11 @@ from data_designer.config.seed_source import (
     HuggingFaceSeedSource,
 )
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.errors import (
+    RETRYABLE_MODEL_ERRORS,
+    ModelAPIConnectionError,
+    ModelAuthenticationError,
+)
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
     SeedReaderError,
@@ -1279,58 +1284,142 @@ def stub_check_models_model_configs() -> list[ModelConfig]:
     ]
 
 
-def test_check_models_invokes_readiness_check(
-    stub_artifact_path,
-    stub_model_providers,
+@pytest.fixture
+def stub_check_models_config_builder(
     stub_check_models_model_configs,
-    stub_managed_assets_path,
-):
-    """check_models constructs a ResourceProvider and delegates to run_readiness_check."""
+) -> DataDesignerConfigBuilder:
     config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
     config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
+    return config_builder
 
-    data_designer = DataDesigner(
+
+@pytest.fixture
+def stub_check_models_data_designer(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+) -> DataDesigner:
+    return DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
     )
 
+
+def test_check_models_invokes_readiness_check(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    """check_models constructs a ResourceProvider and delegates to run_readiness_check."""
     with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
-        data_designer.check_models(config_builder)
+        stub_check_models_data_designer.check_models(stub_check_models_config_builder)
 
     assert mock_check.call_count == 1
     (called_columns, called_resource_provider), kwargs = mock_check.call_args
     assert [c.name for c in called_columns] == ["text"]
     assert called_resource_provider is not None
-    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.ASYNC
+    assert kwargs == {}
 
 
 def test_check_models_propagates_typed_model_error(
-    stub_artifact_path,
-    stub_model_providers,
-    stub_check_models_model_configs,
-    stub_managed_assets_path,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
 ):
     """Errors from the readiness probe surface unchanged so callers can branch on type."""
-    from data_designer.engine.models.errors import ModelAuthenticationError
-
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
-    config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
-
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
-    )
-
-    with patch(
-        "data_designer.interface.data_designer.run_readiness_check",
-        side_effect=ModelAuthenticationError("bad creds"),
+    with (
+        patch(
+            "data_designer.interface.data_designer.run_readiness_check",
+            side_effect=ModelAuthenticationError("bad creds"),
+        ) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
     ):
         with pytest.raises(ModelAuthenticationError, match="bad creds"):
-            data_designer.check_models(config_builder)
+            stub_check_models_data_designer.check_models(
+                stub_check_models_config_builder,
+                max_attempts=3,
+                retry_backoff_seconds=5,
+            )
+
+    assert mock_check.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [*RETRYABLE_MODEL_ERRORS, TimeoutError],
+    ids=lambda error_type: error_type.__name__,
+)
+def test_check_models_retries_transient_errors(
+    error_type,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    transient_error = error_type("temporary failure")
+
+    with (
+        patch(
+            "data_designer.interface.data_designer.run_readiness_check",
+            side_effect=[transient_error, None],
+        ) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+    ):
+        stub_check_models_data_designer.check_models(
+            stub_check_models_config_builder,
+            max_attempts=2,
+            retry_backoff_seconds=5,
+        )
+
+    assert mock_check.call_count == 2
+    mock_sleep.assert_called_once_with(5)
+
+
+def test_check_models_reraises_final_retryable_error(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    errors = [
+        ModelAPIConnectionError("first failure"),
+        ModelAPIConnectionError("second failure"),
+        ModelAPIConnectionError("final failure"),
+    ]
+
+    with (
+        patch("data_designer.interface.data_designer.run_readiness_check", side_effect=errors) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+        pytest.raises(ModelAPIConnectionError) as exc_info,
+    ):
+        stub_check_models_data_designer.check_models(
+            stub_check_models_config_builder,
+            max_attempts=3,
+            retry_backoff_seconds=5,
+        )
+
+    assert exc_info.value is errors[-1]
+    assert mock_check.call_count == 3
+    assert mock_sleep.call_args_list == [call(5), call(10)]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_attempts": 0}, "max_attempts must be at least 1"),
+        ({"retry_backoff_seconds": -1}, "retry_backoff_seconds must be non-negative"),
+    ],
+)
+def test_check_models_validates_retry_settings(
+    kwargs,
+    message,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    with (
+        patch.object(stub_check_models_data_designer, "_create_resource_provider") as mock_create_resource_provider,
+        pytest.raises(ValueError, match=message),
+    ):
+        stub_check_models_data_designer.check_models(stub_check_models_config_builder, **kwargs)
+
+    mock_create_resource_provider.assert_not_called()
 
 
 def test_check_models_passes_built_columns_to_readiness_check(
