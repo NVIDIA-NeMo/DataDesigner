@@ -1319,7 +1319,7 @@ def test_check_models_invokes_readiness_check(
     (called_columns, called_resource_provider), kwargs = mock_check.call_args
     assert [c.name for c in called_columns] == ["text"]
     assert called_resource_provider is not None
-    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.ASYNC
+    assert kwargs == {}
 
 
 def test_check_models_propagates_typed_model_error(

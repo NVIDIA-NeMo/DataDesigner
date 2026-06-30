@@ -553,7 +553,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 run_readiness_check(
                     columns,
                     resource_provider,
-                    client_concurrency_mode=ClientConcurrencyMode.ASYNC,
                 )
                 return
             except _CHECK_MODELS_RETRYABLE_ERRORS as exc:
