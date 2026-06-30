@@ -23,4 +23,4 @@ permissions:
 
 jobs:
   semantic-pull-request:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_semantic_pull_request.yml@d48ee21a4986f7281abf746b7d500880c0e91f41 # v1.5.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_semantic_pull_request.yml@d98ebd557712eeff155f3ab8e411abab629f4b0c # v1.6.0
