@@ -50,10 +50,6 @@ class RowGroupBufferManager:
         """Write a single cell value. Thread-safe within the asyncio event loop."""
         self._buffers[row_group][row_index][column] = value
 
-    def update_cells(self, row_group: int, row_index: int, values: dict[str, Any]) -> None:
-        """Write multiple cell values for a single row."""
-        self._buffers[row_group][row_index].update(values)
-
     def update_batch(self, row_group: int, column: str, values: list[Any]) -> None:
         """Write a full column for all rows in a row group."""
         buf = self._buffers[row_group]
