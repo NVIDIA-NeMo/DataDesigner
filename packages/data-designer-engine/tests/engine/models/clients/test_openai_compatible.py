@@ -244,12 +244,20 @@ def test_generate_image_chat_route_when_messages_present() -> None:
         model=MODEL,
         prompt="a sunset",
         messages=[{"role": "user", "content": "draw a sunset"}],
+        extra_body={
+            "modalities": ["image", "text"],
+            "image_config": {"aspect_ratio": "16:9", "image_size": "1K"},
+        },
     )
     result = client.generate_image(request)
 
     assert len(result.images) == 1
     call_url = sync_mock.post.call_args.args[0]
     assert "/chat/completions" in call_url
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["modalities"] == ["image", "text"]
+    assert payload["image_config"] == {"aspect_ratio": "16:9", "image_size": "1K"}
+    assert "generationConfig" not in payload
 
 
 @pytest.mark.asyncio
