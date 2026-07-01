@@ -67,6 +67,11 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
 .image-example-gallery__thumb-image {
   object-fit: cover;
 }
+.image-example-gallery__thumb img,
+.image-example-gallery__thumb-image-shell,
+.image-example-gallery__thumb-image-shell * {
+  cursor: pointer !important;
+}
 .image-example-gallery__thumb-image-shell {
   overflow: hidden;
 }
@@ -240,14 +245,37 @@ function withBasepath(path: string): string {
   return `${BASEPATH}${path}`;
 }
 
+function localPreviewAssetSrc(assetSrc: string): string | undefined {
+  if (typeof document === "undefined" || !assetSrc.startsWith("/assets/")) {
+    return undefined;
+  }
+
+  const localAsset = document.querySelector<HTMLImageElement>(
+    'img[src^="/_local/"][src*="/fern/assets/"]'
+  );
+  const localAssetSrc = localAsset?.getAttribute("src");
+  const fernAssetsIndex = localAssetSrc?.indexOf("/fern/assets/") ?? -1;
+
+  if (!localAssetSrc || fernAssetsIndex < 0) return undefined;
+
+  return `${localAssetSrc.slice(0, fernAssetsIndex + "/fern".length)}${assetSrc}`;
+}
+
 function handleImageError(event: SyntheticEvent<HTMLImageElement>) {
   const image = event.currentTarget;
   const fallbackSrc = image.dataset.fallbackSrc;
 
   if (!fallbackSrc) return;
 
+  const resolvedFallbackSrc = localPreviewAssetSrc(fallbackSrc) ?? fallbackSrc;
+  const link = image.closest("a.image-example-gallery__image-link");
+
   delete image.dataset.fallbackSrc;
-  image.src = fallbackSrc;
+  image.src = resolvedFallbackSrc;
+
+  if (link instanceof HTMLAnchorElement) {
+    link.href = resolvedFallbackSrc;
+  }
 }
 
 function imageFallbackProps(primarySrc: string, fallbackSrc: string) {
@@ -340,7 +368,11 @@ export const ImageExampleGallery = ({
               aria-pressed={index === selectedIndex}
               className="image-example-gallery__thumb"
               key={`${example.src}-${index}`}
-              onClick={() => setSelectedIndex(index)}
+              onClickCapture={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setSelectedIndex(index);
+              }}
               type="button"
             >
               {thumbImageNode ? (
@@ -371,6 +403,7 @@ export const ImageExampleGallery = ({
             aria-label={`Open full-size image: ${selectedExample.title}`}
             className="image-example-gallery__image-link"
             href={fullSrc}
+            onClickCapture={(event) => event.preventDefault()}
             rel="noopener noreferrer"
             target="_blank"
           >
