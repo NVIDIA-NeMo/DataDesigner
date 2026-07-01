@@ -57,6 +57,7 @@ from data_designer.engine.models.errors import (
 from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 from data_designer.engine.models.request_admission.controller import (
     AdaptiveRequestAdmissionController,
+    RequestAdmissionLease,
 )
 from data_designer.engine.models.request_admission.outcomes import RequestReleaseOutcome
 from data_designer.engine.models.request_admission.pressure import RequestPressureSnapshot
@@ -3508,6 +3509,102 @@ async def test_scheduler_downstream_interleaves_with_upstream() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_capacity_plan_observes_buffer_backpressure() -> None:
+    provider = _mock_provider()
+    gen_names = ["gen_a", "gen_b", "gen_c"]
+    configs = [
+        SamplerColumnConfig(name="topic", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        *[LLMTextColumnConfig(name=g, prompt="{{ topic }}", model_alias=MODEL_ALIAS) for g in gen_names],
+    ]
+    strategies: dict[str, GenerationStrategy] = {"topic": GenerationStrategy.FULL_COLUMN}
+    strategies.update({column: GenerationStrategy.CELL_BY_CELL for column in gen_names})
+    generators: dict[str, ColumnGenerator] = {
+        "topic": MockSeedGenerator(config=_expr_config("topic"), resource_provider=provider),
+        **{
+            name: SlowCellGenerator(config=_expr_config(name), resource_provider=provider, delay=0.02)
+            for name in gen_names
+        },
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3), (1, 3), (2, 3), (3, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        max_in_flight_tasks=2,
+        trace=True,
+        num_records=12,
+        buffer_size=3,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+
+    plan = scheduler.capacity_plan()
+    for row_group_index, row_count in row_groups:
+        assert tracker.is_row_group_complete(row_group_index, row_count, ["topic", *gen_names])
+    assert plan.configured.row_group_admission.observed_in_flight == 0
+    assert plan.observed_maxima.row_groups_in_flight == 2
+    assert plan.observed_maxima.queued_tasks_by_group
+    assert max(plan.observed_maxima.task_leases_by_resource.values()) <= 2
+
+
+def test_scheduler_capacity_plan_reports_request_admission_state() -> None:
+    resource = RequestResourceKey("provider", "model", RequestDomain.CHAT)
+    request_admission = AdaptiveRequestAdmissionController(
+        RequestAdmissionConfig(initial_limits={resource: 2}, max_limit_clamps={resource: 3})
+    )
+    request_admission.register(
+        provider_name="provider",
+        model_id="model",
+        alias="primary",
+        max_parallel_requests=4,
+    )
+    lease = request_admission.try_acquire(RequestAdmissionItem(resource, RequestGroupSpec(resource)))
+    assert isinstance(lease, RequestAdmissionLease)
+
+    scheduler, _tracker = _build_simple_pipeline()
+    scheduler._request_pressure_provider = request_admission
+    scheduler._record_observed_task_state()
+    plan = scheduler.capacity_plan()
+
+    assert plan.configured.request_resources.value == (resource,)
+    assert plan.configured.request_domain_initial_limits.value[resource] == 2
+    assert plan.configured.request_admission_config.value is not None
+    assert plan.configured.provider_model_static_caps.value[ProviderModelKey("provider", "model")].cap == 4
+    assert plan.runtime_snapshot.request_domain_current_limits[resource] == 2
+    assert plan.runtime_snapshot.request_domain_effective_max[resource] == 3
+    assert plan.runtime_snapshot.provider_model_aggregate_in_flight[ProviderModelKey("provider", "model")] == 1
+    assert plan.observed_maxima.request_in_flight_by_resource[resource] == 1
+    assert plan.observed_maxima.provider_model_aggregate_in_flight[ProviderModelKey("provider", "model")] == 1
+    request_admission.release(lease, RequestReleaseOutcome(kind="success"))
+
+
+def test_scheduler_capacity_plan_reports_default_request_initial_limit_after_aimd_drop() -> None:
+    resource = RequestResourceKey("provider", "model", RequestDomain.CHAT)
+    request_admission = AdaptiveRequestAdmissionController()
+    request_admission.register(
+        provider_name="provider",
+        model_id="model",
+        alias="primary",
+        max_parallel_requests=4,
+    )
+    lease = request_admission.try_acquire(RequestAdmissionItem(resource, RequestGroupSpec(resource)))
+    assert isinstance(lease, RequestAdmissionLease)
+    request_admission.release(lease, RequestReleaseOutcome(kind="rate_limited"))
+
+    scheduler, _tracker = _build_simple_pipeline()
+    scheduler._request_pressure_provider = request_admission
+    plan = scheduler.capacity_plan()
+
+    assert plan.configured.request_domain_initial_limits.value[resource] == 4
+    assert plan.runtime_snapshot.request_domain_effective_max[resource] == 4
+    assert plan.runtime_snapshot.request_domain_current_limits[resource] == 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_emits_job_health_and_row_group_telemetry() -> None:
     provider = _mock_provider()
     configs = [
@@ -3613,7 +3710,12 @@ async def test_scheduler_adaptive_row_group_admission_expands_target_for_horizon
 
     await asyncio.wait_for(scheduler.run(), timeout=10.0)
 
+    plan = scheduler.capacity_plan()
     assert tracker.is_row_group_complete(0, 1, ["topic", "model_col"])
+    assert plan.configured.row_group_admission.mode == "adaptive"
+    assert plan.configured.row_group_admission.observed_max_target is not None
+    assert plan.configured.row_group_admission.observed_max_target > 1
+    assert plan.observed_maxima.row_groups_in_flight > 1
     assert any(event.event_kind == "row_group_admission_target_changed" for event in sink.scheduler_events)
 
 

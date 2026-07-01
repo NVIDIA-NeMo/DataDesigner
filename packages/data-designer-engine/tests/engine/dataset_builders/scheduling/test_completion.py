@@ -40,6 +40,7 @@ def _build_simple_graph() -> ExecutionGraph:
 @dataclass
 class ReadyTasksFixture:
     tracker: CompletionTracker
+    dispatched: set[Task]
 
 
 @pytest.fixture()
@@ -48,6 +49,7 @@ def ready_ctx() -> ReadyTasksFixture:
     graph = _build_simple_graph()
     return ReadyTasksFixture(
         tracker=CompletionTracker.with_graph(graph, [(0, 3)]),
+        dispatched=set(),
     )
 
 
@@ -82,6 +84,43 @@ def test_mark_row_range_complete_raises_on_size_mismatch(ready_ctx: ReadyTasksFi
 def test_mark_cell_complete_raises_on_unknown_row_group(ready_ctx: ReadyTasksFixture) -> None:
     with pytest.raises(ValueError, match="Unknown row_group"):
         ready_ctx.tracker.mark_cell_complete("question", row_group=999, row_index=0)
+
+
+# -- is_all_complete -----------------------------------------------------------
+
+
+def test_all_complete_cell_level() -> None:
+    tracker = CompletionTracker()
+    tracker.mark_cell_complete("col_a", 0, 0)
+    tracker.mark_cell_complete("col_a", 0, 1)
+
+    assert tracker.is_all_complete([SliceRef("col_a", 0, 0), SliceRef("col_a", 0, 1)])
+    assert not tracker.is_all_complete([SliceRef("col_a", 0, 0), SliceRef("col_a", 0, 2)])
+
+
+def test_all_complete_batch_level() -> None:
+    tracker = CompletionTracker()
+    tracker.mark_row_range_complete("col_a", 0, 3)
+
+    assert tracker.is_all_complete([SliceRef("col_a", 0, None)])
+
+
+def test_all_complete_batch_single_cell_not_sufficient() -> None:
+    """mark_cell_complete on one row must NOT make is_all_complete return True for batch check."""
+    tracker = CompletionTracker()
+    tracker.mark_cell_complete("col_a", 0, 0)
+
+    assert not tracker.is_all_complete([SliceRef("col_a", 0, None)])
+
+
+def test_all_complete_batch_not_present() -> None:
+    tracker = CompletionTracker()
+    assert not tracker.is_all_complete([SliceRef("col_a", 0, None)])
+
+
+def test_all_complete_empty_list() -> None:
+    tracker = CompletionTracker()
+    assert tracker.is_all_complete([])
 
 
 # -- drop_row / is_dropped -------------------------------------------------
@@ -135,17 +174,19 @@ def test_row_group_not_complete_missing_non_dropped() -> None:
     assert not tracker.is_row_group_complete(0, 3, ["col_a", "col_b"])
 
 
-# -- ready frontier ---------------------------------------------------------
+# -- get_ready_tasks --------------------------------------------------------
 
 
-def test_ready_frontier_starts_empty(ready_ctx: ReadyTasksFixture) -> None:
-    ready = ready_ctx.tracker.ready_frontier()
+def test_get_ready_tasks_frontier_empty_without_seed(ready_ctx: ReadyTasksFixture) -> None:
+    """Frontier starts empty - seed_frontier() must be called explicitly."""
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
     assert len(ready) == 0
 
 
-def test_add_root_tasks_populates_frontier(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.add_root_tasks(0, 3, columns=("topic",))
-    ready = ready_ctx.tracker.ready_frontier()
+def test_get_ready_tasks_seed_frontier(ready_ctx: ReadyTasksFixture) -> None:
+    """seed_frontier() populates the frontier with root tasks."""
+    ready_ctx.tracker.seed_frontier()
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     assert len(ready) == 1
     assert ready[0].column == "topic"
@@ -153,7 +194,7 @@ def test_add_root_tasks_populates_frontier(ready_ctx: ReadyTasksFixture) -> None
 
 
 def test_mark_enqueued_uses_scheduler_stable_task_id(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.add_root_tasks(0, 3, columns=("topic",))
+    ready_ctx.tracker.seed_frontier()
     task = ready_ctx.tracker.ready_frontier()[0]
 
     ready_ctx.tracker.mark_enqueued({stable_task_id(task)})
@@ -161,10 +202,10 @@ def test_mark_enqueued_uses_scheduler_stable_task_id(ready_ctx: ReadyTasksFixtur
     assert ready_ctx.tracker.ready_frontier() == ()
 
 
-def test_ready_frontier_after_seed_complete(ready_ctx: ReadyTasksFixture) -> None:
+def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> None:
     delta = ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
 
-    ready = ready_ctx.tracker.ready_frontier()
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     question_tasks = [t for t in ready if t.column == "question"]
     assert len(question_tasks) == 3
@@ -192,7 +233,7 @@ def test_fan_out_cell_completion_readies_all_children_for_same_row() -> None:
 
     assert {task.column for task in delta.added} == {"child_a", "child_b", "child_c"}
     assert {task.row_index for task in delta.added} == {0}
-    ready = tracker.ready_frontier()
+    ready = tracker.get_ready_tasks(set())
     assert not any(task.column.startswith("child_") and task.row_index == 1 for task in ready)
 
 
@@ -217,16 +258,26 @@ def test_fan_in_cell_downstream_waits_for_all_same_row_upstreams() -> None:
     assert not any(task.column == "judge" for task in first_delta.added)
     assert not any(task.column == "judge" for task in second_delta.added)
     assert final_delta.added == (Task(column="judge", row_group=0, row_index=0, task_type="cell"),)
-    ready = tracker.ready_frontier()
+    ready = tracker.get_ready_tasks(set())
     assert not any(task.column == "judge" and task.row_index == 1 for task in ready)
 
 
-def test_ready_frontier_skips_dropped_rows(ready_ctx: ReadyTasksFixture) -> None:
+def test_get_ready_tasks_skips_dispatched(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+
+    ready1 = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
+    ready_ctx.dispatched.update(ready1)
+
+    ready2 = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
+    assert len(ready2) == 0
+
+
+def test_get_ready_tasks_skips_dropped_rows(ready_ctx: ReadyTasksFixture) -> None:
     ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
     removed = Task(column="question", row_group=0, row_index=1, task_type="cell")
     delta = ready_ctx.tracker.drop_row(0, 1)
 
-    ready = ready_ctx.tracker.ready_frontier()
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     question_tasks = [t for t in ready if t.column == "question"]
     assert len(question_tasks) == 2
@@ -243,32 +294,32 @@ def test_drop_row_unblocks_full_column_downstream(ready_ctx: ReadyTasksFixture) 
     # question[2] never completes -- drop it instead
     delta = ready_ctx.tracker.drop_row(0, 2)
 
-    ready = ready_ctx.tracker.ready_frontier()
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
     score_tasks = [t for t in ready if t.column == "score"]
     assert len(score_tasks) == 1
     assert score_tasks[0].task_type == "batch"
     assert score_tasks[0] in delta.added
 
 
-def test_ready_frontier_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFixture) -> None:
+def test_get_ready_tasks_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFixture) -> None:
     ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
     ready_ctx.tracker.mark_cell_complete("question", 0, 0)
     ready_ctx.tracker.mark_cell_complete("question", 0, 1)
     # question[0,2] not done yet
 
-    ready = ready_ctx.tracker.ready_frontier()
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     score_tasks = [t for t in ready if t.column == "score"]
     assert len(score_tasks) == 0
 
 
-def test_ready_frontier_full_column_ready_when_all_cells_done(ready_ctx: ReadyTasksFixture) -> None:
+def test_get_ready_tasks_full_column_ready_when_all_cells_done(ready_ctx: ReadyTasksFixture) -> None:
     ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
     delta = None
     for ri in range(3):
         delta = ready_ctx.tracker.mark_cell_complete("question", 0, ri)
 
-    ready = ready_ctx.tracker.ready_frontier()
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     score_tasks = [t for t in ready if t.column == "score"]
     assert len(score_tasks) == 1
@@ -277,13 +328,15 @@ def test_ready_frontier_full_column_ready_when_all_cells_done(ready_ctx: ReadyTa
     assert delta.added == (score_tasks[0],)
 
 
-def test_ready_frontier_multiple_row_groups() -> None:
+def test_get_ready_tasks_multiple_row_groups() -> None:
     graph = _build_simple_graph()
     tracker = CompletionTracker.with_graph(graph, [(0, 3), (1, 2)])
+    dispatched: set[Task] = set()
+
     tracker.mark_row_range_complete("topic", 0, 3)
     tracker.mark_row_range_complete("topic", 1, 2)
 
-    ready = tracker.ready_frontier()
+    ready = tracker.get_ready_tasks(dispatched)
 
     question_tasks = [t for t in ready if t.column == "question"]
     assert len(question_tasks) == 5  # 3 from rg0 + 2 from rg1
@@ -297,10 +350,10 @@ def test_frontier_delta_return_is_empty_when_frontier_does_not_change(ready_ctx:
     assert delta.empty
 
 
-def test_ready_frontier_skips_already_complete_batch(ready_ctx: ReadyTasksFixture) -> None:
+def test_get_ready_tasks_skips_already_complete_batch(ready_ctx: ReadyTasksFixture) -> None:
     ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
 
-    ready = ready_ctx.tracker.ready_frontier()
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     topic_tasks = [t for t in ready if t.column == "topic"]
     assert len(topic_tasks) == 0
@@ -327,6 +380,8 @@ def test_completed_cell_not_reenqueued_after_later_upstream() -> None:
     """A → B → C chain: completing C then firing a late upstream event must not re-enqueue C."""
     graph = _build_simple_graph()
     tracker = CompletionTracker.with_graph(graph, [(0, 2)])
+    dispatched: set[Task] = set()
+
     # Complete the full pipeline
     tracker.mark_row_range_complete("topic", 0, 2)
     tracker.mark_cell_complete("question", 0, 0)
@@ -336,7 +391,7 @@ def test_completed_cell_not_reenqueued_after_later_upstream() -> None:
     # Fire a late upstream cell event after score is already done
     tracker.mark_cell_complete("question", 0, 0)
 
-    ready = tracker.ready_frontier()
+    ready = tracker.get_ready_tasks(dispatched)
     score_tasks = [t for t in ready if t.column == "score"]
     assert len(score_tasks) == 0
 
@@ -355,19 +410,21 @@ def test_completed_batch_not_reenqueued_by_upstream_cell() -> None:
     }
     graph = ExecutionGraph.create(configs, strategies)
     tracker = CompletionTracker.with_graph(graph, [(0, 2)])
+    dispatched: set[Task] = set()
+
     # Complete seed and gen[0] — agg not ready yet
     tracker.mark_row_range_complete("seed", 0, 2)
     tracker.mark_cell_complete("gen", 0, 0)
 
-    ready = tracker.ready_frontier()
+    ready = tracker.get_ready_tasks(dispatched)
     assert not any(t.column == "agg" for t in ready)
 
     # Complete gen[1] — agg becomes ready
     tracker.mark_cell_complete("gen", 0, 1)
-    ready = tracker.ready_frontier()
+    ready = tracker.get_ready_tasks(dispatched)
     assert any(t.column == "agg" for t in ready)
 
     # Complete agg, then verify it doesn't reappear
     tracker.mark_row_range_complete("agg", 0, 2)
-    ready = tracker.ready_frontier()
+    ready = tracker.get_ready_tasks(dispatched)
     assert not any(t.column == "agg" for t in ready)

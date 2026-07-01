@@ -37,8 +37,9 @@ class CompletionTracker:
 
     Row indices are local to their row group (0-based).
 
-    Use ``with_graph`` to create a frontier-enabled tracker that incrementally
-    maintains dependency-ready tasks.
+    Use ``with_graph`` to create a frontier-enabled tracker where
+    ``get_ready_tasks`` returns in O(frontier) instead of scanning all
+    columns x rows x row groups.
     """
 
     def __init__(self) -> None:
@@ -91,6 +92,20 @@ class CompletionTracker:
 
     def is_complete(self, ref: SliceRef) -> bool:
         return ref.row_index in self._completed.get(ref.row_group, {}).get(ref.column, set())
+
+    def is_all_complete(self, cells: list[SliceRef]) -> bool:
+        """Check whether all the given cells are done.
+
+        A ``row_index`` of ``None`` means the entire batch for that column must
+        have been completed via ``mark_row_range_complete``.
+        """
+        for ref in cells:
+            if ref.row_index is None:
+                if ref.column not in self._batch_complete.get(ref.row_group, set()):
+                    return False
+            elif not self.is_complete(ref):
+                return False
+        return True
 
     def is_column_complete_for_rg(self, column: str, row_group_index: int) -> bool:
         """Check if *column* has been fully completed for *row_group_index*."""
@@ -158,9 +173,32 @@ class CompletionTracker:
                 added.append(task)
         return self._record_delta(added=added, removed=[])
 
+    def get_ready_tasks(self, dispatched: set[Task], admitted_rgs: set[int] | None = None) -> list[Task]:
+        """Return all currently dispatchable tasks from the frontier."""
+        return [
+            t
+            for t in self.ready_frontier()
+            if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
+        ]
+
     def is_frontier_task(self, task: Task) -> bool:
         """Return whether *task* is still in the ready frontier."""
         return task in self._frontier
+
+    def seed_frontier(self) -> None:
+        """Populate the frontier with root tasks (columns with no upstream deps).
+
+        Not called automatically - the scheduler manages root dispatch directly
+        to handle stateful locks and multi-column dedup. Call this explicitly
+        for static introspection (e.g., capacity planning, task enumeration).
+        """
+        if self._graph is None:
+            raise RuntimeError("This method requires a graph to be set.")
+        for col in self._graph.get_root_columns():
+            if self._row_group_plan is None:
+                raise RuntimeError("This method requires row groups to be set.")
+            for rg_id, rg_size in self._row_group_plan:
+                self.add_root_tasks(rg_id, rg_size, columns=(col,))
 
     def add_root_tasks(
         self,
