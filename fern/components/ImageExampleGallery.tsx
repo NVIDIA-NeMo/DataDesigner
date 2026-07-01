@@ -104,15 +104,14 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   margin: 0 !important;
   padding: 0;
 }
-.image-example-gallery__image-link {
+.image-example-gallery__image-viewer {
   display: block;
   margin: 0 !important;
   border-radius: 8px;
-  outline-offset: 3px;
   cursor: zoom-in;
 }
-.image-example-gallery__image-link:hover .image-example-gallery__image,
-.image-example-gallery__image-link:hover .image-example-gallery__image-shell {
+.image-example-gallery__image-viewer:hover .image-example-gallery__image,
+.image-example-gallery__image-viewer:hover .image-example-gallery__image-shell {
   border-color: var(--accent, #76b900);
   box-shadow: 0 0 0 2px rgba(118, 185, 0, 0.24);
 }
@@ -268,14 +267,9 @@ function handleImageError(event: SyntheticEvent<HTMLImageElement>) {
   if (!fallbackSrc) return;
 
   const resolvedFallbackSrc = localPreviewAssetSrc(fallbackSrc) ?? fallbackSrc;
-  const link = image.closest("a.image-example-gallery__image-link");
 
   delete image.dataset.fallbackSrc;
   image.src = resolvedFallbackSrc;
-
-  if (link instanceof HTMLAnchorElement) {
-    link.href = resolvedFallbackSrc;
-  }
 }
 
 function imageFallbackProps(primarySrc: string, fallbackSrc: string) {
@@ -399,14 +393,7 @@ export const ImageExampleGallery = ({
       </div>
       <div className="image-example-gallery__detail">
         <figure className="image-example-gallery__figure">
-          <a
-            aria-label={`Open full-size image: ${selectedExample.title}`}
-            className="image-example-gallery__image-link"
-            href={fullSrc}
-            onClickCapture={(event) => event.preventDefault()}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
+          <div className="image-example-gallery__image-viewer">
             {selectedImageNode ? (
               renderProvidedImage(
                 selectedImageNode,
@@ -424,7 +411,7 @@ export const ImageExampleGallery = ({
                 {...fullFallbackProps}
               />
             )}
-          </a>
+          </div>
           <figcaption className="image-example-gallery__caption">{selectedExample.title}</figcaption>
         </figure>
         <div className="image-example-gallery__control-groups">{groups.map(renderGroup)}</div>
