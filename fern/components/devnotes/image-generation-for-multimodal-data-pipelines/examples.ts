@@ -33,16 +33,16 @@ export const richDocumentImageExamples: ImageExampleGalleryItem[] = [
       ],
     },
     {
-      title: "Example 3: customer support incident review · dashboard export with a top filter bar and grid of panels",
+      title: "Example 3: financial variance memo · operations one-pager with color-coded status chips and action table",
       src: "/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/03.jpg",
       alt: "Synthetic rich business document page",
       controls: [
-        ["document type", "customer support incident review"],
-        ["layout style", "dashboard export with a top filter bar and grid of panels"],
+        ["document type", "financial variance memo"],
+        ["layout style", "operations one-pager with color-coded status chips and action table"],
         ["primary visual", "waterfall chart showing contributors to budget variance"],
-        ["secondary visual", "signature block plus approval checklist"],
-        ["document condition", "creased printout with a clipped corner"],
-        ["annotation layer", "yellow highlights over two key numbers"],
+        ["secondary visual", "small process diagram with arrows between four labeled stages"],
+        ["document condition", "high-resolution office scanner output"],
+        ["annotation layer", "rubber stamp reading DRAFT across the header"],
       ],
     },
     {
