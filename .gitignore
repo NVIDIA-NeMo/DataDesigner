@@ -81,6 +81,7 @@ venv.bak/
 
 # Local scratch space
 .scratch/
+/tmp/
 
 # Generated benchmark/report output
 /artifacts/

@@ -1,0 +1,107 @@
+{
+  "diversity": {
+    "record_count": 24,
+    "routes": {
+      "dd-mixed": {
+        "classifier_calls": 0,
+        "distinct_1": 0.308,
+        "distinct_2": 0.6143,
+        "elapsed_seconds": 192.48,
+        "estimated_cost_usd": 0.00545,
+        "exact_duplicate_rate": 0.0,
+        "mean_pairwise_jaccard": 0.1981,
+        "model_calls": {
+          "aws/anthropic/bedrock-claude-sonnet-4-6": 8,
+          "nvidia/nvidia/Nemotron-3-Nano-30B-A3B": 16
+        },
+        "records": 24,
+        "strong_calls": 8,
+        "total_tokens": 2416,
+        "vocabulary_size": 223,
+        "weak_calls": 16
+      },
+      "dd-weak": {
+        "classifier_calls": 0,
+        "distinct_1": 0.3282,
+        "distinct_2": 0.754,
+        "elapsed_seconds": 185.82,
+        "estimated_cost_usd": 0.000235,
+        "exact_duplicate_rate": 0.0,
+        "mean_pairwise_jaccard": 0.1428,
+        "model_calls": {
+          "nvidia/nvidia/Nemotron-3-Nano-30B-A3B": 24
+        },
+        "records": 24,
+        "strong_calls": 0,
+        "total_tokens": 2364,
+        "vocabulary_size": 212,
+        "weak_calls": 0
+      }
+    }
+  },
+  "generated_at": "2026-07-01T17:02:58+00:00",
+  "models": {
+    "classifier_model": "nvidia/deepseek-ai/deepseek-v4-flash",
+    "hinted_policy": "easy=weak, otherwise=strong",
+    "mixed_strong_probability": 0.35,
+    "strong_model": "aws/anthropic/bedrock-claude-sonnet-4-6",
+    "weak_model": "nvidia/nvidia/Nemotron-3-Nano-30B-A3B"
+  },
+  "quality": {
+    "routes": {
+      "dd-hinted": {
+        "accuracy": 1.0,
+        "classifier_calls": 0,
+        "correct": 20,
+        "cost_per_correct_row_usd": 0.001092,
+        "easy_accuracy": 1.0,
+        "elapsed_seconds": 14.23,
+        "estimated_cost_usd": 0.021838,
+        "hard_accuracy": 1.0,
+        "model_calls": {
+          "aws/anthropic/bedrock-claude-sonnet-4-6": 4,
+          "nvidia/nvidia/Nemotron-3-Nano-30B-A3B": 16
+        },
+        "strong_calls": 4,
+        "total": 20,
+        "total_tokens": 4695,
+        "weak_calls": 16
+      },
+      "dd-strong": {
+        "accuracy": 1.0,
+        "classifier_calls": 0,
+        "correct": 20,
+        "cost_per_correct_row_usd": 0.001739,
+        "easy_accuracy": 1.0,
+        "elapsed_seconds": 74.25,
+        "estimated_cost_usd": 0.034776,
+        "hard_accuracy": 1.0,
+        "model_calls": {
+          "aws/anthropic/bedrock-claude-sonnet-4-6": 20
+        },
+        "strong_calls": 0,
+        "total": 20,
+        "total_tokens": 4864,
+        "weak_calls": 0
+      },
+      "dd-weak": {
+        "accuracy": 0.85,
+        "classifier_calls": 0,
+        "correct": 17,
+        "cost_per_correct_row_usd": 1.3e-05,
+        "easy_accuracy": 1.0,
+        "elapsed_seconds": 5.87,
+        "estimated_cost_usd": 0.000219,
+        "hard_accuracy": 0.25,
+        "model_calls": {
+          "nvidia/nvidia/Nemotron-3-Nano-30B-A3B": 20
+        },
+        "strong_calls": 0,
+        "total": 20,
+        "total_tokens": 3434,
+        "weak_calls": 0
+      }
+    },
+    "task_count": 20
+  }
+}
