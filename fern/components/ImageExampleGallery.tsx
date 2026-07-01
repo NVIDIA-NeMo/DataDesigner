@@ -55,8 +55,7 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   outline: 3px solid var(--accent, #76b900);
   outline-offset: 2px;
 }
-.image-example-gallery__thumb-image,
-.image-example-gallery__thumb-image-shell {
+.image-example-gallery__thumb-image {
   display: block;
   width: 100%;
   aspect-ratio: 16 / 10;
@@ -64,32 +63,10 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   border-radius: 6px;
   border: 1px solid var(--grayscale-a5, rgba(128, 128, 128, 0.18));
   background: var(--grayscale-2, rgba(128, 128, 128, 0.04));
-}
-.image-example-gallery__thumb-image {
   object-fit: cover;
 }
-.image-example-gallery__thumb img,
-.image-example-gallery__thumb-image-shell,
-.image-example-gallery__thumb-image-shell * {
+.image-example-gallery__thumb img {
   cursor: pointer !important;
-}
-.image-example-gallery__thumb-image-shell {
-  overflow: hidden;
-}
-.image-example-gallery__thumb-image-shell > *,
-.image-example-gallery__thumb-image-shell > * > * {
-  display: block;
-  width: 100%;
-  height: 100%;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-.image-example-gallery__thumb-image-shell img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  margin: 0 !important;
 }
 .image-example-gallery__thumb-title {
   display: block;
@@ -355,7 +332,6 @@ export const ImageExampleGallery = ({
           const rawThumbSrc = example.thumbnailSrc ?? example.src;
           const thumbSrc = withBasepath(rawThumbSrc);
           const thumbFallbackProps = imageFallbackProps(thumbSrc, rawThumbSrc);
-          const thumbImageNode = imageNodes[index];
 
           return (
             <button
@@ -370,23 +346,14 @@ export const ImageExampleGallery = ({
               }}
               type="button"
             >
-              {thumbImageNode ? (
-                renderProvidedImage(
-                  thumbImageNode,
-                  "image-example-gallery__thumb-image-shell",
-                  "image-example-gallery__thumb-image-node",
-                  ""
-                )
-              ) : (
-                <img
-                  alt=""
-                  className="image-example-gallery__thumb-image"
-                  decoding="async"
-                  loading="lazy"
-                  src={thumbSrc}
-                  {...thumbFallbackProps}
-                />
-              )}
+              <img
+                alt=""
+                className="image-example-gallery__thumb-image"
+                decoding="async"
+                loading="lazy"
+                src={thumbSrc}
+                {...thumbFallbackProps}
+              />
               <span className="image-example-gallery__thumb-title">{exampleLabel(example.title)}</span>
             </button>
           );
