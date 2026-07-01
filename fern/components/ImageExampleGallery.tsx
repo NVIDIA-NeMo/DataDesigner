@@ -26,6 +26,7 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
 .image-example-gallery__thumbs {
   display: flex;
   gap: 0.55rem;
+  justify-content: safe center;
   margin: 0 0 0.85rem;
   padding: 0 0 0.25rem;
   overflow-x: auto;
