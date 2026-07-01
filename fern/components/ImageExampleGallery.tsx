@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from "react";
+import { Children, cloneElement, isValidElement, useState } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 
 import type { ImageExampleControlGroup } from "./ImageExample";
 
@@ -53,15 +54,36 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   outline: 3px solid var(--accent, #76b900);
   outline-offset: 2px;
 }
-.image-example-gallery__thumb-image {
+.image-example-gallery__thumb-image,
+.image-example-gallery__thumb-image-shell {
   display: block;
   width: 100%;
   aspect-ratio: 16 / 10;
-  object-fit: cover;
   margin: 0 !important;
   border-radius: 6px;
   border: 1px solid var(--grayscale-a5, rgba(128, 128, 128, 0.18));
   background: var(--grayscale-2, rgba(128, 128, 128, 0.04));
+}
+.image-example-gallery__thumb-image {
+  object-fit: cover;
+}
+.image-example-gallery__thumb-image-shell {
+  overflow: hidden;
+}
+.image-example-gallery__thumb-image-shell > *,
+.image-example-gallery__thumb-image-shell > * > * {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.image-example-gallery__thumb-image-shell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  margin: 0 !important;
 }
 .image-example-gallery__thumb-title {
   display: block;
@@ -84,11 +106,13 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   outline-offset: 3px;
   cursor: zoom-in;
 }
-.image-example-gallery__image-link:hover .image-example-gallery__image {
+.image-example-gallery__image-link:hover .image-example-gallery__image,
+.image-example-gallery__image-link:hover .image-example-gallery__image-shell {
   border-color: var(--accent, #76b900);
   box-shadow: 0 0 0 2px rgba(118, 185, 0, 0.24);
 }
-.image-example-gallery__image {
+.image-example-gallery__image,
+.image-example-gallery__image-shell {
   display: block;
   width: 100%;
   height: auto;
@@ -98,6 +122,24 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   border-radius: 8px;
   border: 1px solid var(--grayscale-a5, rgba(128, 128, 128, 0.18));
   background: var(--grayscale-2, rgba(128, 128, 128, 0.04));
+}
+.image-example-gallery__image-shell {
+  overflow: hidden;
+}
+.image-example-gallery__image-shell > *,
+.image-example-gallery__image-shell > * > * {
+  display: block;
+  width: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.image-example-gallery__image-shell img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 640px;
+  object-fit: contain;
+  margin: 0 !important;
 }
 .image-example-gallery__caption {
   margin-top: 0.55rem;
@@ -179,6 +221,15 @@ export interface ImageExampleGalleryItem {
 export interface ImageExampleGalleryProps {
   examples: ImageExampleGalleryItem[];
   defaultIndex?: number;
+  children?: ReactNode;
+}
+
+interface ImageNodeProps {
+  alt?: string;
+  className?: string;
+  decoding?: "async" | "auto" | "sync";
+  loading?: "eager" | "lazy";
+  src?: string;
 }
 
 const BASEPATH = "/nemo/datadesigner";
@@ -189,7 +240,7 @@ function withBasepath(path: string): string {
   return `${BASEPATH}${path}`;
 }
 
-function handleImageError(event: React.SyntheticEvent<HTMLImageElement>) {
+function handleImageError(event: SyntheticEvent<HTMLImageElement>) {
   const image = event.currentTarget;
   const fallbackSrc = image.dataset.fallbackSrc;
 
@@ -209,6 +260,33 @@ function exampleLabel(title: string): string {
   return title.split(":")[0] ?? title;
 }
 
+function mergeClassNames(...classNames: (string | undefined)[]): string {
+  return classNames.filter(Boolean).join(" ");
+}
+
+function imageNodeSrc(imageNode: ReactNode): string | undefined {
+  if (!isValidElement<ImageNodeProps>(imageNode)) return undefined;
+  return typeof imageNode.props.src === "string" ? imageNode.props.src : undefined;
+}
+
+function renderProvidedImage(
+  imageNode: ReactNode,
+  shellClassName: string,
+  imageClassName: string,
+  alt: string
+) {
+  const content = isValidElement<ImageNodeProps>(imageNode)
+    ? cloneElement(imageNode, {
+        alt,
+        className: mergeClassNames(imageNode.props.className, imageClassName),
+        decoding: imageNode.props.decoding ?? "async",
+        loading: imageNode.props.loading ?? "lazy",
+      })
+    : imageNode;
+
+  return <span className={shellClassName}>{content}</span>;
+}
+
 function renderGroup(group: ImageExampleControlGroup, groupIndex: number) {
   return (
     <div className="image-example-gallery__group" key={groupIndex}>
@@ -225,10 +303,15 @@ function renderGroup(group: ImageExampleControlGroup, groupIndex: number) {
   );
 }
 
-export const ImageExampleGallery = ({ examples, defaultIndex = 0 }: ImageExampleGalleryProps) => {
+export const ImageExampleGallery = ({
+  examples,
+  defaultIndex = 0,
+  children,
+}: ImageExampleGalleryProps) => {
   const initialIndex = Math.min(Math.max(defaultIndex, 0), Math.max(examples.length - 1, 0));
   const [selectedIndex, setSelectedIndex] = useState(initialIndex);
   const selectedExample = examples[selectedIndex];
+  const imageNodes = Children.toArray(children).filter((child) => isValidElement(child));
 
   if (!selectedExample) return null;
 
@@ -236,7 +319,8 @@ export const ImageExampleGallery = ({ examples, defaultIndex = 0 }: ImageExample
     selectedExample.controlGroups && selectedExample.controlGroups.length > 0
       ? selectedExample.controlGroups
       : [{ label: "Sampler controls", controls: selectedExample.controls ?? [] }];
-  const fullSrc = withBasepath(selectedExample.src);
+  const selectedImageNode = imageNodes[selectedIndex];
+  const fullSrc = imageNodeSrc(selectedImageNode) ?? withBasepath(selectedExample.src);
   const fullFallbackProps = imageFallbackProps(fullSrc, selectedExample.src);
 
   return (
@@ -248,6 +332,7 @@ export const ImageExampleGallery = ({ examples, defaultIndex = 0 }: ImageExample
           const rawThumbSrc = example.thumbnailSrc ?? example.src;
           const thumbSrc = withBasepath(rawThumbSrc);
           const thumbFallbackProps = imageFallbackProps(thumbSrc, rawThumbSrc);
+          const thumbImageNode = imageNodes[index];
 
           return (
             <button
@@ -258,14 +343,23 @@ export const ImageExampleGallery = ({ examples, defaultIndex = 0 }: ImageExample
               onClick={() => setSelectedIndex(index)}
               type="button"
             >
-              <img
-                alt=""
-                className="image-example-gallery__thumb-image"
-                decoding="async"
-                loading="lazy"
-                src={thumbSrc}
-                {...thumbFallbackProps}
-              />
+              {thumbImageNode ? (
+                renderProvidedImage(
+                  thumbImageNode,
+                  "image-example-gallery__thumb-image-shell",
+                  "image-example-gallery__thumb-image-node",
+                  ""
+                )
+              ) : (
+                <img
+                  alt=""
+                  className="image-example-gallery__thumb-image"
+                  decoding="async"
+                  loading="lazy"
+                  src={thumbSrc}
+                  {...thumbFallbackProps}
+                />
+              )}
               <span className="image-example-gallery__thumb-title">{exampleLabel(example.title)}</span>
             </button>
           );
@@ -280,14 +374,23 @@ export const ImageExampleGallery = ({ examples, defaultIndex = 0 }: ImageExample
             rel="noopener noreferrer"
             target="_blank"
           >
-            <img
-              alt={selectedExample.alt}
-              className="image-example-gallery__image"
-              decoding="async"
-              loading="lazy"
-              src={fullSrc}
-              {...fullFallbackProps}
-            />
+            {selectedImageNode ? (
+              renderProvidedImage(
+                selectedImageNode,
+                "image-example-gallery__image-shell",
+                "image-example-gallery__image-node",
+                selectedExample.alt
+              )
+            ) : (
+              <img
+                alt={selectedExample.alt}
+                className="image-example-gallery__image"
+                decoding="async"
+                loading="lazy"
+                src={fullSrc}
+                {...fullFallbackProps}
+              />
+            )}
           </a>
           <figcaption className="image-example-gallery__caption">{selectedExample.title}</figcaption>
         </figure>

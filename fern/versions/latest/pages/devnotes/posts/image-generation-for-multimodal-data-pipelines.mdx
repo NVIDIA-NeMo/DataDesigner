@@ -102,7 +102,13 @@ Those generated pages became the visual seed data for the document VQA notebook.
 
 Here are a few rows from that generated dataset. The image is the fun part. The sampler values are what make the image useful.
 
-<ImageExampleGallery examples={richDocumentImageExamples} />
+<ImageExampleGallery examples={richDocumentImageExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/01.jpg" alt="Synthetic rich business document page" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/02.jpg" alt="Synthetic rich business document page" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/03.jpg" alt="Synthetic rich business document page" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/04.jpg" alt="Synthetic rich business document page" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/05.jpg" alt="Synthetic rich business document page" loading="lazy" />
+</ImageExampleGallery>
 
 ## Image Editing Is Just Another Dependency
 
@@ -179,7 +185,13 @@ config_builder.add_column(
 
 The important thing is that the creative brief is not trapped inside one long prompt. Apparel item, colorway, variation goal, adult model age group, ethnicity, body type, accessibility context, styling context, composition, and lighting are all columns. That means you can inspect the distribution, filter it, rerun slices, and add a VLM judge to check whether the garment stayed consistent or whether the edit introduced unwanted logos, text, minors, or unsafe styling.
 
-<ImageExampleGallery examples={productImageVariationExamples} />
+<ImageExampleGallery examples={productImageVariationExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/01.jpg" alt="Before and after adult apparel image variation" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/02.png" alt="Before and after adult apparel image variation" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/03.png" alt="Before and after adult apparel image variation" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/04.jpg" alt="Before and after adult apparel image variation" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/product-image-variations/05.png" alt="Before and after adult apparel image variation" loading="lazy" />
+</ImageExampleGallery>
 
 ### Autonomous vehicles
 
@@ -195,7 +207,13 @@ The controls cover geographic region, road type, weather, time of day, traffic d
 
 The `scenario_element` sampler is where the recipe earns its keep: a child chasing a ball, a school bus with a flashing stop sign, a jaywalking pedestrian at night, a cyclist riding against traffic, a fire truck in the oncoming lane, a malfunctioning traffic light, debris in the roadway. Synthetic images do not replace simulation, closed-course testing, or sensor logs. They do give you a fast way to build controlled perception and review sets around situations you want to discuss before you go hunting for them in real data.
 
-<ImageExampleGallery examples={trafficScenarioExamples} />
+<ImageExampleGallery examples={trafficScenarioExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/01.jpg" alt="Autonomous vehicle ego-camera traffic scene" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/02.jpg" alt="Autonomous vehicle ego-camera traffic scene" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/03.jpg" alt="Autonomous vehicle ego-camera traffic scene" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/04.jpg" alt="Autonomous vehicle ego-camera traffic scene" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/traffic-scenarios/05.jpg" alt="Autonomous vehicle ego-camera traffic scene" loading="lazy" />
+</ImageExampleGallery>
 
 ### Humanoid robot scene understanding
 
@@ -205,7 +223,13 @@ Synthetic scenes let you vary the room, camera pose, object set, hazard, clutter
 
 For robotics, the fun part is also the hard part: the frame only matters if it resembles what the robot could actually see. Human factors, safety, environment design, and robotics experts should review any dataset meant to influence embodied behavior.
 
-<ImageExampleGallery examples={humanoidRobotSceneExamples} />
+<ImageExampleGallery examples={humanoidRobotSceneExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/01.jpg" alt="Egocentric humanoid robot scene-understanding image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/02.jpg" alt="Egocentric humanoid robot scene-understanding image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/03.jpg" alt="Egocentric humanoid robot scene-understanding image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/04.jpg" alt="Egocentric humanoid robot scene-understanding image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/humanoid-robot-scene-understanding/05.jpg" alt="Egocentric humanoid robot scene-understanding image" loading="lazy" />
+</ImageExampleGallery>
 
 ### Airport security screening
 
@@ -215,7 +239,13 @@ A synthetic pipeline can vary scanner style, bag type, packing density, benign c
 
 The point is not to describe bypass tactics. The useful workflow is defensive: scanner-like images for model evaluation, human-review training, curriculum data, and visual QA around whether a bag should receive secondary review. The same generate-inspect-judge loop applies, with extra care around what the prompts should and should not encode.
 
-<ImageExampleGallery examples={airportSecurityScanExamples} />
+<ImageExampleGallery examples={airportSecurityScanExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/01.jpg" alt="Synthetic airport security scan-style image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/02.jpg" alt="Synthetic airport security scan-style image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/03.jpg" alt="Synthetic airport security scan-style image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/04.jpg" alt="Synthetic airport security scan-style image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/airport-security-scans/05.jpg" alt="Synthetic airport security scan-style image" loading="lazy" />
+</ImageExampleGallery>
 
 ### Medical imaging
 
@@ -229,7 +259,13 @@ The appeal here is distribution design. Real medical data is often scarce, priva
 
 The next obvious columns are not image columns at all: radiology reports, severity scores, anatomical-consistency validators, and judge columns. That is the point. Once the image is a row, the rest of the Data Designer stack can work around it.
 
-<ImageExampleGallery examples={medicalExtremityXrayExamples} />
+<ImageExampleGallery examples={medicalExtremityXrayExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/01.jpg" alt="Synthetic extremity X-ray-style image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/02.jpg" alt="Synthetic extremity X-ray-style image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/03.jpg" alt="Synthetic extremity X-ray-style image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/04.jpg" alt="Synthetic extremity X-ray-style image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/medical-extremity-xrays/05.jpg" alt="Synthetic extremity X-ray-style image" loading="lazy" />
+</ImageExampleGallery>
 
 ### Agriculture
 
@@ -237,7 +273,13 @@ Agriculture became more compelling once we framed it as crop disease detection i
 
 Crop pathology is its own discipline, so generated crop-disease images should be reviewed by agronomists or crop-health experts before they shape field decisions, label taxonomies, or benchmark claims.
 
-<ImageExampleGallery examples={agricultureCropExamples} />
+<ImageExampleGallery examples={agricultureCropExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/01.jpg" alt="Synthetic crop-disease detection image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/02.jpg" alt="Synthetic crop-disease detection image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/03.jpg" alt="Synthetic crop-disease detection image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/04.jpg" alt="Synthetic crop-disease detection image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/crop-disease-detection-images/05.jpg" alt="Synthetic crop-disease detection image" loading="lazy" />
+</ImageExampleGallery>
 
 ### Drone aerial inspection
 
@@ -247,7 +289,13 @@ For the examples here, the prompt asks for clean raw drone frames: no HUDs, no b
 
 Inspection imagery can drift into real-world safety, insurance, and compliance decisions quickly. Synthetic drone examples are best treated as review and evaluation fixtures unless qualified inspectors or domain teams approve the task design.
 
-<ImageExampleGallery examples={droneAerialInspectionExamples} />
+<ImageExampleGallery examples={droneAerialInspectionExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/01.jpg" alt="Synthetic drone aerial inspection image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/02.jpg" alt="Synthetic drone aerial inspection image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/03.jpg" alt="Synthetic drone aerial inspection image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/04.jpg" alt="Synthetic drone aerial inspection image" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/drone-aerial-inspection/05.jpg" alt="Synthetic drone aerial inspection image" loading="lazy" />
+</ImageExampleGallery>
 
 ### Funny pet image edits 🐾
 
@@ -270,7 +318,13 @@ config_builder.add_column(
 )
 ```
 
-<ImageExampleGallery examples={funnyPetImageEditExamples} />
+<ImageExampleGallery examples={funnyPetImageEditExamples}>
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/01.png" alt="Before and after funny pet image edit" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/02.png" alt="Before and after funny pet image edit" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/03.png" alt="Before and after funny pet image edit" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/04.png" alt="Before and after funny pet image edit" loading="lazy" />
+  <img src="/assets/image-generation-for-multimodal-data-pipelines/examples/funny-pet-image-edits/05.png" alt="Before and after funny pet image edit" loading="lazy" />
+</ImageExampleGallery>
 
 ## Other Use Cases Worth Building
 
