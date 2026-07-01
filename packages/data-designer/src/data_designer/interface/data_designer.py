@@ -73,7 +73,7 @@ from data_designer.interface.errors import (
     DataDesignerProfilingError,
 )
 from data_designer.interface.results import DatasetCreationResults
-from data_designer.logging import LOG_INDENT, RandomEmoji, configure_logging
+from data_designer.logging import LOG_INDENT, RandomEmoji, configure_logging, is_logging_configured
 from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
 
@@ -93,7 +93,8 @@ def _initialize_interface_runtime() -> None:
     global _interface_runtime_initialized
     if _interface_runtime_initialized:
         return
-    configure_logging()
+    if not is_logging_configured():
+        configure_logging()
     resolve_seed_default_model_settings()
     _interface_runtime_initialized = True
 
