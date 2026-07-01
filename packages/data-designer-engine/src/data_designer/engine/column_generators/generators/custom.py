@@ -277,38 +277,6 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         return self._validate_output(result, keys_before, is_dataframe)
 
-    def _validate_cell_output(self, row: dict, keys_before: set[str]) -> dict:
-        """Validate a single row output (dict) for cell_by_cell; strip undeclared columns."""
-        expected_new = {self.config.name} | set(self.config.side_effect_columns)
-        result_keys = set(row.keys())
-
-        if self.config.name not in result_keys:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generator_function must add a column named '{self.config.name}' to the row."
-            )
-        missing = set(self.config.side_effect_columns) - result_keys
-        if missing:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create declared side_effect_columns: "
-                f"{sorted(missing)}. Declared side_effect_columns must be added to the row."
-            )
-        removed = keys_before - result_keys
-        if removed:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
-                f"{sorted(removed)}. The generator_function must not remove any existing columns."
-            )
-        undeclared = (result_keys - keys_before) - expected_new
-        if undeclared:
-            logger.warning(
-                f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
-                f"{sorted(undeclared)}. These columns will be removed. "
-                f"To keep additional columns, declare them in @custom_column_generator(side_effect_columns=[...])."
-            )
-            row = {k: v for k, v in row.items() if k not in undeclared}
-        return row
-
     def _validate_output(
         self, result: dict | pd.DataFrame, keys_before: set[str], is_dataframe: bool
     ) -> dict | pd.DataFrame:

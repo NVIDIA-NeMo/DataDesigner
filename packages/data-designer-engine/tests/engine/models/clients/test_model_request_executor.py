@@ -28,7 +28,7 @@ from data_designer.engine.models.request_admission.controller import (
     RequestAdmissionError,
 )
 from data_designer.engine.models.request_admission.resources import RequestAdmissionItem, RequestDomain
-from data_designer.engine.observability import InMemoryAdmissionEventSink
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
 class _Client:
