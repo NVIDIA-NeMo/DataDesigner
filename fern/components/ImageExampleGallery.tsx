@@ -71,10 +71,7 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   font-weight: 650;
 }
 .image-example-gallery__detail {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 1fr);
-  gap: 0.85rem;
-  align-items: start;
+  display: block;
 }
 .image-example-gallery__figure {
   margin: 0 !important;
@@ -110,7 +107,8 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
 }
 .image-example-gallery__control-groups {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
 }
 .image-example-gallery__group {
   border-left: 3px solid var(--accent, #76b900);
@@ -163,9 +161,6 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   .image-example-gallery {
     padding: 0.55rem;
   }
-  .image-example-gallery__detail {
-    grid-template-columns: 1fr;
-  }
   .image-example-gallery__thumb {
     flex-basis: 7.35rem;
   }
@@ -204,6 +199,12 @@ function handleImageError(event: React.SyntheticEvent<HTMLImageElement>) {
   image.src = fallbackSrc;
 }
 
+function imageFallbackProps(primarySrc: string, fallbackSrc: string) {
+  return primarySrc !== fallbackSrc
+    ? { "data-fallback-src": fallbackSrc, onError: handleImageError }
+    : {};
+}
+
 function exampleLabel(title: string): string {
   return title.split(":")[0] ?? title;
 }
@@ -236,10 +237,7 @@ export const ImageExampleGallery = ({ examples, defaultIndex = 0 }: ImageExample
       ? selectedExample.controlGroups
       : [{ label: "Sampler controls", controls: selectedExample.controls ?? [] }];
   const fullSrc = withBasepath(selectedExample.src);
-  const hasFullFallback = fullSrc !== selectedExample.src;
-  const fullFallbackProps = hasFullFallback
-    ? { "data-fallback-src": fullSrc, onError: handleImageError }
-    : {};
+  const fullFallbackProps = imageFallbackProps(fullSrc, selectedExample.src);
 
   return (
     <div className="image-example-gallery">
@@ -247,12 +245,9 @@ export const ImageExampleGallery = ({ examples, defaultIndex = 0 }: ImageExample
       <style dangerouslySetInnerHTML={{ __html: IMAGE_EXAMPLE_GALLERY_CSS }} />
       <div className="image-example-gallery__thumbs" role="list" aria-label="Image examples">
         {examples.map((example, index) => {
-          const thumbSrc = example.thumbnailSrc ?? example.src;
-          const thumbFallback = withBasepath(thumbSrc);
-          const hasThumbFallback = thumbFallback !== thumbSrc;
-          const thumbFallbackProps = hasThumbFallback
-            ? { "data-fallback-src": thumbFallback, onError: handleImageError }
-            : {};
+          const rawThumbSrc = example.thumbnailSrc ?? example.src;
+          const thumbSrc = withBasepath(rawThumbSrc);
+          const thumbFallbackProps = imageFallbackProps(thumbSrc, rawThumbSrc);
 
           return (
             <button
@@ -290,7 +285,7 @@ export const ImageExampleGallery = ({ examples, defaultIndex = 0 }: ImageExample
               className="image-example-gallery__image"
               decoding="async"
               loading="lazy"
-              src={selectedExample.src}
+              src={fullSrc}
               {...fullFallbackProps}
             />
           </a>

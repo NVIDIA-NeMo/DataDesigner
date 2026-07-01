@@ -4,7 +4,6 @@ description: "From document VQA to autonomous-vehicle scenes, X-rays, drone fram
 ---
 
 import { Authors } from "@/components/Authors";
-import { ImageExample } from "@/components/ImageExample";
 import { ImageExampleGallery } from "@/components/ImageExampleGallery";
 import {
   agricultureCropExamples,
@@ -14,6 +13,7 @@ import {
   humanoidRobotSceneExamples,
   medicalExtremityXrayExamples,
   productImageVariationExamples,
+  richDocumentImageExamples,
   trafficScenarioExamples,
 } from "@/components/devnotes/image-generation-for-multimodal-data-pipelines/examples";
 
@@ -102,80 +102,7 @@ Those generated pages became the visual seed data for the document VQA notebook.
 
 Here are a few rows from that generated dataset. The image is the fun part. The sampler values are what make the image useful.
 
-<ImageExample
-  title={"Example 1: product launch readiness plan · formal memo with letterhead, dense paragraphs, and one embedded chart"}
-  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/01.jpg"}
-  alt={"Synthetic rich business document page"}
-  imageWidth={"50%"}
-  controls={[
-    ["document type", "product launch readiness plan"],
-    ["layout style", "formal memo with letterhead, dense paragraphs, and one embedded chart"],
-    ["primary visual", "donut chart with callout labels and percentages"],
-    ["secondary visual", "dense financial table with subtotals and variance arrows"],
-    ["document condition", "low-contrast scan with light shadow near the binding edge"],
-    ["annotation layer", "blue sticky note partially covering the lower right table"],
-  ]}
-/>
-
-<ImageExample
-  title={"Example 2: quarterly business review · research brief with abstract, sidebar definitions, and figure captions"}
-  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/02.jpg"}
-  alt={"Synthetic rich business document page"}
-  imageWidth={"75%"}
-  controls={[
-    ["document type", "quarterly business review"],
-    ["layout style", "research brief with abstract, sidebar definitions, and figure captions"],
-    ["primary visual", "stacked area chart showing category mix over six months"],
-    ["secondary visual", "two-column risk register with owner, due date, and mitigation note"],
-    ["document condition", "high-resolution office scanner output"],
-    ["annotation layer", "handwritten margin note asking for follow-up"],
-  ]}
-/>
-
-<ImageExample
-  title={"Example 3: customer support incident review · dashboard export with a top filter bar and grid of panels"}
-  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/03.jpg"}
-  alt={"Synthetic rich business document page"}
-  imageWidth={"50%"}
-  controls={[
-    ["document type", "customer support incident review"],
-    ["layout style", "dashboard export with a top filter bar and grid of panels"],
-    ["primary visual", "waterfall chart showing contributors to budget variance"],
-    ["secondary visual", "signature block plus approval checklist"],
-    ["document condition", "creased printout with a clipped corner"],
-    ["annotation layer", "yellow highlights over two key numbers"],
-  ]}
-/>
-
-<ImageExample
-  title={"Example 4: employee engagement summary · clean consulting report page with narrow margins and section dividers"}
-  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/04.jpg"}
-  alt={"Synthetic rich business document page"}
-  imageWidth={"50%"}
-  controls={[
-    ["document type", "employee engagement summary"],
-    ["layout style", "clean consulting report page with narrow margins and section dividers"],
-    ["primary visual", "heatmap matrix with risk severity by team and region"],
-    ["secondary visual", "compact map inset with region labels and numeric badges"],
-    ["document condition", "high-resolution office scanner output"],
-    ["annotation layer", "handwritten margin note asking for follow-up"],
-  ]}
-/>
-
-<ImageExample
-  title={"Example 5: quarterly business review · board-pack page with title ribbon, footnotes, and small-print source notes"}
-  src={"/assets/image-generation-for-multimodal-data-pipelines/examples/rich-document-images/05.jpg"}
-  alt={"Synthetic rich business document page"}
-  imageWidth={"50%"}
-  controls={[
-    ["document type", "quarterly business review"],
-    ["layout style", "board-pack page with title ribbon, footnotes, and small-print source notes"],
-    ["primary visual", "clustered bar chart comparing three regions across four quarters"],
-    ["secondary visual", "signature block plus approval checklist"],
-    ["document condition", "faded photocopy with mild paper texture"],
-    ["annotation layer", "red pen circle around one chart outlier"],
-  ]}
-/>
+<ImageExampleGallery examples={richDocumentImageExamples} />
 
 ## Image Editing Is Just Another Dependency
 
