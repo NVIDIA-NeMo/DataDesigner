@@ -6,7 +6,6 @@ from data_designer.engine.errors import (
     ErrorTrap,
     RemoteValidationSchemaError,
     SecretResolutionError,
-    UnknownModelAliasError,
     UnknownProviderError,
 )
 
@@ -14,7 +13,6 @@ from data_designer.engine.errors import (
 def test_error_message():
     test_cases = [
         (DataDesignerRuntimeError, "Runtime error occurred"),
-        (UnknownModelAliasError, "Unknown model alias"),
         (UnknownProviderError, "Unknown provider"),
         (SecretResolutionError, "Secret resolution failed"),
         (RemoteValidationSchemaError, "Remote validation schema error"),
@@ -41,7 +39,7 @@ def test_error_trap_track_error():
 
     error1 = DataDesignerRuntimeError("Error 1")
     error2 = DataDesignerRuntimeError("Error 2")
-    error3 = UnknownModelAliasError("Error 3")
+    error3 = SecretResolutionError("Error 3")
 
     error_trap.handle_error(error1)
     error_trap.handle_error(error2)
@@ -49,7 +47,7 @@ def test_error_trap_track_error():
 
     assert error_trap.error_count == 3
     assert error_trap.task_errors["DataDesignerRuntimeError"] == 2
-    assert error_trap.task_errors["UnknownModelAliasError"] == 1
+    assert error_trap.task_errors["SecretResolutionError"] == 1
 
 
 def test_error_trap_model_dump():

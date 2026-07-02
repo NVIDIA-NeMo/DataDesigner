@@ -14,21 +14,10 @@ from data_designer.cli.utils import (
 )
 from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
-    ensure_config_dir_exists,
     is_http_url,
     load_config_file,
     save_config_file,
 )
-
-
-def test_ensure_config_dir_exists(tmp_path: Path) -> None:
-    """Test creating config directory."""
-    test_dir = tmp_path / "test_config"
-    assert not test_dir.exists()
-
-    ensure_config_dir_exists(test_dir)
-    assert test_dir.exists()
-    assert test_dir.is_dir()
 
 
 def test_save_and_load_config_file(tmp_path: Path) -> None:
