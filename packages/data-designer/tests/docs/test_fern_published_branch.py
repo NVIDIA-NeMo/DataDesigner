@@ -64,6 +64,11 @@ redirects:
     write_text(source_root / "fern" / "fern.config.json", '{"organization": "nvidia", "version": "5.41.1"}\n')
     write_text(source_root / "fern" / "assets" / "current-devnote-asset.png", "new asset")
     write_text(source_root / "fern" / "components" / "Figure.tsx", "export const Figure = () => null;\n")
+    write_text(source_root / "fern" / "components" / "ImageExample.tsx", "export type ImageExample = string;\n")
+    write_text(
+        source_root / "fern" / "components" / "ImageExampleGallery.tsx",
+        'import type { ImageExample } from "./ImageExample";\nexport type ImageGallery = ImageExample[];\n',
+    )
     write_text(
         source_root / "fern" / "versions" / "latest.yml",
         """navigation:
@@ -128,6 +133,12 @@ redirects:
     assert (published_root / "fern" / "assets" / "current-devnote-asset.png").read_text() == "new asset"
     assert (published_root / "fern" / "components" / "Figure.tsx").read_text() == (
         "export const Figure = () => null;\n"
+    )
+    assert (published_root / "fern" / "components" / "ImageExample.tsx").read_text() == (
+        "export type ImageExample = string;\n"
+    )
+    assert (published_root / "fern" / "components" / "ImageExampleGallery.tsx").read_text() == (
+        'import type { ImageExample } from "./ImageExample";\nexport type ImageGallery = ImageExample[];\n'
     )
     assert not (published_root / "fern" / "assets" / "published-only-asset.png").exists()
     assert (published_root / "fern" / "versions" / "latest" / "pages" / "devnotes" / "posts" / "new-note.mdx").exists()
