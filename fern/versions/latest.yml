@@ -145,6 +145,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Image Generation for Multimodal Data Pipelines
+        path: ./latest/pages/devnotes/posts/image-generation-for-multimodal-data-pipelines.mdx
       - page: Designing Nemotron-Personas
         path: ./latest/pages/devnotes/posts/nemotron-personas.mdx
       - page: Prompt Sensitivity
