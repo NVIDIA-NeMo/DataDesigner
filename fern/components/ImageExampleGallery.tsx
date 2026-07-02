@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Children, cloneElement, isValidElement, useState } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useRef, useState } from "react";
 import type { ReactNode, SyntheticEvent } from "react";
 
 import type { ImageExampleControlGroup } from "./ImageExample";
@@ -32,6 +32,9 @@ const IMAGE_EXAMPLE_GALLERY_CSS = `
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
+}
+.image-example-gallery__asset-resolvers {
+  display: none !important;
 }
 .image-example-gallery__thumb {
   flex: 0 0 8.25rem;
@@ -222,37 +225,26 @@ function withBasepath(path: string): string {
   return `${BASEPATH}${path}`;
 }
 
-function localPreviewAssetSrc(assetSrc: string): string | undefined {
-  if (typeof document === "undefined" || !assetSrc.startsWith("/assets/")) {
-    return undefined;
-  }
-
-  const localAsset = document.querySelector<HTMLImageElement>(
-    'img[src^="/_local/"][src*="/fern/assets/"]'
-  );
-  const localAssetSrc = localAsset?.getAttribute("src");
-  const fernAssetsIndex = localAssetSrc?.indexOf("/fern/assets/") ?? -1;
-
-  if (!localAssetSrc || fernAssetsIndex < 0) return undefined;
-
-  return `${localAssetSrc.slice(0, fernAssetsIndex + "/fern".length)}${assetSrc}`;
-}
-
 function handleImageError(event: SyntheticEvent<HTMLImageElement>) {
   const image = event.currentTarget;
   const fallbackSrc = image.dataset.fallbackSrc;
 
   if (!fallbackSrc) return;
 
-  const resolvedFallbackSrc = localPreviewAssetSrc(fallbackSrc) ?? fallbackSrc;
+  const imageIndex = image.dataset.imageIndex;
+  const gallery = image.closest(".image-example-gallery");
+  const resolvedImage = imageIndex
+    ? gallery?.querySelector<HTMLImageElement>(`[data-image-index="${imageIndex}"] img`)
+    : undefined;
+  const resolvedFallbackSrc = resolvedImage?.getAttribute("src") ?? fallbackSrc;
 
   delete image.dataset.fallbackSrc;
   image.src = resolvedFallbackSrc;
 }
 
-function imageFallbackProps(primarySrc: string, fallbackSrc: string) {
+function imageFallbackProps(primarySrc: string, fallbackSrc: string, imageIndex?: number) {
   return primarySrc !== fallbackSrc
-    ? { "data-fallback-src": fallbackSrc, onError: handleImageError }
+    ? { "data-fallback-src": fallbackSrc, "data-image-index": imageIndex, onError: handleImageError }
     : {};
 }
 
@@ -310,8 +302,46 @@ export const ImageExampleGallery = ({
 }: ImageExampleGalleryProps) => {
   const initialIndex = Math.min(Math.max(defaultIndex, 0), Math.max(examples.length - 1, 0));
   const [selectedIndex, setSelectedIndex] = useState(initialIndex);
+  const [resolvedImageSrcs, setResolvedImageSrcs] = useState<(string | undefined)[]>([]);
+  const assetResolversRef = useRef<HTMLDivElement>(null);
   const selectedExample = examples[selectedIndex];
   const imageNodes = Children.toArray(children).filter((child) => isValidElement(child));
+  const imageNodeCount = imageNodes.length;
+
+  useEffect(() => {
+    const assetResolvers = assetResolversRef.current;
+
+    if (!assetResolvers || imageNodeCount === 0) return;
+
+    const syncResolvedImageSrcs = () => {
+      const nextImageSrcs = Array.from({ length: imageNodeCount }, (_, index) => {
+        const resolvedImage = assetResolvers.querySelector<HTMLImageElement>(
+          `[data-image-index="${index}"] img`
+        );
+        return resolvedImage?.getAttribute("src") ?? undefined;
+      });
+
+      if (!nextImageSrcs.some(Boolean)) return;
+
+      setResolvedImageSrcs((currentImageSrcs) =>
+        currentImageSrcs.length === nextImageSrcs.length &&
+        nextImageSrcs.every((src, index) => src === currentImageSrcs[index])
+          ? currentImageSrcs
+          : nextImageSrcs
+      );
+    };
+
+    syncResolvedImageSrcs();
+    const observer = new MutationObserver(syncResolvedImageSrcs);
+    observer.observe(assetResolvers, {
+      attributes: true,
+      attributeFilter: ["src"],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => observer.disconnect();
+  }, [imageNodeCount]);
 
   if (!selectedExample) return null;
 
@@ -327,11 +357,23 @@ export const ImageExampleGallery = ({
     <div className="image-example-gallery">
       {/* static CSS string literal (no user input) — safe to inject as raw HTML */}
       <style dangerouslySetInnerHTML={{ __html: IMAGE_EXAMPLE_GALLERY_CSS }} />
+      <div className="image-example-gallery__asset-resolvers" hidden ref={assetResolversRef}>
+        {imageNodes.map((imageNode, index) => (
+          <span data-image-index={index} key={index}>
+            {renderProvidedImage(
+              imageNode,
+              "image-example-gallery__asset-resolver-shell",
+              "image-example-gallery__asset-resolver-image",
+              ""
+            )}
+          </span>
+        ))}
+      </div>
       <div className="image-example-gallery__thumbs" role="list" aria-label="Image examples">
         {examples.map((example, index) => {
           const rawThumbSrc = example.thumbnailSrc ?? example.src;
-          const thumbSrc = withBasepath(rawThumbSrc);
-          const thumbFallbackProps = imageFallbackProps(thumbSrc, rawThumbSrc);
+          const thumbSrc = resolvedImageSrcs[index] ?? withBasepath(rawThumbSrc);
+          const thumbFallbackProps = imageFallbackProps(thumbSrc, rawThumbSrc, index);
 
           return (
             <button
