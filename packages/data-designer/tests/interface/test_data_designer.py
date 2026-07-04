@@ -1544,6 +1544,60 @@ def test_initialize_interface_runtime_respects_preconfigured_logging(monkeypatch
         mock_resolve.assert_called_once()
 
 
+def test_initialize_interface_runtime_skips_logging_when_auto_configure_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+    monkeypatch.setattr(dd_logging, "_logging_configured", False)
+
+    with (
+        patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
+        patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
+    ):
+        dd_mod._initialize_interface_runtime(auto_configure_logging=False)
+
+        mock_logging.assert_not_called()
+        mock_resolve.assert_called_once()
+
+
+def test_init_auto_configures_logging_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+    monkeypatch.setattr(dd_logging, "_logging_configured", False)
+
+    with patch("data_designer.interface.data_designer.configure_logging") as mock_logging:
+        DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+        mock_logging.assert_called_once()
+
+
+def test_init_auto_configure_logging_false_preserves_root_handlers(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+    monkeypatch.setattr(dd_logging, "_logging_configured", False)
+    root_logger = logging.getLogger()
+    sentinel_handler = logging.NullHandler()
+    root_logger.addHandler(sentinel_handler)
+
+    try:
+        DataDesigner(
+            artifact_path=stub_artifact_path,
+            model_providers=stub_model_providers,
+            auto_configure_logging=False,
+        )
+
+        assert sentinel_handler in root_logger.handlers
+        assert dd_logging.is_logging_configured() is False
+    finally:
+        root_logger.removeHandler(sentinel_handler)
+
+
 def test_init_preserves_preconfigured_logging(
     monkeypatch: pytest.MonkeyPatch,
     stub_artifact_path: Path,

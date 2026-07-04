@@ -144,6 +144,12 @@ def configure_logging(config: LoggingConfig | None = None) -> None:
 
 
 def is_logging_configured() -> bool:
+    """Return whether ``configure_logging()`` has run in this process.
+
+    Only tracks Data Designer's own ``configure_logging()``. Logging configured
+    through stdlib APIs (e.g. ``logging.basicConfig()`` or manually attached
+    root handlers) is not detected.
+    """
     return _logging_configured
 
 

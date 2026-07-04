@@ -88,12 +88,12 @@ _CHECK_MODELS_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 _interface_runtime_initialized = False
 
 
-def _initialize_interface_runtime() -> None:
+def _initialize_interface_runtime(*, auto_configure_logging: bool = True) -> None:
     """Run one-time runtime initialization for the interface package."""
     global _interface_runtime_initialized
     if _interface_runtime_initialized:
         return
-    if not is_logging_configured():
+    if auto_configure_logging and not is_logging_configured():
         configure_logging()
     resolve_seed_default_model_settings()
     _interface_runtime_initialized = True
@@ -142,6 +142,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         mcp_providers: Optional list of MCP provider configurations to enable tool-calling for
             LLM generation columns. Supports both MCPProvider (remote SSE or Streamable HTTP) and
             LocalStdioMCPProvider (local subprocess).
+        auto_configure_logging: Whether to apply Data Designer's default logging
+            configuration during construction. Set to False when embedding Data
+            Designer in an application that manages its own logging — Data Designer
+            will then leave existing root handlers and log levels untouched.
+            Automatic configuration is also skipped when
+            `data_designer.logging.configure_logging()` was already called.
     """
 
     def __init__(
@@ -154,8 +160,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         managed_assets_path: Path | str | None = None,
         person_reader: PersonReader | None = None,
         mcp_providers: list[MCPProviderT] | None = None,
+        auto_configure_logging: bool = True,
     ):
-        _initialize_interface_runtime()
+        _initialize_interface_runtime(auto_configure_logging=auto_configure_logging)
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
