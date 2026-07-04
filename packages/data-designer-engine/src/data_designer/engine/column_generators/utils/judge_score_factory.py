@@ -24,6 +24,8 @@ def _normalize_score_value(value: Any) -> str:
 
 def _coerce_score_value(value: Any, enum_type: type[Enum]) -> Any:
     for member in enum_type:
+        # bool is a subclass of int in Python (True == 1, False == 0), so require
+        # matching bool-ness to keep True/False from silently matching 1/0 options.
         if isinstance(value, bool) != isinstance(member.value, bool):
             continue
         if value == member.value:

@@ -65,6 +65,7 @@ def test_judge_score_factory_create_judge_response_model():
     ("options", "input_score", "expected_score"),
     [
         ({"1": "Low quality", "2": "High quality"}, 1, "1"),
+        ({"1": "Low quality", "2": "High quality"}, 1.0, "1"),
         ({1: "Low quality", 2: "High quality"}, "1", 1),
         ({"Poor": "Low quality", "Good": "High quality"}, " good ", "Good"),
     ],
@@ -122,6 +123,19 @@ def test_judge_score_factory_invalid_unhashable_score_uses_pydantic_validation()
 
     with pytest.raises(ValidationError):
         model_class(score=["1"], reasoning="Test reasoning")
+
+
+def test_judge_score_factory_out_of_range_score_uses_pydantic_validation():
+    score = Score(
+        name="quality_score",
+        description="Quality assessment score",
+        options={"1": "Low quality", "2": "High quality"},
+    )
+
+    model_class = create_judge_response_model(score)
+
+    with pytest.raises(ValidationError):
+        model_class(score=99, reasoning="Test reasoning")
 
 
 def test_judge_score_factory_preserves_score_name_casing():
