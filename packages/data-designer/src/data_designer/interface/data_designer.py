@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -41,6 +42,7 @@ from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
 from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.resources.person_reader import (
     PersonReader,
@@ -81,6 +83,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_CHECK_MODELS_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 
 _interface_runtime_initialized = False
 
@@ -499,7 +502,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
         compile_data_designer_config(config_builder.build(), resource_provider)
 
-    def check_models(self, config_builder: DataDesignerConfigBuilder) -> None:
+    def check_models(
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        max_attempts: int = 1,
+        retry_backoff_seconds: float = 0,
+    ) -> None:
         """Probe every model and MCP tool referenced by the configuration.
 
         Runs the same readiness checks performed at the start of ``preview`` and
@@ -515,6 +524,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Args:
             config_builder: The DataDesignerConfigBuilder whose column configs
                 determine which model aliases and tool aliases are probed.
+            max_attempts: Total readiness attempts for retryable failures.
+            retry_backoff_seconds: Base delay between attempts. The delay is
+                multiplied by the completed attempt number.
 
         Returns:
             None if every (non-skipped) probe succeeded.
@@ -526,13 +538,32 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             DatasetGenerationError: If a tool alias is referenced but no
                 ``MCPRegistry`` is configured.
             TimeoutError: If async health-check execution exceeds 180 seconds.
+            ValueError: If ``max_attempts`` is less than one or
+                ``retry_backoff_seconds`` is negative.
         """
-        resource_provider = self._create_resource_provider("check-models", config_builder)
-        run_readiness_check(
-            config_builder.build().columns,
-            resource_provider,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
-        )
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        if retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must be non-negative")
+
+        columns = config_builder.build().columns
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resource_provider = self._create_resource_provider("check-models", config_builder)
+                run_readiness_check(
+                    columns,
+                    resource_provider,
+                )
+                return
+            except _CHECK_MODELS_RETRYABLE_ERRORS as exc:
+                if attempt == max_attempts:
+                    raise
+                delay = attempt * retry_backoff_seconds
+                logger.warning(
+                    f"Retrying model readiness check after {type(exc).__name__}: {exc} "
+                    f"(attempt {attempt + 1}/{max_attempts}, sleeping {delay:g}s)"
+                )
+                time.sleep(delay)
 
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.

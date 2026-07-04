@@ -100,9 +100,9 @@ class FileSystemSeedSource(SeedSource, ABC):
     ``FileSystemSeedReader`` implementation.
 
     Attributes:
-        path: Directory containing seed artifacts. Relative paths are resolved
-            from the current working directory when the config is loaded, not
-            from the config file location.
+        path: Directory containing seed artifacts. Relative local paths are
+            resolved by the active filesystem provider when the seed is
+            validated or read, not when the config object is constructed.
         file_pattern: Case-sensitive filename pattern used to match files under
             the provided directory. Patterns match basenames only, not relative
             paths. Defaults to ``'*'``.
@@ -110,13 +110,11 @@ class FileSystemSeedSource(SeedSource, ABC):
             directory for matching files. Defaults to ``True``.
     """
 
-    _runtime_path: str | None = PrivateAttr(default=None)
-
     path: str = Field(
         ...,
         description=(
-            "Directory containing seed artifacts. Relative paths are resolved from the current working "
-            "directory when the config is loaded, not from the config file location."
+            "Directory containing seed artifacts. Relative local paths are resolved by the active filesystem "
+            "provider when the seed is validated or read, not when the config object is constructed."
         ),
     )
     file_pattern: str = Field(
@@ -135,21 +133,22 @@ class FileSystemSeedSource(SeedSource, ABC):
     def validate_path(cls, value: str | None) -> str | None:
         # Signature is str | None because AgentRolloutSeedSource overrides path to str | None
         # and inherited validators fire for all subclasses.
-        return _validate_filesystem_seed_source_path(value)
-
-    def model_post_init(self, __context: Any) -> None:
-        # None guard is exercised by AgentRolloutSeedSource (path: str | None) via inheritance.
-        self._runtime_path = None if self.path is None else _resolve_filesystem_runtime_path(self.path)
-
-    @property
-    def runtime_path(self) -> str:
-        if self._runtime_path is None:
-            self._runtime_path = _resolve_filesystem_runtime_path(self.path)
-        return self._runtime_path
+        if value is None:
+            return None
+        if not value.strip():
+            raise InvalidFilePathError("🛑 FileSystemSeedSource.path must be a non-empty string.")
+        return value
 
     @field_validator("file_pattern", mode="after")
     def validate_file_pattern(cls, value: str | None) -> str | None:
         return _validate_filesystem_seed_source_file_pattern(value)
+
+    @property
+    def runtime_path(self) -> str:
+        # Path resolution and existence checks are the filesystem provider's job at read
+        # time, not the config object's. Keeping the raw value here preserves relative
+        # paths and avoids assuming a local filesystem.
+        return self.path
 
 
 class DirectorySeedSource(FileSystemSeedSource):
@@ -202,15 +201,6 @@ def get_pi_coding_agent_default_path() -> str:
     return str(Path("~/.pi/agent/sessions").expanduser())
 
 
-def _validate_filesystem_seed_source_path(value: str | None) -> str | None:
-    if value is None:
-        return None
-    path = Path(value).expanduser().resolve()
-    if not path.is_dir():
-        raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
-    return value
-
-
 def _validate_filesystem_seed_source_file_pattern(value: str | None) -> str | None:
     if value is None:
         return None
@@ -259,8 +249,8 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
             "Claude Code defaults to ~/.claude/projects, Codex defaults to ~/.codex/sessions, "
             "Hermes Agent defaults to ~/.hermes/sessions, "
             "and Pi Coding Agent defaults to ~/.pi/agent/sessions. "
-            "Relative paths are resolved from the current working directory when the config is loaded, "
-            "not from the config file location."
+            "Relative local paths are resolved by the active filesystem provider when the seed is "
+            "validated or read, not when the config object is constructed."
         ),
     )
 
@@ -282,14 +272,12 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
 
     @property
     def runtime_path(self) -> str:
-        if self._runtime_path is not None:
-            return self._runtime_path
+        # Path resolution and existence checks happen in the filesystem provider at read
+        # time. When no explicit path is given, fall back to the format's default root.
+        if self.path is not None:
+            return self.path
         default_path, _ = get_agent_rollout_format_defaults(self.format)
-        resolved_path = self.path if self.path is not None else default_path
-        if resolved_path is None:
-            raise ValueError(f"🛑 AgentRolloutSeedSource.path is required for format {self.format.value!r}.")
-        self._runtime_path = _resolve_filesystem_runtime_path(resolved_path)
-        return self._runtime_path
+        return default_path
 
     @property
     def resolved_file_pattern(self) -> str:

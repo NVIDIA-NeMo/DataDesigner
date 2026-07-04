@@ -305,7 +305,6 @@ class AsyncTaskScheduler:
 
         self._max_concurrent_row_groups = max_concurrent_row_groups
         self._max_in_flight_tasks = max_in_flight_tasks
-        self._max_model_task_admission = max_model_task_admission
         self._num_records = num_records
         self._buffer_size = buffer_size
         self._scheduled_records = self._row_groups.scheduled_total_rows
@@ -659,9 +658,6 @@ class AsyncTaskScheduler:
         for task in delta.removed:
             self._discard_ready_task(task)
         self._enqueue_ready_tasks(delta.added)
-
-    def _enqueue_ready_task(self, task: Task) -> None:
-        self._enqueue_ready_tasks((task,))
 
     def _enqueue_ready_tasks(self, tasks: tuple[Task, ...]) -> None:
         schedulables: list[SchedulableTask] = []
