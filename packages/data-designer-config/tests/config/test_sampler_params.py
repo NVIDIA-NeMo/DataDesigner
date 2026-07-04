@@ -29,6 +29,12 @@ def test_category_sampler_params():
         CategorySamplerParams(values=["a", "b", "c"], weights=[10, 1])
 
 
+@pytest.mark.parametrize("weights", ([0, 0], [1, -1]))
+def test_category_sampler_params_zero_sum_weights(weights):
+    with pytest.raises(ValidationError, match="'weights' must sum to a non-zero value"):
+        CategorySamplerParams(values=["a", "b"], weights=weights)
+
+
 def test_datetime_sampler_params():
     params = DatetimeSamplerParams(start="2020-01-01", end="2025-01-01", unit="D")
     assert params.start == "2020-01-01"

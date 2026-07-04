@@ -12,7 +12,6 @@ from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
 from data_designer.config.utils.type_helpers import StrEnum
-from data_designer.engine import flags
 from data_designer.engine.mcp.factory import create_mcp_registry
 from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.model_provider import (
@@ -55,31 +54,6 @@ class ResourceProvider(ConfigBase):
         if self.seed_reader is not None:
             seed_column_names = self.seed_reader.get_column_names()
         return DatasetMetadata(seed_column_names=seed_column_names)
-
-
-def _validate_tool_configs_against_providers(
-    tool_configs: list[ToolConfig],
-    mcp_providers: list[MCPProviderT],
-) -> None:
-    """Validate that all providers referenced in tool configs exist.
-
-    Args:
-        tool_configs: List of tool configurations to validate.
-        mcp_providers: List of available MCP provider configurations.
-
-    Raises:
-        ValueError: If a tool config references a provider that doesn't exist.
-    """
-    available_providers = {p.name for p in mcp_providers}
-
-    for tc in tool_configs:
-        missing_providers = [p for p in tc.providers if p not in available_providers]
-        if missing_providers:
-            available_list = sorted(available_providers) if available_providers else ["(none configured)"]
-            raise ValueError(
-                f"ToolConfig '{tc.tool_alias}' references provider(s) {missing_providers!r} "
-                f"which are not registered. Available providers: {available_list}"
-            )
 
 
 def create_resource_provider(
@@ -141,15 +115,8 @@ def create_resource_provider(
             mcp_provider_registry=mcp_provider_registry,
         )
 
-    # Default the client mode from the env var when the caller hasn't decided.
-    # The interface (DataDesigner) computes the mode based on env var AND the
-    # config (e.g. allow_resize columns force a sync fallback) and passes the
-    # result explicitly. Direct callers of this factory still get the env-var
-    # default for backward compatibility.
     if client_concurrency_mode is None:
-        client_concurrency_mode = (
-            ClientConcurrencyMode.ASYNC if flags.DATA_DESIGNER_ASYNC_ENGINE else ClientConcurrencyMode.SYNC
-        )
+        client_concurrency_mode = ClientConcurrencyMode.ASYNC
 
     effective_run_config = run_config or RunConfig()
 

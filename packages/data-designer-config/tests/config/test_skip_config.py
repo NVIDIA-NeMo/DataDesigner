@@ -86,15 +86,6 @@ def test_skip_rejected_on_seed_dataset_type() -> None:
         )
 
 
-def test_skip_rejected_with_allow_resize() -> None:
-    with pytest.raises(ValidationError, match="skip and allow_resize cannot be used together"):
-        LLMTextColumnConfig(
-            **_BASE_LLM,
-            allow_resize=True,
-            skip=SkipConfig(when="{{ x == 0 }}"),
-        )
-
-
 def test_skip_self_reference_rejected() -> None:
     with pytest.raises(ValidationError, match="references itself"):
         LLMTextColumnConfig(

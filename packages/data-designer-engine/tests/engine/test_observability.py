@@ -8,13 +8,12 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 
 from data_designer.engine.observability import (
-    CorrelatedRuntimeView,
-    InMemoryAdmissionEventSink,
     RequestAdmissionEvent,
     RuntimeCorrelation,
     RuntimeCorrelationProvider,
     SchedulerAdmissionEvent,
 )
+from data_designer.engine.testing import CorrelatedRuntimeView, InMemoryAdmissionEventSink
 
 
 class _DiagnosticMode(Enum):

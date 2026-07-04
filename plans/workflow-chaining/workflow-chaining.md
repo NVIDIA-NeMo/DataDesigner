@@ -27,11 +27,11 @@ As a secondary benefit, chaining also enables the removal of `allow_resize` and 
 
 ### Secondary benefit: `allow_resize` removal and sync/async convergence
 
-The `allow_resize` flag on column configs lets a generator change the row count mid-generation. This works in the sync engine but is fundamentally incompatible with the async engine's fixed-size `CompletionTracker` grid. As of #553, an `allow_resize=True` config in async mode logs a `DeprecationWarning` and silently falls back to the sync engine for that run; it is no longer hard-rejected.
+Historical note: this section describes the motivation for work now completed by #766. Current configs no longer support `allow_resize`; row-count-changing work belongs in `process_after_generation()` or at a workflow boundary.
 
-`allow_resize` is one of the remaining divergences between sync and async. The async engine is the default execution path as of #592; sync remains only as a fallback for `allow_resize` runs. Maintaining a sync-only feature to keep one fallback path alive is counterproductive. With composite workflows in place, resize becomes a between-stage concern rather than a mid-generation concern. This lets us remove `allow_resize` and the associated engine complexity, and disallow row-count changes in pre-batch processors. Users who need resize use a composite workflow with a stage boundary at the resize point.
+The removed `allow_resize` flag let a generator change the row count mid-generation. That was fundamentally incompatible with the async engine's fixed-size `CompletionTracker` grid and kept a sync-only fallback path alive. With composite workflows in place, resize is a between-stage concern rather than a mid-generation concern.
 
-Note: `allow_resize` is documented in custom columns, plugin examples, and agent rollout ingestion docs (verified post-Fern migration in #581). The deprecation warning has shipped in #553; full removal still requires doc updates and the migration of any in-tree usage.
+Note: shipped docs and examples were migrated as part of the removal.
 
 ### Why chaining instead of fixing async resize
 
@@ -257,7 +257,7 @@ Adding `async def acreate(...)` on `DataDesigner` is a small, additive change. T
 
 `acreate()` is *not* part of chaining v1. It ships as its own small piece of work that can land before, alongside, or after Phase 1; the dependency only becomes hard for Phase 4. Listed as a sidecar under Implementation phases.
 
-### Part 2: Remove `allow_resize`
+### Part 2: Remove `allow_resize` (completed in #766)
 
 With composite workflows in place, `allow_resize` is no longer needed as an engine-internal mechanism. Resize becomes a between-stage concern.
 
@@ -401,7 +401,7 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - Add `compose_workflow(name: str)` factory method on `DataDesigner`.
 - Tests: multi-stage runs, explode/filter via callbacks, num_records defaulting, duplicate stage-name rejection, artifact layout, throttle reuse across stages.
 
-**Status after PR #636:** Implemented `CompositeWorkflow`, `compose_workflow()`, `to_config_builder()`, disk handoff, stage metadata, `acreate()`, shared throttle manager reuse, explicit stage artifact roots, cloned stage builders, concurrent-safe seed reader/resource-provider handling, seeded processor-only configs, stage output processors, and stage output selection. Still deferred: stage-level resume, DAG branches, `allow_resize` removal, config bundles, and broader first-class artifact seeding.
+**Status after PR #636:** Implemented `CompositeWorkflow`, `compose_workflow()`, `to_config_builder()`, disk handoff, stage metadata, `acreate()`, shared throttle manager reuse, explicit stage artifact roots, cloned stage builders, concurrent-safe seed reader/resource-provider handling, seeded processor-only configs, stage output processors, and stage output selection. Still deferred after #636: stage-level resume, DAG branches, config bundles, and broader first-class artifact seeding.
 
 ### Sidecar: `acreate()` on `DataDesigner` (independent of chaining v1)
 
@@ -410,15 +410,15 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - Tests: parallel-independent workflows via `asyncio.gather`; verify shared `ThrottleManager` keeps aggregate request rate within configured caps.
 - Can ship before, alongside, or after Phase 1. Hard dependency for Phase 4.
 
-### Phase 2: Remove `allow_resize`
+### Phase 2: Remove `allow_resize` (completed in #766)
 
 - (Done in #553) `allow_resize=True` in async mode emits a `DeprecationWarning` and falls back to sync.
-- Update docs that still reference `allow_resize` (`docs/concepts/custom_columns.md`, `docs/plugins/example.md`, `docs/concepts/agent-rollout-ingestion.md`) to point at composite workflows.
-- Remove resize code from sync engine (`_cell_resize_mode`, `_finalize_fan_out` resize branch, `replace_buffer` `allow_resize` param).
-- Remove `_resolve_async_compatibility()` and its sync-fallback branch from `_build_async()`.
-- Remove the `allow_resize` field from the config schema.
-- Add fail-fast guard in `ProcessorRunner` for pre-batch row-count changes.
-- Tests: verify rejection, migration path examples.
+- (Done in #766) Update docs that still reference `allow_resize` to point at composite workflows.
+- (Done in #766) Remove resize code from sync engine (`_cell_resize_mode`, `_finalize_fan_out` resize branch, `replace_buffer` `allow_resize` param).
+- (Done in #766) Remove `_resolve_async_compatibility()` and its sync-fallback branch from `_build_async()`.
+- (Done in #766) Remove the `allow_resize` field from the config schema.
+- (Done in #766) Add fail-fast guard in `ProcessorRunner` for pre-batch row-count changes.
+- (Done in #766) Tests: verify rejection, migration path examples.
 - Migration examples should prefer `output_processors` for inline processor-expressible transforms, or seeded processor-only configs when the transform deserves its own named stage. Raw `on_success` remains the escape hatch for arbitrary custom transforms.
 
 ### Phase 3: Stage-level resume
@@ -432,6 +432,8 @@ result_2 = data_designer.create(config_2, num_records=200)  # explode: 50 -> 200
 - Before skipping or resuming a stage seeded by `on_success`, validate the recorded callback output path exists and can seed `LocalFileSeedSource`; if missing, invalidate that stage and descendants.
 - For invalidated stages, clear or replace the deterministic stage directory before starting fresh so `ArtifactStorage` does not timestamp away from the workflow layout.
 - Depends on artifact layout from phase 1.
+
+**Status after stage-level resume slice:** Implemented `workflow.run(resume=...)`, compatible completed-stage reuse, matching partial-stage delegation to `DataDesigner.create(..., resume=ResumeMode.ALWAYS)`, downstream invalidation after changed or missing stages, callback output path checks, target stage materialization, explicit `rerun_from` invalidation, stage output overrides for review gates, and docs for `ResumeMode.IF_POSSIBLE` / `ResumeMode.ALWAYS`. Still deferred: DAG branches, config bundles, and broader first-class artifact seeding.
 
 ### Phase 4: DAG-shaped stages with parallel branches
 

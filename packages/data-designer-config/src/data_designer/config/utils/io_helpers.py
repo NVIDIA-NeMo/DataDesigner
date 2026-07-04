@@ -9,7 +9,7 @@ import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from numbers import Number
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -27,15 +27,6 @@ logger = logging.getLogger(__name__)
 MAX_CONFIG_URL_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}
 VALID_CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
-
-
-def ensure_config_dir_exists(config_dir: Path) -> None:
-    """Create configuration directory if it doesn't exist.
-
-    Args:
-        config_dir: Directory path to create
-    """
-    config_dir.mkdir(parents=True, exist_ok=True)
 
 
 def load_config_file(file_path: Path) -> dict:
@@ -175,40 +166,6 @@ def validate_path_contains_files_of_type(path: str | Path, file_extension: str) 
     """
     if not any(Path(path).glob(f"*.{file_extension}")):
         raise InvalidFilePathError(f"🛑 Path {path!r} does not contain files of type {file_extension!r}.")
-
-
-def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
-    """Load a dataframe from file if a path is given, otherwise return the dataframe.
-
-    Args:
-        dataframe: A path to a file or a pandas DataFrame object.
-
-    Returns:
-        A pandas DataFrame object.
-    """
-    if isinstance(dataframe, lazy.pd.DataFrame):
-        return dataframe
-
-    # Get the file extension.
-    if isinstance(dataframe, str) and dataframe.startswith("http"):
-        dataframe = _maybe_rewrite_url(dataframe)
-        # Parse extension from the URL path to avoid query-string contamination (e.g. "csv?token=…").
-        ext = PurePosixPath(urlparse(dataframe).path).suffix.lstrip(".").lower()
-    else:
-        dataframe = Path(dataframe)
-        ext = dataframe.suffix.lower()
-        if not dataframe.exists():
-            raise FileNotFoundError(f"File not found: {dataframe}")
-
-    # Load the dataframe based on the file extension.
-    if ext == "csv":
-        return lazy.pd.read_csv(dataframe)
-    elif ext == "json":
-        return lazy.pd.read_json(dataframe, lines=True)
-    elif ext == "parquet":
-        return lazy.pd.read_parquet(dataframe)
-    else:
-        raise ValueError(f"Unsupported file format: {dataframe}")
 
 
 def smart_load_yaml(yaml_in: str | Path | dict) -> dict:

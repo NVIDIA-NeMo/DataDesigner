@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import warnings
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -36,13 +36,13 @@ from data_designer.config.utils.constants import (
     MODEL_PROVIDERS_FILE_PATH,
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
-from data_designer.engine import flags
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
 from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.resources.person_reader import (
     PersonReader,
@@ -83,6 +83,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_CHECK_MODELS_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 
 _interface_runtime_initialized = False
 
@@ -269,9 +270,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
         # ``DeprecationWarning`` is re-raised before the generic wrapper so that
-        # ``warnings.warn(..., DeprecationWarning)`` calls inside the engine — most
-        # notably ``allow_resize=True`` deprecation in ``_resolve_async_compatibility``
-        # — surface their original message under strict warning filters
+        # ``warnings.warn(..., DeprecationWarning)`` calls inside the engine
+        # surface their original message under strict warning filters
         # (``pytest.warns``, ``-W error::DeprecationWarning``, etc.) instead of being
         # swallowed and re-wrapped as a generic ``DataDesignerGenerationError``.
         try:
@@ -310,9 +310,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             # Surface the original task error when the run produced 0 records due to a
             # deterministic non-retryable failure (e.g. bad seed source). Without this,
             # the user sees a generic FileNotFoundError-on-parquet that obscures the cause.
-            # ``actual_num_records`` is set only on the async path; sync runs leave it at
-            # ``-1`` and ``first_non_retryable_error`` at ``None``, so this branch is
-            # async-only by construction.
             root_cause = builder.first_non_retryable_error
             if root_cause is not None and builder.actual_num_records == 0:
                 raise DataDesignerGenerationError(f"🛑 {type(root_cause).__name__}: {root_cause}") from root_cause
@@ -506,7 +503,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
         compile_data_designer_config(config_builder.build(), resource_provider)
 
-    def check_models(self, config_builder: DataDesignerConfigBuilder) -> None:
+    def check_models(
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        max_attempts: int = 1,
+        retry_backoff_seconds: float = 0,
+    ) -> None:
         """Probe every model and MCP tool referenced by the configuration.
 
         Runs the same readiness checks performed at the start of ``preview`` and
@@ -522,6 +525,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Args:
             config_builder: The DataDesignerConfigBuilder whose column configs
                 determine which model aliases and tool aliases are probed.
+            max_attempts: Total readiness attempts for retryable failures.
+            retry_backoff_seconds: Base delay between attempts. The delay is
+                multiplied by the completed attempt number.
 
         Returns:
             None if every (non-skipped) probe succeeded.
@@ -533,13 +539,32 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             DatasetGenerationError: If a tool alias is referenced but no
                 ``MCPRegistry`` is configured.
             TimeoutError: If async health-check execution exceeds 180 seconds.
+            ValueError: If ``max_attempts`` is less than one or
+                ``retry_backoff_seconds`` is negative.
         """
-        resource_provider = self._create_resource_provider("check-models", config_builder)
-        run_readiness_check(
-            config_builder.build().columns,
-            resource_provider,
-            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
-        )
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        if retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must be non-negative")
+
+        columns = config_builder.build().columns
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resource_provider = self._create_resource_provider("check-models", config_builder)
+                run_readiness_check(
+                    columns,
+                    resource_provider,
+                )
+                return
+            except _CHECK_MODELS_RETRYABLE_ERRORS as exc:
+                if attempt == max_attempts:
+                    raise
+                delay = attempt * retry_backoff_seconds
+                logger.warning(
+                    f"Retrying model readiness check after {type(exc).__name__}: {exc} "
+                    f"(attempt {attempt + 1}/{max_attempts}, sleeping {delay:g}s)"
+                )
+                time.sleep(delay)
 
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.
@@ -622,7 +647,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             Dict mapping alias to ModelFacade instance.
         """
         config_builder = DataDesignerConfigBuilder()
-        resource_provider = self._create_resource_provider("dev", config_builder)
+        resource_provider = self._create_resource_provider(
+            "dev",
+            config_builder,
+            client_concurrency_mode=ClientConcurrencyMode.SYNC,
+        )
         return {alias: resource_provider.model_registry.get_model(model_alias=alias) for alias in model_aliases}
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
@@ -675,6 +704,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         resume: ResumeMode = ResumeMode.NEVER,
         artifact_path: Path | None = None,
+        client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.ASYNC,
     ) -> ResourceProvider:
         artifact_path = artifact_path or self._artifact_path
         ArtifactStorage.mkdir_if_needed(artifact_path)
@@ -694,7 +724,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             run_config=self._run_config,
             mcp_providers=self._mcp_providers,
             tool_configs=config_builder.tool_configs,
-            client_concurrency_mode=self._resolve_client_concurrency_mode(config_builder),
+            client_concurrency_mode=client_concurrency_mode,
             request_admission=self._request_admission,
         )
 
@@ -702,37 +732,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         from data_designer.engine.models.factory import create_request_admission_controller
 
         return create_request_admission_controller(self._run_config)
-
-    @staticmethod
-    def _resolve_client_concurrency_mode(config_builder: DataDesignerConfigBuilder) -> ClientConcurrencyMode:
-        """Pick the model-client mode that matches the engine the run will use.
-
-        The async engine is the default, but ``allow_resize=True`` columns force
-        a sync-engine fallback (see ``DatasetBuilder._resolve_async_compatibility``).
-        Without aligning the client mode here, those runs would create async-only
-        clients and then call sync methods on them — raising ``SyncClientUnavailableError``
-        from inside the sync engine. Match the client mode to the actual engine
-        choice so the fallback path is functional.
-        """
-        if not flags.DATA_DESIGNER_ASYNC_ENGINE:
-            # Deliberate opt-out via env var. Surface the deprecation so users
-            # know the sync path is going away. Mirror the ``allow_resize`` shape
-            # in ``_resolve_async_compatibility``: emit both a ``logger.warning``
-            # (visible in the project's logging output) and a ``DeprecationWarning``
-            # (programmatic signal callers can filter on). The ``allow_resize``
-            # auto-fallback has its own warning from the builder layer; we don't
-            # double-warn here.
-            msg = (
-                "DATA_DESIGNER_ASYNC_ENGINE=0 selects the legacy sync engine, which is "
-                "deprecated and will be removed in a future release. Unset the variable "
-                "(or set it to 1) to use the async engine."
-            )
-            logger.warning(f"⚠️ {msg}")
-            warnings.warn(msg, DeprecationWarning, stacklevel=3)
-            return ClientConcurrencyMode.SYNC
-        if any(c.allow_resize for c in config_builder.get_column_configs()):
-            return ClientConcurrencyMode.SYNC
-        return ClientConcurrencyMode.ASYNC
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:
         return InterfaceInfo(model_providers=model_providers)

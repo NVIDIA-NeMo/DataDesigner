@@ -20,7 +20,6 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
-from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef
 from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 
@@ -295,48 +294,6 @@ def test_add_column_duplicate_raises() -> None:
     graph.add_column("col_a", GenerationStrategy.CELL_BY_CELL)
     with pytest.raises(ValueError, match="already registered"):
         graph.add_column("col_a", GenerationStrategy.FULL_COLUMN)
-
-
-# -- Cell dependencies ------------------------------------------------------
-
-
-def test_cell_deps_cell_by_cell_upstream(simple_graph: ExecutionGraph) -> None:
-    """question depends on topic (full-column); answer depends on question (cell-by-cell)."""
-    # answer[rg=0, row=2] should depend on question[rg=0, row=2]
-    deps = simple_graph.compute_cell_dependencies("answer", row_group=0, row_index=2, row_group_size=5)
-    assert deps == [SliceRef("question", 0, 2)]
-
-
-def test_cell_deps_full_column_upstream(simple_graph: ExecutionGraph) -> None:
-    """question depends on topic (full-column)."""
-    deps = simple_graph.compute_cell_dependencies("question", row_group=0, row_index=1, row_group_size=5)
-    assert deps == [SliceRef("topic", 0, None)]
-
-
-def test_cell_deps_no_upstream(simple_graph: ExecutionGraph) -> None:
-    """topic has no upstream."""
-    deps = simple_graph.compute_cell_dependencies("topic", row_group=0, row_index=None, row_group_size=5)
-    assert deps == []
-
-
-def test_cell_deps_full_column_downstream_of_cell_by_cell(simple_graph: ExecutionGraph) -> None:
-    """score (full-column) depends on answer (cell-by-cell) → needs ALL rows."""
-    deps = simple_graph.compute_cell_dependencies("score", row_group=0, row_index=None, row_group_size=3)
-    assert sorted(deps) == [SliceRef("answer", 0, 0), SliceRef("answer", 0, 1), SliceRef("answer", 0, 2)]
-
-
-# -- Mermaid output ----------------------------------------------------------
-
-
-def test_to_mermaid(simple_graph: ExecutionGraph) -> None:
-    mermaid = simple_graph.to_mermaid()
-
-    assert "graph TD" in mermaid
-    assert 'topic["topic [full_column]"]' in mermaid
-    assert 'question["question [cell_by_cell]"]' in mermaid
-    assert "topic --> question" in mermaid
-    assert "question --> answer" in mermaid
-    assert "answer --> score" in mermaid
 
 
 # -- MultiColumnConfig -------------------------------------------------------

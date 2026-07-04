@@ -92,18 +92,6 @@ def test_get_by_code_case_sensitive(repository: PersonaRepository) -> None:
     assert locale is None
 
 
-def test_get_dataset_name_valid_locale(repository: PersonaRepository) -> None:
-    """Test getting dataset name for valid locale."""
-    dataset_name = repository.get_dataset_name("en_US")
-    assert dataset_name == "nemotron-personas-dataset-en_us"
-
-
-def test_get_dataset_name_invalid_locale(repository: PersonaRepository) -> None:
-    """Test getting dataset name for invalid locale returns None."""
-    dataset_name = repository.get_dataset_name("invalid_locale")
-    assert dataset_name is None
-
-
 def test_get_dataset_name_lowercase_conversion(repository: PersonaRepository) -> None:
     """Test that dataset names use lowercase locale codes."""
     # Verify that mixed-case locale codes result in lowercase dataset names
@@ -111,12 +99,6 @@ def test_get_dataset_name_lowercase_conversion(repository: PersonaRepository) ->
     assert locale is not None
     assert locale.dataset_name == "nemotron-personas-dataset-hi_deva_in"
     assert locale.dataset_name.islower() or "_" in locale.dataset_name
-
-
-def test_get_dataset_prefix(repository: PersonaRepository) -> None:
-    """Test getting dataset prefix."""
-    prefix = repository.get_dataset_prefix()
-    assert prefix == "nemotron-personas-dataset-"
 
 
 def test_persona_locale_model() -> None:
@@ -172,7 +154,7 @@ def test_locale_size_formats(repository: PersonaRepository) -> None:
 def test_dataset_name_consistency(repository: PersonaRepository) -> None:
     """Test that all dataset names follow consistent pattern."""
     locales = repository.list_all()
-    prefix = repository.get_dataset_prefix()
+    prefix = "nemotron-personas-dataset-"
 
     for locale in locales:
         # All dataset names should start with the prefix

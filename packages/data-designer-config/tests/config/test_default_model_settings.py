@@ -65,7 +65,7 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[2].model == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     assert builtin_model_configs[2].provider == "nvidia"
     assert builtin_model_configs[3].alias == "nvidia-embedding"
-    assert builtin_model_configs[3].model == "nvidia/llama-3.2-nv-embedqa-1b-v2"
+    assert builtin_model_configs[3].model == "nvidia/llama-nemotron-embed-1b-v2"
     assert builtin_model_configs[3].provider == "nvidia"
     assert builtin_model_configs[4].alias == "openai-text"
     assert builtin_model_configs[4].model == "gpt-4.1"

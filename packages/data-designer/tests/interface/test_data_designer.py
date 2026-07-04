@@ -6,11 +6,10 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 from pydantic import ValidationError
@@ -19,13 +18,11 @@ import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
 import data_designer.logging as dd_logging
 from data_designer.config.column_configs import (
-    CustomColumnConfig,
     ExpressionColumnConfig,
     LLMTextColumnConfig,
     SamplerColumnConfig,
 )
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
@@ -39,8 +36,12 @@ from data_designer.config.seed_source import (
     FileContentsSeedSource,
     HuggingFaceSeedSource,
 )
-from data_designer.engine import flags
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.errors import (
+    RETRYABLE_MODEL_ERRORS,
+    ModelAPIConnectionError,
+    ModelAuthenticationError,
+)
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
     SeedReaderError,
@@ -395,84 +396,6 @@ def stub_seed_reader():
     return StubHuggingFaceSeedReader()
 
 
-def _builder_with_allow_resize() -> DataDesignerConfigBuilder:
-    """Config with one allow_resize=True column — forces sync-engine fallback."""
-
-    @custom_column_generator()
-    def _expander(row: dict) -> list[dict]:
-        return [{**row, "item": i} for i in range(2)]
-
-    builder = DataDesignerConfigBuilder()
-    builder.add_column(
-        SamplerColumnConfig(
-            name="seed",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["a"]),
-        )
-    )
-    builder.add_column(
-        CustomColumnConfig(
-            name="item",
-            generator_function=_expander,
-            allow_resize=True,
-        )
-    )
-    return builder
-
-
-@pytest.mark.parametrize(
-    "env_value,with_allow_resize,expected,expect_deprecation",
-    [
-        ("1", False, "async", False),
-        ("1", True, "sync", False),
-        ("0", False, "sync", True),
-    ],
-    ids=[
-        "async-on-no-fallback-uses-async-clients",
-        "async-on-allow-resize-falls-back-to-sync-clients",
-        "async-off-uses-sync-clients-and-warns",
-    ],
-)
-def test_resolve_client_concurrency_mode_matches_engine_choice(
-    env_value: str,
-    with_allow_resize: bool,
-    expected: str,
-    expect_deprecation: bool,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Client mode must match the engine the run will actually use.
-
-    Without this alignment, a sync-fallback run (e.g. ``allow_resize=True``)
-    would be left with async-only clients and call sync methods on them,
-    raising ``SyncClientUnavailableError`` from inside the sync engine.
-
-    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
-    ``DeprecationWarning`` so users on the legacy sync engine see a
-    pre-removal signal in their logs. The auto-fallback path
-    (``allow_resize=True``) does not double-warn here; the builder layer
-    emits its own warning when the run actually executes.
-    """
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
-    builder = _builder_with_allow_resize() if with_allow_resize else DataDesignerConfigBuilder()
-    if not with_allow_resize:
-        builder.add_column(
-            SamplerColumnConfig(
-                name="seed",
-                sampler_type=SamplerType.CATEGORY,
-                params=CategorySamplerParams(values=["a"]),
-            )
-        )
-
-    if expect_deprecation:
-        with pytest.warns(DeprecationWarning, match="legacy sync engine"):
-            mode = DataDesigner._resolve_client_concurrency_mode(builder)
-    else:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
-            mode = DataDesigner._resolve_client_concurrency_mode(builder)
-    assert mode.value == expected
-
-
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
     """Test DataDesigner initialization with custom secret resolver."""
     designer = DataDesigner(
@@ -619,6 +542,20 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
         )
     )
     assert data_designer.run_config.shutdown_error_rate == 1.0
+
+
+def test_get_models_uses_sync_clients(stub_artifact_path, stub_model_providers):
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    with patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method:
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.model_registry.get_model.return_value = MagicMock()
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        data_designer.get_models(["stub-model"])
+
+    _, kwargs = mock_resource_provider_method.call_args
+    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.SYNC
 
 
 def test_create_forwards_on_batch_complete_callback(
@@ -1348,81 +1285,142 @@ def stub_check_models_model_configs() -> list[ModelConfig]:
     ]
 
 
-def test_check_models_invokes_readiness_check(
-    stub_artifact_path,
-    stub_model_providers,
+@pytest.fixture
+def stub_check_models_config_builder(
     stub_check_models_model_configs,
-    stub_managed_assets_path,
-):
-    """check_models constructs a ResourceProvider and delegates to run_readiness_check."""
+) -> DataDesignerConfigBuilder:
     config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
     config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
+    return config_builder
 
-    data_designer = DataDesigner(
+
+@pytest.fixture
+def stub_check_models_data_designer(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+) -> DataDesigner:
+    return DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
     )
 
+
+def test_check_models_invokes_readiness_check(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    """check_models constructs a ResourceProvider and delegates to run_readiness_check."""
     with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
-        data_designer.check_models(config_builder)
+        stub_check_models_data_designer.check_models(stub_check_models_config_builder)
 
     assert mock_check.call_count == 1
     (called_columns, called_resource_provider), kwargs = mock_check.call_args
     assert [c.name for c in called_columns] == ["text"]
     assert called_resource_provider is not None
-    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.ASYNC
-
-
-def test_check_models_passes_sync_mode_for_sync_fallback(
-    stub_artifact_path,
-    stub_model_providers,
-    stub_managed_assets_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """check_models readiness uses the resolved client mode, including allow_resize fallback."""
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", True)
-    config_builder = _builder_with_allow_resize()
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
-    )
-
-    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
-        data_designer.check_models(config_builder)
-
-    _, kwargs = mock_check.call_args
-    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.SYNC
+    assert kwargs == {}
 
 
 def test_check_models_propagates_typed_model_error(
-    stub_artifact_path,
-    stub_model_providers,
-    stub_check_models_model_configs,
-    stub_managed_assets_path,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
 ):
     """Errors from the readiness probe surface unchanged so callers can branch on type."""
-    from data_designer.engine.models.errors import ModelAuthenticationError
-
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
-    config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
-
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
-    )
-
-    with patch(
-        "data_designer.interface.data_designer.run_readiness_check",
-        side_effect=ModelAuthenticationError("bad creds"),
+    with (
+        patch(
+            "data_designer.interface.data_designer.run_readiness_check",
+            side_effect=ModelAuthenticationError("bad creds"),
+        ) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
     ):
         with pytest.raises(ModelAuthenticationError, match="bad creds"):
-            data_designer.check_models(config_builder)
+            stub_check_models_data_designer.check_models(
+                stub_check_models_config_builder,
+                max_attempts=3,
+                retry_backoff_seconds=5,
+            )
+
+    assert mock_check.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [*RETRYABLE_MODEL_ERRORS, TimeoutError],
+    ids=lambda error_type: error_type.__name__,
+)
+def test_check_models_retries_transient_errors(
+    error_type,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    transient_error = error_type("temporary failure")
+
+    with (
+        patch(
+            "data_designer.interface.data_designer.run_readiness_check",
+            side_effect=[transient_error, None],
+        ) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+    ):
+        stub_check_models_data_designer.check_models(
+            stub_check_models_config_builder,
+            max_attempts=2,
+            retry_backoff_seconds=5,
+        )
+
+    assert mock_check.call_count == 2
+    mock_sleep.assert_called_once_with(5)
+
+
+def test_check_models_reraises_final_retryable_error(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    errors = [
+        ModelAPIConnectionError("first failure"),
+        ModelAPIConnectionError("second failure"),
+        ModelAPIConnectionError("final failure"),
+    ]
+
+    with (
+        patch("data_designer.interface.data_designer.run_readiness_check", side_effect=errors) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+        pytest.raises(ModelAPIConnectionError) as exc_info,
+    ):
+        stub_check_models_data_designer.check_models(
+            stub_check_models_config_builder,
+            max_attempts=3,
+            retry_backoff_seconds=5,
+        )
+
+    assert exc_info.value is errors[-1]
+    assert mock_check.call_count == 3
+    assert mock_sleep.call_args_list == [call(5), call(10)]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_attempts": 0}, "max_attempts must be at least 1"),
+        ({"retry_backoff_seconds": -1}, "retry_backoff_seconds must be non-negative"),
+    ],
+)
+def test_check_models_validates_retry_settings(
+    kwargs,
+    message,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    with (
+        patch.object(stub_check_models_data_designer, "_create_resource_provider") as mock_create_resource_provider,
+        pytest.raises(ValueError, match=message),
+    ):
+        stub_check_models_data_designer.check_models(stub_check_models_config_builder, **kwargs)
+
+    mock_create_resource_provider.assert_not_called()
 
 
 def test_check_models_passes_built_columns_to_readiness_check(

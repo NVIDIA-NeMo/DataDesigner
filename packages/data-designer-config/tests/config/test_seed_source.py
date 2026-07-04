@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -15,6 +16,7 @@ from data_designer.config.seed_source import (
     AgentRolloutSeedSource,
     DirectorySeedSource,
     FileContentsSeedSource,
+    FileSystemSeedSource,
     LocalFileSeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
@@ -95,12 +97,14 @@ def test_dataframe_seed_source_serialization() -> None:
     assert serialized == {"seed_type": "df"}
 
 
-def test_directory_seed_source_requires_directory(tmp_path: Path) -> None:
+def test_directory_seed_source_defers_directory_existence_validation(tmp_path: Path) -> None:
     file_path = tmp_path / "file.txt"
     file_path.write_text("alpha", encoding="utf-8")
 
-    with pytest.raises(InvalidFilePathError, match="is not a directory"):
-        DirectorySeedSource(path=str(file_path))
+    source = DirectorySeedSource(path=str(file_path))
+
+    assert source.path == str(file_path)
+    assert source.runtime_path == str(file_path)
 
 
 def test_directory_seed_source_preserves_relative_path_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,7 +150,7 @@ def test_file_contents_seed_source_preserves_relative_path_input(
         pytest.param(FileContentsSeedSource, {"file_pattern": "*.txt"}, id="file-contents"),
     ],
 )
-def test_filesystem_seed_sources_cache_runtime_path_across_cwd_changes(
+def test_filesystem_seed_sources_preserve_raw_runtime_path_across_cwd_changes(
     source_type: type[DirectorySeedSource] | type[FileContentsSeedSource],
     source_kwargs: dict[str, str],
     tmp_path: Path,
@@ -160,12 +164,11 @@ def test_filesystem_seed_sources_cache_runtime_path_across_cwd_changes(
 
     monkeypatch.chdir(initial_root)
     source = source_type(path="seed-dir", **source_kwargs)
-    expected_runtime_path = str(initial_seed_dir.resolve())
 
     monkeypatch.chdir(later_root)
 
     assert source.path == "seed-dir"
-    assert source.runtime_path == expected_runtime_path
+    assert source.runtime_path == "seed-dir"
     assert source.model_dump(mode="json")["path"] == "seed-dir"
 
 
@@ -176,10 +179,10 @@ def test_seed_source_path_descriptions_document_cwd_resolution() -> None:
 
     assert "current working directory" in local_path_description
     assert "config file location" in local_path_description
-    assert "current working directory" in directory_path_description
-    assert "config file location" in directory_path_description
-    assert "current working directory" in file_contents_path_description
-    assert "config file location" in file_contents_path_description
+    assert "active filesystem provider" in directory_path_description
+    assert "config object is constructed" in directory_path_description
+    assert "active filesystem provider" in file_contents_path_description
+    assert "config object is constructed" in file_contents_path_description
 
 
 def test_file_contents_seed_source_parses_from_dict(tmp_path: Path) -> None:
@@ -221,6 +224,17 @@ def test_filesystem_seed_sources_reject_path_like_file_patterns(
 ) -> None:
     with pytest.raises(ValueError, match=error_message):
         source_type(path=str(tmp_path), file_pattern=file_pattern)
+
+
+def test_filesystem_seed_source_subclass_inherits_runtime_path(tmp_path: Path) -> None:
+    # Plugin authors subclass FileSystemSeedSource directly; readers rely on
+    # `source.runtime_path`, so the base must provide it without an override.
+    class PluginSeedSource(FileSystemSeedSource):
+        seed_type: Literal["plugin-seed-source"] = "plugin-seed-source"
+
+    source = PluginSeedSource(path=str(tmp_path))
+
+    assert source.runtime_path == str(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -265,6 +279,46 @@ def test_agent_rollout_seed_source_rejects_invalid_file_patterns(
 def test_agent_rollout_seed_source_requires_explicit_atif_path() -> None:
     with pytest.raises(ValueError, match="path is required for format 'atif'"):
         AgentRolloutSeedSource(format=AgentRolloutFormat.ATIF)
+
+
+def test_agent_rollout_seed_source_defers_directory_existence_validation(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "does-not-exist"
+
+    source = AgentRolloutSeedSource(path=str(missing_dir), format=AgentRolloutFormat.ATIF)
+
+    assert source.path == str(missing_dir)
+    assert source.runtime_path == str(missing_dir)
+
+
+def test_agent_rollout_seed_source_preserves_raw_runtime_path_across_cwd_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_root = tmp_path / "initial"
+    later_root = tmp_path / "later"
+    (initial_root / "seed-dir").mkdir(parents=True)
+    later_root.mkdir()
+
+    monkeypatch.chdir(initial_root)
+    source = AgentRolloutSeedSource(path="seed-dir", format=AgentRolloutFormat.ATIF)
+
+    monkeypatch.chdir(later_root)
+
+    assert source.path == "seed-dir"
+    assert source.runtime_path == "seed-dir"
+    assert source.model_dump(mode="json")["path"] == "seed-dir"
+
+
+def test_agent_rollout_seed_source_runtime_path_falls_back_to_format_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = AgentRolloutSeedSource(format=AgentRolloutFormat.CLAUDE_CODE)
+
+    assert source.path is None
+    assert source.runtime_path == str(tmp_path / ".claude" / "projects")
 
 
 def test_agent_rollout_seed_source_uses_default_atif_file_pattern(tmp_path: Path) -> None:

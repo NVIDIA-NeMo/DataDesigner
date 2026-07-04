@@ -29,16 +29,11 @@ from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
-from data_designer.engine import flags
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
-from data_designer.engine.models.errors import (
-    FormattedLLMErrorMessage,
-    ModelGenerationValidationFailureError,
-    ModelTimeoutError,
-)
+from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.processing.processors.base import Processor
@@ -50,16 +45,8 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-@pytest.fixture(autouse=True)
-def _force_sync_engine(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin tests in this file to the legacy sync engine.
-
-    These tests use Mock-based stub resource providers that don't satisfy the
-    contracts expected by the async task-queue scheduler. They cover sync-engine
-    behavior; the async path has dedicated coverage in
-    ``test_async_builder_integration.py`` and ``test_async_scheduler.py``.
-    """
-    monkeypatch.setattr(flags, "DATA_DESIGNER_ASYNC_ENGINE", False)
+def _replace_processors(builder: DatasetBuilder, processors: list[Processor]) -> None:
+    builder._processor_runner = ProcessorRunner(processors=processors, artifact_storage=builder.artifact_storage)
 
 
 @pytest.fixture
@@ -87,26 +74,6 @@ def stub_test_config_builder(stub_test_column_configs, stub_model_configs):
         column_names=["column_to_drop"],
     )
     return config_builder
-
-
-@pytest.fixture
-def stub_batch_manager():
-    mock_batch_manager = Mock()
-    mock_batch_manager.num_batches = 2
-    mock_batch_manager.num_records_batch = 3
-    mock_batch_manager.finish = Mock()
-    mock_batch_manager.write = Mock()
-    mock_batch_manager.add_records = Mock()
-    mock_batch_manager.replace_buffer = Mock()
-    mock_batch_manager.update_record = Mock()
-    mock_batch_manager.get_current_batch = Mock()
-    mock_batch_manager.get_current_batch.side_effect = [
-        lazy.pd.DataFrame({"test_column": [1, 2, 3], "column_to_drop": [1, 2, 3]}),
-        lazy.pd.DataFrame({"test_column": [4, 5, 6], "column_to_drop": [4, 5, 6]}),
-    ]
-    mock_batch_manager.get_current_batch_number = Mock()
-    mock_batch_manager.get_current_batch_number.side_effect = [1, 2]
-    return mock_batch_manager
 
 
 @pytest.fixture
@@ -182,86 +149,6 @@ def test_dataset_builder_artifact_storage_property(stub_dataset_builder, stub_re
     assert stub_dataset_builder.artifact_storage == stub_resource_provider.artifact_storage
 
 
-def test_dataset_builder_records_to_drop_initialization(stub_dataset_builder):
-    assert stub_dataset_builder._records_to_drop == set()
-
-
-def test_worker_error_callback_logs_schema_validation_detail(
-    stub_dataset_builder: DatasetBuilder,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    exc = ModelGenerationValidationFailureError(
-        FormattedLLMErrorMessage(
-            cause=(
-                "The model output from 'test-model' could not be parsed into the requested format while "
-                "running generation for column 'test_column'. Validation detail: Response doesn't match "
-                "requested <response_schema> 'name' is a required property."
-            ),
-            solution="Simplify the schema and retry.",
-        ),
-        detail="Response doesn't match requested <response_schema> 'name' is a required property.",
-        failure_kind="schema_validation",
-    )
-
-    with caplog.at_level(logging.WARNING):
-        stub_dataset_builder._worker_error_callback(exc, context={"index": 248, "column_name": "test_column"})
-
-    assert "record at index 248" in caplog.text
-    assert "column 'test_column'" in caplog.text
-    assert "(schema validation)" in caplog.text
-    assert "Response doesn't match requested <response_schema> 'name' is a required property." in caplog.text
-    assert 248 in stub_dataset_builder._records_to_drop
-
-
-def test_worker_error_callback_logs_timeout_detail(
-    stub_dataset_builder: DatasetBuilder,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    exc = ModelTimeoutError(
-        FormattedLLMErrorMessage(
-            cause="The request to model 'test-model' timed out while running generation for column 'test_column'.",
-            solution="Increase the timeout setting for the model and retry.",
-        )
-    )
-
-    with caplog.at_level(logging.WARNING):
-        stub_dataset_builder._worker_error_callback(exc, context={"index": 17, "column_name": "test_column"})
-
-    assert "record at index 17" in caplog.text
-    assert "column 'test_column'" in caplog.text
-    assert "(timeout)" in caplog.text
-    assert (
-        "The request to model 'test-model' timed out while running generation for column 'test_column'." in caplog.text
-    )
-    assert 17 in stub_dataset_builder._records_to_drop
-
-
-def test_worker_error_callback_requires_context_index(
-    stub_dataset_builder: DatasetBuilder,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    exc = ModelTimeoutError(
-        FormattedLLMErrorMessage(
-            cause="The request to model 'test-model' timed out while running generation for column 'test_column'.",
-            solution="Increase the timeout setting for the model and retry.",
-        )
-    )
-
-    with (
-        caplog.at_level(logging.WARNING),
-        pytest.raises(RuntimeError, match="Worker error callback called without a valid context index."),
-    ):
-        stub_dataset_builder._worker_error_callback(exc, context=None)
-
-    assert "record at index unknown" in caplog.text
-    assert len(stub_dataset_builder._records_to_drop) == 0
-
-
-def test_dataset_builder_batch_manager_initialization(stub_dataset_builder, stub_resource_provider):
-    assert stub_dataset_builder.batch_manager is not None
-    assert stub_dataset_builder.batch_manager.artifact_storage == stub_resource_provider.artifact_storage
-
-
 @pytest.mark.parametrize(
     "config_type,expected_single_configs",
     [
@@ -302,37 +189,6 @@ def test_dataset_builder_single_column_configs_property(
             resource_provider=stub_resource_provider,
         )
         assert builder.single_column_configs == expected_single_configs
-
-
-def test_dataset_builder_build_method_basic_flow(
-    stub_dataset_builder,
-    stub_batch_manager,
-    stub_resource_provider,
-):
-    stub_resource_provider.run_config = RunConfig(buffer_size=50)
-    stub_resource_provider.seed_reader = None  # No seed data for this basic flow test
-    stub_resource_provider.model_registry.run_health_check = Mock()
-    stub_resource_provider.model_registry.get_model_usage_stats = Mock(return_value={"test": "stats"})
-    stub_resource_provider.model_registry.models = {}
-
-    # Mock the model config to return proper max_parallel_requests
-    mock_model_config = Mock()
-    mock_model_config.inference_parameters.max_parallel_requests = 4
-    mock_model_config.inference_parameters.get_formatted_params.return_value = []
-    stub_resource_provider.model_registry.get_model_config.return_value = mock_model_config
-
-    # Mock the batch manager's iter_current_batch method
-    stub_batch_manager.iter_current_batch.return_value = [(0, {"test": "data"})]
-
-    stub_dataset_builder.batch_manager = stub_batch_manager
-    stub_dataset_builder.set_processor_runner([])  # No processors for basic flow test
-
-    result_path = stub_dataset_builder.build(num_records=100)
-
-    stub_resource_provider.model_registry.run_health_check.assert_called_once()
-    stub_batch_manager.start.assert_called_once_with(num_records=100, buffer_size=50)
-    stub_batch_manager.finish.assert_called_once()
-    assert result_path == stub_resource_provider.artifact_storage.final_dataset_path
 
 
 @pytest.mark.parametrize(
@@ -465,156 +321,7 @@ def test_emit_batch_inference_events_handles_multiple_models(
     assert model_names == {"model-a", "model-b"}
 
 
-@pytest.mark.parametrize(
-    "disable_early_shutdown,configured_rate,expected_rate,shutdown_error_window",
-    [
-        (False, 0.7, 0.7, 20),  # enabled: use configured rate
-        (True, 0.7, 1.0, 20),  # disabled: use 1.0 to effectively disable
-        (False, 0.5, 0.5, 10),  # defaults
-    ],
-)
-@patch("data_designer.engine.dataset_builders.dataset_builder.ConcurrentThreadExecutor")
-def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provider(
-    mock_executor_class: Mock,
-    stub_resource_provider: Mock,
-    stub_test_column_configs: list,
-    stub_test_processor_configs: list,
-    disable_early_shutdown: bool,
-    configured_rate: float,
-    expected_rate: float,
-    shutdown_error_window: int,
-) -> None:
-    """Test that _fan_out_with_threads uses run settings from resource_provider."""
-    stub_resource_provider.run_config = RunConfig(
-        disable_early_shutdown=disable_early_shutdown,
-        shutdown_error_rate=configured_rate,
-        shutdown_error_window=shutdown_error_window,
-    )
-
-    config_builder = DataDesignerConfigBuilder(model_configs=[])
-    for column_config in stub_test_column_configs:
-        config_builder.add_column(column_config)
-    for processor_config in stub_test_processor_configs:
-        config_builder.add_processor(processor_config)
-
-    builder = DatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-
-    mock_executor_class.return_value.__enter__ = Mock(return_value=Mock())
-    mock_executor_class.return_value.__exit__ = Mock(return_value=False)
-
-    mock_generator = Mock()
-    mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
-    mock_generator.config.name = "test"
-    mock_generator.config.column_type = "llm_text"
-    mock_generator.config.tool_alias = None  # Avoid triggering tool usage code path
-
-    builder.batch_manager = Mock()
-    builder.batch_manager.num_records_batch = 10
-    builder.batch_manager.iter_current_batch.return_value = []
-    builder.batch_manager.num_records_batch = 0
-
-    builder._fan_out_with_threads(mock_generator, max_workers=4)
-
-    call_kwargs = mock_executor_class.call_args[1]
-    assert call_kwargs["shutdown_error_rate"] == expected_rate
-    assert call_kwargs["shutdown_error_window"] == shutdown_error_window
-    assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown
-
-
-@patch("data_designer.engine.dataset_builders.dataset_builder.ConcurrentThreadExecutor")
-def test_fan_out_with_threads_passes_column_name_in_context(
-    mock_executor_class: Mock,
-    stub_resource_provider: Mock,
-    stub_model_configs: dict[str, object],
-) -> None:
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.add_column(
-        SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
-    )
-    builder = DatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    builder.build_preview(num_records=1)
-
-    mock_executor = Mock()
-    mock_executor_class.return_value.__enter__ = Mock(return_value=mock_executor)
-    mock_executor_class.return_value.__exit__ = Mock(return_value=False)
-
-    mock_generator = Mock()
-    mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
-    mock_generator.config.name = "test_column"
-    mock_generator.config.column_type = "llm_text"
-    mock_generator.config.tool_alias = None
-
-    builder.batch_manager = Mock()
-    builder.batch_manager.num_records_batch = 2
-    builder.batch_manager.num_records_in_buffer = 2
-    builder.batch_manager.iter_current_batch.return_value = [(0, {"seed": "a"}), (1, {"seed": "b"})]
-
-    builder._fan_out_with_threads(mock_generator, max_workers=2)
-
-    submitted_contexts = [call.kwargs["context"] for call in mock_executor.submit.call_args_list]
-    assert submitted_contexts == [
-        {"index": 0, "column_name": "test_column"},
-        {"index": 1, "column_name": "test_column"},
-    ]
-
-
-@patch("data_designer.engine.dataset_builders.dataset_builder.AsyncConcurrentExecutor", create=True)
-def test_fan_out_with_async_passes_column_name_in_context(
-    mock_executor_class: Mock,
-    stub_resource_provider: Mock,
-    stub_model_configs: dict[str, object],
-) -> None:
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.add_column(
-        SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams())
-    )
-    builder = DatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    builder.build_preview(num_records=1)
-
-    mock_executor = Mock()
-
-    def _run(work_items: list[tuple[object, dict[str, int | str]]]) -> None:
-        for coro, _context in work_items:
-            coro.close()
-
-    mock_executor.run.side_effect = _run
-    mock_executor_class.return_value = mock_executor
-
-    mock_generator = Mock()
-    mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
-    mock_generator.config.name = "test_column"
-    mock_generator.config.column_type = "llm_text"
-    mock_generator.config.tool_alias = None
-
-    async def _agenerate(record: dict[str, str]) -> dict[str, str]:
-        return record
-
-    mock_generator.agenerate.side_effect = _agenerate
-
-    builder.batch_manager = Mock()
-    builder.batch_manager.num_records_batch = 2
-    builder.batch_manager.iter_current_batch.return_value = [(0, {"seed": "a"}), (1, {"seed": "b"})]
-
-    builder._fan_out_with_async(mock_generator, max_workers=2)
-
-    work_items = mock_executor.run.call_args.args[0]
-    submitted_contexts = [context for _coro, context in work_items]
-    assert submitted_contexts == [
-        {"index": 0, "column_name": "test_column"},
-        {"index": 1, "column_name": "test_column"},
-    ]
-
-
-def test_full_column_custom_generator_error_is_descriptive(stub_resource_provider, stub_model_configs):
+def test_full_column_custom_generator_failure_sets_first_error(stub_resource_provider, stub_model_configs):
     @custom_column_generator(required_columns=["some_id"])
     def bad_fn(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("something broke")
@@ -624,8 +331,68 @@ def test_full_column_custom_generator_error_is_descriptive(stub_resource_provide
     config.add_column(CustomColumnConfig(name="col", generator_function=bad_fn, generation_strategy="full_column"))
     builder = DatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
 
-    with pytest.raises(DatasetGenerationError, match=r"(?s)Failed to process column 'col'.*something broke"):
-        builder.build_preview(num_records=3)
+    result = builder.build_preview(num_records=3)
+
+    assert result.empty
+    assert builder.first_non_retryable_error is not None
+    assert "Custom generator function failed for column 'col': something broke" in str(
+        builder.first_non_retryable_error
+    )
+
+
+def test_expression_column_row_drops_shrink_sync_batch(
+    stub_resource_provider: Mock,
+    stub_model_configs: dict[str, object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"seed_id": [1, 2, 3, 4], "text": ["a", "", "c", "d"]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(seed_source)
+    config_builder.add_column(ExpressionColumnConfig(name="copy", expr="{{ text }}"))
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = builder.build_preview(num_records=4)
+
+    assert result["seed_id"].tolist() == [1, 3, 4]
+    assert result["copy"].tolist() == ["a", "c", "d"]
+    assert "Expression column 'copy' dropped 1/4 rows after render: EmptyRenderedExpression=1." in caplog.text
+
+
+def test_expression_column_row_drops_shrink_sync_skip_aware_batch(
+    stub_resource_provider: Mock,
+    stub_model_configs: dict[str, object],
+) -> None:
+    seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"seed_id": [1, 2, 3], "text": ["skip-me", "", "keep"]}))
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(seed_source)
+    config_builder.add_column(
+        ExpressionColumnConfig(
+            name="copy",
+            expr="{{ text }}",
+            skip=SkipConfig(when="{{ seed_id == 1 }}", value="skipped"),
+        )
+    )
+    builder = DatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    result = builder.build_preview(num_records=3)
+
+    assert result["seed_id"].tolist() == [1, 3]
+    assert result["copy"].tolist() == ["skipped", "keep"]
 
 
 def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_freed(
@@ -739,7 +506,7 @@ def test_run_after_generation(
     mock_processor = create_mock_processor("proc", ["process_after_generation"])
     mock_processor.process_after_generation.side_effect = processor_fn
 
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
     simple_builder._processor_runner.run_after_generation(batch_size)
 
     mock_processor.process_after_generation.assert_called_once()
@@ -762,7 +529,7 @@ def test_all_processor_stages_run_in_order(builder_with_seed, mode):
         df,
     )[1]
 
-    builder_with_seed.set_processor_runner([mock_processor])
+    _replace_processors(builder_with_seed, [mock_processor])
 
     if mode == "preview":
         raw_dataset = builder_with_seed.build_preview(num_records=3)
@@ -782,7 +549,7 @@ def test_processor_exception_in_process_after_batch_raises_error(simple_builder)
     mock_processor = create_mock_processor("failing_processor", ["process_after_batch"])
     mock_processor.process_after_batch.side_effect = ValueError("Post-batch processing failed")
 
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
 
     with pytest.raises(DatasetProcessingError, match="Failed in process_after_batch"):
         simple_builder._processor_runner.run_post_batch(lazy.pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
@@ -791,7 +558,7 @@ def test_processor_exception_in_process_after_batch_raises_error(simple_builder)
 def test_processor_with_no_implemented_stages_is_skipped(builder_with_seed):
     """Test that a processor implementing no stages doesn't cause errors."""
     mock_processor = create_mock_processor("noop_processor", [])
-    builder_with_seed.set_processor_runner([mock_processor])
+    _replace_processors(builder_with_seed, [mock_processor])
 
     result = builder_with_seed.build_preview(num_records=3)
 
@@ -811,258 +578,34 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
         p.process_before_batch.side_effect = lambda df, lbl=label: (call_order.append(lbl), df)[1]
         processors.append(p)
 
-    builder_with_seed.set_processor_runner(processors)
+    _replace_processors(builder_with_seed, processors)
     builder_with_seed.build(num_records=3)
 
     assert call_order == ["a", "b", "c"]
 
 
+def test_pre_batch_processor_row_count_change_rejected(builder_with_seed, caplog):
+    mock_processor = create_mock_processor("filtering_processor", ["process_before_batch"])
+    mock_processor.process_before_batch.side_effect = lambda df: df.iloc[:2].reset_index(drop=True)
+    _replace_processors(builder_with_seed, [mock_processor])
+
+    with caplog.at_level(logging.INFO):
+        with pytest.raises(DatasetGenerationError, match="Pre-batch processor changed row count"):
+            builder_with_seed.build(num_records=3)
+
+    assert not any("PRE_BATCH processors changed the record count" in record.message for record in caplog.records)
+
+
 def test_process_preview_with_empty_dataframe(simple_builder):
     """Test that process_preview handles empty DataFrames gracefully."""
     mock_processor = create_mock_processor("test_processor", ["process_after_batch", "process_after_generation"])
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
 
     result = simple_builder.process_preview(lazy.pd.DataFrame())
 
     assert len(result) == 0
     mock_processor.process_after_batch.assert_called_once()
     mock_processor.process_after_generation.assert_called_once()
-
-
-# allow_resize integration tests
-#
-# Factory: _make_resize_full_expand. Stubs: _resize_full_keep_first, _resize_cell_*.
-
-
-def _make_resize_full_expand(n: int, primary_col: str, side_effect_col: str):
-    """FULL_COLUMN: expand n times per seed_id."""
-
-    @custom_column_generator(required_columns=["seed_id"], side_effect_columns=[side_effect_col])
-    def fn(df: pd.DataFrame) -> pd.DataFrame:
-        rows = []
-        for _, row in df.iterrows():
-            for i in range(n):
-                rows.append({**row.to_dict(), primary_col: f"{row['seed_id']}_v{i}", side_effect_col: i})
-        return lazy.pd.DataFrame(rows)
-
-    return fn
-
-
-@custom_column_generator(required_columns=["seed_id"])
-def _resize_full_keep_first(df: pd.DataFrame) -> pd.DataFrame:
-    """FULL_COLUMN: keep first row per seed_id (retraction)."""
-    return df.drop_duplicates(subset="seed_id").assign(filtered=True)
-
-
-@custom_column_generator(required_columns=["seed_id"])
-def _resize_full_drop_seed_one(df: pd.DataFrame) -> pd.DataFrame:
-    """FULL_COLUMN: drop the row with seed_id == 1."""
-    return df[df["seed_id"] != 1].reset_index(drop=True).assign(filtered=True)
-
-
-@custom_column_generator(required_columns=["seed_id"])
-def _resize_cell_expand(row: dict) -> list[dict]:
-    """CELL_BY_CELL: one row -> two rows (doubled)."""
-    return [
-        {**row, "doubled": f"{row['seed_id']}_a"},
-        {**row, "doubled": f"{row['seed_id']}_b"},
-    ]
-
-
-@custom_column_generator(required_columns=["seed_id"])
-def _resize_cell_filter_odd(row: dict) -> dict | list[dict]:
-    """CELL_BY_CELL: drop even seed_id, keep odd."""
-    if row["seed_id"] % 2 == 0:
-        return []
-    return {**row, "kept": row["seed_id"]}
-
-
-@custom_column_generator(required_columns=["seed_id"])
-def _resize_cell_drop_all(row: dict) -> list[dict]:
-    """CELL_BY_CELL: return [] for every row (drop all)."""
-    return []
-
-
-_RESIZE_SPECS: dict[str, list[tuple[str, object, GenerationStrategy]]] = {
-    "cell_filter_odd": [("kept", _resize_cell_filter_odd, GenerationStrategy.CELL_BY_CELL)],
-    "cell_x2": [("doubled", _resize_cell_expand, GenerationStrategy.CELL_BY_CELL)],
-    "cell_drop_all": [("dropped", _resize_cell_drop_all, GenerationStrategy.CELL_BY_CELL)],
-    "full_x3": [("expanded", _make_resize_full_expand(3, "expanded", "copy"), GenerationStrategy.FULL_COLUMN)],
-    "full_chain": [
-        ("expanded", _make_resize_full_expand(3, "expanded", "copy"), GenerationStrategy.FULL_COLUMN),
-        ("filtered", _resize_full_keep_first, GenerationStrategy.FULL_COLUMN),
-        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), GenerationStrategy.FULL_COLUMN),
-    ],
-    "cell_plus_full_chain": [
-        ("doubled", _resize_cell_expand, GenerationStrategy.CELL_BY_CELL),
-        ("filtered", _resize_full_keep_first, GenerationStrategy.FULL_COLUMN),
-        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), GenerationStrategy.FULL_COLUMN),
-    ],
-}
-
-
-def _resize_columns(spec: str) -> list[CustomColumnConfig]:
-    """Return column configs for a given allow_resize recipe."""
-    return [
-        CustomColumnConfig(
-            name=name,
-            generator_function=fn,
-            generation_strategy=strat,
-            allow_resize=True,
-        )
-        for name, fn, strat in _RESIZE_SPECS[spec]
-    ]
-
-
-def _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns):
-    """Build a DatasetBuilder with the given resize column configs."""
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
-    for col in columns:
-        config_builder.add_column(col)
-    return DatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-
-
-@pytest.mark.parametrize(
-    "spec,num_records,expected_len,check_doubled_order",
-    [
-        ("cell_filter_odd", 5, 3, False),
-        ("cell_x2", 5, 10, True),
-        ("cell_drop_all", 5, 0, False),
-        ("full_x3", 5, 15, False),
-        ("full_chain", 5, 15, False),
-        ("cell_plus_full_chain", 5, 15, False),
-    ],
-    ids=[
-        "cell_filter_odd_preview",
-        "cell_x2_preview",
-        "cell_drop_all_preview",
-        "full_x3_preview",
-        "full_chain_preview",
-        "cell_plus_full_chain_preview",
-    ],
-)
-def test_allow_resize_preview(
-    stub_resource_provider,
-    stub_model_configs,
-    seed_data_setup,
-    spec,
-    num_records,
-    expected_len,
-    check_doubled_order,
-):
-    """Preview with allow_resize columns (FULL_COLUMN and/or CELL_BY_CELL) yields expected length."""
-    columns = _resize_columns(spec)
-    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
-    result = builder.build_preview(num_records=num_records)
-    assert len(result) == expected_len
-    if check_doubled_order:
-        expected = [x for i in range(1, 6) for x in (f"{i}_a", f"{i}_b")]
-        assert result["doubled"].tolist() == expected
-
-
-@pytest.mark.parametrize(
-    "spec,num_records,buffer_size,expected_total_rows",
-    [
-        ("cell_x2", 5, 2, 10),  # batches [2,2,1] -> each x2 -> 4+4+2
-        ("cell_filter_odd", 5, 2, 3),  # batches [2,2,1] -> keep odd -> 1+1+1
-        ("cell_drop_all", 5, 2, 0),  # each batch -> 0 rows
-        ("full_x3", 5, 2, 15),  # batches [2,2,1] -> each x3 -> 6+6+3
-        ("full_x3", 4, 2, 12),  # batches [2,2] -> 6+6
-        ("full_chain", 5, 2, 15),  # batches [2,2,1] -> x3, dedup, x3 -> 15
-    ],
-    ids=[
-        "cell_x2_multibatch",
-        "cell_filter_odd_multibatch",
-        "cell_drop_all_multibatch",
-        "full_x3_multibatch_5_2",
-        "full_x3_multibatch_4_2",
-        "full_chain_multibatch",
-    ],
-)
-def test_allow_resize_multiple_batches(
-    stub_resource_provider,
-    stub_model_configs,
-    seed_data_setup,
-    spec,
-    num_records,
-    buffer_size,
-    expected_total_rows,
-):
-    """Resized batches are written independently and combine to expected total rows."""
-    stub_resource_provider.run_config = RunConfig(buffer_size=buffer_size)
-    columns = _resize_columns(spec)
-    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
-    builder.build(num_records=num_records)
-    final_path = builder.artifact_storage.final_dataset_path
-    if expected_total_rows == 0 and not final_path.exists():
-        df = lazy.pd.DataFrame()
-    else:
-        df = lazy.pd.read_parquet(final_path)
-    assert len(df) == expected_total_rows
-
-
-def test_resume_rejects_allow_resize_columns(stub_resource_provider, stub_model_configs, seed_data_setup, tmp_path):
-    """Resume is rejected when allow_resize=True would make batch boundaries ambiguous."""
-    artifact_path = tmp_path / "artifacts"
-    artifact_path.mkdir()
-    _write_metadata(
-        artifact_path / "dataset",
-        target_num_records=5,
-        buffer_size=2,
-        num_completed_batches=1,
-        actual_num_records=2,
-    )
-
-    stub_resource_provider.artifact_storage = ArtifactStorage(artifact_path=artifact_path, resume=ResumeMode.ALWAYS)
-    columns = _resize_columns("cell_x2")
-    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
-
-    with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
-        builder.build(num_records=5, resume=ResumeMode.ALWAYS)
-
-
-def test_if_possible_allows_allow_resize_when_starting_fresh(
-    stub_resource_provider, stub_model_configs, seed_data_setup
-):
-    """IF_POSSIBLE with allow_resize=True starts fresh when there is no checkpoint to resume."""
-    columns = _resize_columns("cell_x2")
-    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
-
-    final_path = builder.build(num_records=5, resume=ResumeMode.IF_POSSIBLE)
-
-    df = lazy.pd.read_parquet(final_path)
-    assert len(df) == 10
-
-
-def test_if_possible_allows_allow_resize_when_config_is_incompatible(
-    stub_resource_provider, stub_model_configs, seed_data_setup, tmp_path
-):
-    """IF_POSSIBLE with allow_resize=True starts fresh when an existing dataset is incompatible."""
-    dataset_dir = tmp_path / "dataset"
-    dataset_dir.mkdir()
-    sentinel = dataset_dir / "important_file.txt"
-    sentinel.write_text("precious data")
-
-    storage = ArtifactStorage(artifact_path=tmp_path, resume=ResumeMode.IF_POSSIBLE)
-    stub_resource_provider.artifact_storage = storage
-    columns = _resize_columns("cell_x2")
-    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
-    _write_incompatible_config_metadata(
-        dataset_dir,
-        builder.data_designer_config.fingerprint()["config_hash_version"],
-    )
-
-    final_path = builder.build(num_records=5, resume=ResumeMode.IF_POSSIBLE)
-
-    assert storage.resume == ResumeMode.NEVER
-    assert sentinel.exists()
-    assert final_path != dataset_dir / "parquet-files"
-    df = lazy.pd.read_parquet(final_path)
-    assert len(df) == 10
 
 
 # skip metadata preservation tests
@@ -1241,85 +784,6 @@ def test_skip_propagation_resolves_side_effect_dependencies_in_sync_builder(
             )
         else:
             assert row["analysis"] == "generated_analysis", f"seed_id={row['seed_id']}: analysis should be generated"
-
-
-def test_skip_metadata_restore_preserves_row_identity_across_allow_resize_full_column(
-    stub_resource_provider, stub_model_configs, seed_data_setup
-):
-    """Filtering out a skipped row must not transfer its skip provenance to surviving rows."""
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
-
-    config_builder.add_column(
-        CustomColumnConfig(
-            name="review",
-            generator_function=_make_label_generator("review", "seed_id"),
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            skip=SkipConfig(when="{{ seed_id == 1 }}"),
-        )
-    )
-    config_builder.add_column(
-        CustomColumnConfig(
-            name="filtered",
-            generator_function=_resize_full_drop_seed_one,
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            allow_resize=True,
-            propagate_skip=False,
-        )
-    )
-    config_builder.add_column(
-        CustomColumnConfig(
-            name="analysis",
-            generator_function=_make_label_generator("analysis", "review"),
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            propagate_skip=True,
-        )
-    )
-
-    builder = DatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    result = builder.build_preview(num_records=5)
-
-    assert result["seed_id"].tolist() == [2, 3, 4, 5]
-    assert result["analysis"].tolist() == ["generated_analysis"] * 4
-
-
-def test_allow_resize_column_not_blocked_by_upstream_skip(stub_resource_provider, stub_model_configs, seed_data_setup):
-    """An allow_resize=True column depending on a skippable upstream must not
-    enter the skip-aware branch (which enforces 1:1 row counts).
-
-    Before the fix, _column_can_skip returned True for allow_resize columns
-    with propagate_skip=True and required_columns pointing to a skippable
-    upstream, causing a DatasetGenerationError on the row-count check.
-    """
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
-
-    config_builder.add_column(
-        CustomColumnConfig(
-            name="review",
-            generator_function=_make_label_generator("review", "seed_id"),
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            skip=SkipConfig(when="{{ seed_id < 3 }}"),
-        )
-    )
-    config_builder.add_column(
-        CustomColumnConfig(
-            name="expanded",
-            generator_function=_make_resize_full_expand(2, "expanded", "copy"),
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            allow_resize=True,
-        )
-    )
-
-    builder = DatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    result = builder.build_preview(num_records=5)
-    assert len(result) == 10
 
 
 def test_skip_chained_transitive_propagation_through_three_levels(
@@ -1582,9 +1046,6 @@ def _make_sampler_only_builder(
 def test_build_resume_ordered_seed_dataset_continues_from_next_planned_row(stub_resource_provider, tmp_path):
     """Regression for issue #709: resume must not replay ordered seed rows."""
 
-    class StopAfterFirstBatch(RuntimeError):
-        pass
-
     seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"name": ["alpha", "beta", "gamma"]}))
     seed_reader = DataFrameSeedReader()
     seed_reader.attach(seed_source, Mock())
@@ -1607,11 +1068,7 @@ def test_build_resume_ordered_seed_dataset_continues_from_next_planned_row(stub_
         resource_provider=stub_resource_provider,
     )
 
-    def stop(_path: Path) -> None:
-        raise StopAfterFirstBatch("simulated interruption")
-
-    with pytest.raises(StopAfterFirstBatch, match="simulated interruption"):
-        builder.build(num_records=3, on_batch_complete=stop, resume=ResumeMode.NEVER)
+    builder.build(num_records=1, resume=ResumeMode.NEVER)
 
     resumed_seed_reader = DataFrameSeedReader()
     resumed_seed_reader.attach(seed_source, Mock())
@@ -1708,9 +1165,6 @@ def test_build_resume_ordered_seed_dataset_with_partition_block_continues_within
     branch end-to-end.
     """
 
-    class StopAfterFirstBatch(RuntimeError):
-        pass
-
     seed_source = DataFrameSeedSource(df=lazy.pd.DataFrame({"name": ["a", "b", "c", "d", "e", "f"]}))
     seed_reader = DataFrameSeedReader()
     seed_reader.attach(seed_source, Mock())
@@ -1736,11 +1190,7 @@ def test_build_resume_ordered_seed_dataset_with_partition_block_continues_within
         resource_provider=stub_resource_provider,
     )
 
-    def stop(_path: Path) -> None:
-        raise StopAfterFirstBatch("simulated interruption")
-
-    with pytest.raises(StopAfterFirstBatch, match="simulated interruption"):
-        builder.build(num_records=4, on_batch_complete=stop, resume=ResumeMode.NEVER)
+    builder.build(num_records=1, resume=ResumeMode.NEVER)
 
     resumed_seed_reader = DataFrameSeedReader()
     resumed_seed_reader.attach(seed_source, Mock())
@@ -1768,9 +1218,9 @@ def test_build_resume_ordered_seed_dataset_with_partition_block_continues_within
 def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub_test_config_builder, tmp_path, caplog):
     """resume=True when only the folder exists (no metadata.json) logs an info message and starts fresh.
 
-    This covers the case where a run was interrupted before any batch completed — the
+    This covers the case where a run was interrupted before any row group completed - the
     folder was created by _write_builder_config but metadata.json was never written.
-    Previously this raised DatasetGenerationError; now it silently restarts from batch 0.
+    Previously this raised DatasetGenerationError; now it silently restarts from row group 0.
     """
     # Pre-create the folder with content so resolved_dataset_name(resume=True) returns "dataset"
     dataset_dir = tmp_path / "dataset"
@@ -1780,12 +1230,12 @@ def test_build_resume_starts_fresh_without_metadata(stub_resource_provider, stub
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
     with caplog.at_level(logging.INFO):
         with patch.object(builder_mod, "run_readiness_check"):
-            with patch.object(builder, "_run_batch"):
-                with patch.object(builder.batch_manager, "finish"):
-                    # resume=False is set internally; build dispatches to the normal (non-resume) path
-                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+            with patch.object(builder, "_build_async", return_value=True) as mock_async:
+                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
-    assert any("interrupted before any batch completed" in record.message for record in caplog.records)
+    _, kwargs = mock_async.call_args
+    assert kwargs.get("resume") == ResumeMode.NEVER
+    assert any("interrupted before any row group completed" in record.message for record in caplog.records)
 
 
 def test_build_resume_raises_when_num_records_below_actual(stub_resource_provider, stub_test_config_builder, tmp_path):
@@ -1860,7 +1310,7 @@ def test_build_resume_allows_larger_num_records(stub_resource_provider, stub_tes
         with patch.object(builder_mod, "run_readiness_check"):
             # 6 > 4 already generated → not already complete, should start generating
             # Here we just verify it does NOT raise on the num_records check
-            with patch.object(builder, "_build_with_resume", return_value=True):
+            with patch.object(builder, "_build_async", return_value=True):
                 builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
 
@@ -1932,9 +1382,8 @@ def test_build_if_possible_starts_fresh_on_dropped_column_artifact_policy_mismat
     )
 
     with patch.object(builder_mod, "run_readiness_check"):
-        with patch.object(builder, "_run_batch"):
-            with patch.object(builder.batch_manager, "finish"):
-                final_path = builder.build(num_records=4, resume=ResumeMode.IF_POSSIBLE)
+        with patch.object(builder, "_build_async", return_value=True):
+            final_path = builder.build(num_records=4, resume=ResumeMode.IF_POSSIBLE)
 
     assert storage.resume == ResumeMode.NEVER
     assert (dataset_dir / "sentinel.txt").exists()
@@ -1964,6 +1413,25 @@ def test_build_resume_always_raises_on_config_mismatch(stub_resource_provider, s
         num_completed_batches=1,
         actual_num_records=2,
     )
+    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
+    with pytest.raises(DatasetGenerationError, match="does not match the config used"):
+        builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+
+
+def test_build_resume_always_raises_on_unreadable_stored_config(
+    stub_resource_provider, stub_test_config_builder, tmp_path
+):
+    """resume=ALWAYS rejects legacy stored configs that fail schema validation."""
+    dataset_dir = tmp_path / "dataset"
+    _write_metadata(
+        dataset_dir,
+        target_num_records=4,
+        buffer_size=2,
+        num_completed_batches=1,
+        actual_num_records=2,
+    )
+    (dataset_dir / "builder_config.json").write_text('{"data_designer": {"columns": [{"allow_resize": true}]}}')
+
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
     with pytest.raises(DatasetGenerationError, match="does not match the config used"):
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
@@ -2105,7 +1573,7 @@ def test_build_marks_post_generation_started_before_running_processors(
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     with patch.object(builder, "_initialize_generators_and_graph", return_value=([], None)):
-        with patch.object(builder, "_build_with_resume", return_value=True):
+        with patch.object(builder, "_build_async", return_value=True):
             with patch.object(builder._processor_runner, "has_processors_for", return_value=True):
                 with patch.object(builder._processor_runner, "run_after_generation", side_effect=RuntimeError("boom")):
                     with pytest.raises(RuntimeError, match="boom"):
@@ -2141,7 +1609,7 @@ def test_build_resume_complete_dataset_runs_after_generation_when_no_marker(
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     after_gen_processor = create_mock_processor("after_gen", ["process_after_generation"])
-    builder.set_processor_runner([after_gen_processor])
+    _replace_processors(builder, [after_gen_processor])
 
     builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
@@ -2172,80 +1640,6 @@ def test_build_resume_post_generation_processed_missing_target_raises_clearly(
         builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
 
-def test_build_resume_not_already_complete_when_extension_fits_in_slack(
-    stub_resource_provider, stub_test_config_builder, tmp_path
-):
-    """Non-aligned extension fitting in the last group's slack must not falsely trigger 'already complete'.
-
-    original_target=5, buffer_size=2 → 3 batches [2,2,1]; extending to num_records=6:
-    ceil(6/2)=3 == num_completed_batches=3 used to trigger the false 'already complete' branch.
-    Correct total_batches = 3 + ceil(1/2) = 4, so batch 3 (1 record) must be scheduled.
-    """
-    dataset_dir = tmp_path / "dataset"
-    _write_metadata(dataset_dir, target_num_records=5, buffer_size=2, num_completed_batches=3, actual_num_records=5)
-    # Three row groups [2, 2, 1] on disk so the unified resume path sees 3 completed batches.
-    _write_parquet_files(dataset_dir / "parquet-files", [0, 1, 2], row_counts={2: 1})
-
-    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
-
-    with patch.object(builder, "_run_batch") as mock_run_batch:
-        with patch.object(builder.batch_manager, "finish"):
-            with patch.object(builder_mod, "run_readiness_check"):
-                builder.build(num_records=6, resume=ResumeMode.ALWAYS)
-
-    mock_run_batch.assert_called_once()
-    assert mock_run_batch.call_args.kwargs["current_batch_number"] == 3
-
-
-def test_build_resume_recovers_progress_from_disk_when_metadata_lags(
-    stub_resource_provider, stub_test_config_builder, tmp_path, caplog
-):
-    """Sync resume uses parquet files on disk as the source of truth for progress.
-
-    Crash window: ``move_partial_result_to_final_file_path`` succeeded for batch 1 but
-    ``write_metadata`` had not yet committed the matching ``num_completed_batches`` /
-    ``actual_num_records`` update. Before unification, sync took the stale metadata
-    counters at face value and re-generated batch 1, double-counting records. After
-    unification, both engines derive progress from ``parquet-files/batch_*.parquet``,
-    so this scenario resolves to "already complete" and skips redundant generation.
-    """
-    dataset_dir = tmp_path / "dataset"
-    # Metadata lags — claims only 1 batch / 2 records committed.
-    _write_metadata(dataset_dir, target_num_records=4, buffer_size=2, num_completed_batches=1, actual_num_records=2)
-    # Filesystem truth — both row groups written before the crash.
-    _write_parquet_files(dataset_dir / "parquet-files", [0, 1])
-
-    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
-    with caplog.at_level(logging.WARNING):
-        with patch.object(builder, "_run_batch") as mock_run_batch:
-            with patch.object(builder.batch_manager, "finish"):
-                with patch.object(builder_mod, "run_readiness_check"):
-                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
-
-    mock_run_batch.assert_not_called()
-    assert any("already complete" in record.message for record in caplog.records)
-
-
-def test_build_resume_raises_on_non_contiguous_batch_ids_under_sync(
-    stub_resource_provider, stub_test_config_builder, tmp_path
-):
-    """Sync resume rejects non-contiguous parquet IDs (likely written by an incompatible engine).
-
-    The sync engine writes batches sequentially, so a hole between batch 0 and batch 2
-    can only mean external mutation or data written by a different engine (e.g. the
-    async engine, which can complete row groups out of order). Letting sync proceed
-    would silently re-generate batch 1 with stale row counters; raising surfaces the
-    inconsistency loudly.
-    """
-    dataset_dir = tmp_path / "dataset"
-    _write_metadata(dataset_dir, target_num_records=6, buffer_size=2, num_completed_batches=2, actual_num_records=4)
-    _write_parquet_files(dataset_dir / "parquet-files", [0, 2])
-
-    builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
-    with pytest.raises(DatasetGenerationError, match="non-contiguous"):
-        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
-
-
 # ---------------------------------------------------------------------------
 # Async resume via _build_async tests
 # ---------------------------------------------------------------------------
@@ -2263,9 +1657,8 @@ def test_build_async_resume_logs_warning_when_already_complete(
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
     with caplog.at_level(logging.WARNING):
-        with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-            with patch.object(builder_mod, "run_readiness_check"):
-                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+        with patch.object(builder_mod, "run_readiness_check"):
+            builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     assert any("already complete" in record.message for record in caplog.records)
 
@@ -2286,15 +1679,14 @@ def test_build_async_resume_starts_fresh_without_metadata(
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path)
 
     with caplog.at_level(logging.INFO):
-        with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-            with patch.object(builder_mod, "run_readiness_check"):
-                with patch.object(builder, "_build_async", return_value=True) as mock_async:
-                    builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+        with patch.object(builder_mod, "run_readiness_check"):
+            with patch.object(builder, "_build_async", return_value=True) as mock_async:
+                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     # _build_async is called with resume=NEVER because the no-metadata path resets the mode
     _, kwargs = mock_async.call_args
     assert kwargs.get("resume") == ResumeMode.NEVER
-    assert any("interrupted before any batch completed" in record.message for record in caplog.records)
+    assert any("interrupted before any row group completed" in record.message for record in caplog.records)
 
 
 def test_build_async_resume_already_complete_does_not_run_after_generation_processors(
@@ -2307,10 +1699,9 @@ def test_build_async_resume_already_complete_does_not_run_after_generation_proce
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
 
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "run_readiness_check"):
-            with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
-                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "run_readiness_check"):
+        with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
+            builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     mock_after.assert_not_called()
 
@@ -2333,10 +1724,9 @@ def test_find_completed_row_groups_used_for_initial_total_batches(
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     # Both row groups are on disk → dataset is already complete → generated=False
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "run_readiness_check"):
-            with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
-                builder.build(num_records=4, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "run_readiness_check"):
+        with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
+            builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
     # Already complete based on filesystem count (2 files ≥ 2 row groups) — no generation needed
     mock_after.assert_not_called()
@@ -2378,16 +1768,12 @@ def test_initial_actual_num_records_from_filesystem_in_crash_window(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    # asyncio and ensure_async_engine_loop are lazy-imported in dataset_builder only when
-    # DATA_DESIGNER_ASYNC_ENGINE=True at module load time.  Inject them for the duration
-    # of this test so _build_async can proceed past the early-return path.
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder_mod, "run_readiness_check"):
-                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                with patch.object(builder_mod, "run_readiness_check"):
+                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # Filesystem says 2 groups done (IDs 0+1) → 2+2 = 4 records, not stale metadata value 2
     assert captured["initial_actual_num_records"] == 4
@@ -2487,13 +1873,12 @@ def test_initial_actual_num_records_uses_actual_parquet_rows_for_partial_row_gro
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder_mod, "run_readiness_check"):
-                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                with patch.object(builder_mod, "run_readiness_check"):
+                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     assert captured["initial_actual_num_records"] == 3
     assert captured["initial_total_num_batches"] == 2
@@ -2530,14 +1915,13 @@ def test_build_async_resume_initial_actual_num_records_uses_original_target(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder_mod, "run_readiness_check"):
-                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                            # Extend the dataset: new target is 7, original was 5
-                            builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                with patch.object(builder_mod, "run_readiness_check"):
+                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                        # Extend the dataset: new target is 7, original was 5
+                        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
     # Row groups [2, 2, 1] from original 5-record run: 2+2+1=5, not 2+2+2=6
     assert captured["initial_actual_num_records"] == 5
@@ -2578,13 +1962,12 @@ def test_build_async_resume_initial_actual_num_records_extension_crash_window(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder_mod, "run_readiness_check"):
-                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                            builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                with patch.object(builder_mod, "run_readiness_check"):
+                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
 
     # 2+2+1 (original) + 2 (extension group 3) = 7, not 4 (which unguarded formula gives)
     assert captured["initial_actual_num_records"] == 7
@@ -2633,13 +2016,12 @@ def test_build_async_resume_stale_original_target_after_incremental_metadata_wri
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder_mod, "run_readiness_check"):
-                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                            builder.build(num_records=9, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                with patch.object(builder_mod, "run_readiness_check"):
+                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                        builder.build(num_records=9, resume=ResumeMode.ALWAYS)
 
     # original_target=5 → groups 0,1 → 2+2; group 2 → 1; group 3 (ext) → min(2,9-6)=2. Total=7
     assert captured["initial_actual_num_records"] == 7
@@ -2676,13 +2058,12 @@ def test_build_async_resume_skip_row_groups_contains_completed_ids(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder_mod, "run_readiness_check"):
-                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                with patch.object(builder_mod, "run_readiness_check"):
+                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # Only rg_id=1 remains; rg_id=0 and rg_id=2 are already on disk
     assert list(captured["precomputed_row_groups"]) == [(1, 2)]
@@ -2721,13 +2102,12 @@ def test_build_async_resume_extension_non_aligned_row_group_sizes(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder_mod, "run_readiness_check"):
-                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
-                            builder.build(num_records=7, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                with patch.object(builder_mod, "run_readiness_check"):
+                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare):
+                        builder.build(num_records=7, resume=ResumeMode.ALWAYS)
 
     # rg_id=3 should have 2 records (7-5=2 extension records, buffer_size=2), not 1
     assert list(captured["precomputed_row_groups"]) == [(3, 2)]
@@ -2760,13 +2140,12 @@ def test_build_async_resume_not_already_complete_when_extension_fits_in_slack(
     mock_future = Mock()
     mock_future.result = Mock(return_value=None)
 
-    with patch.object(flags, "DATA_DESIGNER_ASYNC_ENGINE", True):
-        with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
-            with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
-                with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
-                    with patch.object(builder_mod, "run_readiness_check"):
-                        with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare:
-                            builder.build(num_records=6, resume=ResumeMode.ALWAYS)
+    with patch.object(builder_mod, "asyncio", stdlib_asyncio, create=True):
+        with patch.object(builder_mod, "ensure_async_engine_loop", Mock(return_value=Mock()), create=True):
+            with patch.object(stdlib_asyncio, "run_coroutine_threadsafe", return_value=mock_future):
+                with patch.object(builder_mod, "run_readiness_check"):
+                    with patch.object(builder, "_prepare_async_run", side_effect=capturing_prepare) as mock_prepare:
+                        builder.build(num_records=6, resume=ResumeMode.ALWAYS)
 
     # _prepare_async_run must be called — the dataset is NOT already complete
     mock_prepare.assert_called_once()

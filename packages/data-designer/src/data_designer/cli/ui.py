@@ -634,13 +634,6 @@ def print_header(text: str) -> None:
     _console.print()
 
 
-def print_navigation_tip() -> None:
-    """Display a concise navigation tip for interactive prompts."""
-    tip = "[dim]Tip: Use arrow keys to navigate menus, type [bold]'back'[/bold] to edit previous entries, press [bold]Tab[/bold] for completions[/dim]"
-    _print_with_padding(tip)
-    _console.print()
-
-
 def _print_with_padding(content: str | Panel) -> None:
     """Internal helper to print with left padding.
 
