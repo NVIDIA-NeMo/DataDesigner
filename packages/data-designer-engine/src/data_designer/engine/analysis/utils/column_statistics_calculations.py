@@ -32,8 +32,6 @@ if TYPE_CHECKING:
 RANDOM_SEED = 42
 MAX_PROMPT_SAMPLE_SIZE = 1000
 WARNING_PREFIX = "⚠️ Error during column profile calculation: "
-TEXT_FIELD_AVG_SPACE_COUNT_THRESHOLD = 0.1
-
 logger = logging.getLogger(__name__)
 
 

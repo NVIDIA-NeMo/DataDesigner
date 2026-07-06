@@ -11,9 +11,6 @@ from data_designer.errors import DataDesignerError
 class DataDesignerRuntimeError(DataDesignerError): ...
 
 
-class UnknownModelAliasError(DataDesignerError): ...
-
-
 class UnknownProviderError(DataDesignerError): ...
 
 

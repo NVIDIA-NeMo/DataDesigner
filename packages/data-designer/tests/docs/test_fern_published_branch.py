@@ -64,9 +64,18 @@ redirects:
     write_text(source_root / "fern" / "fern.config.json", '{"organization": "nvidia", "version": "5.41.1"}\n')
     write_text(source_root / "fern" / "assets" / "current-devnote-asset.png", "new asset")
     write_text(source_root / "fern" / "components" / "Figure.tsx", "export const Figure = () => null;\n")
+    write_text(source_root / "fern" / "components" / "ImageExample.tsx", "export type ImageExample = string;\n")
+    write_text(
+        source_root / "fern" / "components" / "ImageExampleGallery.tsx",
+        'import type { ImageExample } from "./ImageExample";\nexport type ImageGallery = ImageExample[];\n',
+    )
     write_text(
         source_root / "fern" / "versions" / "latest.yml",
         """navigation:
+  - section: Recipes
+    contents:
+      - page: New Recipe
+        path: ./latest/pages/recipes/new-recipe.mdx
   - section: Dev Notes
     contents:
       - page: New Note
@@ -75,6 +84,7 @@ redirects:
     contents: []
 """,
     )
+    write_text(source_root / "fern" / "versions" / "latest" / "pages" / "recipes" / "new-recipe.mdx", "# New")
     write_text(source_root / "fern" / "versions" / "latest" / "pages" / "devnotes" / "posts" / "new-note.mdx", "# New")
 
     write_text(
@@ -102,15 +112,23 @@ redirects:
     write_text(
         published_root / "fern" / "versions" / "latest.yml",
         """navigation:
+  - section: Recipes
+    contents:
+      - page: Released Recipe
+        path: ./v0.6.0/pages/recipes/released-recipe.mdx
   - section: Dev Notes
     contents:
       - page: Old Note
         path: ./latest/pages/devnotes/posts/old-note.mdx
   - section: Concepts
-    contents: []
+    contents:
+      - page: Released Concept
+        path: ./v0.6.0/pages/concepts/released-concept.mdx
 """,
     )
+    write_text(published_root / "fern" / "versions" / "latest" / "pages" / "recipes" / "old-recipe.mdx", "# Old")
 
+    assert module.patch_devnotes(patch_args(source_root, published_root)) == 0
     assert module.patch_devnotes(patch_args(source_root, published_root)) == 0
 
     published_docs = (published_root / "fern" / "docs.yml").read_text()
@@ -129,5 +147,18 @@ redirects:
     assert (published_root / "fern" / "components" / "Figure.tsx").read_text() == (
         "export const Figure = () => null;\n"
     )
+    assert (published_root / "fern" / "components" / "ImageExample.tsx").read_text() == (
+        "export type ImageExample = string;\n"
+    )
+    assert (published_root / "fern" / "components" / "ImageExampleGallery.tsx").read_text() == (
+        'import type { ImageExample } from "./ImageExample";\nexport type ImageGallery = ImageExample[];\n'
+    )
     assert not (published_root / "fern" / "assets" / "published-only-asset.png").exists()
     assert (published_root / "fern" / "versions" / "latest" / "pages" / "devnotes" / "posts" / "new-note.mdx").exists()
+    published_nav = (published_root / "fern" / "versions" / "latest.yml").read_text()
+    assert published_nav.count("section: Recipes") == 1
+    assert "path: ./latest/pages/recipes/new-recipe.mdx" in published_nav
+    assert "path: ./v0.6.0/pages/recipes/released-recipe.mdx" not in published_nav
+    assert "path: ./v0.6.0/pages/concepts/released-concept.mdx" in published_nav
+    assert (published_root / "fern" / "versions" / "latest" / "pages" / "recipes" / "new-recipe.mdx").exists()
+    assert not (published_root / "fern" / "versions" / "latest" / "pages" / "recipes" / "old-recipe.mdx").exists()

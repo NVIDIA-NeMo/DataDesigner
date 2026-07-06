@@ -218,13 +218,6 @@ class DatasetBuilder:
         """First non-retryable error captured by the scheduler in the most recent run."""
         return self._first_non_retryable_error
 
-    def set_processor_runner(self, processors: list[Processor]) -> None:
-        """Replace the processor runner with a new one using the given processors."""
-        self._processor_runner = ProcessorRunner(
-            processors=processors,
-            artifact_storage=self.artifact_storage,
-        )
-
     @functools.cached_property
     def single_column_configs(self) -> list[ColumnConfigT]:
         configs = []
@@ -234,10 +227,6 @@ class DatasetBuilder:
             else:
                 configs.append(config)
         return configs
-
-    @functools.cached_property
-    def single_column_config_by_name(self) -> dict[str, ColumnConfigT]:
-        return {config.name: config for config in self.single_column_configs}
 
     def build(
         self,

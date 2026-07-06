@@ -9,6 +9,8 @@ on:
       - "fern/components/Authors.tsx"
       - "fern/components/BlogCard.tsx"
       - "fern/components/Figure.tsx"
+      - "fern/components/ImageExample.tsx"
+      - "fern/components/ImageExampleGallery.tsx"
       - "fern/components/MetricsTable.tsx"
       - "fern/components/TrajectoryViewer.tsx"
       - "fern/components/devnotes/**"
@@ -19,6 +21,7 @@ on:
       - "fern/styles/trajectory-viewer.css"
       - "fern/versions/latest.yml"
       - "fern/versions/latest/pages/devnotes/**"
+      - "fern/versions/latest/pages/recipes/**"
   workflow_dispatch:
 
 permissions: {}
