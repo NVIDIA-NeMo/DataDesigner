@@ -17,6 +17,7 @@ from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.engine.storage.artifact_storage import ResumeMode
+from data_designer.errors import DataDesignerError
 from data_designer.interface import DataDesigner
 from data_designer.logging import LOG_INDENT
 
@@ -110,6 +111,34 @@ class GenerationController:
             raise typer.Exit(code=1)
 
         print_success("Configuration is valid")
+
+    def run_check_models(self, config_source: str) -> None:
+        """Load config and probe every referenced model and MCP tool.
+
+        Complements ``run_validate``: validate covers internal readiness
+        (configuration well-formedness); this covers external readiness
+        (provider liveness).
+
+        Args:
+            config_source: Path to a config file or Python module.
+        """
+        config_builder = self._load_config(config_source)
+
+        print_header("Data Designer Check Models")
+        console.print(f"  Config: [bold]{config_source}[/bold]")
+        console.print()
+
+        try:
+            data_designer = DataDesigner()
+            data_designer.check_models(config_builder)
+        except DataDesignerError as e:
+            print_error(f"Model health check failed ({type(e).__name__}): {e}")
+            raise typer.Exit(code=1)
+        except Exception as e:
+            print_error(f"Model health check failed: {e}")
+            raise typer.Exit(code=1)
+
+        print_success("All models and tools responded successfully")
 
     def run_create(
         self,

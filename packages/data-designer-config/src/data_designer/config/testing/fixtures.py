@@ -32,6 +32,7 @@ def stub_data_designer_config_str() -> str:
 model_configs:
   - alias: my_own_code_model
     model: openai/meta/llama-3.3-70b-instruct
+    provider: openai
     inference_parameters:
       temperature:
         distribution_type: uniform

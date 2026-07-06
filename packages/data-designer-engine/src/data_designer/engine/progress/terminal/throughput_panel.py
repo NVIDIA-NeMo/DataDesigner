@@ -59,6 +59,9 @@ _PROGRESS_BAR_CHAR = "━"
 _NOW_RATE_HEADER = "now rec/s"
 _AVG_RATE_HEADER = "avg rec/s"
 
+_ACTIVE_STREAM_LOCK = Lock()
+_ACTIVE_STREAM_IDS: set[int] = set()
+
 
 _ProgressUpdate = tuple[int, int, int, int]
 
@@ -70,7 +73,7 @@ def _visible_len(text: str) -> int:
 def _fit_ansi(text: str, width: int) -> str:
     visible = _visible_len(text)
     if visible > width:
-        return _ANSI_RE.sub("", text)[:width]
+        return _ANSI_RE.sub("", text)[:width] + _RESET
     return text + (" " * (width - visible))
 
 
@@ -78,12 +81,12 @@ def _color(text: str, color: str) -> str:
     return f"{color}{text}{_RESET}"
 
 
-def _sanitize_label(label: str) -> str:
+def sanitize_terminal_text(label: str) -> str:
     return _CONTROL_RE.sub("", _ANSI_RE.sub("", label))
 
 
 def _fit_plain(text: str, width: int) -> str:
-    clean = _sanitize_label(text)
+    clean = sanitize_terminal_text(text)
     return clean[:width].ljust(width)
 
 
@@ -183,6 +186,7 @@ def _replace_visible_char(text: str, visible_index: int, replacement: str) -> st
 class _BarState:
     label: str
     total: int
+    initial_completed: int = 0
     completed: int = 0
     success: int = 0
     failed: int = 0
@@ -226,7 +230,7 @@ class _BarState:
 
     def average_rate(self, now: float) -> float:
         elapsed = max(now - self.start_time, 0.001)
-        return self.completed / elapsed if elapsed > 0 else 0.0
+        return max(0, self.completed - self.initial_completed) / elapsed if elapsed > 0 else 0.0
 
 
 @dataclass
@@ -261,7 +265,6 @@ class _ModelUsageState:
 class _FeedbackMarker:
     elapsed: float
     value: float
-    event_kind: str
 
 
 class TerminalThroughputPanel:
@@ -292,6 +295,7 @@ class TerminalThroughputPanel:
         self._lock = Lock()
         self._drawn_lines = 0
         self._active = False
+        self._owns_stream = False
         self._wrapped_handlers: list[tuple[logging.StreamHandler, object]] = []
         self._panel_height = max(_MIN_PANEL_HEIGHT, panel_height)
         self._start_time = time.perf_counter()
@@ -309,30 +313,60 @@ class TerminalThroughputPanel:
 
     def __enter__(self) -> TerminalThroughputPanel:
         terminal_size = shutil.get_terminal_size()
-        if (
+        can_activate = (
             self._is_tty
             and terminal_size.columns >= _MIN_TERMINAL_WIDTH
             and terminal_size.lines >= _MIN_TERMINAL_HEIGHT
-        ):
+        )
+        if can_activate:
+            with _ACTIVE_STREAM_LOCK:
+                stream_id = id(self._stream)
+                if stream_id in _ACTIVE_STREAM_IDS:
+                    return self
+                _ACTIVE_STREAM_IDS.add(stream_id)
+                self._owns_stream = True
             self._active = True
             self._start_time = time.perf_counter()
             self._last_redraw_time = 0.0
-            self._wrap_handlers()
-            self._write("\033[?25l")  # hide cursor
+            try:
+                self._wrap_handlers()
+                self._write("\033[?25l")  # hide cursor
+            except Exception:
+                self._active = False
+                self._release_stream()
+                raise
         return self
 
     def __exit__(self, *args: object) -> None:
-        if self._active:
-            self._write("\033[?25h")  # show cursor
-            self._unwrap_handlers()
-            self._active = False
-            self._drawn_lines = 0
+        try:
+            if self._active:
+                self._write("\033[?25h")  # show cursor
+                self._unwrap_handlers()
+                self._active = False
+                self._drawn_lines = 0
+        finally:
+            self._release_stream()
+
+    def _release_stream(self) -> None:
+        if not self._owns_stream:
+            return
+        with _ACTIVE_STREAM_LOCK:
+            _ACTIVE_STREAM_IDS.discard(id(self._stream))
+        self._owns_stream = False
 
     # -- public API --
 
-    def add_bar(self, key: str, label: str, total: int) -> None:
+    def add_bar(self, key: str, label: str, total: int, *, initial_completed: int = 0) -> None:
         with self._lock:
-            self._bars[key] = _BarState(label=_sanitize_label(label), total=total)
+            bounded_completed = min(max(0, initial_completed), total) if total > 0 else max(0, initial_completed)
+            self._bars[key] = _BarState(
+                label=sanitize_terminal_text(label),
+                total=total,
+                initial_completed=bounded_completed,
+                completed=bounded_completed,
+                success=bounded_completed,
+                last_completed=bounded_completed,
+            )
             if self._active:
                 self._redraw(force=True)
 
@@ -386,8 +420,8 @@ class TerminalThroughputPanel:
     ) -> None:
         with self._lock:
             now = time.perf_counter()
-            alias = _sanitize_label(model_alias) or "(unknown)"
-            name = _sanitize_label(model_name) or "(unknown)"
+            alias = sanitize_terminal_text(model_alias) or "(unknown)"
+            name = sanitize_terminal_text(model_name) or "(unknown)"
             if state := self._model_usage.get(alias):
                 state.record_usage(model_name=name, input_tokens=input_tokens, output_tokens=output_tokens)
             else:
@@ -402,14 +436,13 @@ class TerminalThroughputPanel:
             if self._active:
                 self._redraw_if_due(now, force=force)
 
-    def record_feedback_signal(self, *, event_kind: str, force: bool = False) -> None:
+    def record_feedback_signal(self, *, force: bool = False) -> None:
         with self._lock:
             now = time.perf_counter()
             self._feedback_markers.append(
                 _FeedbackMarker(
                     elapsed=max(now - self._start_time, 0.0),
                     value=max((bar.latest_rate for bar in self._bars.values()), default=0.0),
-                    event_kind=_sanitize_label(event_kind),
                 )
             )
             if len(self._feedback_markers) > _MAX_FEEDBACK_MARKERS:
@@ -457,7 +490,8 @@ class TerminalThroughputPanel:
     def _clear_bars(self) -> None:
         """Clear drawn panel lines from the terminal. Caller must hold the lock."""
         if self._drawn_lines > 0:
-            for _ in range(self._drawn_lines):
+            clear_count = min(self._drawn_lines, max(0, shutil.get_terminal_size().lines - 1))
+            for _ in range(clear_count):
                 self._write("\033[A\033[2K")
             self._write("\r\033[2K")
             self._drawn_lines = 0
@@ -468,6 +502,14 @@ class TerminalThroughputPanel:
 
     def _redraw(self, *, force: bool = False, now: float | None = None) -> None:
         """Redraw the chart panel. Caller must hold the lock."""
+        terminal_size = shutil.get_terminal_size()
+        if terminal_size.columns < _MIN_TERMINAL_WIDTH or terminal_size.lines < _MIN_TERMINAL_HEIGHT:
+            self._drawn_lines = 0
+            self._write("\033[?25h")
+            self._unwrap_handlers()
+            self._active = False
+            self._release_stream()
+            return
         if not force:
             current_time = time.perf_counter() if now is None else now
             if self._drawn_lines > 0 and current_time - self._last_redraw_time < _MIN_REDRAW_INTERVAL_SECONDS:
@@ -498,8 +540,21 @@ class TerminalThroughputPanel:
             chart_line_count = _CHART_LINE_COUNT
         else:
             chart_line_count = max(_MIN_CHART_LINE_COUNT, available_chart_lines)
-        minimum_legend_capacity = max(0, body_capacity - chart_line_count)
-        while len(legend_lines) < minimum_legend_capacity:
+        legend_capacity = max(0, body_capacity - chart_line_count)
+        if len(legend_lines) > legend_capacity:
+            kept_line_count = max(0, legend_capacity - 1)
+            visible_column_count = min(len(bars), max(0, kept_line_count - 1))
+            visible_model_count = min(len(model_usage), max(0, kept_line_count - len(bars) - 3))
+            hidden_parts = []
+            if hidden_columns := len(bars) - visible_column_count:
+                hidden_parts.append(f"+{hidden_columns} columns")
+            if hidden_models := len(model_usage) - visible_model_count:
+                hidden_parts.append(f"+{hidden_models} models")
+            visible_lines = legend_lines[:kept_line_count]
+            while visible_lines and not sanitize_terminal_text(visible_lines[-1]).strip():
+                visible_lines.pop()
+            legend_lines = [*visible_lines, f"{_MUTED}... {', '.join(hidden_parts)}{_RESET}"]
+        while len(legend_lines) < legend_capacity:
             legend_lines.append("")
 
         chart_height = chart_line_count - 1
@@ -681,7 +736,7 @@ class TerminalThroughputPanel:
         fixed_width_without_label_or_progress = (
             2 + (separator_count * _LEGEND_COLUMN_GAP) + done_width + (rate_width * 2) + status_width
         )
-        content_label_width = max(len("column"), *(len(_sanitize_label(bar.label)) for bar in bars))
+        content_label_width = max(len("column"), *(len(sanitize_terminal_text(bar.label)) for bar in bars))
         desired_label_width = max(_MIN_LEGEND_LABEL_WIDTH, content_label_width)
         available_width = inner_width - fixed_width_without_label_or_progress
 

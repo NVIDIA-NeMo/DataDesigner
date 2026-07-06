@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -9,10 +9,11 @@ from data_designer.config.column_configs import ExpressionColumnConfig, SamplerC
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType, UUIDSamplerParams
-from data_designer.config.seed_source import HuggingFaceSeedSource
+from data_designer.config.seed_source import FileContentsSeedSource, HuggingFaceSeedSource
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.resources.seed_reader import SeedReader
+from data_designer.engine.resources.seed_reader import FileContentsSeedReader, SeedReader, SeedReaderConfigError
+from data_designer.engine.secret_resolver import PlaintextResolver
 from data_designer.engine.validation import Violation, ViolationLevel, ViolationType
 
 
@@ -53,6 +54,35 @@ def test_errors_on_seed_column_collisions(resource_provider: ResourceProvider):
         compile_data_designer_config(builder.build(), resource_provider)
 
     assert "city" in str(excinfo)
+
+
+def test_seed_reader_config_errors_are_invalid_config_errors(resource_provider: ResourceProvider):
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    resource_provider.seed_reader = Mock(spec=SeedReader)
+    resource_provider.seed_reader.get_column_names.side_effect = SeedReaderConfigError("missing seed root")
+
+    with pytest.raises(InvalidConfigError, match="missing seed root") as excinfo:
+        compile_data_designer_config(builder.build(), resource_provider)
+
+    assert isinstance(excinfo.value.__cause__, SeedReaderConfigError)
+
+
+def test_compile_rejects_missing_fixed_schema_filesystem_seed_root(
+    stub_resource_provider: ResourceProvider,
+    tmp_path,
+):
+    missing_dir = tmp_path / "missing"
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(FileContentsSeedSource(path=str(missing_dir), file_pattern="*.txt"))
+    reader = FileContentsSeedReader()
+    reader.attach(builder.build().seed_config.source, PlaintextResolver())
+    stub_resource_provider.seed_reader = reader
+
+    with pytest.raises(InvalidConfigError, match="Seed source directory .* does not exist") as excinfo:
+        compile_data_designer_config(builder.build(), stub_resource_provider)
+
+    assert isinstance(excinfo.value.__cause__, SeedReaderConfigError)
 
 
 def test_validation_errors(resource_provider: ResourceProvider):

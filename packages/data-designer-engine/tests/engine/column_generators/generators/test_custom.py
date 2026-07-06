@@ -26,9 +26,10 @@ from data_designer.engine.column_generators.generators.custom import (
     _compute_bridge_timeout,
 )
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
-from data_designer.engine.context import current_generation_column, current_run_cancel_event
+from data_designer.engine.context import current_run_cancel_event
 from data_designer.engine.models.clients.errors import SyncClientUnavailableError
 from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, ModelTimeoutError
+from data_designer.engine.observability import RuntimeCorrelation, runtime_correlation_provider
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
@@ -124,23 +125,6 @@ def test_config_validation_non_callable() -> None:
         CustomColumnConfig(name="test", generator_function="not_a_function")
 
 
-def test_config_validation_allow_resize_allows_full_column_and_cell_by_cell() -> None:
-    """allow_resize=True is valid with full_column or cell_by_cell."""
-
-    @custom_column_generator()
-    def dummy_fn(row: dict) -> dict:
-        return row
-
-    for strategy in (GenerationStrategy.FULL_COLUMN, GenerationStrategy.CELL_BY_CELL):
-        config = CustomColumnConfig(
-            name="test",
-            generator_function=dummy_fn,
-            allow_resize=True,
-            generation_strategy=strategy,
-        )
-        assert config.allow_resize is True
-
-
 # Cell-by-cell generation tests
 
 
@@ -188,25 +172,8 @@ def test_side_effect_columns() -> None:
     assert result["secondary"] == 15
 
 
-# cell_by_cell allow_resize: dict | list[dict]
-
-
-def test_cell_by_cell_allow_resize_return_dict() -> None:
-    """With allow_resize, returning a single dict (1:1) works like normal cell-by-cell."""
-    config = CustomColumnConfig(
-        name="result",
-        generator_function=generator_with_required_columns,
-        generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        allow_resize=True,
-    )
-    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
-    result = generator.generate({"input": "hi"})
-    assert isinstance(result, dict)
-    assert result["result"] == "HI"
-
-
-def test_cell_by_cell_allow_resize_return_list_expand() -> None:
-    """With allow_resize, returning list[dict] expands one row into multiple."""
+def test_cell_by_cell_return_list_rejected() -> None:
+    """Cell-by-cell generators must return one dict per input row."""
 
     @custom_column_generator(required_columns=["x"])
     def expand(row: dict) -> list[dict]:
@@ -219,67 +186,9 @@ def test_cell_by_cell_allow_resize_return_list_expand() -> None:
         name="out",
         generator_function=expand,
         generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        allow_resize=True,
     )
     generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
-    result = generator.generate({"x": 10})
-    assert isinstance(result, list)
-    assert len(result) == 2
-    assert result[0] == {"x": 10, "out": 10}
-    assert result[1] == {"x": 10, "out": 20}
-
-
-def test_cell_by_cell_allow_resize_return_list_single() -> None:
-    """With allow_resize, returning [dict] (1:1 via list) is valid."""
-
-    @custom_column_generator(required_columns=["x"])
-    def one_row(row: dict) -> list[dict]:
-        return [{**row, "out": row["x"]}]
-
-    config = CustomColumnConfig(
-        name="out",
-        generator_function=one_row,
-        generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        allow_resize=True,
-    )
-    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
-    result = generator.generate({"x": 42})
-    assert result == [{"x": 42, "out": 42}]
-
-
-def test_cell_by_cell_allow_resize_return_empty_list() -> None:
-    """With allow_resize, returning [] drops that row (0 rows)."""
-
-    @custom_column_generator(required_columns=["x"])
-    def drop(row: dict) -> list[dict]:
-        return []
-
-    config = CustomColumnConfig(
-        name="out",
-        generator_function=drop,
-        generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        allow_resize=True,
-    )
-    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
-    result = generator.generate({"x": 1})
-    assert result == []
-
-
-def test_cell_by_cell_allow_resize_invalid_return_type() -> None:
-    """With allow_resize, return must be dict or list[dict]."""
-
-    @custom_column_generator(required_columns=["x"])
-    def bad_return(row: dict):
-        return [1, 2]
-
-    config = CustomColumnConfig(
-        name="out",
-        generator_function=bad_return,
-        generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        allow_resize=True,
-    )
-    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
-    with pytest.raises(CustomColumnGenerationError, match="list elements must be dicts"):
+    with pytest.raises(CustomColumnGenerationError, match="must return a dict, got list"):
         generator.generate({"x": 1})
 
 
@@ -571,25 +480,32 @@ def test_async_bridge_falls_back_to_agenerate_on_sync_client_error() -> None:
         engine_thread.join(timeout=5)
 
 
-def test_async_bridge_preserves_generation_column_context() -> None:
-    """Bridged sync custom generators should still attribute model usage to their column."""
+def test_async_bridge_propagates_runtime_correlation() -> None:
     facade = Mock()
     facade.generate.side_effect = SyncClientUnavailableError(
         "Sync methods are not available on an async-mode HttpModelClient."
     )
     facade.request_timeout = 60.0
+    correlation = RuntimeCorrelation(
+        run_id="run-a",
+        row_group=0,
+        task_column="intent_label",
+        task_type="cell",
+        scheduling_group_kind="model",
+        scheduling_group_identity_hash="hash",
+        task_execution_id="task-exec",
+    )
 
     async def fake_agenerate(*args: Any, **kwargs: Any) -> tuple:
-        assert current_generation_column.get() == "intent_label"
+        assert runtime_correlation_provider.current() == correlation
         return ("async_result", list(args), kwargs)
 
     facade.agenerate = fake_agenerate
     proxy = _AsyncBridgedModelFacade(facade)
-
     engine_loop = asyncio.new_event_loop()
     engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
     engine_thread.start()
-    column_token = current_generation_column.set("intent_label")
+    correlation_token = runtime_correlation_provider.set(correlation)
 
     try:
         with patch(
@@ -598,7 +514,7 @@ def test_async_bridge_preserves_generation_column_context() -> None:
         ):
             result = proxy.generate("hello", parser=str)
     finally:
-        current_generation_column.reset(column_token)
+        runtime_correlation_provider.reset(correlation_token)
         engine_loop.call_soon_threadsafe(engine_loop.stop)
         engine_thread.join(timeout=5)
 
@@ -626,6 +542,55 @@ def test_async_bridge_obeys_run_cancellation_before_scheduling() -> None:
         current_run_cancel_event.reset(cancel_token)
 
     facade.agenerate.assert_not_called()
+
+
+def test_async_bridge_cancels_in_flight_request() -> None:
+    facade = Mock()
+    facade.generate.side_effect = SyncClientUnavailableError(
+        "Sync methods are not available on an async-mode HttpModelClient."
+    )
+    facade.request_timeout = 60.0
+    started = threading.Event()
+    cancelled = threading.Event()
+
+    async def fake_agenerate(*_args: Any, **_kwargs: Any) -> tuple:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    facade.agenerate = fake_agenerate
+    proxy = _AsyncBridgedModelFacade(facade)
+    engine_loop = asyncio.new_event_loop()
+    engine_thread = threading.Thread(target=engine_loop.run_forever, daemon=True)
+    engine_thread.start()
+    cancel_event = threading.Event()
+    cancel_token = current_run_cancel_event.set(cancel_event)
+
+    def cancel_after_start() -> None:
+        assert started.wait(timeout=5)
+        cancel_event.set()
+
+    cancel_thread = threading.Thread(target=cancel_after_start)
+    cancel_thread.start()
+    try:
+        with (
+            patch(
+                "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
+                return_value=engine_loop,
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            proxy.generate("hello", parser=str)
+    finally:
+        current_run_cancel_event.reset(cancel_token)
+        cancel_thread.join(timeout=5)
+        engine_loop.call_soon_threadsafe(engine_loop.stop)
+        engine_thread.join(timeout=5)
+
+    assert cancelled.wait(timeout=5)
 
 
 def test_async_bridge_non_client_mode_errors_propagate() -> None:

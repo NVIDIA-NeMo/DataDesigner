@@ -90,9 +90,6 @@ class SingleColumnConfig(ConfigBase, ABC):
         name: Unique name of the column to be generated.
         drop: If True, the column will be generated but removed from the final dataset.
             Useful for intermediate columns that are dependencies for other columns.
-        allow_resize: If True, the generator may emit a different number of rows than
-            it received (1:N or N:1). Explicit ``skip`` gates are invalid on resize
-            columns, and upstream skip propagation is not applied to them.
         column_type: Discriminator field that identifies the specific column type.
             Subclasses must override this field to specify the column type with a `Literal` value.
         skip: Optional expression gate for conditional generation.
@@ -102,7 +99,6 @@ class SingleColumnConfig(ConfigBase, ABC):
 
     name: str
     drop: bool = False
-    allow_resize: bool = False
     column_type: str
     skip: SkipConfig | None = None
     propagate_skip: bool = Field(
@@ -121,12 +117,6 @@ class SingleColumnConfig(ConfigBase, ABC):
                     f"skip is not supported on {self.column_type} columns. "
                     "Sampler/seed columns are collapsed into shared multi-column generators "
                     "and cannot be skipped individually."
-                )
-            if self.allow_resize:
-                raise ValueError(
-                    "skip and allow_resize cannot be used together. "
-                    "allow_resize changes buffer size during generation (1:N / N:1), which "
-                    "breaks index-based skip tracking and merge-back."
                 )
             self_refs = {self.name} | set(self.side_effect_columns)
             if not self_refs.isdisjoint(self.skip.columns):

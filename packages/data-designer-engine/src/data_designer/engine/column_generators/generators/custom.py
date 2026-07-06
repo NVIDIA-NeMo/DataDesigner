@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import contextlib
 import inspect
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # derivation in ``_compute_bridge_timeout`` exceeds this floor.
 # Module-level so tests can patch it for fast feedback.
 _BRIDGE_TIMEOUT_FLOOR_S: float = 60.0
+_BRIDGE_CANCEL_POLL_S: float = 0.1
 
 
 def _compute_bridge_timeout(
@@ -51,12 +52,12 @@ def _compute_bridge_timeout(
 
 
 class _AsyncBridgedModelFacade:
-    """Proxy that bridges ``model.generate()`` to ``model.agenerate()`` in async engine mode.
+    """Proxy that bridges ``model.generate()`` to ``model.agenerate()``.
 
-    When a sync custom column runs inside ``asyncio.to_thread`` under the async engine,
-    the sync HTTP client is unavailable. This proxy intercepts the resulting
-    ``SyncClientUnavailableError`` and schedules ``agenerate()`` on the engine's persistent
-    event loop via ``run_coroutine_threadsafe``.
+    When a synchronous custom column runs inside ``asyncio.to_thread``, the sync
+    HTTP client is unavailable. This proxy intercepts the resulting
+    ``SyncClientUnavailableError`` and schedules ``agenerate()`` on the engine's
+    persistent event loop via ``run_coroutine_threadsafe``.
 
     All other attributes are forwarded to the underlying facade unchanged.
     """
@@ -83,15 +84,11 @@ class _AsyncBridgedModelFacade:
             pass  # No running loop - safe to bridge
         else:
             raise RuntimeError(
-                "model.generate() is not available in async engine mode from the event loop. "
+                "model.generate() is not available from the event loop. "
                 "Use 'await model.agenerate()' in async custom columns."
             )
 
-        from data_designer.engine.context import (
-            current_generation_column,
-            current_run_cancel_event,
-            is_run_cancellation_requested,
-        )
+        from data_designer.engine.context import is_run_cancellation_requested
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
 
         # Honor a per-call ``timeout=`` override (passed straight through to the
@@ -108,27 +105,13 @@ class _AsyncBridgedModelFacade:
         if is_run_cancellation_requested():
             raise asyncio.CancelledError
 
-        column = current_generation_column.get()
-        cancel_event = current_run_cancel_event.get()
-
-        async def agenerate_with_bridge_context() -> tuple[Any, list]:
-            column_token = current_generation_column.set(column)
-            cancel_token = current_run_cancel_event.set(cancel_event)
-            try:
-                if is_run_cancellation_requested():
-                    raise asyncio.CancelledError
-                return await facade.agenerate(*args, **kwargs)
-            finally:
-                # Cross-thread cancellation can close the coroutine from a
-                # different context after it has started. The task context is
-                # being discarded either way, so avoid an unraisable reset error.
-                with contextlib.suppress(ValueError):
-                    current_run_cancel_event.reset(cancel_token)
-                with contextlib.suppress(ValueError):
-                    current_generation_column.reset(column_token)
+        async def agenerate_with_cancellation_check() -> tuple[Any, list]:
+            if is_run_cancellation_requested():
+                raise asyncio.CancelledError
+            return await facade.agenerate(*args, **kwargs)
 
         loop = ensure_async_engine_loop()
-        coro = agenerate_with_bridge_context()
+        coro = agenerate_with_cancellation_check()
         try:
             future = asyncio.run_coroutine_threadsafe(coro, loop)
         except RuntimeError as exc:
@@ -136,19 +119,29 @@ class _AsyncBridgedModelFacade:
             if is_run_cancellation_requested() or "interpreter shutdown" in str(exc):
                 raise asyncio.CancelledError from exc
             raise
-        try:
-            return future.result(timeout=bridge_timeout)
-        except concurrent.futures.CancelledError as exc:
-            raise asyncio.CancelledError from exc
-        except concurrent.futures.TimeoutError as exc:
-            future.cancel()
-            # Demoted to debug: the raised ModelTimeoutError already surfaces
-            # the timeout at the scheduler with full context, and the request-admission
-            # degraded-provider WARN is the user-facing signal under sustained
-            # bridge timeouts. Per-event WARN was noise on top of those.
-            logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
-            # Raise as ModelTimeoutError so the scheduler classifies it retryable.
-            raise ModelTimeoutError(f"model.generate() bridge timed out after {bridge_timeout:.0f}s") from exc
+        deadline = time.monotonic() + bridge_timeout
+        while True:
+            if is_run_cancellation_requested():
+                future.cancel()
+                raise asyncio.CancelledError
+            try:
+                return future.result(timeout=max(0.0, min(_BRIDGE_CANCEL_POLL_S, deadline - time.monotonic())))
+            except concurrent.futures.CancelledError as exc:
+                raise asyncio.CancelledError from exc
+            except concurrent.futures.TimeoutError as exc:
+                if is_run_cancellation_requested():
+                    future.cancel()
+                    raise asyncio.CancelledError from exc
+                if time.monotonic() < deadline:
+                    continue
+                future.cancel()
+                # Demoted to debug: the raised ModelTimeoutError already surfaces
+                # the timeout at the scheduler with full context, and the request-admission
+                # degraded-provider WARN is the user-facing signal under sustained
+                # bridge timeouts. Per-event WARN was noise on top of those.
+                logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
+                # Raise as ModelTimeoutError so the scheduler classifies it retryable.
+                raise ModelTimeoutError(f"model.generate() bridge timed out after {bridge_timeout:.0f}s") from exc
 
     def __getattr__(self, name: str) -> Any:
         return getattr(object.__getattribute__(self, "_facade"), name)
@@ -190,13 +183,10 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
-        return self.config.generation_strategy
+        return GenerationStrategy(self.config.generation_strategy)
 
-    def generate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame | list[dict]:
-        """Generate column value(s) for a row (dict) or batch (DataFrame).
-
-        For cell_by_cell with allow_resize=True, may return dict or list[dict] (0, 1, or N rows).
-        """
+    def generate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
+        """Generate column value(s) for a row (dict) or batch (DataFrame)."""
         is_full_column = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
         is_dataframe = not isinstance(data, dict)
 
@@ -214,7 +204,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         return self._generate(data, is_dataframe)
 
-    async def agenerate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame | list[dict]:
+    async def agenerate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
         """Async generate — branches on strategy and detects coroutine functions."""
         is_full_column = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
         if is_full_column:
@@ -266,7 +256,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             models = self._build_models_dict()
             return await fn(data, self.config.generator_params, models)
 
-    def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame | list[dict]:
+    def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame:
         """Unified generation logic for both strategies."""
         get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
 
@@ -302,28 +292,11 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def _postprocess_result(
         self,
-        result: dict | pd.DataFrame | list[dict],
+        result: dict | pd.DataFrame,
         is_dataframe: bool,
         keys_before: set[str],
-    ) -> dict | pd.DataFrame | list[dict]:
+    ) -> dict | pd.DataFrame:
         """Validate type and output columns of a generation result."""
-        # Cell-by-cell with allow_resize: accept dict or list[dict]
-        if not is_dataframe and self.config.allow_resize:
-            if isinstance(result, dict):
-                return self._validate_output(result, keys_before, is_dataframe)
-            if isinstance(result, list):
-                if not all(isinstance(r, dict) for r in result):
-                    raise CustomColumnGenerationError(
-                        f"Custom generator for column '{self.config.name}' with allow_resize must return "
-                        "dict or list[dict]; list elements must be dicts."
-                    )
-                return [self._validate_cell_output(r, keys_before) for r in result]
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' with allow_resize must return "
-                f"dict or list[dict], got {type(result).__name__}"
-            )
-
-        # Validate return type for non-resize paths
         expected_type = lazy.pd.DataFrame if is_dataframe else dict
         type_name = "DataFrame" if is_dataframe else "dict"
         if not isinstance(result, expected_type):
@@ -333,38 +306,6 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             )
 
         return self._validate_output(result, keys_before, is_dataframe)
-
-    def _validate_cell_output(self, row: dict, keys_before: set[str]) -> dict:
-        """Validate a single row output (dict) for cell_by_cell; strip undeclared columns."""
-        expected_new = {self.config.name} | set(self.config.side_effect_columns)
-        result_keys = set(row.keys())
-
-        if self.config.name not in result_keys:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generator_function must add a column named '{self.config.name}' to the row."
-            )
-        missing = set(self.config.side_effect_columns) - result_keys
-        if missing:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create declared side_effect_columns: "
-                f"{sorted(missing)}. Declared side_effect_columns must be added to the row."
-            )
-        removed = keys_before - result_keys
-        if removed:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
-                f"{sorted(removed)}. The generator_function must not remove any existing columns."
-            )
-        undeclared = (result_keys - keys_before) - expected_new
-        if undeclared:
-            logger.warning(
-                f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
-                f"{sorted(undeclared)}. These columns will be removed. "
-                f"To keep additional columns, declare them in @custom_column_generator(side_effect_columns=[...])."
-            )
-            row = {k: v for k, v in row.items() if k not in undeclared}
-        return row
 
     def _validate_output(
         self, result: dict | pd.DataFrame, keys_before: set[str], is_dataframe: bool
@@ -462,5 +403,3 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             logger.info(f"{LOG_INDENT}model_aliases: {self.config.model_aliases}")
         if self.config.generator_params:
             logger.info(f"{LOG_INDENT}generator_params: {self.config.generator_params}")
-        if self.config.allow_resize:
-            logger.info(f"{LOG_INDENT}allow_resize: {self.config.allow_resize}")

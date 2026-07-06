@@ -16,7 +16,6 @@ from data_designer.config.utils.constants import (
     OPENROUTER_PROVIDER_NAME,
 )
 from data_designer.config.utils.media_helpers import is_image_diffusion_model
-from data_designer.engine.context import current_generation_column
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.types import (
@@ -867,18 +866,12 @@ class ModelFacade:
             token_usage=token_usage,
             request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
         )
-        if token_usage is not None:
-            correlation = runtime_correlation_provider.current()
-            column = current_generation_column.get()
-            if column is None and correlation is not None:
-                column = correlation.task_column
-            emit_token_usage_event(
-                TokenUsageEvent(
-                    model_alias=self.model_alias,
-                    model_name=self.model_name,
-                    input_tokens=token_usage.input_tokens,
-                    output_tokens=token_usage.output_tokens,
-                    column=column,
-                    correlation=correlation,
-                )
+        emit_token_usage_event(
+            TokenUsageEvent(
+                model_alias=self.model_alias,
+                model_name=self.model_name,
+                input_tokens=token_usage.input_tokens if token_usage is not None else 0,
+                output_tokens=token_usage.output_tokens if token_usage is not None else 0,
+                correlation=runtime_correlation_provider.current(),
             )
+        )

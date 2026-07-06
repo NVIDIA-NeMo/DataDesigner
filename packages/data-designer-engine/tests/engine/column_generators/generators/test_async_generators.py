@@ -353,8 +353,8 @@ async def test_custom_agenerate_async_missing_side_effect_column() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_custom_agenerate_async_allow_resize_invalid_list() -> None:
-    """Async custom generator with allow_resize rejects invalid non-dict list items."""
+async def test_custom_agenerate_async_rejects_list_return() -> None:
+    """Async cell-by-cell custom generators must return one dict per input row."""
 
     @custom_column_generator(required_columns=["x"])
     async def async_fn(row: dict) -> list:
@@ -363,10 +363,9 @@ async def test_custom_agenerate_async_allow_resize_invalid_list() -> None:
     config = CustomColumnConfig(
         name="out",
         generator_function=async_fn,
-        allow_resize=True,
     )
     gen = CustomColumnGenerator(config=config, resource_provider=_mock_provider())
-    with pytest.raises(CustomColumnGenerationError, match="list elements must be dicts"):
+    with pytest.raises(CustomColumnGenerationError, match="must return a dict, got list"):
         await gen.agenerate({"x": 1})
 
 

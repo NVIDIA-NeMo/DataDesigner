@@ -9,10 +9,6 @@ Model providers are external services that host and serve models. Data Designer 
 
 A `ModelProvider` defines how Data Designer connects to a provider's API endpoint. When you create a `ModelConfig`, you reference a provider by name, and Data Designer uses that provider's settings to make API calls to the appropriate endpoint.
 
-<Warning title="Deprecated: implicit default provider routing">
-  Earlier versions of Data Designer let you omit `provider=` on `ModelConfig` and fall back to a registry-level default — including the `default:` key in `~/.data-designer/model_providers.yaml`. That implicit routing is **deprecated** and will be removed in a future release. Always reference a provider by name on every `ModelConfig`. A `DeprecationWarning` is now emitted when the legacy path is exercised. See [issue #589](https://github.com/NVIDIA-NeMo/DataDesigner/issues/589).
-</Warning>
-
 ## ModelProvider Configuration
 
 The `ModelProvider` class has the following fields:

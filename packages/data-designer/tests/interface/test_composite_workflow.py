@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -20,7 +21,7 @@ from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTr
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import PlaintextResolver
-from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage, ResumeMode
 from data_designer.interface.composite_workflow import SkippedStageResult, SkippedStageStatus
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerWorkflowError
@@ -115,6 +116,19 @@ def _seeded_builder(model_configs: list[ModelConfig], rows: list[dict]) -> DataD
 
 def _load_workflow_metadata(artifact_path: Path, workflow_name: str) -> dict:
     return json.loads((artifact_path / workflow_name / "workflow-metadata.json").read_text())
+
+
+def _mark_stage_resumable(metadata: dict, index: int, status: str) -> None:
+    metadata["stages"][index]["status"] = status
+    for key in (
+        "num_records_actual",
+        "output_records",
+        "output_seed_path",
+        "callback_output_path",
+        "output_processor_output_path",
+        "duration_sec",
+    ):
+        metadata["stages"][index].pop(key, None)
 
 
 def test_dataset_creation_results_to_config_builder_columns(
@@ -429,6 +443,520 @@ def test_composite_workflow_clones_stage_builders_on_add(
 
     stage_builder = create_mock.call_args.args[0]
     assert [column.name for column in stage_builder.get_column_configs()] == ["category"]
+
+
+def test_composite_workflow_targets_materializes_requested_stage(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="target-chain")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=3)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ category_copy }}"))
+
+    results = workflow.run(targets="copy")
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+    assert list(results.keys()) == ["base", "copy"]
+    assert results.final_stage_name == "copy"
+    assert results.count_records() == 3
+    metadata = _load_workflow_metadata(stub_artifact_path, "target-chain")
+    assert [stage["name"] for stage in metadata["stages"]] == ["base", "copy"]
+
+
+def test_composite_workflow_rerun_from_forces_stage_and_descendants(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="rerun-from")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ category_copy }}"))
+    workflow.run()
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="rerun-from")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ category_copy }}"))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE, rerun_from="copy")
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-1-copy", "stage-2-final"]
+    assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.NEVER, ResumeMode.NEVER]
+
+
+def test_composite_workflow_rerun_from_requires_resume(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="rerun-from-no-resume")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+
+    with pytest.raises(DataDesignerWorkflowError, match="rerun_from requires resume"):
+        workflow.run(rerun_from="copy")
+
+    assert create_mock.call_count == 0
+
+
+def test_composite_workflow_stage_output_override_seeds_descendants(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage_1 = _seeded_builder(stub_model_configs, [{"name": "Ada"}, {"name": "Linus"}])
+    stage_1.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage_2 = _expression_builder(stub_model_configs, "final", "{{ persona }} {{ approval }}")
+
+    data_designer = _real_data_designer(tmp_path / "artifacts", stub_model_providers)
+    workflow = data_designer.compose_workflow(name="hitl-override")
+    workflow.add_stage("drafts", stage_1, num_records=2)
+    workflow.add_stage("expanded", stage_2)
+    draft_results = workflow.run(targets="drafts")
+    assert draft_results.count_records() == 2
+
+    approved_path = tmp_path / "approved.parquet"
+    lazy.pd.DataFrame([{"name": "Grace", "persona": "Grace", "approval": "approved"}]).to_parquet(
+        approved_path,
+        index=False,
+    )
+
+    resumed = data_designer.compose_workflow(name="hitl-override")
+    resumed.add_stage("drafts", stage_1, num_records=2)
+    resumed.add_stage("expanded", stage_2)
+    results = resumed.run(
+        resume=ResumeMode.IF_POSSIBLE,
+        stage_output_overrides={"drafts": approved_path},
+    )
+
+    assert results.get_stage_output_path("drafts") == approved_path.resolve()
+    assert results.load_dataset().to_dict(orient="records") == [
+        {"name": "Grace", "persona": "Grace", "approval": "approved", "final": "Grace approved"}
+    ]
+    metadata = _load_workflow_metadata(tmp_path / "artifacts", "hitl-override")
+    assert metadata["stages"][0]["stage_output_override_path"] == str(approved_path.resolve())
+    assert metadata["stages"][1]["seed_path"] == str(approved_path.resolve())
+
+
+def test_composite_workflow_stage_output_override_path_must_exist(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="missing-override")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+
+    with pytest.raises(DataDesignerWorkflowError, match="Invalid stage output override"):
+        workflow.run(targets="copy", stage_output_overrides={"base": stub_artifact_path / "missing.parquet"})
+
+    assert create_mock.call_count == 0
+
+
+def test_composite_workflow_resume_if_possible_skips_completed_stages(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-skip")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=3)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-skip")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=3)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    results = resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert create_mock.call_count == 0
+    assert results.count_records() == 3
+    assert results.load_dataset()["category"].tolist() == ["alpha", "alpha", "alpha"]
+
+
+def test_composite_workflow_resume_if_possible_skips_stage_with_output_processors(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada", "secret": "hidden"}])
+    stage.add_column(ExpressionColumnConfig(name="public_name", expr="{{ name }}"))
+
+    data_designer = _real_data_designer(tmp_path / "artifacts", stub_model_providers)
+    workflow = data_designer.compose_workflow(name="resume-output-processors")
+    workflow.add_stage(
+        "base",
+        stage,
+        num_records=1,
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ public_name }} final"))
+    first = workflow.run()
+    output_processor_dir = first["base"].artifact_storage.base_dataset_path
+    output_processor_dir_mtime = output_processor_dir.stat().st_mtime_ns
+    output_processor_file = first["base"].artifact_storage.final_dataset_path / "batch_00000.parquet"
+    output_processor_mtime = output_processor_file.stat().st_mtime_ns
+
+    resumed = data_designer.compose_workflow(name="resume-output-processors")
+    resumed.add_stage(
+        "base",
+        stage,
+        num_records=1,
+        output_processors=[DropColumnsProcessorConfig(name="drop_secret", column_names=["secret"])],
+    )
+    resumed.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ public_name }} final"))
+    results = resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert "secret" not in results["base"].load_dataset().columns
+    assert results.load_dataset().to_dict(orient="records") == [
+        {"name": "Ada", "public_name": "Ada", "final": "Ada final"}
+    ]
+    assert output_processor_dir.stat().st_mtime_ns == output_processor_dir_mtime
+    assert output_processor_file.stat().st_mtime_ns == output_processor_mtime
+
+
+def test_composite_workflow_resume_if_possible_uses_relative_metadata_paths_after_move(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    source_artifacts = tmp_path / "source" / "artifacts"
+    moved_artifacts = tmp_path / "moved" / "artifacts"
+    data_designer = _data_designer(source_artifacts, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-moved")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.run()
+    metadata = _load_workflow_metadata(source_artifacts, "resume-moved")
+    assert metadata["stages"][0]["output_seed_path"] == "stage-0-base/parquet-files"
+
+    shutil.copytree(source_artifacts, moved_artifacts)
+    moved_data_designer = _data_designer(moved_artifacts, stub_model_providers)
+    create_mock = _patch_create(moved_data_designer, stub_dataset_profiler_results)
+    resumed = moved_data_designer.compose_workflow(name="resume-moved")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    results = resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert create_mock.call_count == 0
+    assert results.count_records() == 2
+
+
+def test_composite_workflow_resume_if_possible_preserves_completed_empty_skip(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+
+    def empty_output(stage_path: Path) -> Path:
+        output_path = stage_path / "callback-outputs" / "empty"
+        output_path.mkdir(parents=True)
+        lazy.pd.DataFrame({"category": []}).to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = data_designer.compose_workflow(name="resume-empty")
+    workflow.add_stage(
+        "base",
+        _category_builder(stub_model_configs),
+        num_records=2,
+        on_success=empty_output,
+        on_success_version="empty",
+        allow_empty=True,
+    )
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-empty")
+    resumed.add_stage(
+        "base",
+        _category_builder(stub_model_configs),
+        num_records=2,
+        on_success=empty_output,
+        on_success_version="empty",
+        allow_empty=True,
+    )
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    results = resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert create_mock.call_count == 0
+    assert isinstance(results["copy"], SkippedStageResult)
+    assert results["copy"].upstream_stage == "base"
+
+
+def test_composite_workflow_resume_if_possible_reruns_changed_stage_only(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-changed")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    sentinel = stub_artifact_path / "resume-changed" / "stage-0-base" / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-changed")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _expression_builder(stub_model_configs, "category_copy", "{{ category }} v2"))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-1-copy"]
+    assert sentinel.exists()
+
+
+def test_composite_workflow_resume_if_possible_missing_callback_output_reruns_descendants(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+
+    def keep_first(stage_path: Path) -> Path:
+        df = lazy.pd.read_parquet(stage_path / "parquet-files")
+        output_path = stage_path / "callback-outputs" / "first-row"
+        output_path.mkdir(parents=True)
+        df.head(1).to_parquet(output_path / "data.parquet", index=False)
+        return output_path
+
+    workflow = data_designer.compose_workflow(name="resume-callback")
+    workflow.add_stage(
+        "base",
+        _category_builder(stub_model_configs),
+        num_records=3,
+        on_success=keep_first,
+        on_success_version="first-row",
+    )
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    callback_output = stub_artifact_path / "resume-callback" / "stage-0-base" / "callback-outputs" / "first-row"
+    for parquet_file in callback_output.glob("*.parquet"):
+        parquet_file.unlink()
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-callback")
+    resumed.add_stage(
+        "base",
+        _category_builder(stub_model_configs),
+        num_records=3,
+        on_success=keep_first,
+        on_success_version="first-row",
+    )
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+
+
+def test_composite_workflow_resume_if_possible_corrupt_metadata_starts_fresh(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-corrupt")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-corrupt" / "workflow-metadata.json"
+    metadata_path.write_text("{", encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-corrupt")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+
+
+@pytest.mark.parametrize("metadata_payload", [[], None, "oops"])
+def test_composite_workflow_resume_if_possible_invalid_metadata_shape_starts_fresh(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+    metadata_payload,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-invalid-shape")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-invalid-shape" / "workflow-metadata.json"
+    metadata_path.write_text(json.dumps(metadata_payload), encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-invalid-shape")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+
+
+@pytest.mark.parametrize("status", ["running", "failed"])
+def test_composite_workflow_resume_if_possible_delegates_matching_resumable_stage(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+    status: str,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-partial")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-partial" / "workflow-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    _mark_stage_resumable(metadata, 0, status)
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-partial")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _copy_builder(stub_model_configs))
+    resumed.run(resume=ResumeMode.IF_POSSIBLE)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+    assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.ALWAYS, ResumeMode.NEVER]
+
+
+def test_composite_workflow_resume_always_reruns_descendants_after_partial_stage(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-always-partial")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-always-partial" / "workflow-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    _mark_stage_resumable(metadata, 0, "running")
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-always-partial")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _expression_builder(stub_model_configs, "category_copy", "{{ category }} v2"))
+    resumed.run(resume=ResumeMode.ALWAYS)
+
+    assert [call.kwargs["dataset_name"] for call in create_mock.call_args_list] == ["stage-0-base", "stage-1-copy"]
+    assert [call.kwargs["resume"] for call in create_mock.call_args_list] == [ResumeMode.ALWAYS, ResumeMode.NEVER]
+
+
+def test_composite_workflow_resume_always_requires_metadata(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    workflow = data_designer.compose_workflow(name="resume-missing")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+
+    with pytest.raises(DataDesignerWorkflowError, match="no workflow metadata found"):
+        workflow.run(resume=ResumeMode.ALWAYS)
+
+
+def test_composite_workflow_resume_always_rejects_corrupt_metadata(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-corrupt-always")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-corrupt-always" / "workflow-metadata.json"
+    metadata_path.write_text("{", encoding="utf-8")
+
+    resumed = data_designer.compose_workflow(name="resume-corrupt-always")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    with pytest.raises(DataDesignerWorkflowError, match="workflow metadata is corrupt"):
+        resumed.run(resume=ResumeMode.ALWAYS)
+
+
+@pytest.mark.parametrize("metadata_payload", [[], None, "oops"])
+def test_composite_workflow_resume_always_rejects_invalid_metadata_shape(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+    metadata_payload,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-invalid-shape-always")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.run()
+    metadata_path = stub_artifact_path / "resume-invalid-shape-always" / "workflow-metadata.json"
+    metadata_path.write_text(json.dumps(metadata_payload), encoding="utf-8")
+
+    resumed = data_designer.compose_workflow(name="resume-invalid-shape-always")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    with pytest.raises(DataDesignerWorkflowError, match="workflow metadata has invalid shape"):
+        resumed.run(resume=ResumeMode.ALWAYS)
+
+
+def test_composite_workflow_resume_always_rejects_changed_stage(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+    stub_dataset_profiler_results,
+) -> None:
+    data_designer = _data_designer(stub_artifact_path, stub_model_providers)
+    create_mock = _patch_create(data_designer, stub_dataset_profiler_results)
+    workflow = data_designer.compose_workflow(name="resume-always")
+    workflow.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    workflow.add_stage("copy", _copy_builder(stub_model_configs))
+    workflow.run()
+    create_mock.reset_mock()
+
+    resumed = data_designer.compose_workflow(name="resume-always")
+    resumed.add_stage("base", _category_builder(stub_model_configs), num_records=2)
+    resumed.add_stage("copy", _expression_builder(stub_model_configs, "category_copy", "{{ category }} v2"))
+    with pytest.raises(DataDesignerWorkflowError, match="not reusable"):
+        resumed.run(resume=ResumeMode.ALWAYS)
+
+    assert create_mock.call_count == 0
 
 
 def test_composite_workflow_runs_three_real_async_stages(
@@ -806,6 +1334,29 @@ def test_composite_workflow_export_uses_selected_final_output(
     workflow.add_stage("compact", stage, num_records=2, output="processor:compact")
 
     output = workflow.run().export(tmp_path / "selected.jsonl")
+
+    assert [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()] == [
+        {"compact_name": "Ada"},
+        {"compact_name": "Linus"},
+    ]
+
+
+def test_composite_workflow_export_stage_uses_selected_stage_output(
+    tmp_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_model_configs: list[ModelConfig],
+) -> None:
+    stage = _seeded_builder(stub_model_configs, [{"name": "Ada"}, {"name": "Linus"}])
+    stage.add_column(ExpressionColumnConfig(name="persona", expr="{{ name }}"))
+    stage.add_processor(SchemaTransformProcessorConfig(name="compact", template={"compact_name": "{{ persona }}"}))
+
+    workflow = _real_data_designer(tmp_path / "artifacts", stub_model_providers).compose_workflow(
+        name="selected-stage-export"
+    )
+    workflow.add_stage("compact", stage, num_records=2, output="processor:compact")
+    workflow.add_stage("final", _expression_builder(stub_model_configs, "final", "{{ compact_name }} final"))
+
+    output = workflow.run().export_stage("compact", tmp_path / "compact.jsonl")
 
     assert [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()] == [
         {"compact_name": "Ada"},

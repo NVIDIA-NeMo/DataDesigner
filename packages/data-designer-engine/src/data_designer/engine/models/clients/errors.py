@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import calendar
 import email.utils
-import json
 import time
 from enum import Enum
 
@@ -24,6 +23,7 @@ class ProviderErrorKind(str, Enum):
     NOT_FOUND = "not_found"
     PERMISSION_DENIED = "permission_denied"
     RATE_LIMIT = "rate_limit"
+    REQUEST_ADMISSION_TIMEOUT = "request_admission_timeout"
     TIMEOUT = "timeout"
     UNPROCESSABLE_ENTITY = "unprocessable_entity"
     UNSUPPORTED_CAPABILITY = "unsupported_capability"
@@ -131,31 +131,6 @@ def map_http_error_to_provider_error(
         model_name=model_name,
         retry_after=retry_after,
     )
-
-
-def extract_message_from_exception_string(raw: str) -> str:
-    """Extract a human-readable message from a stringified provider exception.
-
-    Some providers format errors as ``"Error code: 400 - {json}"``.  This
-    mirrors the structured-key lookup in ``_extract_structured_message`` but
-    operates on a raw string instead of an ``HttpResponse``.
-    """
-    json_start = raw.find("{")
-    if json_start != -1:
-        try:
-            payload = json.loads(raw[json_start:])
-        except (json.JSONDecodeError, ValueError):
-            return raw
-        if isinstance(payload, dict):
-            for key in ("message", "error", "detail"):
-                value = payload.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-                if isinstance(value, dict):
-                    nested = value.get("message")
-                    if isinstance(nested, str) and nested.strip():
-                        return nested.strip()
-    return raw
 
 
 def _extract_response_text(response: HttpResponse) -> str:

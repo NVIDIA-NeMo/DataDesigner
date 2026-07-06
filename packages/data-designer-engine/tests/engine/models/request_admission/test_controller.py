@@ -25,7 +25,8 @@ from data_designer.engine.models.request_admission.resources import (
     RequestGroupSpec,
     RequestResourceKey,
 )
-from data_designer.engine.observability import InMemoryAdmissionEventSink, subscribe_request_admission_events
+from data_designer.engine.observability import subscribe_request_admission_events
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
 def _item(domain: RequestDomain = RequestDomain.CHAT, timeout: float | None = None) -> RequestAdmissionItem:

@@ -33,10 +33,11 @@ def test_run_config_accepts_display_tui() -> None:
 
 
 def test_run_config_progress_bar_shim_translates_to_display_tui() -> None:
-    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui") as caught:
         run_config = RunConfig(progress_bar=False)
 
     assert run_config.display_tui is False
+    assert caught[0].filename == __file__
 
 
 def test_run_config_progress_bar_property_getter_warns() -> None:

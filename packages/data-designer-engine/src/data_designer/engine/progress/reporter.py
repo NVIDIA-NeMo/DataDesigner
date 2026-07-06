@@ -6,15 +6,12 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
 from data_designer.engine.observability import RequestAdmissionEvent, subscribe_request_admission_events
+from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel, sanitize_terminal_text
 from data_designer.engine.progress.tracker import ProgressTracker
 from data_designer.logging import LOG_INDENT
-
-if TYPE_CHECKING:
-    from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +47,22 @@ class AsyncProgressReporter:
         self._unsubscribe_request_admission_events: Callable[[], None] | None = None
         if self._bar is not None:
             for col, tracker in trackers.items():
-                self._bar.add_bar(col, col, tracker.total_records)
+                self._bar.add_bar(
+                    col,
+                    tracker.label,
+                    tracker.total_records,
+                    initial_completed=tracker.completed,
+                )
             self._ensure_event_subscriptions()
 
-    def log_start(self, num_row_groups: int) -> None:
+    def log_start(self, num_row_groups: int, scheduled_records: int | None = None) -> None:
         self._ensure_event_subscriptions()
-        cols = ", ".join(self._trackers)
-        total = sum(t.total_records for t in self._trackers.values())
+        cols = ", ".join(sanitize_terminal_text(tracker.label) for tracker in self._trackers.values())
+        total = (
+            sum(max(0, tracker.total_records - tracker.completed) for tracker in self._trackers.values())
+            if scheduled_records is None
+            else scheduled_records * len(self._trackers)
+        )
         logger.info(
             "⚡️ Async generation: %d column(s) (%s), %d tasks across %d row group(s)",
             len(self._trackers),
@@ -158,7 +164,7 @@ class AsyncProgressReporter:
             and event.event_kind in FEEDBACK_MARKER_EVENTS
             and self._matches_run(event.captured_correlation)
         ):
-            self._bar.record_feedback_signal(event_kind=event.event_kind)
+            self._bar.record_feedback_signal()
 
     def _matches_run(self, correlation: object) -> bool:
         if self._run_id is None:
@@ -177,14 +183,14 @@ class AsyncProgressReporter:
 
         elapsed = time.perf_counter() - self._start_time
         logger.info("📊 Progress [%.1fs]:", elapsed)
-        for col, tracker in self._trackers.items():
+        for tracker in self._trackers.values():
             completed, total_records, _success, _failed, skipped, pct, rate, emoji = tracker.get_snapshot(elapsed)
             skipped_suffix = f", {skipped} skipped" if skipped else ""
             logger.info(
                 "%s%s %s: %d/%d (%.0f%%) %.1f rec/s%s",
                 LOG_INDENT,
                 emoji,
-                col,
+                sanitize_terminal_text(tracker.label),
                 completed,
                 total_records,
                 pct,

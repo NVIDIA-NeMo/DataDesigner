@@ -9,6 +9,9 @@ on:
       pr_number:
         description: "PR number to review"
         required: true
+      timeout_minutes:
+        description: "Review timeout in minutes. Defaults to AGENTIC_CI_TIMEOUT_MINUTES or 30."
+        required: false
 
 permissions:
   checks: write
@@ -27,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       allowed: ${{ steps.check.outputs.allowed }}
+      timeout_minutes: ${{ steps.timeout.outputs.minutes }}
     steps:
       - name: Check permissions
         id: check
@@ -83,12 +87,28 @@ jobs:
             echo "allowed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve review timeout
+        id: timeout
+        if: steps.check.outputs.allowed == 'true'
+        env:
+          INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+          CONFIG_TIMEOUT_MINUTES: ${{ vars.AGENTIC_CI_TIMEOUT_MINUTES }}
+        run: |
+          TIMEOUT_MINUTES="${INPUT_TIMEOUT_MINUTES:-${CONFIG_TIMEOUT_MINUTES:-30}}"
+          if ! [[ "$TIMEOUT_MINUTES" =~ ^[0-9]+$ ]] ||
+            (( TIMEOUT_MINUTES < 1 || TIMEOUT_MINUTES > 45 )); then
+            echo "::error::Review timeout must be an integer from 1 to 45 minutes."
+            exit 1
+          fi
+          echo "minutes=${TIMEOUT_MINUTES}" >> "$GITHUB_OUTPUT"
+
   review:
+    name: Agentic review (advisory)
     needs: gate
     if: needs.gate.outputs.allowed == 'true'
     runs-on: [self-hosted, agentic-ci]
     environment: agentic-ci
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - name: Determine PR number
         id: pr
@@ -137,7 +157,7 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
       - name: Checkout PR branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ steps.head.outputs.sha }}
           fetch-depth: 0
@@ -146,7 +166,7 @@ jobs:
       # with secrets in scope. Always read them from the base branch so a
       # fork PR cannot inject malicious instructions or code.
       - name: Checkout base branch agent files
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
           sparse-checkout: |
@@ -207,6 +227,8 @@ jobs:
           fi
 
       - name: Run PR review recipe
+        id: review
+        timeout-minutes: ${{ fromJSON(needs.gate.outputs.timeout_minutes) }}
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.AGENTIC_CI_API_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.AGENTIC_CI_API_KEY }}
@@ -233,10 +255,23 @@ jobs:
             --max-turns 30 \
             --output-format text \
             --verbose \
-            2>&1 | tee /tmp/claude-review-log.txt || true
+            2>&1 | tee /tmp/claude-review-log.txt
         continue-on-error: true
 
+      - name: Report incomplete review
+        if: steps.review.outcome != 'success'
+        env:
+          TIMEOUT_MINUTES: ${{ needs.gate.outputs.timeout_minutes }}
+        run: |
+          echo "::warning::Agentic review failed or exceeded the ${TIMEOUT_MINUTES}-minute limit."
+          {
+            echo "## Agentic review incomplete"
+            echo
+            echo "The advisory review failed or timed out. This does not block merging."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Post review comment
+        if: steps.review.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
@@ -248,7 +283,7 @@ jobs:
           fi
 
       - name: Remove agent-review label
-        if: github.event.action == 'labeled' && github.event.label.name == 'agent-review'
+        if: always() && github.event.action == 'labeled' && github.event.label.name == 'agent-review'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}

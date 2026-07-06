@@ -16,7 +16,7 @@ from threading import Event
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import GenerationStrategy
+from data_designer.config.column_configs import ExpressionColumnConfig, GenerationStrategy
 from data_designer.engine.capacity import (
     AsyncCapacityConfigured,
     AsyncCapacityObservedMaxima,
@@ -26,12 +26,22 @@ from data_designer.engine.capacity import (
     RequestAdmissionConfigSnapshot,
     RowGroupAdmission,
 )
-from data_designer.engine.context import current_generation_column, current_row_group, current_run_cancel_event
+from data_designer.engine.context import (
+    current_row_group,
+    current_row_group_start_offset,
+    current_run_cancel_event,
+)
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.row_group_plan import (
+    RowGroupInput,
+    RowGroupPlanLike,
+    normalize_row_group_plan,
+)
 from data_designer.engine.dataset_builders.scheduling.completion import CompletionTracker, FrontierDelta
 from data_designer.engine.dataset_builders.scheduling.queue import (
     FairTaskQueue,
+    QueueView,
 )
 from data_designer.engine.dataset_builders.scheduling.resolver import TaskSchedulingResolver
 from data_designer.engine.dataset_builders.scheduling.resources import (
@@ -54,7 +64,12 @@ from data_designer.engine.dataset_builders.utils.skip_tracker import (
 )
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError
-from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS, GenerationValidationFailureError
+from data_designer.engine.models.errors import (
+    RETRYABLE_MODEL_ERRORS,
+    GenerationValidationFailureError,
+    ModelRateLimitError,
+    ModelRequestAdmissionTimeoutError,
+)
 from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
 from data_designer.engine.models.request_admission.resources import RequestResourceKey
 from data_designer.engine.models.resources import ProviderModelKey, ProviderModelStaticCap
@@ -64,6 +79,7 @@ from data_designer.engine.observability import (
     SchedulerAdmissionEventSink,
     runtime_correlation_provider,
 )
+from data_designer.engine.processing.ginja.exceptions import UserTemplateError
 from data_designer.engine.progress.reporter import (
     DEFAULT_REPORT_INTERVAL,
     AsyncProgressReporter,
@@ -80,6 +96,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MODEL_GROUP_ADMISSION_BACKLOG_MULTIPLIER: int = 2
+RETRYABLE_RESALVAGE_BACKOFF_S: float = 0.05
+PRESERVED_RETRYABLE_WARNING_INTERVAL: int = 10
+PRESERVED_RETRYABLE_ERRORS: tuple[type[BaseException], ...] = (
+    ModelRateLimitError,
+    ModelRequestAdmissionTimeoutError,
+)
 
 # Degraded-provider WARN: emit at most one warning per interval when the
 # rolling fraction of retryable errors exceeds the threshold. Distinct from
@@ -141,7 +163,7 @@ class AsyncTaskScheduler:
         generators: dict[str, ColumnGenerator],
         graph: ExecutionGraph,
         tracker: CompletionTracker,
-        row_groups: list[tuple[int, int]],
+        row_groups: RowGroupInput,
         buffer_manager: RowGroupBufferManager | None = None,
         *,
         max_concurrent_row_groups: int = 3,
@@ -165,6 +187,7 @@ class AsyncTaskScheduler:
         display_tui: bool = False,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
         run_id: str | None = None,
+        initial_completed_records: int = 0,
         adaptive_row_group_admission: bool = False,
         adaptive_row_group_initial_target: int = 1,
         request_pressure_provider: RequestPressureSnapshotProvider | None = None,
@@ -173,7 +196,7 @@ class AsyncTaskScheduler:
         self._generators = generators
         self._graph = graph
         self._tracker = tracker
-        self._row_groups = row_groups
+        self._row_groups: RowGroupPlanLike = normalize_row_group_plan(row_groups)
         self._buffer_manager = buffer_manager
 
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
@@ -183,9 +206,13 @@ class AsyncTaskScheduler:
             model_group_limit_multiplier=MODEL_GROUP_ADMISSION_BACKLOG_MULTIPLIER,
             model_group_limit_cap=max_model_task_admission,
         )
+        task_resource_limits = {
+            "llm_wait": max_model_task_admission,
+            **self._task_scheduling.request_resource_limits,
+        }
         admission_config = task_admission_config or TaskAdmissionConfig(
             submission_capacity=max_in_flight_tasks,
-            resource_limits={"llm_wait": max_model_task_admission},
+            resource_limits=task_resource_limits,
             bounded_borrow=BoundedBorrowTaskAdmissionPolicyConfig(),
         )
         self._task_admission = TaskAdmissionController(admission_config)
@@ -201,6 +228,8 @@ class AsyncTaskScheduler:
         self._run_id = run_id or f"run-{uuid.uuid4().hex}"
         self._scheduler_event_sink = scheduler_event_sink
         self._scheduler_event_sequence = 0
+        if salvage_max_rounds < 1:
+            raise ValueError("salvage_max_rounds must be at least 1.")
         self._salvage_max_rounds = salvage_max_rounds
         self._on_finalize_row_group = on_finalize_row_group
         self._on_seeds_complete = on_seeds_complete
@@ -242,6 +271,9 @@ class AsyncTaskScheduler:
 
         # Deferred retryable failures (retried in salvage rounds)
         self._deferred: list[Task] = []
+        self._deferred_errors: dict[Task, Exception] = {}
+        self._preserved_retryable_counts: Counter[Task] = Counter()
+        self._preserved_retryable_log_state: dict[int, tuple[int, int]] = {}
 
         # Tracing
         self._trace = trace
@@ -276,14 +308,14 @@ class AsyncTaskScheduler:
         self._first_non_retryable_error: Exception | None = None
         self._fatal_worker_error: BaseException | None = None
         self._cancel_requested = Event()
+        self._run_loop: asyncio.AbstractEventLoop | None = None
 
-        # Pre-compute row-group sizes for O(1) lookup
-        self._rg_size_map: dict[int, int] = dict(row_groups)
         self._max_concurrent_row_groups = max_concurrent_row_groups
         self._max_in_flight_tasks = max_in_flight_tasks
-        self._max_model_task_admission = max_model_task_admission
         self._num_records = num_records
         self._buffer_size = buffer_size
+        self._scheduled_records = self._row_groups.scheduled_total_rows
+        self._initial_completed_records = initial_completed_records
         self._observed_max_row_groups_in_flight = 0
         self._observed_max_task_leases_by_resource: dict[str, int] = {}
         self._observed_max_queued_by_group: dict[str, int] = {}
@@ -333,6 +365,7 @@ class AsyncTaskScheduler:
                 total_records=task_counts[col],
                 label=f"column '{col}'",
                 quiet=True,
+                initial_completed=self._initial_completed_records,
             )
 
         if not trackers:
@@ -377,10 +410,15 @@ class AsyncTaskScheduler:
     def request_cancel(self) -> None:
         """Signal cancellation to scheduler tasks and bridged sync generator work."""
         self._cancel_requested.set()
+        if self._run_loop is not None:
+            with contextlib.suppress(RuntimeError):
+                self._run_loop.call_soon_threadsafe(self._wake_event.set)
 
     def _raise_if_fatal_worker_error(self) -> None:
         if self._fatal_worker_error is None:
             return
+        if isinstance(self._fatal_worker_error, UserTemplateError):
+            raise DatasetGenerationError(str(self._fatal_worker_error)) from self._fatal_worker_error
         raise DatasetGenerationError(
             "Unexpected internal task failure in async scheduler."
         ) from self._fatal_worker_error
@@ -476,6 +514,8 @@ class AsyncTaskScheduler:
             )
 
     def _emit_scheduler_health_snapshot(self, reason: str) -> None:
+        if self._scheduler_event_sink is None:
+            return
         self._emit_scheduler_event(
             "scheduler_health_snapshot",
             diagnostics=self._scheduler_health_diagnostics(reason=reason),
@@ -510,7 +550,6 @@ class AsyncTaskScheduler:
         }
 
     def _scheduler_job_diagnostics(self) -> dict[str, object]:
-        row_group_sizes = [size for _rg_id, size in self._row_groups]
         strategies = {column: self._graph.get_strategy(column).value for column in self._graph.columns}
         task_count_by_strategy = Counter(strategies.values())
         return {
@@ -518,9 +557,9 @@ class AsyncTaskScheduler:
             "num_records": self._num_records,
             "buffer_size": self._buffer_size,
             "row_group_count": len(self._row_groups),
-            "row_group_total_rows": sum(row_group_sizes),
-            "row_group_min_size": min(row_group_sizes, default=0),
-            "row_group_max_size": max(row_group_sizes, default=0),
+            "row_group_total_rows": self._row_groups.scheduled_total_rows,
+            "row_group_min_size": self._row_groups.row_group_min_size,
+            "row_group_max_size": self._row_groups.row_group_max_size,
             "graph_column_count": len(self._graph.columns),
             "graph_root_columns": tuple(self._graph.get_root_columns()),
             "graph_depth": len(self._graph.get_longest_dependency_chain()),
@@ -585,7 +624,11 @@ class AsyncTaskScheduler:
             },
         }
 
-    def _request_pressure_item_diagnostics(self, item: SchedulableTask) -> dict[str, object]:
+    def _request_pressure_item_diagnostics(
+        self,
+        item: SchedulableTask,
+        pressure_reason: str | None = None,
+    ) -> dict[str, object]:
         if item.request_resource_key is None or self._request_pressure_provider is None:
             return {"request_resource": None}
         snapshot = self._request_pressure_provider.snapshot(item.request_resource_key)
@@ -595,7 +638,7 @@ class AsyncTaskScheduler:
         )
         diagnostics: dict[str, object] = {
             "request_resource": _request_resource_label(item.request_resource_key),
-            "pressure_reason": self._request_pressure_reason(item),
+            "pressure_reason": pressure_reason if pressure_reason is not None else self._request_pressure_reason(item),
             "resource_snapshot": None,
             "provider_model_snapshot": None,
         }
@@ -630,9 +673,6 @@ class AsyncTaskScheduler:
         for task in delta.removed:
             self._discard_ready_task(task)
         self._enqueue_ready_tasks(delta.added)
-
-    def _enqueue_ready_task(self, task: Task) -> None:
-        self._enqueue_ready_tasks((task,))
 
     def _enqueue_ready_tasks(self, tasks: tuple[Task, ...]) -> None:
         schedulables: list[SchedulableTask] = []
@@ -690,12 +730,12 @@ class AsyncTaskScheduler:
             selection = self._fair_queue.select_next(self._is_dispatch_eligible)
             if selection is None:
                 summary = self._task_admission.explain_blocked(self._fair_queue.view())
-                if "group_cap" in summary.dominant_denial_reasons:
-                    event_kind = "group_capped"
-                elif summary.dominant_denial_reasons:
-                    event_kind = "admission_blocked"
-                else:
+                if summary.queued_count == 0:
                     event_kind = "queue_empty"
+                elif "group_cap" in summary.dominant_denial_reasons:
+                    event_kind = "group_capped"
+                else:
+                    event_kind = "admission_blocked"
                 self._emit_scheduler_event(
                     event_kind,
                     diagnostics={
@@ -738,7 +778,11 @@ class AsyncTaskScheduler:
             self._emit_scheduler_health_snapshot("queue_drained")
         return _DispatchOutcome(dispatched=dispatched)
 
-    def _is_dispatch_eligible(self, item: SchedulableTask, view: Any) -> bool:
+    def _is_dispatch_eligible(
+        self,
+        item: SchedulableTask,
+        view: QueueView,
+    ) -> bool:
         if not self._task_admission.is_eligible(item, view):
             return False
         if not self._request_pressure_advisory:
@@ -765,7 +809,10 @@ class AsyncTaskScheduler:
     def _is_request_pressure_limited(self, item: SchedulableTask) -> bool:
         return self._request_pressure_reason(item) is not None
 
-    def _request_pressure_reason(self, item: SchedulableTask) -> str | None:
+    def _request_pressure_reason(
+        self,
+        item: SchedulableTask,
+    ) -> str | None:
         if item.request_resource_key is None or self._request_pressure_provider is None:
             return None
         snapshot = self._request_pressure_provider.snapshot(item.request_resource_key)
@@ -773,11 +820,12 @@ class AsyncTaskScheduler:
             item.request_resource_key.provider_name,
             item.request_resource_key.model_id,
         )
-        if (
+        provider_model_limited = (
             global_snapshot is not None
             and global_snapshot.static_cap > 0
             and global_snapshot.aggregate_in_flight >= global_snapshot.static_cap
-        ):
+        )
+        if provider_model_limited:
             return "provider_model_aggregate_cap"
         if snapshot is None:
             return None
@@ -789,10 +837,11 @@ class AsyncTaskScheduler:
             return "resource_limit"
         return None
 
-    def _has_request_pressure_open_peer(self, item: SchedulableTask, view: Any) -> bool:
-        return self._request_pressure_open_peer(item, view) is not None
-
-    def _request_pressure_open_peer(self, item: SchedulableTask, view: Any) -> SchedulableTask | None:
+    def _request_pressure_open_peer(
+        self,
+        item: SchedulableTask,
+        view: QueueView,
+    ) -> SchedulableTask | None:
         for peer in view.first_candidate_tasks_by_group.values():
             if peer.task_id == item.task_id:
                 continue
@@ -838,8 +887,7 @@ class AsyncTaskScheduler:
     def _max_admitted_rows_guardrail(self) -> int:
         if self._num_records > 0 and self._buffer_size > 0:
             return min(self._num_records, max(3 * self._buffer_size, 8192))
-        total_rows = sum(size for _rg_id, size in self._row_groups)
-        return max(1, total_rows)
+        return max(1, self._row_groups.scheduled_total_rows)
 
     async def _wait_for_row_group_admission_capacity(self, row_group_size: int) -> None:
         while True:
@@ -927,9 +975,10 @@ class AsyncTaskScheduler:
             return "no_llm_wait_resource"
         llm_available = task_view.resources_available.get("llm_wait", 0)
         queued_llm = queue_view.queued_peer_demand_by_resource.get("llm_wait", 0)
+        llm_leased = task_view.leased_resources.get("llm_wait", 0)
         if llm_available <= 0:
             return "llm_wait_saturated"
-        if llm_available <= queued_llm and queue_view.queued_total > 0:
+        if llm_leased > 0 and llm_available <= queued_llm:
             return "queued_llm_demand"
         return None
 
@@ -954,7 +1003,12 @@ class AsyncTaskScheduler:
             "admitted_rows": admitted_rows,
             "max_admitted_rows": self._adaptive_max_admitted_rows,
             "queued_total": queue_view.queued_total,
+            "queued_demand_by_resource": dict(queue_view.queued_peer_demand_by_resource),
             "queued_llm_wait_demand": queue_view.queued_peer_demand_by_resource.get("llm_wait", 0),
+            "in_flight_tasks": len(self._in_flight),
+            "resource_limits": dict(task_view.resource_limits),
+            "leased_resources": dict(task_view.leased_resources),
+            "resources_available": dict(task_view.resources_available),
             "llm_wait_limit": task_view.resource_limits.get("llm_wait", 0),
             "llm_wait_leased": task_view.leased_resources.get("llm_wait", 0),
             "llm_wait_available": task_view.resources_available.get("llm_wait", 0),
@@ -1010,11 +1064,12 @@ class AsyncTaskScheduler:
         has_pre_batch = self._on_seeds_complete is not None
 
         num_rgs = len(self._row_groups)
+        self._run_loop = asyncio.get_running_loop()
 
         with self._progress_bar or contextlib.nullcontext():
             try:
                 if self._reporter:
-                    self._reporter.log_start(num_row_groups=num_rgs)
+                    self._reporter.log_start(num_row_groups=num_rgs, scheduled_records=self._scheduled_records)
 
                 self._emit_scheduler_event("scheduler_job_started", diagnostics=self._scheduler_job_diagnostics())
                 self._emit_scheduler_health_snapshot("start")
@@ -1063,6 +1118,7 @@ class AsyncTaskScheduler:
             finally:
                 if self._reporter:
                     self._reporter.close()
+                self._run_loop = None
 
     async def _main_dispatch_loop(
         self,
@@ -1072,20 +1128,29 @@ class AsyncTaskScheduler:
     ) -> None:
         """Core dispatch loop extracted from ``run()``."""
         while True:
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
             if self._early_shutdown:
                 logger.warning("Early shutdown triggered - non-retryable error rate exceeded threshold")
                 if self._deferred:
                     await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
                 self._checkpoint_completed_row_groups(all_columns)
+                if self._has_preserved_retryable_deferred_tasks():
+                    await self._wait_before_retryable_resalvage()
+                    continue
                 break
 
             self._wake_event.clear()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
 
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
 
             dispatch_outcome = self._dispatch_queued_tasks()
+            if dispatch_outcome.dispatched:
+                await asyncio.sleep(0)
 
             self._checkpoint_completed_row_groups(all_columns)
             self._maybe_update_adaptive_row_group_target()
@@ -1096,6 +1161,9 @@ class AsyncTaskScheduler:
             if self._deferred:
                 await self._salvage_stalled_row_groups(seed_cols, has_pre_batch, all_columns)
                 self._maybe_update_adaptive_row_group_target()
+                if self._deferred and not self._in_flight:
+                    await self._wait_before_retryable_resalvage()
+                    continue
 
             # Are we done?
             all_done = self._all_rgs_admitted and not self._rg_states and not self._in_flight
@@ -1162,10 +1230,14 @@ class AsyncTaskScheduler:
     async def _drain_frontier(self, seed_cols: tuple[str, ...], has_pre_batch: bool) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
             dispatch_outcome = self._dispatch_queued_tasks()
+            if dispatch_outcome.dispatched:
+                await asyncio.sleep(0)
             has_queued = self._fair_queue.has_queued_tasks
             if not has_queued and not self._in_flight:
                 break
@@ -1176,7 +1248,11 @@ class AsyncTaskScheduler:
             if not self._in_flight:
                 continue
             self._wake_event.clear()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             await self._wake_event.wait()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
 
     async def _salvage_stalled_row_groups(
@@ -1203,7 +1279,8 @@ class AsyncTaskScheduler:
         width = len(str(num_rgs))
         for rg_id in sorted(stalled_rgs):
             rg_deferred = [t for t in self._deferred if t.row_group == rg_id]
-            logger.info(f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Salvaging {len(rg_deferred)} deferred task(s)")
+            if not all(self._is_preserved_retryable_task(task) for task in rg_deferred):
+                logger.info(f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Salvaging {len(rg_deferred)} deferred task(s)")
 
         # Partition deferred into stalled (retry now) and other (keep for later).
         stalled_deferred = [t for t in self._deferred if t.row_group in stalled_rgs]
@@ -1215,6 +1292,8 @@ class AsyncTaskScheduler:
         exhausted = [t for t in self._deferred if t.row_group in stalled_rgs]
         newly_deferred = [t for t in self._deferred if t.row_group not in stalled_rgs]
         for task in exhausted:
+            if self._is_preserved_retryable_error(self._deferred_errors.get(task)):
+                continue
             # If the row was already dropped by an earlier task in this loop,
             # the skip was already counted; don't also record a failure.
             already_dropped = task.row_index is not None and self._tracker.is_dropped(task.row_group, task.row_index)
@@ -1225,8 +1304,73 @@ class AsyncTaskScheduler:
             else:
                 rg_size = self._get_rg_size(task.row_group)
                 self._drop_row_group(task.row_group, rg_size, exclude_columns={task.column})
+            self._deferred_errors.pop(task, None)
+            self._preserved_retryable_counts.pop(task, None)
+        preserved_exhausted = [
+            task for task in exhausted if self._is_preserved_retryable_error(self._deferred_errors.get(task))
+        ]
+        if preserved_exhausted:
+            self._record_preserved_retryables(preserved_exhausted, num_rgs, width)
+        self._deferred = other_deferred + newly_deferred + preserved_exhausted
         self._checkpoint_completed_row_groups(all_columns)
-        self._deferred = other_deferred + newly_deferred
+
+    async def _wait_before_retryable_resalvage(self) -> None:
+        """Pace repeated preserved retryable salvage cycles to avoid a hot loop."""
+        self._wake_event.clear()
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(self._wake_event.wait(), timeout=self._retryable_resalvage_delay_seconds())
+        self._raise_if_fatal_worker_error()
+
+    def _retryable_resalvage_delay_seconds(self) -> float:
+        if self._request_pressure_provider is None:
+            return RETRYABLE_RESALVAGE_BACKOFF_S
+
+        cooldowns = []
+        for task in self._deferred:
+            if not self._is_preserved_retryable_error(self._deferred_errors.get(task)):
+                continue
+            resource = self._schedulable_task(task).request_resource_key
+            if resource is None:
+                continue
+            snapshot = self._request_pressure_provider.snapshot(resource)
+            if snapshot is not None and snapshot.cooldown_remaining_seconds > 0.0:
+                cooldowns.append(snapshot.cooldown_remaining_seconds)
+        if not cooldowns:
+            return RETRYABLE_RESALVAGE_BACKOFF_S
+        return max(RETRYABLE_RESALVAGE_BACKOFF_S, min(cooldowns))
+
+    def _record_preserved_retryables(self, tasks: list[Task], num_rgs: int, width: int) -> None:
+        by_rg: defaultdict[int, list[Task]] = defaultdict(list)
+        for task in tasks:
+            self._preserved_retryable_counts[task] += 1
+            by_rg[task.row_group].append(task)
+
+        for rg_id, rg_tasks in sorted(by_rg.items()):
+            count = len(rg_tasks)
+            max_preservations = max(self._preserved_retryable_counts[task] for task in rg_tasks)
+            warning_bucket = max_preservations // PRESERVED_RETRYABLE_WARNING_INTERVAL
+            last_count, last_warning_bucket = self._preserved_retryable_log_state.get(rg_id, (-1, -1))
+
+            if max_preservations % PRESERVED_RETRYABLE_WARNING_INTERVAL == 0 and warning_bucket > last_warning_bucket:
+                logger.warning(
+                    f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Preserving {count} retryable task(s) after "
+                    f"{max_preservations} deferred salvage cycle(s); records will keep retrying."
+                )
+                self._preserved_retryable_log_state[rg_id] = (count, warning_bucket)
+            elif count != last_count:
+                logger.info(
+                    f"🔄 ({rg_id + 1:0{width}d}/{num_rgs}) Preserving {count} retryable task(s); "
+                    "records will keep retrying."
+                )
+                self._preserved_retryable_log_state[rg_id] = (count, last_warning_bucket)
+
+    def _is_preserved_retryable_task(self, task: Task) -> bool:
+        return self._preserved_retryable_counts.get(task, 0) > 0 and self._is_preserved_retryable_error(
+            self._deferred_errors.get(task)
+        )
+
+    def _has_preserved_retryable_deferred_tasks(self) -> bool:
+        return any(self._is_preserved_retryable_error(self._deferred_errors.get(task)) for task in self._deferred)
 
     def _checkpoint_completed_row_groups(self, all_columns: list[str]) -> None:
         """Checkpoint any row groups that reached completion."""
@@ -1287,6 +1431,21 @@ class AsyncTaskScheduler:
         if completed:
             checkpointed = {rg_id for rg_id, _ in completed}
             self._deferred = [t for t in self._deferred if t.row_group not in checkpointed]
+            self._deferred_errors = {
+                task: exc for task, exc in self._deferred_errors.items() if task.row_group not in checkpointed
+            }
+            self._preserved_retryable_counts = Counter(
+                {
+                    task: count
+                    for task, count in self._preserved_retryable_counts.items()
+                    if task.row_group not in checkpointed
+                }
+            )
+            self._preserved_retryable_log_state = {
+                row_group: state
+                for row_group, state in self._preserved_retryable_log_state.items()
+                if row_group not in checkpointed
+            }
             for rg_id in checkpointed:
                 self._drop_pending_ready_for_row_group(rg_id)
 
@@ -1438,7 +1597,7 @@ class AsyncTaskScheduler:
         seed_cols = self._seed_cols
         if not seed_cols:
             return
-        num_rgs = len(self._rg_size_map)
+        num_rgs = len(self._row_groups)
         width = len(str(num_rgs))
         logger.info(f"🚀 ({rg_id + 1:0{width}d}/{num_rgs}) Dispatching with {rg_size} records")
         seen_instances: set[int] = set()
@@ -1462,8 +1621,8 @@ class AsyncTaskScheduler:
         """Core task execution logic."""
         num_rgs = len(self._row_groups)
         token = current_row_group.set((task.row_group, num_rgs))
-        column_token = current_generation_column.set(task.column)
         cancel_token = current_run_cancel_event.set(self._cancel_requested)
+        start_offset_token = current_row_group_start_offset.set(self._get_rg_start_offset(task.row_group))
         group = lease.item.group
         identity_hash = hashlib.sha1("\0".join(group.key.identity).encode()).hexdigest()[:16]
         correlation_token = runtime_correlation_provider.set(
@@ -1482,7 +1641,7 @@ class AsyncTaskScheduler:
         finally:
             runtime_correlation_provider.reset(correlation_token)
             current_run_cancel_event.reset(cancel_token)
-            current_generation_column.reset(column_token)
+            current_row_group_start_offset.reset(start_offset_token)
             current_row_group.reset(token)
 
     async def _execute_task_inner_impl(self, task: Task, lease: TaskAdmissionLease, task_execution_id: str) -> None:
@@ -1573,8 +1732,22 @@ class AsyncTaskScheduler:
                 trace.status = "error"
                 trace.error = str(exc)
 
+            if self._is_fatal_expression_template_error(task, generator, exc):
+                logger.error(
+                    "Fatal expression failure on %s[rg=%s, row=%s]: %s",
+                    task.column,
+                    task.row_group,
+                    task.row_index,
+                    exc,
+                    exc_info=True,
+                )
+                self._fatal_worker_error = exc
+                self._wake_event.set()
+                raise
+
             if retryable:
                 self._deferred.append(task)
+                self._deferred_errors[task] = exc
                 self._emit_scheduler_event(
                     "retry_deferred", task=task, lease=lease, task_execution_id=task_execution_id
                 )
@@ -1630,6 +1803,9 @@ class AsyncTaskScheduler:
                 s.in_flight_count = max(0, s.in_flight_count - 1)
             if not retryable and not skipped:
                 self._dispatched.discard(task)
+            if not retryable:
+                self._deferred_errors.pop(task, None)
+                self._preserved_retryable_counts.pop(task, None)
             if stateful_lock_acquired:
                 self._stateful_locks[id(generator)].release()
             release_result = self._task_admission.release(lease)
@@ -1656,6 +1832,9 @@ class AsyncTaskScheduler:
         try:
             return await call
         except Exception as exc:
+            generator = self._generators[task.column]
+            if self._is_fatal_expression_template_error(task, generator, exc):
+                raise
             if self._is_retryable(exc) or self._is_expected_non_retryable(exc):
                 raise
             raise DatasetGenerationError(
@@ -1681,6 +1860,22 @@ class AsyncTaskScheduler:
             )
         return result
 
+    def _task_supports_row_drops(self, task: Task, generator: ColumnGenerator) -> bool:
+        # Root expression columns are scheduled as ``from_scratch`` even though
+        # they share the per-row drop / fatal-when-all-dropped contract with
+        # ``batch`` expression columns. Treat both task types as row-drop
+        # capable so the fatal-error path fires and partial drops don't blow
+        # away the whole row group.
+        return task.task_type in ("batch", "from_scratch") and isinstance(generator.config, ExpressionColumnConfig)
+
+    def _is_fatal_expression_template_error(
+        self,
+        task: Task,
+        generator: ColumnGenerator,
+        exc: BaseException,
+    ) -> bool:
+        return self._task_supports_row_drops(task, generator) and isinstance(exc, UserTemplateError)
+
     async def _run_from_scratch(self, task: Task, generator: ColumnGenerator) -> Any:
         """Execute a from_scratch task."""
         rg_size = self._get_rg_size(task.row_group)
@@ -1695,11 +1890,21 @@ class AsyncTaskScheduler:
             )
             result_operation = "From-scratch generator"
         else:
+            # Root expression columns are scheduled as ``from_scratch`` but must
+            # honor the per-row drop / fatal-when-all-dropped contract just like
+            # ``batch`` expression columns. Route them through the shared
+            # row-drop path so partial drops shrink the row group instead of
+            # failing the ``expected_rows=rg_size`` check, and all-dropped
+            # raises ``UserTemplateError`` instead of silently dropping the
+            # whole row group.
+            if self._task_supports_row_drops(task, generator):
+                return await self._run_full_column_from_scratch_with_row_drops(task, generator, rg_size)
+
             # Non-FromScratch generators dispatched as seeds (no upstream columns)
-            # operate on existing buffer rows — same contract as the sync engine's
-            # FULL_COLUMN path. Pass an ``rg_size``-row snapshot so the generator
-            # produces ``rg_size`` rows back, instead of an empty DataFrame which
-            # would yield zero values and fail ``update_batch``.
+            # operate on existing buffer rows. Pass an ``rg_size``-row snapshot
+            # so the generator produces ``rg_size`` rows back, instead of an
+            # empty DataFrame which would yield zero values and fail
+            # ``update_batch``.
             if self._buffer_manager is not None:
                 records = [self._buffer_manager.get_row(task.row_group, ri) for ri in range(rg_size)]
                 input_df = lazy.pd.DataFrame(records)
@@ -1725,6 +1930,65 @@ class AsyncTaskScheduler:
                 if col in result_df.columns:
                     values = result_df[col].tolist()
                     self._buffer_manager.update_batch(task.row_group, col, values)
+
+        return result_df
+
+    async def _run_full_column_from_scratch_with_row_drops(
+        self,
+        task: Task,
+        generator: ColumnGenerator,
+        rg_size: int,
+    ) -> Any:
+        """Execute a row-drop-capable seed task (root expression columns).
+
+        Mirrors ``_run_batch``'s expression handling but without the
+        ``pre_skipped`` evaluation that only applies once upstream columns
+        exist: root expressions have no upstream refs, so skip metadata can
+        never fire here.
+        """
+        if self._buffer_manager is not None:
+            pre_dropped: set[int] = {ri for ri in range(rg_size) if self._buffer_manager.is_dropped(task.row_group, ri)}
+            active_row_indices = [ri for ri in range(rg_size) if ri not in pre_dropped]
+            records = [self._buffer_manager.get_row(task.row_group, ri) for ri in active_row_indices]
+            input_df = lazy.pd.DataFrame(records, index=active_row_indices) if records else lazy.pd.DataFrame()
+        else:
+            pre_dropped = set()
+            active_row_indices = list(range(rg_size))
+            input_df = lazy.pd.DataFrame(index=range(rg_size))
+
+        if len(input_df) == 0:
+            return input_df
+
+        result_df = await self._run_generator_call(
+            task,
+            "full-column generation",
+            generator.agenerate(input_df),
+        )
+
+        result_df = self._require_expression_row_drop_result(
+            task,
+            result_df,
+            active_row_indices=active_row_indices,
+        )
+
+        if self._buffer_manager is not None:
+            write_cols = self._gen_instance_to_columns_including_side_effects.get(id(generator), [task.column])
+            result_by_row_index = self._batch_result_by_row_index(
+                result_df,
+                active_row_indices=active_row_indices,
+                supports_row_drops=True,
+            )
+            for ri in range(rg_size):
+                if ri in pre_dropped:
+                    continue
+                result_row = result_by_row_index.get(ri)
+                if result_row is None:
+                    self._drop_row(task.row_group, ri, exclude_columns={task.column})
+                    continue
+                if not self._buffer_manager.is_dropped(task.row_group, ri):
+                    for col in write_cols:
+                        if col in result_row:
+                            self._buffer_manager.update_cell(task.row_group, ri, col, result_row[col])
 
         return result_df
 
@@ -1793,6 +2057,7 @@ class AsyncTaskScheduler:
         if self._buffer_manager is not None:
             pre_dropped: set[int] = {ri for ri in range(rg_size) if self._buffer_manager.is_dropped(task.row_group, ri)}
             active_rows_data: list[dict] = []
+            active_row_indices: list[int] = []
 
             # Skip evaluation only applies to single-column configs.
             # Multi-column configs (sampler/seed) are rejected by the SkipConfig
@@ -1810,9 +2075,10 @@ class AsyncTaskScheduler:
                     continue
 
                 active_rows_data.append(record)
+                active_row_indices.append(ri)
 
             batch_df = (
-                lazy.pd.DataFrame(strip_skip_metadata_from_records(active_rows_data))
+                lazy.pd.DataFrame(strip_skip_metadata_from_records(active_rows_data), index=active_row_indices)
                 if active_rows_data
                 else lazy.pd.DataFrame()
             )
@@ -1820,6 +2086,7 @@ class AsyncTaskScheduler:
             batch_df = lazy.pd.DataFrame()
             pre_dropped = set()
             pre_skipped = set()
+            active_row_indices = []
 
         if len(batch_df) == 0:
             return batch_df
@@ -1830,33 +2097,92 @@ class AsyncTaskScheduler:
             "batch generation",
             generator.agenerate(batch_df),
         )
-        result_df = self._require_dataframe_result(
-            task,
-            "Batch generator",
-            result_df,
-            expected_rows=active_rows,
-        )
+        if self._task_supports_row_drops(task, generator):
+            result_df = self._require_expression_row_drop_result(
+                task,
+                result_df,
+                active_row_indices=active_row_indices,
+            )
+        else:
+            result_df = self._require_dataframe_result(
+                task,
+                "Batch generator",
+                result_df,
+                expected_rows=active_rows,
+            )
 
         # Merge result columns back to buffer (include side-effect columns)
         if self._buffer_manager is not None:
             write_cols = self._gen_instance_to_columns_including_side_effects.get(id(generator), [task.column])
-            result_idx = 0
+            result_by_row_index = self._batch_result_by_row_index(
+                result_df,
+                active_row_indices=active_row_indices,
+                supports_row_drops=self._task_supports_row_drops(task, generator),
+            )
             for ri in range(rg_size):
                 if ri in pre_dropped or ri in pre_skipped:
                     continue
+                result_row = result_by_row_index.get(ri)
+                if result_row is None:
+                    self._drop_row(task.row_group, ri, exclude_columns={task.column})
+                    continue
                 if not self._buffer_manager.is_dropped(task.row_group, ri):
                     for col in write_cols:
-                        if col in result_df.columns:
-                            self._buffer_manager.update_cell(task.row_group, ri, col, result_df.iloc[result_idx][col])
-                result_idx += 1
+                        if col in result_row:
+                            self._buffer_manager.update_cell(task.row_group, ri, col, result_row[col])
 
         return result_df
 
+    def _require_expression_row_drop_result(
+        self,
+        task: Task,
+        result: Any,
+        *,
+        active_row_indices: list[int],
+    ) -> Any:
+        result_df = self._require_dataframe_result(task, "Batch generator", result)
+        result_indexes = result_df.index.to_list()
+        if len(result_indexes) != len(set(result_indexes)):
+            raise DatasetGenerationError(
+                f"Batch generator for column '{task.column}' returned duplicate row indexes (rg={task.row_group})."
+            )
+        active_index_set = set(active_row_indices)
+        unexpected_indexes = set(result_indexes) - active_index_set
+        if unexpected_indexes:
+            raise DatasetGenerationError(
+                f"Batch generator for column '{task.column}' returned row indexes outside the active input rows "
+                f"(rg={task.row_group}): {sorted(unexpected_indexes)!r}."
+            )
+        if len(result_df) > len(active_row_indices):
+            raise DatasetGenerationError(
+                f"Batch generator for column '{task.column}' returned {len(result_df)} rows "
+                f"but at most {len(active_row_indices)} active rows were expected (rg={task.row_group})."
+            )
+        return result_df
+
+    @staticmethod
+    def _batch_result_by_row_index(
+        result_df: Any,
+        *,
+        active_row_indices: list[int],
+        supports_row_drops: bool,
+    ) -> dict[int, dict[str, Any]]:
+        result_records = result_df.to_dict(orient="records")
+        if supports_row_drops:
+            return dict(zip(result_df.index.to_list(), result_records, strict=True))
+        return dict(zip(active_row_indices, result_records, strict=True))
+
     def _get_rg_size(self, row_group: int) -> int:
         try:
-            return self._rg_size_map[row_group]
+            return self._row_groups.row_group_size(row_group)
         except KeyError:
             raise ValueError(f"Unknown row group: {row_group}") from None
+
+    def _get_rg_start_offset(self, row_group: int) -> int | None:
+        try:
+            return self._row_groups.row_group_start_offset(row_group)
+        except KeyError:
+            return None
 
     def task_admission_snapshot(self) -> object:
         """Return the current scheduler task-admission snapshot for diagnostics."""
@@ -1999,6 +2325,10 @@ class AsyncTaskScheduler:
     def _is_retryable(exc: BaseException) -> bool:
         """Classify whether an exception is retryable."""
         return isinstance(exc, RETRYABLE_MODEL_ERRORS)
+
+    @staticmethod
+    def _is_preserved_retryable_error(exc: BaseException | None) -> bool:
+        return isinstance(exc, PRESERVED_RETRYABLE_ERRORS)
 
     @staticmethod
     def _is_expected_non_retryable(exc: BaseException) -> bool:

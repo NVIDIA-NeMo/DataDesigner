@@ -76,6 +76,12 @@ app = typer.Typer(
                 "help": "Validate a Data Designer configuration",
                 "rich_help_panel": "Generation",
             },
+            "check-models": {
+                "module": f"{_CMD}.check_models",
+                "attr": "check_models_command",
+                "help": "Check that every referenced model and MCP tool is reachable",
+                "rich_help_panel": "Generation",
+            },
         }
     ),
     add_completion=False,

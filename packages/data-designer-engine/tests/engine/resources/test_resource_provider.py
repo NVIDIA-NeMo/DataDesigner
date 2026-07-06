@@ -5,11 +5,10 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
+from data_designer.config.mcp import LocalStdioMCPProvider, ToolConfig
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.resource_provider import (
     ResourceProvider,
-    _validate_tool_configs_against_providers,
     create_resource_provider,
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
@@ -57,48 +56,6 @@ def test_create_resource_provider_error_cases(test_case, expected_error, tmp_pat
 
 class TestToolConfigValidation:
     """Tests for ToolConfig validation against MCP providers."""
-
-    def test_valid_tool_config_with_existing_providers(self) -> None:
-        """Valid tool config passes when all providers exist."""
-        providers = [
-            MCPProvider(name="mcp-1", endpoint="http://localhost:8080/sse"),
-            LocalStdioMCPProvider(name="mcp-2", command="python", args=["-m", "server"]),
-        ]
-        tool_configs = [
-            ToolConfig(tool_alias="tools-1", providers=["mcp-1"]),
-            ToolConfig(tool_alias="tools-2", providers=["mcp-1", "mcp-2"]),
-        ]
-
-        # Should not raise
-        _validate_tool_configs_against_providers(tool_configs, providers)
-
-    def test_tool_config_with_missing_provider_raises_error(self) -> None:
-        """Tool config referencing non-existent provider raises ValueError."""
-        providers = [
-            MCPProvider(name="mcp-1", endpoint="http://localhost:8080/sse"),
-        ]
-        tool_configs = [
-            ToolConfig(tool_alias="search-tools", providers=["mcp-1", "nonexistent-mcp"]),
-        ]
-
-        with pytest.raises(ValueError, match="ToolConfig 'search-tools' references provider"):
-            _validate_tool_configs_against_providers(tool_configs, providers)
-
-    def test_tool_config_with_no_providers_available(self) -> None:
-        """Tool config fails when no MCP providers are configured."""
-        tool_configs = [
-            ToolConfig(tool_alias="search-tools", providers=["some-mcp"]),
-        ]
-
-        with pytest.raises(ValueError, match="not registered.*none configured"):
-            _validate_tool_configs_against_providers(tool_configs, [])
-
-    def test_empty_tool_configs_passes(self) -> None:
-        """Empty tool configs list passes validation."""
-        providers = [MCPProvider(name="mcp-1", endpoint="http://localhost:8080/sse")]
-
-        # Should not raise
-        _validate_tool_configs_against_providers([], providers)
 
     def test_tool_config_validation_happens_during_health_check(self, tmp_path: str) -> None:
         """Tool config validation is deferred to health checks."""

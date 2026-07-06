@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from data_designer.engine.context import current_generation_column
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
@@ -356,12 +355,9 @@ def test_completion_emits_token_usage_event(
         message=AssistantMessage(content="ok"),
         usage=Usage(input_tokens=10, output_tokens=8),
     )
-    token = current_generation_column.set("intent_label")
-
     try:
         stub_model_facade.completion([ChatMessage.as_user("hi")])
     finally:
-        current_generation_column.reset(token)
         unsubscribe()
 
     assert len(events) == 1
@@ -369,7 +365,6 @@ def test_completion_emits_token_usage_event(
     assert events[0].model_name == stub_model_facade.model_name
     assert events[0].input_tokens == 10
     assert events[0].output_tokens == 8
-    assert events[0].column == "intent_label"
 
 
 def test_completion_emits_token_usage_event_when_only_output_tokens_are_reported(
@@ -1459,13 +1454,19 @@ def test_generate_image_diffusion_tracks_image_usage(
 
     assert stub_model_facade.usage_stats.image_usage.total_images == 0
 
-    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
-        images = stub_model_facade.generate_image(prompt="test prompt", extra_body={"n": 3})
+    events: list[TokenUsageEvent] = []
+    unsubscribe = subscribe_token_usage(events.append)
+    try:
+        with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+            images = stub_model_facade.generate_image(prompt="test prompt", extra_body={"n": 3})
+    finally:
+        unsubscribe()
 
     assert len(images) == 3
     assert images == ["image1_base64", "image2_base64", "image3_base64"]
     assert stub_model_facade.usage_stats.image_usage.total_images == 3
     assert stub_model_facade.usage_stats.image_usage.has_usage is True
+    assert [(event.input_tokens, event.output_tokens) for event in events] == [(0, 0)]
 
 
 def test_generate_image_chat_completion_tracks_image_usage(

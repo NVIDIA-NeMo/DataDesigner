@@ -287,13 +287,21 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
 
     def build_config(self, form_data: dict[str, Any]) -> ModelConfig:
         """Build ModelConfig from form data."""
-        # Determine provider
         if "provider" in form_data:
             provider = form_data["provider"]
         elif len(self.available_providers) == 1:
             provider = self.available_providers[0]
+        elif self.available_providers:
+            raise ValueError(
+                "Cannot build ModelConfig: multiple providers are configured but none "
+                "was specified in form data. Specify provider explicitly."
+            )
         else:
-            provider = None
+            raise ValueError(
+                "Cannot build ModelConfig: no provider specified in form data and no "
+                "available providers configured. Add a provider first via "
+                "`data-designer config providers`."
+            )
 
         # Get generation type (from form data, used to determine which inference params to create)
         generation_type = form_data.get("generation_type", GenerationType.CHAT_COMPLETION)

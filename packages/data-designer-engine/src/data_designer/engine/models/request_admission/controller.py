@@ -636,17 +636,6 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         if state.in_flight == 0 and outcome.kind not in {"local_cancelled", "local_timeout"}:
             state.consecutive_rate_limits = 0
 
-    def _increment_waiter(self, item: RequestAdmissionItem) -> None:
-        with self._lock:
-            self._get_or_create_state(item.resource).waiters += 1
-            self._sequence += 1
-
-    def _decrement_waiter(self, item: RequestAdmissionItem) -> None:
-        with self._lock:
-            state = self._get_or_create_state(item.resource)
-            state.waiters = max(0, state.waiters - 1)
-            self._sequence += 1
-
     def _get_or_create_state(self, resource: RequestResourceKey) -> AdaptiveRequestLimitState:
         state = self._domains.get(resource)
         if state is None:

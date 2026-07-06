@@ -33,7 +33,6 @@ def test_get_model_aliases_state_reports_provider_status(tmp_path: Path) -> None
                     api_key="MISSING_PROVIDER_KEY",
                 ),
             ],
-            default="provider-a",
         )
     )
 
@@ -44,7 +43,7 @@ def test_get_model_aliases_state_reports_provider_status(tmp_path: Path) -> None
                 ModelConfig(
                     alias="alpha",
                     model="model-alpha",
-                    provider=None,
+                    provider="provider-a",
                     inference_parameters=ChatCompletionInferenceParams(),
                 ),
                 ModelConfig(
@@ -67,14 +66,12 @@ def test_get_model_aliases_state_reports_provider_status(tmp_path: Path) -> None
 
     assert payload["model_config_present"] is True
     assert payload["provider_config_present"] is True
-    assert payload["default_provider"] == "provider-a"
     assert payload["items"] == [
         {
             "model_alias": "alpha",
             "model": "model-alpha",
             "generation_type": "chat-completion",
-            "configured_provider": None,
-            "effective_provider": "provider-a",
+            "provider": "provider-a",
             "usable": True,
             "reason": None,
         },
@@ -82,8 +79,7 @@ def test_get_model_aliases_state_reports_provider_status(tmp_path: Path) -> None
             "model_alias": "beta",
             "model": "model-beta",
             "generation_type": "chat-completion",
-            "configured_provider": "provider-b",
-            "effective_provider": "provider-b",
+            "provider": "provider-b",
             "usable": False,
             "reason": "Provider 'provider-b' is missing an API key.",
         },
@@ -91,8 +87,7 @@ def test_get_model_aliases_state_reports_provider_status(tmp_path: Path) -> None
             "model_alias": "gamma",
             "model": "model-gamma",
             "generation_type": "chat-completion",
-            "configured_provider": "provider-missing",
-            "effective_provider": "provider-missing",
+            "provider": "provider-missing",
             "usable": False,
             "reason": "Provider 'provider-missing' is not configured.",
         },
@@ -105,7 +100,6 @@ def test_get_model_aliases_state_handles_missing_local_files(tmp_path: Path) -> 
     assert payload == {
         "model_config_present": False,
         "provider_config_present": False,
-        "default_provider": None,
         "items": [],
     }
 

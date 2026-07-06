@@ -69,8 +69,13 @@ def test_task_scheduling_resolver_maps_model_metadata_to_model_resource() -> Non
     assert schedulable.group.key.kind == "model"
     assert schedulable.group.weight == 3.0
     assert schedulable.group.admitted_limit == 6
-    assert schedulable.resource_request.amounts == {"submission": 1, "llm_wait": 1}
+    assert schedulable.resource_request.amounts == {
+        "submission": 1,
+        "llm_wait": 1,
+        "request:nvidia/nemotron": 1,
+    }
     assert schedulable.request_resource_key == RequestResourceKey("nvidia", "nemotron", RequestDomain.CHAT)
+    assert resolver.request_resource_limits == {"request:nvidia/nemotron": 3}
 
 
 def test_task_scheduling_resolver_records_safe_fallback_diagnostics() -> None:
@@ -127,6 +132,7 @@ def test_model_registry_generator_metadata_deduplicates_same_endpoint_aliases() 
     resolver = TaskSchedulingResolver({"answer": generator})  # type: ignore[arg-type]
     schedulable = resolver.schedulable_task(_task(), ("answer",))
     assert schedulable.request_resource_key == RequestResourceKey("nvidia", "endpoint", RequestDomain.CHAT)
+    assert resolver.request_resource_limits == {"request:nvidia/endpoint": 2}
 
 
 def test_model_registry_generator_metadata_uses_custom_model_for_multi_endpoint_aliases() -> None:

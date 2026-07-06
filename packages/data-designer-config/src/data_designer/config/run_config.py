@@ -12,6 +12,7 @@ from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.utils.type_helpers import StrEnum
+from data_designer.config.utils.warning_helpers import warn_at_caller
 
 
 class JinjaRenderingEngine(StrEnum):
@@ -132,9 +133,8 @@ class RunConfig(ConfigBase):
             early shutdown is enabled. Default is 0.5.
         shutdown_error_window: Minimum number of completed tasks before error rate
             monitoring begins. Must be >= 1. Default is 10.
-        buffer_size: Number of records to process in each batch during dataset generation.
-            A batch is processed end-to-end (column generation, post-batch processors, and writing the batch
-            to artifact storage) before moving on to the next batch. Must be > 0. Default is 1000.
+        buffer_size: Number of records in each row group during dataset generation.
+            Must be > 0. Default is 1000.
         max_in_flight_tasks: Maximum number of async scheduler tasks that may hold task
             leases at once. Tasks may be executing, awaiting I/O, or waiting on model
             request admission. Model API request concurrency is controlled separately by
@@ -146,8 +146,7 @@ class RunConfig(ConfigBase):
         max_conversation_correction_steps: Maximum number of correction rounds permitted within a
             single conversation when generation tasks call `ModelFacade.generate(...)`. Must be >= 0.
             Default is 0.
-        async_trace: If True, collect per-task tracing data when using the async engine
-            (DATA_DESIGNER_ASYNC_ENGINE=1). Has no effect on the sync path. Default is False.
+        async_trace: If True, collect per-task tracing data. Default is False.
         display_tui: If True, display the terminal throughput TUI instead of periodic
             log lines during generation. Requires a TTY; falls back to log lines in
             non-TTY environments. Default is True.
@@ -214,10 +213,9 @@ class RunConfig(ConfigBase):
         if "progress_bar" in normalized:
             progress_bar = normalized.pop("progress_bar")
             normalized.setdefault("display_tui", progress_bar)
-            warnings.warn(
+            warn_at_caller(
                 _PROGRESS_BAR_DEPRECATION_MESSAGE,
                 DeprecationWarning,
-                stacklevel=2,
             )
 
         if "throttle" in normalized:
@@ -232,10 +230,9 @@ class RunConfig(ConfigBase):
                     throttle if isinstance(throttle, ThrottleConfig) else ThrottleConfig.model_validate(throttle)
                 )
                 normalized["request_admission"] = throttle_config.to_request_admission_tuning()
-            warnings.warn(
+            warn_at_caller(
                 _THROTTLE_DEPRECATION_MESSAGE,
                 DeprecationWarning,
-                stacklevel=2,
             )
             return normalized
         return normalized

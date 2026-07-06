@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -8,7 +10,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from data_designer.cli.repositories.persona_repository import PersonaRepository
-from data_designer.cli.services.download_service import DownloadService
+from data_designer.cli.services.download_service import DownloadService, NgcConfigError
 
 
 @pytest.fixture
@@ -18,15 +20,28 @@ def persona_repository() -> PersonaRepository:
 
 
 @pytest.fixture
-def service(tmp_path: Path, persona_repository: PersonaRepository) -> DownloadService:
-    """Create a service instance for testing."""
-    return DownloadService(tmp_path, persona_repository)
+def ngc_config_path(tmp_path: Path) -> Path:
+    """Create a default NGC CLI config file for download tests."""
+    config_path = tmp_path / ".ngc" / "config"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.touch()
+    return config_path
 
 
 @pytest.fixture
-def service_with_datasets(tmp_path: Path, persona_repository: PersonaRepository) -> DownloadService:
+def service(tmp_path: Path, persona_repository: PersonaRepository, ngc_config_path: Path) -> DownloadService:
+    """Create a service instance for testing."""
+    return DownloadService(tmp_path, persona_repository, ngc_config_path=ngc_config_path)
+
+
+@pytest.fixture
+def service_with_datasets(
+    tmp_path: Path,
+    persona_repository: PersonaRepository,
+    ngc_config_path: Path,
+) -> DownloadService:
     """Create a service instance with existing datasets."""
-    service = DownloadService(tmp_path, persona_repository)
+    service = DownloadService(tmp_path, persona_repository, ngc_config_path=ngc_config_path)
     # Create managed assets directory with sample parquet files
     managed_assets_dir = tmp_path / "managed-assets" / "datasets"
     managed_assets_dir.mkdir(parents=True, exist_ok=True)
@@ -38,12 +53,13 @@ def service_with_datasets(tmp_path: Path, persona_repository: PersonaRepository)
     return service
 
 
-def test_init(tmp_path: Path, persona_repository: PersonaRepository) -> None:
+def test_init(tmp_path: Path, persona_repository: PersonaRepository, ngc_config_path: Path) -> None:
     """Test service initialization sets up paths correctly."""
-    service = DownloadService(tmp_path, persona_repository)
+    service = DownloadService(tmp_path, persona_repository, ngc_config_path=ngc_config_path)
     assert service.config_dir == tmp_path
     assert service.managed_assets_dir == tmp_path / "managed-assets" / "datasets"
     assert service.persona_repository is persona_repository
+    assert service.ngc_config_path == ngc_config_path
 
 
 def test_get_available_locales(service: DownloadService) -> None:
@@ -109,7 +125,6 @@ def test_download_persona_dataset_success(
     mock_subprocess: MagicMock,
     mock_glob: MagicMock,
     service: DownloadService,
-    tmp_path: Path,
 ) -> None:
     """Test successful persona dataset download."""
     # Setup mock temporary directory
@@ -137,8 +152,6 @@ def test_download_persona_dataset_success(
         "resource",
         "download-version",
         "nvidia/nemotron-personas/nemotron-personas-dataset-en_us",
-        "--org",
-        "nvidia",
         "--dest",
         temp_dir_path,
     ]
@@ -209,6 +222,23 @@ def test_download_persona_dataset_ngc_cli_error(
     # Should propagate the error
     with pytest.raises(subprocess.CalledProcessError):
         service.download_persona_dataset("en_US")
+
+
+@patch("data_designer.cli.services.download_service.subprocess.run")
+def test_download_persona_dataset_missing_ngc_config(
+    mock_subprocess: MagicMock,
+    tmp_path: Path,
+    persona_repository: PersonaRepository,
+) -> None:
+    """Test download fails early with instructions when the NGC config is missing."""
+    missing_config_path = tmp_path / ".ngc" / "config"
+    service = DownloadService(tmp_path, persona_repository, ngc_config_path=missing_config_path)
+
+    with pytest.raises(NgcConfigError, match="Run 'ngc config set'"):
+        service.download_persona_dataset("en_US")
+
+    mock_subprocess.assert_not_called()
+    assert not service.managed_assets_dir.exists()
 
 
 @patch("data_designer.cli.services.download_service.glob.glob")

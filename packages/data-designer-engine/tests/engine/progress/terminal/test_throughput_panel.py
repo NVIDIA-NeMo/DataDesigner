@@ -28,6 +28,7 @@ from data_designer.engine.progress.terminal.throughput_panel import (
     _RATE_SAMPLE_INTERVAL_SECONDS,
     TerminalThroughputPanel,
     _BarState,
+    _fit_ansi,
     _fit_series,
 )
 from data_designer.engine.progress.tracker import ProgressTracker
@@ -125,6 +126,29 @@ def test_short_terminal_falls_back_to_no_panel(tty_stream: FakeTTY) -> None:
     assert tty_stream.getvalue() == ""
 
 
+def test_only_one_panel_owns_a_stream(tty_stream: FakeTTY) -> None:
+    with TerminalThroughputPanel(stream=tty_stream) as outer:
+        with TerminalThroughputPanel(stream=tty_stream) as inner:
+            assert outer.is_active is True
+            assert inner.is_active is False
+        assert outer.is_active is True
+
+    assert tty_stream.getvalue().count(HIDE_CURSOR) == 1
+    assert tty_stream.getvalue().count(SHOW_CURSOR) == 1
+
+
+def test_active_panel_falls_back_when_terminal_shrinks(tty_stream: FakeTTY) -> None:
+    with TerminalThroughputPanel(stream=tty_stream) as bar:
+        bar.add_bar("a", "column 'a'", 100)
+        with patch.object(shutil, "get_terminal_size", return_value=os.terminal_size((20, 5))):
+            bar.update("a", completed=1, success=1, force=True)
+            assert bar.is_active is False
+            assert bar.drawn_lines == 0
+
+    assert tty_stream.getvalue().count(HIDE_CURSOR) == 1
+    assert tty_stream.getvalue().count(SHOW_CURSOR) == 1
+
+
 def test_renders_bounded_throughput_panel(tty_stream: FakeTTY) -> None:
     with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "column 'a'", 100)
@@ -203,14 +227,13 @@ def test_many_columns_and_models_flex_chart_to_fit_viewport(tty_stream: FakeTTY)
         panel = "\n".join(panel_lines)
         assert len(_chart_lines(panel_lines)) < _CHART_LINE_COUNT
         assert len(panel_lines) == 22
-        assert "more column(s)" not in panel
-        assert "more model(s)" not in panel
+        assert "... +" not in panel
         for index in range(4):
             assert f"column_{index}" in panel
             assert f"model_{index}" in panel
 
 
-def test_large_tables_keep_rows_after_chart_reaches_minimum(tty_stream: FakeTTY) -> None:
+def test_large_tables_are_truncated_after_chart_reaches_minimum(tty_stream: FakeTTY) -> None:
     with TerminalThroughputPanel(stream=tty_stream) as bar:
         for index in range(8):
             bar.add_bar(f"col_{index}", f"column_{index}", 100)
@@ -230,12 +253,31 @@ def test_large_tables_keep_rows_after_chart_reaches_minimum(tty_stream: FakeTTY)
         panel_lines = _last_panel_lines(tty_stream.getvalue())
         panel = "\n".join(panel_lines)
         assert len(_chart_lines(panel_lines)) == _MIN_CHART_LINE_COUNT
-        assert len(panel_lines) > 22
-        assert "more column(s)" not in panel
-        assert "more model(s)" not in panel
-        for index in range(8):
-            assert f"column_{index}" in panel
-            assert f"model_{index}" in panel
+        assert len(panel_lines) <= shutil.get_terminal_size().lines - 1
+        assert "... +5 models" in panel
+
+
+def test_overflow_summary_keeps_both_counts_at_minimum_width(tty_stream: FakeTTY) -> None:
+    with patch.object(shutil, "get_terminal_size", return_value=os.terminal_size((30, 10))):
+        with TerminalThroughputPanel(stream=tty_stream) as bar:
+            for index in range(8):
+                bar.add_bar(f"col_{index}", f"column_{index}", 100)
+            for index in range(20):
+                bar.record_model_usage(
+                    model_alias=f"model_{index}",
+                    model_name=f"provider/model-{index}",
+                    input_tokens=0,
+                    output_tokens=0,
+                    force=True,
+                )
+
+            panel_lines = _last_panel_lines(tty_stream.getvalue())
+            assert len(panel_lines) <= 9
+            assert "... +8 columns, +20 models" in "\n".join(panel_lines)
+
+
+def test_fit_ansi_closes_style_after_truncation() -> None:
+    assert _fit_ansi("\033[31mabcdef\033[0m", 3) == "abc\033[0m"
 
 
 def test_feedback_marker_reprojects_as_elapsed_time_grows(tty_stream: FakeTTY) -> None:
@@ -246,7 +288,7 @@ def test_feedback_marker_reprojects_as_elapsed_time_grows(tty_stream: FakeTTY) -
         state.latest_rate = 12.0
         bar._start_time = time.perf_counter() - 10.0  # noqa: SLF001
 
-        bar.record_feedback_signal(event_kind="request_rate_limited", force=True)
+        bar.record_feedback_signal(force=True)
         before_positions = _marker_positions(_last_panel_lines(tty_stream.getvalue()))
         assert before_positions
 
@@ -402,6 +444,37 @@ def test_remove_bar_redraws_panel(tty_stream: FakeTTY) -> None:
         assert "col_b" in panel
 
 
+def test_reporter_initializes_panel_from_resumed_progress() -> None:
+    tracker = ProgressTracker(total_records=100, label="column 'a'", quiet=True, initial_completed=90)
+    bar = TerminalThroughputPanel(stream=io.StringIO())
+    reporter = AsyncProgressReporter({"col_a": tracker}, progress_bar=bar)
+    try:
+        state = bar._bars["col_a"]  # noqa: SLF001
+        assert state.completed == 90
+        assert state.last_completed == 90
+
+        state.start_time = 0.0
+        state.last_sample_time = 0.0
+        state.record_update(completed=91, success=91, failed=0, skipped=0, now=2.0)
+        assert state.rates[-1] == 0.5
+        assert state.average_rate(2.0) == 0.5
+    finally:
+        reporter.close()
+
+
+def test_reporter_sanitizes_column_labels_in_logs(caplog: pytest.LogCaptureFixture) -> None:
+    unsafe = "evil\033]52;c;payload\007\ncolumn"
+    tracker = ProgressTracker(total_records=1, label=f"column '{unsafe}'", quiet=True)
+    reporter = AsyncProgressReporter({unsafe: tracker})
+
+    with caplog.at_level(logging.INFO):
+        reporter.log_start(num_row_groups=1)
+        reporter._emit()  # noqa: SLF001
+
+    assert caplog.records
+    assert all(record.getMessage().isprintable() for record in caplog.records)
+
+
 def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY) -> None:
     root_logger = logging.getLogger()
     old_level = root_logger.level
@@ -422,8 +495,7 @@ def test_reporter_updates_and_logs_keep_drawn_lines_in_sync(tty_stream: FakeTTY)
             reporter = AsyncProgressReporter(trackers, report_interval=0.1, progress_bar=bar)
             reporter.log_start(num_row_groups=1)
             panel = "\n".join(_last_panel_lines(tty_stream.getvalue()))
-            assert "col_a" in panel
-            assert "column 'a'" not in panel
+            assert "column 'a'" in panel
 
             emit_token_usage_event(
                 TokenUsageEvent(

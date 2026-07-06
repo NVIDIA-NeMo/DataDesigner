@@ -20,7 +20,6 @@ class TokenUsageEvent:
     model_name: str
     input_tokens: int
     output_tokens: int
-    column: str | None = None
     correlation: RuntimeCorrelation | None = None
 
 

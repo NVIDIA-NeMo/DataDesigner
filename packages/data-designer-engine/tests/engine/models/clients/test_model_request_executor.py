@@ -21,9 +21,14 @@ from data_designer.engine.models.clients.types import (
     ImageGenerationResponse,
     ImagePayload,
 )
-from data_designer.engine.models.request_admission.controller import AdaptiveRequestAdmissionController
-from data_designer.engine.models.request_admission.resources import RequestDomain
-from data_designer.engine.observability import InMemoryAdmissionEventSink
+from data_designer.engine.models.request_admission.config import RequestAdmissionConfig
+from data_designer.engine.models.request_admission.controller import (
+    AdaptiveRequestAdmissionController,
+    RequestAdmissionDenied,
+    RequestAdmissionError,
+)
+from data_designer.engine.models.request_admission.resources import RequestAdmissionItem, RequestDomain
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
 class _Client:
@@ -135,6 +140,16 @@ class _FlakyClient(_Client):
         return ChatCompletionResponse(AssistantMessage(content="ok"))
 
 
+class _DenyingAdmissionController:
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        self.acquire_sync_calls = 0
+
+    def acquire_sync(self, item: RequestAdmissionItem) -> object:
+        self.acquire_sync_calls += 1
+        raise RequestAdmissionError(RequestAdmissionDenied(item=item, reason=self.reason))
+
+
 def _executor() -> tuple[ModelRequestExecutor, AdaptiveRequestAdmissionController, _Client]:
     controller = AdaptiveRequestAdmissionController()
     controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
@@ -217,6 +232,34 @@ def test_model_request_executor_does_not_retry_provider_timeout_without_status()
     assert client.calls == 1
 
 
+def test_model_request_executor_classifies_sync_request_admission_queue_timeout() -> None:
+    controller = AdaptiveRequestAdmissionController(RequestAdmissionConfig(default_queue_wait_timeout_seconds=0.0))
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    executor = ModelRequestExecutor(_Client(), controller, "nvidia", "nemotron")
+
+    with pytest.raises(ProviderError) as exc_info:
+        executor.completion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    assert exc_info.value.kind == ProviderErrorKind.REQUEST_ADMISSION_TIMEOUT
+
+
+def test_model_request_executor_does_not_retry_non_queue_request_admission_errors() -> None:
+    controller = _DenyingAdmissionController("hard_policy_denial")
+    executor = ModelRequestExecutor(
+        _Client(),
+        controller,
+        "nvidia",
+        "nemotron",
+        retry_config=RetryConfig(max_retries=2, backoff_factor=0.0),
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        executor.completion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    assert exc_info.value.kind == ProviderErrorKind.TIMEOUT
+    assert controller.acquire_sync_calls == 1
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_model_request_executor_retries_async_provider_503_with_fresh_leases() -> None:
     sink = InMemoryAdmissionEventSink()
@@ -241,6 +284,18 @@ async def test_model_request_executor_retries_async_provider_503_with_fresh_leas
     assert len(acquired) == 2
     assert len(released) == 2
     assert {event.request_lease_id for event in acquired} == {event.request_lease_id for event in released}
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_model_request_executor_classifies_async_request_admission_queue_timeout() -> None:
+    controller = AdaptiveRequestAdmissionController(RequestAdmissionConfig(default_queue_wait_timeout_seconds=0.0))
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    executor = ModelRequestExecutor(_Client(), controller, "nvidia", "nemotron")
+
+    with pytest.raises(ProviderError) as exc_info:
+        await executor.acompletion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    assert exc_info.value.kind == ProviderErrorKind.REQUEST_ADMISSION_TIMEOUT
 
 
 @pytest.mark.asyncio(loop_scope="session")

@@ -1,16 +1,15 @@
 # Fern Docs
 
-This folder is the Fern Docs build for NeMo Data Designer. The site currently deploys to **`datadesigner.docs.buildwithfern.com/nemo/datadesigner`**; [`docs.yml`](docs.yml) also declares the future `docs.nvidia.com/nemo/datadesigner` custom domain.
+This folder is the Fern Docs build for NeMo Data Designer. The site deploys to **`docs.nvidia.com/nemo/datadesigner`**.
 
-## Migration phase
+## Current state
 
-Data Designer is moving from MkDocs to Fern over several releases. During that transition:
+Data Designer docs are Fern-first:
 
-- Keep the MkDocs build and release archive working.
-- Keep Fern working in parallel for local checks and hosted validation.
-- Treat `docs/` as the docs source of truth unless a page has already been intentionally moved to Fern-only MDX.
+- Edit docs prose under `fern/`.
 - Treat `docs/notebook_source/*.py` as the notebook source of truth.
 - Keep generated Fern notebook artifacts gitignored.
+- Keep the legacy MkDocs `gh-pages` archive frozen for releases `0.5.7` and older.
 
 ## Prerequisites
 
@@ -44,18 +43,19 @@ make serve-fern-docs-locally
 ```
 
 `serve-fern-docs-locally` generates notebook artifacts before starting `fern docs dev`. It does not publish.
+It uses the real NVIDIA global theme when Fern auth can access it. Without that access, it serves from a temporary local preview config with a close NVIDIA-style fallback.
 
 ## CI and publishing
 
-Fern publishing runs alongside MkDocs during migration:
+Fern publishing uses the dedicated Fern workflows:
 
 - `.github/workflows/build-fern-docs.yml` runs on release publication or manual dispatch. It snapshots release docs into the CI-managed `docs-website` branch, builds executed notebooks from the release source, runs `make check-fern-docs` from `docs-website`, and publishes Fern.
 - `.github/workflows/publish-fern-devnotes.yml` runs on `main` when Dev Notes or Fern Dev Notes assets change, plus manual dispatch. It patches only Dev Notes into the `docs-website` branch's current latest docs, reuses the last docs notebook artifact, runs `make check-fern-docs`, and publishes Fern.
-- `.github/workflows/docs-preview.yml` remains the PR preview workflow and posts both MkDocs and Fern preview links for same-repository PRs. It converts tutorial sources without execution outputs for preview builds. Fork PRs still run docs build/checks, but skip hosted previews because those require deployment secrets.
+- `.github/workflows/docs-preview.yml` posts Fern preview links for same-repository PRs. Fork PRs still run docs checks, but skip hosted previews because those require deployment secrets.
 
 These workflows require the org-level `DOCS_FERN_TOKEN` secret. The workflows expose it to the Fern CLI as `FERN_TOKEN`.
 
-Fern release snapshots live on `docs-website`, not on `main`. This mirrors the MkDocs `gh-pages` model without mixing Fern source state into the MkDocs output branch. The branch stores a source snapshot, not only `fern/`, because `make check-fern-docs` needs the Python packages and workspace metadata. Pushes to `docs-website` use `GITHUB_TOKEN`, so publishing happens inline in the same workflow instead of relying on a second workflow trigger.
+Fern release snapshots live on `docs-website`, not on `main`. The branch stores a source snapshot, not only `fern/`, because `make check-fern-docs` needs the Python packages and workspace metadata. Pushes to `docs-website` use `GITHUB_TOKEN`, so publishing happens inline in the same workflow instead of relying on a second workflow trigger.
 
 The `docs-website` branch is an orphan-style publish branch. Published commits include `fern/publish-metadata.json` with the source repository, ref, SHA, release tag when applicable, and published branch.
 
@@ -93,26 +93,25 @@ Each frozen `vX.Y.Z.yml` nav on `docs-website` must point only at that version's
 
 Normal GitHub releases do not need a dedicated pre-release Fern PR. The release workflow snapshots the release into `docs-website` and publishes from that branch.
 
-Dev Notes publishing mirrors MkDocs: it patches only the Dev Notes nav and pages from `main` into the current latest docs on `docs-website`, then republishes Fern.
+Dev Notes publishing patches only the Dev Notes nav and pages from `main` into the current latest docs on `docs-website`, then republishes Fern.
 
 ## Folder layout
 
 ```
 fern/
 ├── README.md                  ← this file
-├── docs.yml                   ← title, colors, versions:, redirects, custom domain
+├── docs.yml                   ← global-theme, versions:, redirects, custom domain
 ├── fern.config.json           ← organization, fern-api version pin
-├── main.css                   ← bundled NVIDIA theme CSS
-├── assets/                    ← logos, favicon, recipe assets, devnote post images
-├── images/                    ← /images/* references from MDX (mirror of docs/images)
-├── styles/                    ← component-level CSS (notebook-viewer, authors, metrics-table, …)
+├── assets/                    ← recipe assets, devnote post images
+├── images/                    ← /images/* references from MDX
 ├── components/                ← React components used by MDX
 │   ├── NotebookViewer.tsx     ← renders converted .ipynb cells
 │   ├── Authors.tsx            ← devnote bylines (uses devnotes/authors-data.ts)
 │   ├── MetricsTable.tsx       ← benchmark tables w/ best-value highlight
 │   ├── TrajectoryViewer.tsx   ← multi-turn tool-call traces
 │   ├── ExpandableCode.tsx     ← collapsible code (currently unused — Fern SSR has issues)
-│   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx, CustomFooter.tsx
+│   ├── BadgeLinks.tsx, Tag.tsx, CustomCard.tsx
+│   │     ↑ each component injects its own CSS via a <style> tag (see "Styling" below)
 │   ├── notebooks/             ← gitignored per-tutorial *.json + *.ts output
 │   └── devnotes/              ← .authors.yml, authors-data.ts, per-post trajectory data
 ├── scripts/
@@ -121,6 +120,36 @@ fern/
     ├── latest.yml             ← authoring navigation tree
     └── latest/pages/          ← authoring MDX content
 ```
+
+## Branding & styling
+
+NVIDIA branding (logo, favicon, colors, fonts, footer, base CSS/JS, layout) is
+inherited from the canonical [NVIDIA Fern global theme](https://github.com/NVIDIA/fern-components)
+via `global-theme: nvidia` in `docs.yml`. To change branding, change it there and
+re-upload the theme — not here.
+
+**Product styles ship inside the MDX components, not via `docs.yml` `css:`.** `css`
+is a theme-owned field: under `global-theme`, Fern replaces it with the theme's
+stylesheets at publish, so a local `css:` list is silently dropped (this is what
+broke the dev-notes in #713 and was hotfixed by the #715 revert). Each kit
+component (`BlogCard`, `Authors`, `NotebookViewer`, `MetricsTable`,
+`TrajectoryViewer`, `BadgeLinks`) therefore injects its own CSS through a
+`<style dangerouslySetInnerHTML>` tag in its render output. When you add product
+styling, put it in the component that uses it — do not add a `css:` entry.
+
+`dangerouslySetInnerHTML` is safe here because every injected stylesheet is a
+static string literal defined at module scope — no user/MDX content is
+interpolated. `BlogGrid` injects once for the whole grid; the leaf components
+(`Authors`, `MetricsTable`, `TrajectoryViewer`, `BadgeLinks`) re-emit their
+`<style>` per instance. Duplicate identical `<style>` tags are harmless (the
+browser dedupes the rules), so injection is intentionally unconditional — a
+render-time guard (`document.getElementById`, a module flag) would risk an SSR
+hydration mismatch. If per-instance duplication ever matters, revisit once Fern
+supports React's `<style precedence>` hoisting.
+
+The only checked-in standalone CSS is `styles/local-preview.css`, used by
+`make serve-fern-docs-locally` only when the Fern global theme is inaccessible.
+It is not referenced from `docs.yml`.
 
 ## Common commands
 
@@ -150,3 +179,9 @@ Raw Fern CLI commands, normally wrapped by Make:
 | `fern docs dev` | Local preview at `http://localhost:3000` |
 | `fern check` | Validate `docs.yml` and MDX |
 | `fern generate --docs --preview` | Hosted preview on `*.docs.buildwithfern.com` (needs Fern token) |
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Local preview uses the local fallback theme | Sign in to https://dashboard.buildwithfern.com, run `cd fern && npx -y fern-api@$(jq -r .version fern.config.json) login`, then retry. If it still falls back, export a privileged `DOCS_FERN_TOKEN` as `FERN_TOKEN`. |

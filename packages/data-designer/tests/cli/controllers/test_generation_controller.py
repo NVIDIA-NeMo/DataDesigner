@@ -664,6 +664,85 @@ def test_run_validate_generic_exception(mock_load_config: MagicMock, mock_dd_cls
 
 
 # ---------------------------------------------------------------------------
+# run_check_models tests
+# ---------------------------------------------------------------------------
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_check_models_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """Test successful check_models execution delegates to DataDesigner.check_models."""
+    mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_load_config.return_value = mock_builder
+
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_dd.check_models.return_value = None
+
+    controller = GenerationController()
+    controller.run_check_models(config_source="config.yaml")
+
+    mock_load_config.assert_called_once_with("config.yaml")
+    mock_dd_cls.assert_called_once()
+    mock_dd.check_models.assert_called_once_with(mock_builder)
+
+
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_check_models_config_load_error(mock_load_config: MagicMock) -> None:
+    """check_models exits with code 1 when config fails to load."""
+    mock_load_config.side_effect = ConfigLoadError("File not found")
+
+    controller = GenerationController()
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_check_models(config_source="missing.yaml")
+
+    assert exc_info.value.exit_code == 1
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_check_models_health_check_failure(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """check_models exits with code 1 when a probe fails with a generic exception."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_dd.check_models.side_effect = RuntimeError("auth failed")
+
+    controller = GenerationController()
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_check_models(config_source="config.yaml")
+
+    assert exc_info.value.exit_code == 1
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_check_models_typed_error_includes_class_name(
+    mock_load_config: MagicMock, mock_dd_cls: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Typed engine errors exit 1 and surface the error class name to the user.
+
+    Without this, an authentication failure and a connection failure look identical
+    on the terminal, defeating the purpose of typed engine errors.
+    """
+    from data_designer.engine.models.errors import ModelAuthenticationError
+
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_dd.check_models.side_effect = ModelAuthenticationError("bad creds")
+
+    controller = GenerationController()
+    with pytest.raises(typer.Exit) as exc_info:
+        controller.run_check_models(config_source="config.yaml")
+
+    assert exc_info.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert "ModelAuthenticationError" in captured.out
+    assert "bad creds" in captured.out
+
+
+# ---------------------------------------------------------------------------
 # run_create tests
 # ---------------------------------------------------------------------------
 

@@ -57,7 +57,19 @@ def mark_colab_injected(cell: NotebookNode) -> NotebookNode:
     return cell
 
 
-def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]:
+# Optional per-file Colab setup cells, injected immediately after the standard
+# install + NVIDIA_API_KEY cells. Currently unused; left in place so future
+# tutorials can register additional one-shot Colab bootstrap cells.
+ADDITIONAL_SETUP_CELLS: dict[str, list[str]] = {}
+
+ADDITIONAL_API_KEY_BLOCKS: dict[str, list[str]] = {}
+
+
+def create_colab_setup_cells(
+    additional_dependencies: str,
+    additional_setup_cell_sources: list[str] | None = None,
+    additional_api_key_blocks: list[str] | None = None,
+) -> list[NotebookNode]:
     """Create the Colab-specific setup cells to inject before imports."""
     cells = []
     cells += [mark_colab_injected(new_markdown_cell(source=COLAB_SETUP_MARKDOWN))]
@@ -67,7 +79,14 @@ def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]
         install_cell += f" {additional_dependencies}"
     cells += [mark_colab_injected(new_code_cell(source=install_cell))]
 
-    cells += [mark_colab_injected(new_code_cell(source=COLAB_API_KEY_CELL))]
+    api_key_cell = COLAB_API_KEY_CELL
+    if additional_api_key_blocks:
+        api_key_cell = "\n\n".join([api_key_cell, *additional_api_key_blocks])
+    cells += [mark_colab_injected(new_code_cell(source=api_key_cell))]
+
+    if additional_setup_cell_sources:
+        cells += [mark_colab_injected(new_code_cell(source=src)) for src in additional_setup_cell_sources]
+
     return cells
 
 
@@ -97,6 +116,8 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
     cells = notebook.cells
 
     additional_dependencies = ADDITIONAL_DEPENDENCIES.get(source_path.name, "")
+    additional_setup_cells = ADDITIONAL_SETUP_CELLS.get(source_path.name)
+    additional_api_key_blocks = ADDITIONAL_API_KEY_BLOCKS.get(source_path.name)
 
     # Find where to insert Colab setup (before "Import the essentials")
     import_idx = find_import_section_index(cells)
@@ -106,7 +127,11 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
         import_idx = 1
 
     # Insert Colab setup cells before the import section
-    colab_cells = create_colab_setup_cells(additional_dependencies)
+    colab_cells = create_colab_setup_cells(
+        additional_dependencies,
+        additional_setup_cells,
+        additional_api_key_blocks,
+    )
     processed_cells = cells[:import_idx] + colab_cells + cells[import_idx:]
 
     badge_source = COLAB_BADGE_TEMPLATE.format(filename=f"{source_path.stem}.ipynb")

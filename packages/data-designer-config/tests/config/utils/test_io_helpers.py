@@ -6,8 +6,6 @@ from __future__ import annotations
 import tempfile
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,65 +17,8 @@ from data_designer.config.utils.io_helpers import (
     _maybe_rewrite_url,
     is_http_url,
     serialize_data,
-    smart_load_dataframe,
     smart_load_yaml,
 )
-
-if TYPE_CHECKING:
-    import pandas as pd
-
-
-@patch("data_designer.config.utils.io_helpers.Path", autospec=True)
-@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
-@patch("data_designer.config.utils.io_helpers.lazy.pd.read_json", autospec=True)
-@patch("data_designer.config.utils.io_helpers.lazy.pd.read_parquet", autospec=True)
-def test_smart_load_dataframe(mock_read_parquet, mock_read_json, mock_read_csv, mock_path_cls, stub_dataframe):
-    mock_read_parquet.return_value = stub_dataframe
-    mock_read_json.return_value = stub_dataframe
-    mock_read_csv.return_value = stub_dataframe
-
-    # dataframe objects are passed through
-    assert smart_load_dataframe(stub_dataframe).size == stub_dataframe.size
-
-    # url based
-    stub_base_url = "https://example.com/data.{extention}"
-    url_csv = stub_base_url.format(extention="csv")
-    smart_load_dataframe(url_csv)
-    mock_read_csv.assert_called_once_with(url_csv)
-
-    url_json = stub_base_url.format(extention="json")
-    smart_load_dataframe(url_json)
-    mock_read_json.assert_called_once_with(url_json, lines=True)
-
-    url_parquet = stub_base_url.format(extention="parquet")
-    smart_load_dataframe(url_parquet)
-    mock_read_parquet.assert_called_once_with(url_parquet)
-
-    url_unknown = stub_base_url.format(extention="unknown")
-    with pytest.raises(ValueError):
-        smart_load_dataframe(url_unknown)
-
-    # local file based
-    mock_read_csv.reset_mock()
-    mock_read_json.reset_mock()
-    mock_read_parquet.reset_mock()
-
-    mock_path = MagicMock(autospec=Path)
-    mock_path.exists.return_value = True
-    mock_path.suffix.lower.return_value = "csv"
-    mock_path_cls.return_value = mock_path
-
-    stub_base_path_str = "/some/path/to/data.{extension}"
-    path_csv = stub_base_path_str.format(extension="csv")
-    _ = smart_load_dataframe(path_csv)
-    mock_read_csv.assert_called_once_with(mock_path)
-
-    mock_path.reset_mock()
-    mock_path.suffix.lower.return_value = "json"
-    mock_path.exists.return_value = False
-    path_json = stub_base_path_str.format(extension="json")
-    with pytest.raises(FileNotFoundError):
-        _ = smart_load_dataframe(Path(path_json))
 
 
 def test_smart_load_yaml():
@@ -346,37 +287,6 @@ def test_smart_load_yaml_rewrites_huggingface_blob_url(mock_requests: MagicMock)
     mock_requests.get.assert_called_once_with(
         "https://huggingface.co/datasets/org/repo/raw/main/config.yaml", timeout=10
     )
-
-
-@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
-def test_smart_load_dataframe_rewrites_github_blob_url(mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame) -> None:
-    mock_read_csv.return_value = stub_dataframe
-
-    smart_load_dataframe("https://github.com/org/repo/blob/main/data.csv")
-
-    mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv")
-
-
-@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
-def test_smart_load_dataframe_rewrites_github_blob_url_with_token(
-    mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame
-) -> None:
-    mock_read_csv.return_value = stub_dataframe
-
-    smart_load_dataframe("https://github.com/org/repo/blob/main/data.csv?token=secret123")
-
-    mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv?token=secret123")
-
-
-@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
-def test_smart_load_dataframe_rewrites_huggingface_blob_url(
-    mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame
-) -> None:
-    mock_read_csv.return_value = stub_dataframe
-
-    smart_load_dataframe("https://huggingface.co/datasets/org/repo/blob/main/data.csv")
-
-    mock_read_csv.assert_called_once_with("https://huggingface.co/datasets/org/repo/raw/main/data.csv")
 
 
 def test_maybe_rewrite_github_url_log_does_not_leak_query(caplog: pytest.LogCaptureFixture) -> None:
