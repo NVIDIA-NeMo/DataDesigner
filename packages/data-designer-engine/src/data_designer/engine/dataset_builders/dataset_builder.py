@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import functools
 import json
 import logging
@@ -77,6 +78,20 @@ PRESERVE_DROPPED_COLUMNS_METADATA_KEY = "preserve_dropped_columns"
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
     return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+
+def _await_async_scheduler_result(future: concurrent.futures.Future[Any], scheduler: AsyncTaskScheduler) -> None:
+    try:
+        future.result()
+    except KeyboardInterrupt:
+        scheduler.request_cancel()
+        try:
+            future.result()
+        except concurrent.futures.CancelledError:
+            pass
+        except Exception:
+            logger.debug("Async scheduler raised while cancelling after KeyboardInterrupt", exc_info=True)
+        raise
 
 
 class _ConfigCompatibility(StrEnum):
@@ -562,7 +577,7 @@ class DatasetBuilder:
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            future.result()
+            _await_async_scheduler_result(future, scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown
@@ -818,7 +833,7 @@ class DatasetBuilder:
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            future.result()
+            _await_async_scheduler_result(future, scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown
@@ -957,7 +972,7 @@ class DatasetBuilder:
             buffer_size=buffer_size,
             initial_completed_records=initial_actual_num_records,
             progress_interval=self._resource_provider.run_config.progress_interval,
-            progress_bar=self._resource_provider.run_config.progress_bar,
+            display_tui=self._resource_provider.run_config.display_tui,
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
             request_pressure_advisory=True,
         )
