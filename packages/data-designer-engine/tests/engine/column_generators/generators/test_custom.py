@@ -584,13 +584,12 @@ def test_async_bridge_cancels_in_flight_request() -> None:
             pytest.raises(asyncio.CancelledError),
         ):
             proxy.generate("hello", parser=str)
+        assert cancelled.wait(timeout=5)
     finally:
         current_run_cancel_event.reset(cancel_token)
         cancel_thread.join(timeout=5)
         engine_loop.call_soon_threadsafe(engine_loop.stop)
         engine_thread.join(timeout=5)
-
-    assert cancelled.wait(timeout=5)
 
 
 def test_async_bridge_non_client_mode_errors_propagate() -> None:
@@ -642,6 +641,8 @@ def test_async_bridge_timeout_raises_model_timeout_error() -> None:
             pytest.raises(ModelTimeoutError, match="bridge timed out"),
         ):
             proxy.generate("hello")
+        # Let the cancelled coroutine finish before stopping its loop.
+        asyncio.run_coroutine_threadsafe(asyncio.sleep(0), engine_loop).result(timeout=5)
     finally:
         engine_loop.call_soon_threadsafe(engine_loop.stop)
         engine_thread.join(timeout=5)
