@@ -21,6 +21,7 @@ on:
       - "fern/styles/trajectory-viewer.css"
       - "fern/versions/latest.yml"
       - "fern/versions/latest/pages/devnotes/**"
+      - "fern/versions/latest/pages/recipes/image_generation/**"
   workflow_dispatch:
 
 permissions: {}

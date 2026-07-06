@@ -72,6 +72,16 @@ redirects:
     write_text(
         source_root / "fern" / "versions" / "latest.yml",
         """navigation:
+  - section: Recipes
+    contents:
+      - page: Recipe Cards
+        path: ./latest/pages/recipes/cards.mdx
+      - section: Image Generation
+        contents:
+          - page: New Image Recipe
+            path: ./latest/pages/recipes/image_generation/new-image-recipe.mdx
+      - section: Code Generation
+        contents: []
   - section: Dev Notes
     contents:
       - page: New Note
@@ -81,6 +91,17 @@ redirects:
 """,
     )
     write_text(source_root / "fern" / "versions" / "latest" / "pages" / "devnotes" / "posts" / "new-note.mdx", "# New")
+    write_text(
+        source_root
+        / "fern"
+        / "versions"
+        / "latest"
+        / "pages"
+        / "recipes"
+        / "image_generation"
+        / "new-image-recipe.mdx",
+        "# New Image Recipe",
+    )
 
     write_text(
         published_root / "fern" / "docs.yml",
@@ -107,6 +128,14 @@ redirects:
     write_text(
         published_root / "fern" / "versions" / "latest.yml",
         """navigation:
+  - section: Recipes
+    contents:
+      - page: Recipe Cards
+        path: ./v0.6.0/pages/recipes/cards.mdx
+      - section: Code Generation
+        contents:
+          - page: Existing Recipe
+            path: ./v0.6.0/pages/recipes/code_generation/existing.mdx
   - section: Dev Notes
     contents:
       - page: Old Note
@@ -116,6 +145,7 @@ redirects:
 """,
     )
 
+    assert module.patch_devnotes(patch_args(source_root, published_root)) == 0
     assert module.patch_devnotes(patch_args(source_root, published_root)) == 0
 
     published_docs = (published_root / "fern" / "docs.yml").read_text()
@@ -142,3 +172,18 @@ redirects:
     )
     assert not (published_root / "fern" / "assets" / "published-only-asset.png").exists()
     assert (published_root / "fern" / "versions" / "latest" / "pages" / "devnotes" / "posts" / "new-note.mdx").exists()
+    published_nav = (published_root / "fern" / "versions" / "latest.yml").read_text()
+    assert published_nav.count("section: Image Generation") == 1
+    assert published_nav.index("section: Image Generation") < published_nav.index("section: Code Generation")
+    assert "path: ./latest/pages/recipes/image_generation/new-image-recipe.mdx" in published_nav
+    assert "path: ./v0.6.0/pages/recipes/code_generation/existing.mdx" in published_nav
+    assert (
+        published_root
+        / "fern"
+        / "versions"
+        / "latest"
+        / "pages"
+        / "recipes"
+        / "image_generation"
+        / "new-image-recipe.mdx"
+    ).read_text() == "# New Image Recipe"

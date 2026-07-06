@@ -15,6 +15,8 @@ import tempfile
 from pathlib import Path
 
 DEVNOTES_SECTION_RE = re.compile(r"^  - section:\s+Dev Notes\s*$")
+RECIPES_SECTION_RE = re.compile(r"^  - section:\s+Recipes\s*$")
+IMAGE_GENERATION_SECTION_RE = re.compile(r"^      - section:\s+Image Generation\s*$")
 RETIRED_REFERENCE_SECTION_RE = re.compile(r"^  - section:\s+" + re.escape("Code " + "Reference") + r"\s*$")
 RETIRED_REFERENCE_DIR = "code" + "_reference"
 NAV_PATH_RE = re.compile(r"^(\s*path:\s+)\./([^#\s]+)(.*)$")
@@ -40,7 +42,8 @@ FERN_ROOT_CONFIG_PATHS = [
 ]
 # Dev-note kit components carry their own CSS (injected via a <style> tag), so no
 # stylesheet files are copied here — `css` is a theme-owned field and any local
-# `css:` list is dropped under `global-theme: nvidia`. See fern/docs.yml.
+# `css:` list is dropped under `global-theme: nvidia`. See fern/docs.yml. Image
+# generation recipes are published with the dev note that links to them.
 FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/assets",
     "fern/components/Authors.tsx",
@@ -51,6 +54,7 @@ FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/components/MetricsTable.tsx",
     "fern/components/TrajectoryViewer.tsx",
     "fern/components/devnotes",
+    "fern/versions/latest/pages/recipes/image_generation",
 ]
 RETIRED_REFERENCE_CLEAN_PAGE_PATHS = [
     "concepts/columns.mdx",
@@ -239,43 +243,57 @@ def merge_preserved_versions(source_versions: Path, published_versions: Path, pr
         copy_path(path, target)
 
 
-def extract_navigation_section(path: Path, section_re: re.Pattern[str]) -> list[str]:
-    lines = path.read_text().splitlines(keepends=True)
+def navigation_section_bounds(lines: list[str], section_re: re.Pattern[str], path: Path) -> tuple[int, int]:
     start = next((i for i, line in enumerate(lines) if section_re.match(line)), -1)
     if start == -1:
         raise PublishedBranchError(f"Section not found in {path}")
+    leading_whitespace = lines[start][: len(lines[start]) - len(lines[start].lstrip())]
+    sibling_prefix = f"{leading_whitespace}- "
     end = start + 1
     while end < len(lines):
-        if lines[end].startswith("  - ") and lines[end].strip():
+        if lines[end].startswith(sibling_prefix) and lines[end].strip():
             break
         end += 1
+    return start, end
+
+
+def extract_navigation_section(path: Path, section_re: re.Pattern[str]) -> list[str]:
+    lines = path.read_text().splitlines(keepends=True)
+    start, end = navigation_section_bounds(lines, section_re, path)
     return lines[start:end]
 
 
 def replace_navigation_section(path: Path, section_re: re.Pattern[str], block: list[str]) -> None:
     lines = path.read_text().splitlines(keepends=True)
-    start = next((i for i, line in enumerate(lines) if section_re.match(line)), -1)
-    if start == -1:
-        raise PublishedBranchError(f"Section not found in {path}")
-    end = start + 1
-    while end < len(lines):
-        if lines[end].startswith("  - ") and lines[end].strip():
-            break
-        end += 1
+    start, end = navigation_section_bounds(lines, section_re, path)
     lines[start:end] = block
+    path.write_text("".join(lines))
+
+
+def upsert_navigation_subsection(
+    path: Path, section_re: re.Pattern[str], parent_section_re: re.Pattern[str], block: list[str]
+) -> None:
+    lines = path.read_text().splitlines(keepends=True)
+    if any(section_re.match(line) for line in lines):
+        start, end = navigation_section_bounds(lines, section_re, path)
+        lines[start:end] = block
+    else:
+        parent_start, parent_end = navigation_section_bounds(lines, parent_section_re, path)
+        leading_whitespace = block[0][: len(block[0]) - len(block[0].lstrip())]
+        sibling_section_prefix = f"{leading_whitespace}- section:"
+        insert_at = next(
+            (index for index in range(parent_start + 1, parent_end) if lines[index].startswith(sibling_section_prefix)),
+            parent_end,
+        )
+        lines[insert_at:insert_at] = block
     path.write_text("".join(lines))
 
 
 def remove_navigation_section(path: Path, section_re: re.Pattern[str]) -> None:
     lines = path.read_text().splitlines(keepends=True)
-    start = next((i for i, line in enumerate(lines) if section_re.match(line)), -1)
-    if start == -1:
+    if not any(section_re.match(line) for line in lines):
         return
-    end = start + 1
-    while end < len(lines):
-        if lines[end].startswith("  - ") and lines[end].strip():
-            break
-        end += 1
+    start, end = navigation_section_bounds(lines, section_re, path)
     lines[start:end] = []
     path.write_text("".join(lines))
 
@@ -393,6 +411,11 @@ def replace_devnotes_block(path: Path, block: list[str]) -> None:
     replace_navigation_section(path, DEVNOTES_SECTION_RE, block)
 
 
+def patch_image_generation_recipes(source_nav: Path, target_nav: Path) -> None:
+    source_block = extract_navigation_section(source_nav, IMAGE_GENERATION_SECTION_RE)
+    upsert_navigation_subsection(target_nav, IMAGE_GENERATION_SECTION_RE, RECIPES_SECTION_RE, source_block)
+
+
 def patch_devnotes(args: argparse.Namespace) -> int:
     source_root = Path(args.source_root)
     published_root = Path(args.published_root)
@@ -410,6 +433,7 @@ def patch_devnotes(args: argparse.Namespace) -> int:
 
     source_block = extract_devnotes_block(source_nav)
     replace_devnotes_block(target_nav, rewrite_devnotes_block(source_root, published_root, source_block))
+    patch_image_generation_recipes(source_nav, target_nav)
     write_publish_metadata(published_root, args, "devnotes-patch")
     return 0
 
