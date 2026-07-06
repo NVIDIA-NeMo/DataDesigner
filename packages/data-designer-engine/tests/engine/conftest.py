@@ -35,6 +35,7 @@ def stub_resource_provider(tmp_path, stub_model_facade):
     mock_model_registry = Mock(spec=ModelRegistry)
     mock_model_registry.get_model.return_value = stub_model_facade
     mock_model_registry.model_configs = {}  # Add empty model_configs dict
+    mock_model_registry.request_admission = None
     mock_provider.model_registry = mock_model_registry
     mock_provider.artifact_storage = ArtifactStorage(artifact_path=tmp_path)
     mock_provider.person_reader = Mock(spec=PersonReader)

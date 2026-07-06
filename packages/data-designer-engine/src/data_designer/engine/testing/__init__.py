@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from data_designer.engine.testing.observability import CorrelatedRuntimeView, InMemoryAdmissionEventSink
 from data_designer.engine.testing.seed_readers import LineFanoutDirectorySeedReader
 from data_designer.engine.testing.stubs import (
     StubChoice,
@@ -16,6 +17,8 @@ from data_designer.engine.testing.stubs import (
 from data_designer.engine.testing.utils import assert_valid_plugin
 
 __all__ = [
+    "CorrelatedRuntimeView",
+    "InMemoryAdmissionEventSink",
     LineFanoutDirectorySeedReader.__name__,
     "StubChoice",
     "StubHuggingFaceSeedReader",

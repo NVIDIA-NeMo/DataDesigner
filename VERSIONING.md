@@ -42,9 +42,11 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Fern release publishing snapshots versioned docs automatically into the CI-managed `docs-website` branch, similar to how MkDocs publishes built output to `gh-pages`. Release owners do not need a dedicated pre-release docs PR.
+Fern release publishing snapshots versioned docs automatically into the CI-managed `docs-website` branch. Release owners do not need a dedicated pre-release docs PR.
 
 The `docs-website` branch must already contain the historical Fern archive (`v0.6.0`, `v0.5.9`, `v0.5.8`, and `older`). The release workflow fails if those redirect targets are missing.
+
+The legacy `gh-pages` branch is frozen for the MkDocs archive. Do not publish new docs builds there; Fern links readers to GitHub Pages only for releases `0.5.7` and older.
 
 For the already-published `v0.6.0` release, rerun **Build Fern docs** manually with `release_tag=v0.6.0` and `source_ref=main` after the Fern fix PR merges. Future GitHub release events default `source_ref` to the release tag.
 

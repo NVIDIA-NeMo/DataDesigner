@@ -244,8 +244,8 @@ def test_build_config_infers_single_available_provider() -> None:
     assert config.provider == "openai"
 
 
-def test_build_config_sets_provider_none_when_unavailable() -> None:
-    """Test build_config sets provider to None when no providers available."""
+def test_build_config_raises_when_no_providers_available() -> None:
+    """Test build_config raises ValueError when no providers available and none specified."""
     builder = ModelFormBuilder(available_providers=[])
     form_data = {
         "alias": "my-model",
@@ -257,9 +257,25 @@ def test_build_config_sets_provider_none_when_unavailable() -> None:
         },
     }
 
-    config = builder.build_config(form_data)
+    with pytest.raises(ValueError, match="no provider specified"):
+        builder.build_config(form_data)
 
-    assert config.provider is None
+
+def test_build_config_raises_when_multiple_providers_missing_selection() -> None:
+    """Test build_config asks for an explicit provider when several are available."""
+    builder = ModelFormBuilder(available_providers=["openai", "anthropic"])
+    form_data = {
+        "alias": "my-model",
+        "model": "gpt-4",
+        "inference_parameters": {
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "max_tokens": 2048,
+        },
+    }
+
+    with pytest.raises(ValueError, match="multiple providers are configured"):
+        builder.build_config(form_data)
 
 
 def test_build_config_creates_valid_model_config() -> None:
@@ -289,7 +305,7 @@ def test_build_config_creates_valid_model_config() -> None:
 
 def test_build_config_converts_max_tokens_to_int() -> None:
     """Test build_config handles numeric values in inference parameters."""
-    builder = ModelFormBuilder()
+    builder = ModelFormBuilder(available_providers=["openai"])
     form_data = {
         "alias": "my-model",
         "model": "gpt-4",

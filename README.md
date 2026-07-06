@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10 - 3.14](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13_|_3.14-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://nvidia-nemo.github.io/DataDesigner/) ![Tokens](https://img.shields.io/badge/2.6T+-Tokens_Processed-76b900.svg?logo=nvidia&logoColor=white)
+[![Python 3.10 - 3.14](https://img.shields.io/badge/🐍_Python-3.10_|_3.11_|_3.12_|_3.13_|_3.14-blue.svg)](https://www.python.org/downloads/) [![NeMo Microservices](https://img.shields.io/badge/NeMo-Microservices-76b900)](https://docs.nvidia.com/nemo/microservices/latest/index.html) [![Code](https://img.shields.io/badge/Code-Documentation-8A2BE2.svg)](https://docs.nvidia.com/nemo/datadesigner/) ![Tokens](https://img.shields.io/badge/2.6T+-Tokens_Processed-76b900.svg?logo=nvidia&logoColor=white)
 
 **Generate high-quality synthetic datasets from scratch or using your own seed data.**
 
@@ -22,11 +22,11 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 
 ---
 
-### 📣 Heads-up: async engine is now the default
+### 📣 Heads-up: async engine
 
-Data Designer now runs pipelines on a cell-level async engine that overlaps independent columns and adapts concurrency per (provider, model). On most pipelines this is faster with no config changes; on slow self-hosted endpoints, set `inference_parameters.timeout` to your real per-request latency. See [Architecture & Performance → Async Engine](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/architecture-and-performance/#async-engine) for the behaviors worth knowing about.
+Data Designer now runs pipelines on a cell-level async engine that overlaps independent columns and adapts concurrency per (provider, model). On most pipelines this is faster with no config changes; on slow self-hosted endpoints, set `inference_parameters.timeout` to your real per-request latency. See [Architecture & Performance → Async Engine](https://docs.nvidia.com/nemo/datadesigner/concepts/architecture-performance#async-engine) for the behaviors worth knowing about.
 
-If you hit anything unexpected, fall back to the legacy sync engine for one transitional release with `DATA_DESIGNER_ASYNC_ENGINE=0`, and please [open an issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new) so we can fix the async path.
+If you hit anything unexpected, please [open an issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new).
 
 ---
 
@@ -103,18 +103,18 @@ preview.display_sample_record()
 
 ### 📚 Learn more
 
-- **[Getting Started](https://nvidia-nemo.github.io/DataDesigner/latest/)** – Install, configure, and generate your first dataset
-- **[Tutorial Notebooks](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/)** – Step-by-step interactive tutorials
-- **[Column Types](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/columns/)** – Explore samplers, LLM columns, validators, and more
-- **[Validators](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/validators/)** – Learn how to validate generated data with Python, SQL, and remote validators
-- **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/model-configs/)** – Configure custom models and providers
-- **[Person Sampling](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/)** – Learn how to sample realistic person data with demographic attributes
+- **[Getting Started](https://docs.nvidia.com/nemo/datadesigner/getting-started/welcome)** – Install, configure, and generate your first dataset
+- **[Tutorial Notebooks](https://docs.nvidia.com/nemo/datadesigner/tutorials/overview)** – Step-by-step interactive tutorials
+- **[Column Types](https://docs.nvidia.com/nemo/datadesigner/concepts/columns)** – Explore samplers, LLM columns, validators, and more
+- **[Validators](https://docs.nvidia.com/nemo/datadesigner/concepts/validators)** – Learn how to validate generated data with Python, SQL, and remote validators
+- **[Model Configuration](https://docs.nvidia.com/nemo/datadesigner/concepts/models/model-configs)** – Configure custom models and providers
+- **[Person Sampling](https://docs.nvidia.com/nemo/datadesigner/concepts/person-sampling)** – Learn how to sample realistic person data with demographic attributes
 
-### 📝 Documentation transition
+### 📝 Documentation
 
-Data Designer is gradually moving documentation from MkDocs to Fern. During the transition, maintainers publish both docs builds for a few releases so the Fern site can mature without losing the existing MkDocs release archive.
+Data Designer documentation now lives on Fern at [docs.nvidia.com/nemo/datadesigner](https://docs.nvidia.com/nemo/datadesigner/).
 
-Contributors should keep editing the existing docs sources under `docs/`. Tutorial notebook source lives in `docs/notebook_source/*.py`; generated notebooks and Fern artifacts are not the source of truth.
+Contributors should edit docs prose under `fern/`. Tutorial notebook source remains in `docs/notebook_source/*.py`; generated notebooks and Fern artifacts are not the source of truth. The legacy MkDocs archive remains available on GitHub Pages for releases `0.5.7` and older.
 
 ### 🔧 Configure models via CLI
 
@@ -126,7 +126,7 @@ data-designer config list      # View current settings
 
 ### 🤖 Agent Skill
 
-Data Designer has a [skill](https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/data-designer-got-skills/) for coding agents. Just describe the dataset you want, and your agent handles schema design, validation, and generation. While the skill should work with other coding agents that support skills, our development and testing has focused on [Claude Code](https://code.claude.com) at this stage.
+Data Designer has a [skill](https://docs.nvidia.com/nemo/datadesigner/dev-notes/data-designer-got-skills) for coding agents. Just describe the dataset you want, and your agent handles schema design, validation, and generation. While the skill should work with other coding agents that support skills, our development and testing has focused on [Claude Code](https://code.claude.com) at this stage.
 
 **Install via [skills.sh](https://skills.sh)** (be sure to select Claude Code as an additional agent):
 
@@ -155,7 +155,7 @@ Disable with `NEMO_TELEMETRY_ENABLED=false`. **[More details →](#telemetry-and
 
 Aggregate model usage across synthetic data generation jobs, year-to-date 1/1/2026–6/1/2026:
 
-![Top models used for synthetic data generation](docs/images/top-models.png)
+![Top models used for synthetic data generation](fern/images/top-models.png)
 
 _Last updated on June 1, 2026_
 

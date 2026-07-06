@@ -6,22 +6,24 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import CustomColumnConfig, ExpressionColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import (
+    ExpressionColumnConfig,
+    LLMTextColumnConfig,
+    SamplerColumnConfig,
+)
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.models import ModelProvider
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, DatetimeSamplerParams, SamplerType
@@ -32,6 +34,12 @@ from data_designer.config.seed_source import (
     DirectorySeedSource,
     FileContentsSeedSource,
     HuggingFaceSeedSource,
+)
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.errors import (
+    RETRYABLE_MODEL_ERRORS,
+    ModelAPIConnectionError,
+    ModelAuthenticationError,
 )
 from data_designer.engine.resources.seed_reader import (
     FileSystemSeedReader,
@@ -387,84 +395,6 @@ def stub_seed_reader():
     return StubHuggingFaceSeedReader()
 
 
-def _builder_with_allow_resize() -> DataDesignerConfigBuilder:
-    """Config with one allow_resize=True column — forces sync-engine fallback."""
-
-    @custom_column_generator()
-    def _expander(row: dict) -> list[dict]:
-        return [{**row, "item": i} for i in range(2)]
-
-    builder = DataDesignerConfigBuilder()
-    builder.add_column(
-        SamplerColumnConfig(
-            name="seed",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["a"]),
-        )
-    )
-    builder.add_column(
-        CustomColumnConfig(
-            name="item",
-            generator_function=_expander,
-            allow_resize=True,
-        )
-    )
-    return builder
-
-
-@pytest.mark.parametrize(
-    "env_value,with_allow_resize,expected,expect_deprecation",
-    [
-        ("1", False, "async", False),
-        ("1", True, "sync", False),
-        ("0", False, "sync", True),
-    ],
-    ids=[
-        "async-on-no-fallback-uses-async-clients",
-        "async-on-allow-resize-falls-back-to-sync-clients",
-        "async-off-uses-sync-clients-and-warns",
-    ],
-)
-def test_resolve_client_concurrency_mode_matches_engine_choice(
-    env_value: str,
-    with_allow_resize: bool,
-    expected: str,
-    expect_deprecation: bool,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Client mode must match the engine the run will actually use.
-
-    Without this alignment, a sync-fallback run (e.g. ``allow_resize=True``)
-    would be left with async-only clients and call sync methods on them,
-    raising ``SyncClientUnavailableError`` from inside the sync engine.
-
-    The ``DATA_DESIGNER_ASYNC_ENGINE=0`` opt-out path also emits a
-    ``DeprecationWarning`` so users on the legacy sync engine see a
-    pre-removal signal in their logs. The auto-fallback path
-    (``allow_resize=True``) does not double-warn here; the builder layer
-    emits its own warning when the run actually executes.
-    """
-    monkeypatch.setattr(dd_mod, "DATA_DESIGNER_ASYNC_ENGINE", env_value == "1")
-    builder = _builder_with_allow_resize() if with_allow_resize else DataDesignerConfigBuilder()
-    if not with_allow_resize:
-        builder.add_column(
-            SamplerColumnConfig(
-                name="seed",
-                sampler_type=SamplerType.CATEGORY,
-                params=CategorySamplerParams(values=["a"]),
-            )
-        )
-
-    if expect_deprecation:
-        with pytest.warns(DeprecationWarning, match="legacy sync engine"):
-            mode = DataDesigner._resolve_client_concurrency_mode(builder)
-    else:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
-            mode = DataDesigner._resolve_client_concurrency_mode(builder)
-    assert mode.value == expected
-
-
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
     """Test DataDesigner initialization with custom secret resolver."""
     designer = DataDesigner(
@@ -501,78 +431,13 @@ def test_init_with_path_object(stub_artifact_path, stub_model_providers):
     assert designer is not None
 
 
-def test_init_user_supplied_providers_ignore_unrelated_yaml_default(
-    stub_artifact_path: Path,
-    stub_model_providers: list[ModelProvider],
-    stub_managed_assets_path: Path,
-) -> None:
-    """Regression for #588: a YAML ``default:`` that names a provider absent
-    from a user-supplied ``model_providers`` list must not leak into
-    construction.
-
-    Pre-fix this raised ``ValidationError: Specified default 'unrelated' not
-    found in providers list``.
-    """
-    with patch.object(dd_mod, "get_default_provider_name", return_value="unrelated"):
-        data_designer = DataDesigner(
-            artifact_path=stub_artifact_path,
-            model_providers=stub_model_providers,
-            secret_resolver=PlaintextResolver(),
-            managed_assets_path=stub_managed_assets_path,
-        )
-
-    assert data_designer.model_provider_registry.get_default_provider_name() == "stub-model-provider"
-
-
-def test_init_user_supplied_providers_preserve_first_wins_over_yaml_default(
+def test_init_no_user_providers_loads_from_yaml(
     stub_artifact_path: Path,
     stub_managed_assets_path: Path,
 ) -> None:
-    """Regression for #588: when the YAML ``default:`` matches a user-supplied
-    provider that isn't first in the list, the documented ``model_providers[0]``
-    "first wins" behavior must not be silently overridden.
-    """
-    user_providers = [
-        ModelProvider(
-            name="first-provider",
-            endpoint="https://first.example.com/v1",
-            api_key="FIRST_API_KEY",
-        ),
-        ModelProvider(
-            name="second-provider",
-            endpoint="https://second.example.com/v1",
-            api_key="SECOND_API_KEY",
-        ),
-    ]
-
-    # Multi-provider construction (user-supplied list of length > 1) still
-    # passes ``default=`` to ``ModelProviderRegistry`` — that's the deprecated
-    # path under #589 — so the registry-level deprecation fires here.
-    with (
-        patch.object(dd_mod, "get_default_provider_name", return_value="second-provider"),
-        pytest.warns(DeprecationWarning, match="ModelProviderRegistry.default is deprecated"),
-    ):
-        data_designer = DataDesigner(
-            artifact_path=stub_artifact_path,
-            model_providers=user_providers,
-            secret_resolver=PlaintextResolver(),
-            managed_assets_path=stub_managed_assets_path,
-        )
-
-    assert data_designer.model_provider_registry.get_default_provider_name() == "first-provider"
-
-
-def test_init_no_user_providers_uses_yaml_default(
-    stub_artifact_path: Path,
-    stub_managed_assets_path: Path,
-) -> None:
-    """Pin the unchanged YAML-fallback path: when the caller omits
-    ``model_providers``, DataDesigner consults both ``providers:`` and
-    ``default:`` from the YAML.
-
-    The fix in #588 only changes the user-supplied branch; this test locks the
-    YAML-fallback branch's contract so a future refactor can't silently regress
-    it.
+    """When the caller omits ``model_providers``, DataDesigner falls back to
+    the YAML's ``providers:`` list. The legacy ``default:`` key is no longer
+    consulted (see issue #590).
     """
     yaml_providers = [
         ModelProvider(
@@ -587,126 +452,14 @@ def test_init_no_user_providers_uses_yaml_default(
         ),
     ]
 
-    with (
-        patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
-        patch.object(dd_mod, "get_default_provider_name", return_value="yaml-second"),
-    ):
+    with patch.object(dd_mod, "get_default_providers", return_value=yaml_providers):
         data_designer = DataDesigner(
             artifact_path=stub_artifact_path,
             secret_resolver=PlaintextResolver(),
             managed_assets_path=stub_managed_assets_path,
         )
 
-    assert data_designer.model_provider_registry.get_default_provider_name() == "yaml-second"
-
-
-def test_init_yaml_default_emits_single_deprecation_warning(
-    stub_artifact_path: Path,
-    stub_managed_assets_path: Path,
-) -> None:
-    """Regression for PR #594 review: when ``DataDesigner()`` falls back to the
-    YAML's ``providers:`` and ``default:``, the user should see a single
-    ``DeprecationWarning`` (the YAML one) rather than a duplicate cascade where
-    ``ModelProviderRegistry._warn_on_explicit_default`` also fires for the same
-    root cause. See issue #589.
-    """
-    yaml_providers = [
-        ModelProvider(
-            name="yaml-first",
-            endpoint="https://yaml-first.example.com/v1",
-            api_key="yaml-first-key",
-        ),
-        ModelProvider(
-            name="yaml-second",
-            endpoint="https://yaml-second.example.com/v1",
-            api_key="yaml-second-key",
-        ),
-    ]
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", DeprecationWarning)
-        with (
-            patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
-            patch.object(dd_mod, "get_default_provider_name") as mock_get_default,
-        ):
-            mock_get_default.side_effect = lambda: (
-                warnings.warn(
-                    "The 'default:' key in /fake/path is deprecated and will "
-                    "be removed in a future release. Remove it and specify provider= "
-                    "explicitly on each ModelConfig instead. See issue #589.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                or "yaml-second"
-            )
-            DataDesigner(
-                artifact_path=stub_artifact_path,
-                secret_resolver=PlaintextResolver(),
-                managed_assets_path=stub_managed_assets_path,
-            )
-
-    deprecation_messages = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
-    yaml_default_warnings = [m for m in deprecation_messages if "'default:' key" in m]
-    registry_default_warnings = [m for m in deprecation_messages if "ModelProviderRegistry.default is deprecated" in m]
-    assert len(yaml_default_warnings) == 1, deprecation_messages
-    assert registry_default_warnings == [], (
-        "Registry-level deprecation should be suppressed in the YAML-fallback path "
-        "to avoid two warnings for the same root cause."
-    )
-
-
-def test_init_no_user_providers_no_yaml_default_stays_quiet(
-    stub_artifact_path: Path,
-    stub_managed_assets_path: Path,
-) -> None:
-    """Pin the bare-``DataDesigner()`` happy path: when the caller passes
-    nothing and the YAML carries multiple ``providers:`` but no ``default:``
-    key, ``resolve_model_provider_registry`` synthesises
-    ``default=providers[0].name`` to satisfy ``check_implicit_default``. The
-    user did not opt into the deprecated registry-level default — the library
-    filled it in on their behalf — so ``_warn_on_explicit_default`` must stay
-    quiet. The fresh-install YAML ships exactly this shape (3 providers, no
-    ``default:``), so a regression here is what every user sees on their first
-    ``DataDesigner()`` call.
-
-    Counterpart to ``test_init_user_supplied_providers_preserve_first_wins_over_yaml_default``,
-    which pins that the warning *does* fire when the caller hand-builds a
-    multi-provider list themselves (they wrote the multi-provider intent, so
-    the deprecation nudge applies).
-    """
-    yaml_providers = [
-        ModelProvider(
-            name="yaml-first",
-            endpoint="https://yaml-first.example.com/v1",
-            api_key="yaml-first-key",
-        ),
-        ModelProvider(
-            name="yaml-second",
-            endpoint="https://yaml-second.example.com/v1",
-            api_key="yaml-second-key",
-        ),
-    ]
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", DeprecationWarning)
-        with (
-            patch.object(dd_mod, "get_default_providers", return_value=yaml_providers),
-            patch.object(dd_mod, "get_default_provider_name", return_value=None),
-        ):
-            data_designer = DataDesigner(
-                artifact_path=stub_artifact_path,
-                secret_resolver=PlaintextResolver(),
-                managed_assets_path=stub_managed_assets_path,
-            )
-
-    deprecation_messages = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
-    registry_default_warnings = [m for m in deprecation_messages if "ModelProviderRegistry.default is deprecated" in m]
-    assert registry_default_warnings == [], (
-        "Library-synthesised default must not emit the registry-level deprecation; "
-        f"the user did not opt into it. Saw: {deprecation_messages}"
-    )
-    # Behavioral pin: first-wins still resolves correctly.
-    assert data_designer.model_provider_registry.get_default_provider_name() == "yaml-first"
+    assert [p.name for p in data_designer.model_provider_registry.providers] == ["yaml-first", "yaml-second"]
 
 
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
@@ -788,6 +541,20 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
         )
     )
     assert data_designer.run_config.shutdown_error_rate == 1.0
+
+
+def test_get_models_uses_sync_clients(stub_artifact_path, stub_model_providers):
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    with patch.object(data_designer, "_create_resource_provider") as mock_resource_provider_method:
+        mock_resource_provider = MagicMock()
+        mock_resource_provider.model_registry.get_model.return_value = MagicMock()
+        mock_resource_provider_method.return_value = mock_resource_provider
+
+        data_designer.get_models(["stub-model"])
+
+    _, kwargs = mock_resource_provider_method.call_args
+    assert kwargs["client_concurrency_mode"] == ClientConcurrencyMode.SYNC
 
 
 def test_create_forwards_on_batch_complete_callback(
@@ -1493,6 +1260,229 @@ def test_preview_with_dropped_columns(
     assert "category" in analysis.side_effect_column_names, (
         "Dropped column 'category' should be tracked in side_effect_column_names"
     )
+
+
+@pytest.fixture
+def stub_check_models_model_configs() -> list[ModelConfig]:
+    """Model configs whose ``provider`` field matches the local ``stub_model_providers`` fixture.
+
+    The shared ``stub_model_configs`` fixture targets ``provider-1``; this file's
+    ``stub_model_providers`` defines ``stub-model-provider``. ``check_models`` builds
+    a real ``ResourceProvider``, so the two need to align.
+    """
+    return [
+        ModelConfig(
+            alias="stub-model",
+            model="stub-model",
+            provider="stub-model-provider",
+            inference_parameters=ChatCompletionInferenceParams(
+                temperature=0.9,
+                top_p=0.9,
+                max_tokens=2048,
+            ),
+        )
+    ]
+
+
+@pytest.fixture
+def stub_check_models_config_builder(
+    stub_check_models_model_configs,
+) -> DataDesignerConfigBuilder:
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(LLMTextColumnConfig(name="text", prompt="x", model_alias="stub-model"))
+    return config_builder
+
+
+@pytest.fixture
+def stub_check_models_data_designer(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_managed_assets_path,
+) -> DataDesigner:
+    return DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+
+def test_check_models_invokes_readiness_check(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    """check_models constructs a ResourceProvider and delegates to run_readiness_check."""
+    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
+        stub_check_models_data_designer.check_models(stub_check_models_config_builder)
+
+    assert mock_check.call_count == 1
+    (called_columns, called_resource_provider), kwargs = mock_check.call_args
+    assert [c.name for c in called_columns] == ["text"]
+    assert called_resource_provider is not None
+    assert kwargs == {}
+
+
+def test_check_models_propagates_typed_model_error(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    """Errors from the readiness probe surface unchanged so callers can branch on type."""
+    with (
+        patch(
+            "data_designer.interface.data_designer.run_readiness_check",
+            side_effect=ModelAuthenticationError("bad creds"),
+        ) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+    ):
+        with pytest.raises(ModelAuthenticationError, match="bad creds"):
+            stub_check_models_data_designer.check_models(
+                stub_check_models_config_builder,
+                max_attempts=3,
+                retry_backoff_seconds=5,
+            )
+
+    assert mock_check.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [*RETRYABLE_MODEL_ERRORS, TimeoutError],
+    ids=lambda error_type: error_type.__name__,
+)
+def test_check_models_retries_transient_errors(
+    error_type,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    transient_error = error_type("temporary failure")
+
+    with (
+        patch(
+            "data_designer.interface.data_designer.run_readiness_check",
+            side_effect=[transient_error, None],
+        ) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+    ):
+        stub_check_models_data_designer.check_models(
+            stub_check_models_config_builder,
+            max_attempts=2,
+            retry_backoff_seconds=5,
+        )
+
+    assert mock_check.call_count == 2
+    mock_sleep.assert_called_once_with(5)
+
+
+def test_check_models_reraises_final_retryable_error(
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    errors = [
+        ModelAPIConnectionError("first failure"),
+        ModelAPIConnectionError("second failure"),
+        ModelAPIConnectionError("final failure"),
+    ]
+
+    with (
+        patch("data_designer.interface.data_designer.run_readiness_check", side_effect=errors) as mock_check,
+        patch("data_designer.interface.data_designer.time.sleep") as mock_sleep,
+        pytest.raises(ModelAPIConnectionError) as exc_info,
+    ):
+        stub_check_models_data_designer.check_models(
+            stub_check_models_config_builder,
+            max_attempts=3,
+            retry_backoff_seconds=5,
+        )
+
+    assert exc_info.value is errors[-1]
+    assert mock_check.call_count == 3
+    assert mock_sleep.call_args_list == [call(5), call(10)]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_attempts": 0}, "max_attempts must be at least 1"),
+        ({"retry_backoff_seconds": -1}, "retry_backoff_seconds must be non-negative"),
+    ],
+)
+def test_check_models_validates_retry_settings(
+    kwargs,
+    message,
+    stub_check_models_config_builder,
+    stub_check_models_data_designer,
+):
+    with (
+        patch.object(stub_check_models_data_designer, "_create_resource_provider") as mock_create_resource_provider,
+        pytest.raises(ValueError, match=message),
+    ):
+        stub_check_models_data_designer.check_models(stub_check_models_config_builder, **kwargs)
+
+    mock_create_resource_provider.assert_not_called()
+
+
+def test_check_models_passes_built_columns_to_readiness_check(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_check_models_model_configs,
+    stub_managed_assets_path,
+):
+    """The columns argument is the materialized config's column list, not the builder."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="city",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["nyc", "la"]),
+        )
+    )
+    config_builder.add_column(LLMTextColumnConfig(name="story", prompt="x", model_alias="stub-model"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
+        data_designer.check_models(config_builder)
+
+    (called_columns, _), _ = mock_check.call_args
+    assert [c.name for c in called_columns] == ["city", "story"]
+
+
+def test_check_models_no_op_when_only_samplers(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_check_models_model_configs,
+    stub_managed_assets_path,
+):
+    """A config with no model-using columns still routes through readiness, which short-circuits."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_check_models_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="city",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["nyc", "la"]),
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch("data_designer.interface.data_designer.run_readiness_check") as mock_check:
+        data_designer.check_models(config_builder)
+
+    # check_models always invokes run_readiness_check; the readiness function itself
+    # short-circuits when no aliases are referenced. The contract here is "we always
+    # delegate"; the no-op decision lives in the engine.
+    assert mock_check.call_count == 1
 
 
 def test_validate_raises_error_when_seed_collides(

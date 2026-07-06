@@ -24,8 +24,7 @@ class RowGroupBufferManager:
     writes (``update_cell``) are the only write path — whole-record replacement
     is unsafe under parallel column execution.
 
-    The existing ``DatasetBatchManager`` is untouched; this class is used
-    exclusively by the async scheduler.
+    This class is used by the async scheduler.
     """
 
     def __init__(
@@ -50,10 +49,6 @@ class RowGroupBufferManager:
     def update_cell(self, row_group: int, row_index: int, column: str, value: Any) -> None:
         """Write a single cell value. Thread-safe within the asyncio event loop."""
         self._buffers[row_group][row_index][column] = value
-
-    def update_cells(self, row_group: int, row_index: int, values: dict[str, Any]) -> None:
-        """Write multiple cell values for a single row."""
-        self._buffers[row_group][row_index].update(values)
 
     def update_batch(self, row_group: int, column: str, values: list[Any]) -> None:
         """Write a full column for all rows in a row group."""

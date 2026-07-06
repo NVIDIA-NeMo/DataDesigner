@@ -68,8 +68,8 @@ from data_designer.engine.models.request_admission.resources import (
     RequestResourceKey,
 )
 from data_designer.engine.models.resources import ProviderModelKey
-from data_designer.engine.observability import InMemoryAdmissionEventSink
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 MODEL_ALIAS = "stub"
 
@@ -2304,40 +2304,6 @@ async def test_main_dispatch_loop_yields_when_pre_batch_is_pending(
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_dispatch_does_not_scan_ready_frontier(monkeypatch: pytest.MonkeyPatch) -> None:
-    provider = _mock_provider()
-    configs = [
-        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
-        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
-    ]
-    strategies = {
-        "seed": GenerationStrategy.FULL_COLUMN,
-        "cell_out": GenerationStrategy.CELL_BY_CELL,
-    }
-    generators = {
-        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
-    }
-    graph = ExecutionGraph.create(configs, strategies)
-    tracker = CompletionTracker.with_graph(graph, [(0, 3)])
-
-    def fail_get_ready_tasks(*args: Any, **kwargs: Any) -> list[Task]:
-        raise AssertionError("scheduler should apply returned frontier deltas instead of scanning ready tasks")
-
-    monkeypatch.setattr(tracker, "get_ready_tasks", fail_get_ready_tasks)
-    scheduler = AsyncTaskScheduler(
-        generators=generators,
-        graph=graph,
-        tracker=tracker,
-        row_groups=[(0, 3)],
-    )
-
-    await asyncio.wait_for(scheduler.run(), timeout=10.0)
-
-    assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
-
-
-@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_pre_batch_drop_removes_pending_ready_task() -> None:
     provider = _mock_provider()
     configs = [
@@ -4472,7 +4438,6 @@ def test_scheduler_adaptive_row_group_target_stays_blocked_after_llm_lease_boots
 def test_scheduler_adaptive_row_group_queue_guard_uses_in_flight_task_cap() -> None:
     scheduler, _tracker = _build_simple_pipeline(num_records=2, buffer_size=1)
     scheduler._max_in_flight_tasks = 2
-    scheduler._max_model_task_admission = 100
     scheduler._fair_queue = SimpleNamespace(
         view=lambda: SimpleNamespace(queued_total=8, queued_peer_demand_by_resource={})
     )
