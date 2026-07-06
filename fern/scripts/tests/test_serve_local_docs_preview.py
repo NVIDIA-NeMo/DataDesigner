@@ -77,6 +77,27 @@ def test_sync_preview_root_updates_adds_and_removes_files(docs_root: Path, tmp_p
     assert not (preview_root / "styles/base.css").exists()
 
 
+def test_sync_preview_root_removes_file_deleted_during_copy(docs_root: Path, tmp_path: Path) -> None:
+    preview_root = tmp_path / "preview"
+    preview_root.mkdir()
+    state = serve_local_docs_preview.build_preview_root(docs_root, preview_root)
+    page = docs_root / "versions/latest/pages/index.mdx"
+    page.write_text("# Updated\n", encoding="utf-8")
+    relative_path = page.relative_to(docs_root)
+
+    def delete_source(*args: object, **kwargs: object) -> None:
+        page.unlink()
+        raise FileNotFoundError
+
+    with patch.object(serve_local_docs_preview, "copy_preview_file", side_effect=delete_source):
+        state = serve_local_docs_preview.sync_preview_root(docs_root, preview_root, state)
+
+    assert relative_path in state
+    state = serve_local_docs_preview.sync_preview_root(docs_root, preview_root, state)
+    assert relative_path not in state
+    assert not (preview_root / relative_path).exists()
+
+
 def test_sync_preview_root_regenerates_docs_config(docs_root: Path, tmp_path: Path) -> None:
     preview_root = tmp_path / "preview"
     preview_root.mkdir()

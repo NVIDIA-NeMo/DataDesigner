@@ -176,7 +176,10 @@ def sync_preview_root(root: Path, preview_root: Path, previous_state: SourceStat
             failed_paths.add(source)
 
     for relative_path in failed_paths:
-        current_state.pop(relative_path, None)
+        if relative_path in previous_state:
+            current_state[relative_path] = previous_state[relative_path]
+        else:
+            current_state.pop(relative_path, None)
     return current_state
 
 

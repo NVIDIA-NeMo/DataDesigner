@@ -1,5 +1,7 @@
 # Restore Fern fallback live reload
 
+Tracking: PR #788 (no linked issue).
+
 ## Context
 
 The unauthenticated Fern fallback added in PR #768 builds a temporary preview
