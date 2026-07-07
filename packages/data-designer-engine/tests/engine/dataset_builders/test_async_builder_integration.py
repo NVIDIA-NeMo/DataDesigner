@@ -403,7 +403,7 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
     model_registry.request_admission = request_admission
     provider = SimpleNamespace(
         model_registry=model_registry,
-        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, progress_bar=False),
+        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, display_tui=False),
     )
     processor_runner = MagicMock()
     processor_runner.has_processors_for.return_value = False
@@ -436,7 +436,7 @@ def test_prepare_async_run_uses_compact_plan_for_large_fresh_runs(monkeypatch: p
     model_registry.request_admission = None
     provider = SimpleNamespace(
         model_registry=model_registry,
-        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, progress_bar=False),
+        run_config=SimpleNamespace(max_in_flight_tasks=64, progress_interval=5.0, display_tui=False),
     )
     processor_runner = MagicMock()
     processor_runner.has_processors_for.return_value = False
