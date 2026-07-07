@@ -410,6 +410,8 @@ def test_narrow_terminal_keeps_panel_within_width(tty_stream: FakeTTY) -> None:
 @pytest.mark.parametrize(
     ("terminal_width", "label", "model_alias", "model_name"),
     [
+        # Exercise double-width CJK/emoji, combining marks, and ZWJ sequences whose
+        # code-point counts differ from their displayed terminal cell widths.
         (30, "列🚀" * 20, "模型" * 20, "提供者/模型" * 20),
         (36, "e\u0301" * 20, "👩🏽‍💻" * 20, "模型/e\u0301" * 20),
         (50, "列🚀" * 20, "模型" * 20, "提供者/模型" * 20),
