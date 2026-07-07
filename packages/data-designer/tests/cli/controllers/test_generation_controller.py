@@ -13,7 +13,7 @@ from data_designer.cli.controllers.generation_controller import GenerationContro
 from data_designer.cli.utils.config_loader import ConfigLoadError
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.run_config import RunConfig
+from data_designer.config.run_config import RequestAdmissionTuningConfig, RunConfig
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.engine.storage.artifact_storage import ResumeMode
 
@@ -749,7 +749,9 @@ def test_run_check_models_typed_error_includes_class_name(
 
 @patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
-def test_run_create_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+def test_run_create_success(
+    mock_load_config: MagicMock, mock_dd_cls: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Test successful create execution with default artifact path."""
     mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
     mock_load_config.return_value = mock_builder
@@ -766,6 +768,8 @@ def test_run_create_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock)
     mock_dd.create.assert_called_once_with(
         mock_builder, num_records=10, dataset_name="dataset", resume=ResumeMode.NEVER
     )
+    mock_dd.set_run_config.assert_not_called()
+    assert "Run config:" not in capsys.readouterr().out
 
 
 @patch(f"{_CTRL}.DataDesigner")
@@ -816,6 +820,157 @@ def test_run_create_applies_tui_override(mock_load_config: MagicMock, mock_dd_cl
     mock_dd.create.assert_called_once_with(
         mock_load_config.return_value, num_records=10, dataset_name="dataset", resume=ResumeMode.NEVER
     )
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_run_config")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_applies_run_config_precedence(
+    mock_load_config: MagicMock,
+    mock_load_run_config: MagicMock,
+    mock_dd_cls: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Runtime YAML overlays the baseline, then explicit TUI wins."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_load_run_config.return_value = RunConfig.model_validate(
+        {
+            "buffer_size": 1000,
+            "disable_early_shutdown": True,
+            "display_tui": True,
+            "preserve_dropped_columns": False,
+        }
+    )
+    mock_dd = MagicMock()
+    mock_dd.run_config = RunConfig(buffer_size=64, progress_interval=11.0, display_tui=True)
+    mock_dd.create.return_value = _make_mock_create_results()
+    mock_dd_cls.return_value = mock_dd
+
+    controller = GenerationController()
+    controller.run_create(
+        config_source="config.yaml",
+        num_records=10,
+        dataset_name="dataset",
+        artifact_path=None,
+        run_config_source="run.yaml",
+        tui=False,
+    )
+
+    mock_load_run_config.assert_called_once_with("run.yaml")
+    mock_dd.set_run_config.assert_called_once()
+    effective = mock_dd.set_run_config.call_args.args[0]
+    assert effective.buffer_size == 1000
+    assert effective.progress_interval == 11.0
+    assert effective.preserve_dropped_columns is False
+    assert effective.shutdown_error_rate == 1.0
+    assert effective.display_tui is False
+    assert [item[0] for item in mock_dd.method_calls] == ["set_run_config", "create"]
+    assert "Run config: run.yaml" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("request_admission", "expected"),
+    [
+        (
+            {"additive_increase_step": 3},
+            RequestAdmissionTuningConfig(additive_increase_step=3),
+        ),
+        (None, None),
+    ],
+)
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_run_config")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_replaces_nested_run_config(
+    mock_load_config: MagicMock,
+    mock_load_run_config: MagicMock,
+    mock_dd_cls: MagicMock,
+    request_admission: dict[str, int] | None,
+    expected: RequestAdmissionTuningConfig | None,
+) -> None:
+    """Supplying request_admission replaces, rather than deep-merges, the baseline object."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_load_run_config.return_value = RunConfig.model_validate({"request_admission": request_admission})
+    mock_dd = MagicMock()
+    mock_dd.run_config = RunConfig(
+        request_admission=RequestAdmissionTuningConfig(
+            multiplicative_decrease_factor=0.5,
+            additive_increase_step=9,
+            successes_until_increase=99,
+            cooldown_seconds=9.0,
+            startup_ramp_seconds=9.0,
+        )
+    )
+    mock_dd.create.return_value = _make_mock_create_results()
+    mock_dd_cls.return_value = mock_dd
+
+    GenerationController().run_create(
+        config_source="config.yaml",
+        num_records=10,
+        dataset_name="dataset",
+        artifact_path=None,
+        run_config_source="run.yml",
+    )
+
+    effective = mock_dd.set_run_config.call_args.args[0]
+    assert effective.request_admission == expected
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_run_config")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_applies_empty_run_config(
+    mock_load_config: MagicMock, mock_load_run_config: MagicMock, mock_dd_cls: MagicMock
+) -> None:
+    """An explicitly supplied empty mapping still applies the active baseline once."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_load_run_config.return_value = RunConfig.model_validate({})
+    mock_dd = MagicMock()
+    mock_dd.run_config = RunConfig(buffer_size=42)
+    mock_dd.create.return_value = _make_mock_create_results()
+    mock_dd_cls.return_value = mock_dd
+
+    GenerationController().run_create(
+        config_source="config.yaml",
+        num_records=10,
+        dataset_name="dataset",
+        artifact_path=None,
+        run_config_source="empty.yaml",
+    )
+
+    mock_dd.set_run_config.assert_called_once_with(RunConfig(buffer_size=42))
+
+
+@patch(f"{_CTRL}.DataDesigner")
+@patch(f"{_CTRL}.load_run_config")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_create_run_config_load_error(
+    mock_load_config: MagicMock,
+    mock_load_run_config: MagicMock,
+    mock_dd_cls: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Invalid runtime YAML exits before DataDesigner construction."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_load_run_config.side_effect = ConfigLoadError(
+        "Failed to load run config from 'bad.yaml': buffer_size: Input should be greater than 0"
+    )
+
+    with pytest.raises(typer.Exit) as exc_info:
+        GenerationController().run_create(
+            config_source="config.yaml",
+            num_records=10,
+            dataset_name="dataset",
+            artifact_path=None,
+            run_config_source="bad.yaml",
+        )
+
+    assert exc_info.value.exit_code == 1
+    mock_dd_cls.assert_not_called()
+    output = capsys.readouterr().out
+    assert "bad.yaml" in output
+    assert "buffer_size" in output
+    assert "Dataset creation failed" not in output
 
 
 @patch(f"{_CTRL}.load_config_builder")
