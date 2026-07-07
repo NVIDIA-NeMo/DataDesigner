@@ -219,7 +219,10 @@ class SchedulerAdmissionEventSink(Protocol):
 
 
 class JsonlSchedulerEventSink:
-    """Append scheduler events as newline-delimited JSON without affecting generation on file errors."""
+    """Append scheduler events as newline-delimited JSON from a single writer.
+
+    A write or flush failure disables the sink and is re-raised once for the caller to handle.
+    """
 
     def __init__(self, path: str | PathLike[str]) -> None:
         self._path = path
