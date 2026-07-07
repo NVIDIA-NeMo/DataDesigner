@@ -424,17 +424,21 @@ scrape_configs:
       - targets: ["127.0.0.1:9464"]
 ```
 
-The endpoint exposes five cumulative instruments. Prometheus derives throughput and request-completion rates from their counters and histogram counts.
+The endpoint exposes seven instruments. Prometheus derives throughput and request-completion rates from their counters and histogram counts.
 
 | Instrument | Type | Meaning |
 |------------|------|---------|
 | `data_designer.create.duration` | Histogram | Create-job duration in seconds, with failure-only `error.type`. |
 | `data_designer.dataset.records` | Counter | Checkpointed generated and dropped records, distinguished by `record.result`; derive record throughput from this counter. |
-| `data_designer.scheduler.events` | Counter | Job completion, non-retryable task errors, worker spawn failures, deferred retries, and task cancellations, identified by `event.name` with bounded `outcome` and failure-only `error.type` where applicable. |
-| `gen_ai.client.operation.duration` | Histogram | Completed model-request duration in seconds, identified by `gen_ai.operation.name` and `gen_ai.provider.name`, with failure-only `error.type`. |
+| `data_designer.dataset.progress` | Gauge | Fraction of scheduled records processed by the current create job, or across all active jobs when creates overlap. The most recently finished value remains visible until the next job starts. |
+| `data_designer.scheduler.events` | Counter | Job start/completion, non-retryable task errors, worker spawn failures, deferred retries, and task cancellations, identified by `event.name` with bounded `outcome` and failure-only `error.type` where applicable. |
+| `data_designer.model.request.active` | UpDownCounter | Model requests currently in progress, identified by `gen_ai.operation.name`, `gen_ai.provider.name`, and `gen_ai.request.model`. |
+| `gen_ai.client.operation.duration` | Histogram | Completed model-request duration in seconds, identified by `gen_ai.operation.name`, `gen_ai.provider.name`, and `gen_ai.request.model`, with failure-only `error.type`. |
 | `data_designer.log.records` | Counter | Data Designer log-record counts by normalized `log.severity`. |
 
 The listener and cumulative metrics remain available until process shutdown so a scrape can collect results after a job finishes. A later enabled job can rebind an idle listener to a different configured port without resetting those metrics. Concurrent jobs that request different ports share the active listener and emit a warning instead of replacing it.
+
+Generated and dropped record counts advance when a row group is durably checkpointed, so `data_designer.dataset.progress` moves in `buffer_size`-sized steps. Use `data_designer.model.request.active` and the `gen_ai.client.operation.duration` histogram count for live request activity between checkpoints.
 
 Setting `otel_metrics_port=None` records nothing for that invocation. If an earlier enabled job already started the process listener, disabling a later job does not stop the listener or remove the earlier cumulative metrics.
 

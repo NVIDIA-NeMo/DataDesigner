@@ -77,8 +77,16 @@ def test_runtime_exports_bounded_metrics_without_log_bodies(
         correlation = _correlation()
         runtime.emit_scheduler_event(
             SchedulerAdmissionEvent.capture(
-                "row_group_checkpointed",
+                "scheduler_job_started",
                 sequence=1,
+                correlation=correlation,
+                diagnostics={"row_group_total_rows": 4},
+            )
+        )
+        runtime.emit_scheduler_event(
+            SchedulerAdmissionEvent.capture(
+                "row_group_checkpointed",
+                sequence=2,
                 correlation=correlation,
                 diagnostics={"surviving_rows": 3, "dropped_rows": 1},
             )
@@ -86,19 +94,32 @@ def test_runtime_exports_bounded_metrics_without_log_bodies(
         runtime.emit_scheduler_event(
             SchedulerAdmissionEvent.capture(
                 "scheduler_job_completed",
-                sequence=2,
+                sequence=3,
                 correlation=correlation,
                 reason_or_result="success",
             )
         )
         runtime.emit_request_event(
             RequestAdmissionEvent.capture(
-                "model_request_completed",
+                "model_request_started",
                 sequence=1,
                 correlation=correlation,
                 request_resource_key={
                     "provider_name": "openai",
-                    "model_id": "SECRET-MODEL-SENTINEL",
+                    "model_id": "model-1",
+                    "domain": "chat",
+                },
+                request_attempt_id="SECRET-REQUEST-SENTINEL",
+            )
+        )
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_completed",
+                sequence=2,
+                correlation=correlation,
+                request_resource_key={
+                    "provider_name": "openai",
+                    "model_id": "model-1",
                     "domain": "chat",
                 },
                 request_attempt_id="SECRET-REQUEST-SENTINEL",
@@ -113,21 +134,186 @@ def test_runtime_exports_bounded_metrics_without_log_bodies(
     assert 'service_name="data-designer"' in metrics
     assert 'otel_scope_name="data_designer"' in metrics
     assert "data_designer_dataset_records_total{" in metrics
-    assert 'record_result="generated"' in metrics and " 3.0" in metrics
-    assert 'record_result="dropped"' in metrics and " 1.0" in metrics
+    generated_line = next(line for line in metrics.splitlines() if 'record_result="generated"' in line)
+    dropped_line = next(line for line in metrics.splitlines() if 'record_result="dropped"' in line)
+    assert generated_line.endswith(" 3.0")
+    assert dropped_line.endswith(" 1.0")
+    progress_line = next(line for line in metrics.splitlines() if line.startswith("data_designer_dataset_progress{"))
+    assert progress_line.endswith(" 1.0")
     assert "data_designer_scheduler_events_total{" in metrics
+    assert 'event_name="job.started"' in metrics
     assert 'event_name="job.completed"' in metrics
     assert 'outcome="success"' in metrics
     assert "gen_ai_client_operation_duration_seconds_count{" in metrics
     assert 'gen_ai_operation_name="chat"' in metrics
     assert 'gen_ai_provider_name="openai"' in metrics
+    assert 'gen_ai_request_model="model-1"' in metrics
+    active_request_line = next(
+        line for line in metrics.splitlines() if line.startswith("data_designer_model_request_active{")
+    )
+    assert active_request_line.endswith(" 0.0")
     assert "data_designer_log_records_total{" in metrics
     assert 'log_severity="error"' in metrics
     assert "data_designer_create_duration_seconds_count{" in metrics
     assert metrics.count("gen_ai_client_operation_duration_seconds_count{") == 1
-    assert metrics.count("data_designer_scheduler_events_total{") == 1
+    assert metrics.count("data_designer_scheduler_events_total{") == 2
     assert "SECRET-" not in metrics
     assert sum(record.getMessage() == "SECRET-LOG-SENTINEL" for record in caplog.records) == 1
+
+
+def test_runtime_exports_current_active_model_requests(runtime: OpenTelemetryRuntime) -> None:
+    resource = RequestResourceKey("provider", "model-1", RequestDomain.CHAT)
+    with runtime.observe_create(_free_port()):
+        correlation = _correlation()
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_started",
+                sequence=1,
+                correlation=correlation,
+                request_resource_key=resource,
+                request_attempt_id="SECRET-REQUEST-SENTINEL",
+            )
+        )
+        active_metrics = _scrape(runtime)
+        active_line = next(
+            line for line in active_metrics.splitlines() if line.startswith("data_designer_model_request_active{")
+        )
+        assert active_line.endswith(" 1.0")
+        assert 'gen_ai_operation_name="chat"' in active_line
+        assert 'gen_ai_provider_name="provider"' in active_line
+        assert 'gen_ai_request_model="model-1"' in active_line
+        assert "SECRET-" not in active_metrics
+
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_completed",
+                sequence=2,
+                correlation=correlation,
+                request_resource_key=resource,
+                request_attempt_id="SECRET-REQUEST-SENTINEL",
+                diagnostics={"duration_seconds": 0.1, "outcome": "provider_timeout"},
+            )
+        )
+
+    completed_metrics = _scrape(runtime)
+    completed_line = next(
+        line for line in completed_metrics.splitlines() if line.startswith("data_designer_model_request_active{")
+    )
+    assert completed_line.endswith(" 0.0")
+    assert "error_type=" not in completed_line
+    assert 'error_type="provider_timeout"' in completed_metrics
+    assert "SECRET-" not in completed_metrics
+
+
+def test_runtime_reconciles_duplicate_unmatched_and_orphan_model_requests(runtime: OpenTelemetryRuntime) -> None:
+    resource = RequestResourceKey("provider", "model-1", RequestDomain.CHAT)
+    port = _free_port()
+    with runtime.observe_create(port):
+        correlation = _correlation()
+        for sequence in (1, 2):
+            runtime.emit_request_event(
+                RequestAdmissionEvent.capture(
+                    "model_request_started",
+                    sequence=sequence,
+                    correlation=correlation,
+                    request_resource_key=resource,
+                    request_attempt_id="attempt-1",
+                )
+            )
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_completed",
+                sequence=3,
+                correlation=correlation,
+                request_resource_key=resource,
+                request_attempt_id="unmatched-attempt",
+                diagnostics={"duration_seconds": 0.1, "outcome": "success"},
+            )
+        )
+        active_line = next(
+            line for line in _scrape(runtime).splitlines() if line.startswith("data_designer_model_request_active{")
+        )
+        assert active_line.endswith(" 1.0")
+
+        for sequence in (4, 5):
+            runtime.emit_request_event(
+                RequestAdmissionEvent.capture(
+                    "model_request_completed",
+                    sequence=sequence,
+                    correlation=correlation,
+                    request_resource_key=resource,
+                    request_attempt_id="attempt-1",
+                    diagnostics={"duration_seconds": 0.1, "outcome": "local_cancelled"},
+                )
+            )
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_started",
+                sequence=6,
+                correlation=correlation,
+                request_resource_key=resource,
+                request_attempt_id="orphan-attempt",
+            )
+        )
+        assert "attempt-1" not in _scrape(runtime)
+
+    reconciled_line = next(
+        line for line in _scrape(runtime).splitlines() if line.startswith("data_designer_model_request_active{")
+    )
+    assert reconciled_line.endswith(" 0.0")
+
+
+def test_runtime_progress_resets_for_sequential_runs(runtime: OpenTelemetryRuntime) -> None:
+    port = _free_port()
+    with runtime.observe_create(port):
+        correlation = _correlation()
+        runtime.emit_scheduler_event(
+            SchedulerAdmissionEvent.capture(
+                "scheduler_job_started",
+                sequence=1,
+                correlation=correlation,
+                diagnostics={"row_group_total_rows": 4},
+            )
+        )
+        runtime.emit_scheduler_event(
+            SchedulerAdmissionEvent.capture(
+                "row_group_checkpointed",
+                sequence=2,
+                correlation=correlation,
+                diagnostics={"surviving_rows": 2, "dropped_rows": 0},
+            )
+        )
+        progress_line = next(
+            line for line in _scrape(runtime).splitlines() if line.startswith("data_designer_dataset_progress{")
+        )
+        assert progress_line.endswith(" 0.5")
+
+    with runtime.observe_create(port):
+        correlation = _correlation()
+        runtime.emit_scheduler_event(
+            SchedulerAdmissionEvent.capture(
+                "scheduler_job_started",
+                sequence=3,
+                correlation=correlation,
+                diagnostics={"row_group_total_rows": 8},
+            )
+        )
+        progress_line = next(
+            line for line in _scrape(runtime).splitlines() if line.startswith("data_designer_dataset_progress{")
+        )
+        assert progress_line.endswith(" 0.0")
+        runtime.emit_scheduler_event(
+            SchedulerAdmissionEvent.capture(
+                "row_group_checkpointed",
+                sequence=4,
+                correlation=correlation,
+                diagnostics={"surviving_rows": 1, "dropped_rows": 1},
+            )
+        )
+        progress_line = next(
+            line for line in _scrape(runtime).splitlines() if line.startswith("data_designer_dataset_progress{")
+        )
+        assert progress_line.endswith(" 0.25")
 
 
 def test_runtime_records_create_error_type_without_error_text(runtime: OpenTelemetryRuntime) -> None:
@@ -192,12 +378,22 @@ def test_runtime_maps_genai_operations(
     operation: str,
 ) -> None:
     with runtime.observe_create(_free_port()):
+        correlation = _correlation()
+        resource = RequestResourceKey("provider", "model-1", domain)
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_started",
+                sequence=1,
+                correlation=correlation,
+                request_resource_key=resource,
+            )
+        )
         runtime.emit_request_event(
             RequestAdmissionEvent.capture(
                 "model_request_completed",
-                sequence=1,
-                correlation=_correlation(),
-                request_resource_key=RequestResourceKey("provider", "SECRET-MODEL-SENTINEL", domain),
+                sequence=2,
+                correlation=correlation,
+                request_resource_key=resource,
                 diagnostics={"duration_seconds": 0.1, "outcome": "provider_timeout"},
             )
         )
@@ -208,17 +404,27 @@ def test_runtime_maps_genai_operations(
     )
     assert f'gen_ai_operation_name="{operation}"' in line
     assert 'error_type="provider_timeout"' in line
-    assert "SECRET-MODEL-SENTINEL" not in metrics
+    assert 'gen_ai_request_model="model-1"' in line
 
 
 def test_runtime_collapses_unknown_genai_operation(runtime: OpenTelemetryRuntime) -> None:
     with runtime.observe_create(_free_port()):
+        correlation = _correlation()
+        resource = {"provider_name": "provider", "domain": "SECRET-DOMAIN-SENTINEL"}
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_started",
+                sequence=1,
+                correlation=correlation,
+                request_resource_key=resource,
+            )
+        )
         runtime.emit_request_event(
             RequestAdmissionEvent.capture(
                 "model_request_completed",
-                sequence=1,
-                correlation=_correlation(),
-                request_resource_key={"provider_name": "provider", "domain": "SECRET-DOMAIN-SENTINEL"},
+                sequence=2,
+                correlation=correlation,
+                request_resource_key=resource,
                 diagnostics={"duration_seconds": 0.1, "outcome": "success"},
             )
         )
