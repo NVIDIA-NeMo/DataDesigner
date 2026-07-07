@@ -63,6 +63,8 @@ def parse_args() -> argparse.Namespace:
 
 def write_local_docs_config(root: Path, preview_root: Path) -> None:
     config = yaml.safe_load((root / "docs.yml").read_text(encoding="utf-8"))
+    if not isinstance(config, dict):
+        raise yaml.YAMLError("docs.yml must contain a mapping")
     config.pop("global-theme", None)
 
     for key, value in LOCAL_THEME_CONFIG.items():
@@ -102,11 +104,11 @@ def snapshot_source(root: Path) -> SourceState:
 
 def component_aliases(state: SourceState) -> dict[Path, Path]:
     aliases = {}
-    for source in state:
+    for source in sorted(state):
         if source.parts[:1] != ("components",) or source.suffix not in COMPONENT_EXTENSIONS:
             continue
         alias = source.with_suffix("")
-        if alias not in state:
+        if alias not in state and alias not in aliases:
             aliases[alias] = source
     return aliases
 
@@ -162,18 +164,22 @@ def sync_preview_root(root: Path, preview_root: Path, previous_state: SourceStat
                 write_local_docs_config(root, preview_root)
             else:
                 copy_preview_file(root, preview_root, relative_path)
-        except FileNotFoundError:
+        except (OSError, yaml.YAMLError):
             failed_paths.add(relative_path)
 
     changed_aliases = {
-        alias for alias, source in current_aliases.items() if alias not in previous_aliases or source in changed_paths
+        alias
+        for alias, source in current_aliases.items()
+        if previous_aliases.get(alias) != source or source in changed_paths
     }
     for alias in sorted(changed_aliases):
         source = current_aliases[alias]
         try:
             copy_preview_file(root, preview_root, source, alias)
-        except FileNotFoundError:
+        except OSError:
             failed_paths.add(source)
+            if alias in previous_aliases:
+                failed_paths.add(previous_aliases[alias])
 
     for relative_path in failed_paths:
         if relative_path in previous_state:
@@ -183,14 +189,14 @@ def sync_preview_root(root: Path, preview_root: Path, previous_state: SourceStat
     return current_state
 
 
-def run_command(command: list[str], cwd: Path, root: Path, source_state: SourceState) -> int:
-    process = subprocess.Popen(command, cwd=cwd)
+def run_command(command: list[str], preview_root: Path, root: Path, source_state: SourceState) -> int:
+    process = subprocess.Popen(command, cwd=preview_root)
     try:
         while True:
             try:
                 return process.wait(timeout=POLL_INTERVAL_SECONDS)
             except subprocess.TimeoutExpired:
-                source_state = sync_preview_root(root, cwd, source_state)
+                source_state = sync_preview_root(root, preview_root, source_state)
     except KeyboardInterrupt:
         process.send_signal(signal.SIGINT)
         return process.wait()

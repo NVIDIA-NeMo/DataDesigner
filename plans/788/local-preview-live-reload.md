@@ -37,9 +37,9 @@ Fern child process is running.
   Continue removing `global-theme` and applying the deterministic local theme.
 - Preserve extensionless component aliases, but materialize them inside the
   temporary tree instead of linking them to source files.
-- Retry files that disappear during an editor save on the next pass. Stop the
-  child and exit nonzero for other synchronization failures rather than
-  continuing with a stale preview.
+- Retry transient file access failures and invalid `docs.yml` edits on the next
+  pass. Stop the child and exit nonzero for unexpected synchronization failures
+  rather than continuing with a stale preview.
 
 This avoids mutating the working tree, keeps source files editable at their
 normal paths, and works without Fern support for an alternate config file.
@@ -52,8 +52,8 @@ normal paths, and works without Fern support for an alternate config file.
   files do not resolve outside the temporary root.
 - [x] Update `fern/scripts/serve-local-docs-preview.py` to build a real preview
   tree and expose one synchronization pass that compares source snapshots and
-  applies changes. Handle files disappearing during editor atomic-save
-  sequences by retrying on the next pass.
+  applies changes. Handle transient copy failures and invalid configuration
+  during editor saves by retrying on the next pass.
 - [x] Change child-process orchestration to synchronize every 250 ms until Fern
   exits. Preserve interrupt forwarding and ensure synchronization errors stop
   the child cleanly.

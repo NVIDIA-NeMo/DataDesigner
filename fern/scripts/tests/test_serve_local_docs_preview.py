@@ -58,6 +58,20 @@ def test_build_preview_root_materializes_local_theme(docs_root: Path, tmp_path: 
     assert all(path.resolve().is_relative_to(preview_root.resolve()) for path in preview_root.rglob("*"))
 
 
+def test_build_preview_root_uses_first_component_extension(docs_root: Path, tmp_path: Path) -> None:
+    preview_root = tmp_path / "preview"
+    preview_root.mkdir()
+    component = docs_root / "components/Authors.ts"
+    component.write_text("export const Authors = 'ts';\n", encoding="utf-8")
+
+    state = serve_local_docs_preview.build_preview_root(docs_root, preview_root)
+
+    assert (preview_root / "components/Authors").read_text(encoding="utf-8") == "export const Authors = 'ts';\n"
+    component.unlink()
+    serve_local_docs_preview.sync_preview_root(docs_root, preview_root, state)
+    assert (preview_root / "components/Authors").read_text(encoding="utf-8") == "export const Authors = 'initial';\n"
+
+
 def test_sync_preview_root_updates_adds_and_removes_files(docs_root: Path, tmp_path: Path) -> None:
     preview_root = tmp_path / "preview"
     preview_root.mkdir()
@@ -75,6 +89,23 @@ def test_sync_preview_root_updates_adds_and_removes_files(docs_root: Path, tmp_p
     assert (preview_root / "versions/latest/pages/index.mdx").read_text(encoding="utf-8") == "# Updated\n"
     assert (preview_root / "versions/latest/pages/added.mdx").read_text(encoding="utf-8") == "# Added\n"
     assert not (preview_root / "styles/base.css").exists()
+
+
+def test_sync_preview_root_retries_transient_copy_error(docs_root: Path, tmp_path: Path) -> None:
+    preview_root = tmp_path / "preview"
+    preview_root.mkdir()
+    state = serve_local_docs_preview.build_preview_root(docs_root, preview_root)
+    page = docs_root / "versions/latest/pages/added.mdx"
+    page.write_text("# Added\n", encoding="utf-8")
+    relative_path = page.relative_to(docs_root)
+
+    with patch.object(serve_local_docs_preview, "copy_preview_file", side_effect=PermissionError):
+        state = serve_local_docs_preview.sync_preview_root(docs_root, preview_root, state)
+
+    assert relative_path not in state
+    assert not (preview_root / relative_path).exists()
+    state = serve_local_docs_preview.sync_preview_root(docs_root, preview_root, state)
+    assert (preview_root / relative_path).read_text(encoding="utf-8") == "# Added\n"
 
 
 def test_sync_preview_root_removes_file_deleted_during_copy(docs_root: Path, tmp_path: Path) -> None:
@@ -113,6 +144,29 @@ def test_sync_preview_root_regenerates_docs_config(docs_root: Path, tmp_path: Pa
     assert preview_config["title"] == "Updated title"
     assert "global-theme" not in preview_config
     assert preview_config["colors"] == serve_local_docs_preview.LOCAL_THEME_CONFIG["colors"]
+
+
+@pytest.mark.parametrize("invalid_config", ["", "title: ["])
+def test_sync_preview_root_retries_invalid_docs_config(
+    docs_root: Path,
+    tmp_path: Path,
+    invalid_config: str,
+) -> None:
+    preview_root = tmp_path / "preview"
+    preview_root.mkdir()
+    state = serve_local_docs_preview.build_preview_root(docs_root, preview_root)
+    previous_docs_state = state[serve_local_docs_preview.DOCS_CONFIG_PATH]
+    docs_config = docs_root / "docs.yml"
+    docs_config.write_text(invalid_config, encoding="utf-8")
+
+    state = serve_local_docs_preview.sync_preview_root(docs_root, preview_root, state)
+
+    assert state[serve_local_docs_preview.DOCS_CONFIG_PATH] == previous_docs_state
+    assert yaml.safe_load((preview_root / "docs.yml").read_text(encoding="utf-8"))["title"] == "Data Designer"
+    docs_config.write_text("title: Updated title\n", encoding="utf-8")
+    state = serve_local_docs_preview.sync_preview_root(docs_root, preview_root, state)
+    assert state[serve_local_docs_preview.DOCS_CONFIG_PATH] != previous_docs_state
+    assert yaml.safe_load((preview_root / "docs.yml").read_text(encoding="utf-8"))["title"] == "Updated title"
 
 
 def test_sync_preview_root_updates_and_removes_component_alias(docs_root: Path, tmp_path: Path) -> None:
