@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 
 @dataclass(frozen=True, order=True)
@@ -24,17 +24,6 @@ class Task:
     row_group: int
     row_index: int | None  # None for batch/full-column tasks
     task_type: Literal["from_scratch", "cell", "batch", "pre_batch_processor", "post_batch_processor"]
-
-
-@dataclass
-class TaskResult:
-    """Outcome of a completed task."""
-
-    task: Task
-    status: Literal["success", "error"]
-    output: Any = None
-    error: Exception | None = None
-    retryable: bool = False
 
 
 @dataclass

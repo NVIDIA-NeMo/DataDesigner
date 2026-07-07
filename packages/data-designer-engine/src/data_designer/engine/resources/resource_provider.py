@@ -56,31 +56,6 @@ class ResourceProvider(ConfigBase):
         return DatasetMetadata(seed_column_names=seed_column_names)
 
 
-def _validate_tool_configs_against_providers(
-    tool_configs: list[ToolConfig],
-    mcp_providers: list[MCPProviderT],
-) -> None:
-    """Validate that all providers referenced in tool configs exist.
-
-    Args:
-        tool_configs: List of tool configurations to validate.
-        mcp_providers: List of available MCP provider configurations.
-
-    Raises:
-        ValueError: If a tool config references a provider that doesn't exist.
-    """
-    available_providers = {p.name for p in mcp_providers}
-
-    for tc in tool_configs:
-        missing_providers = [p for p in tc.providers if p not in available_providers]
-        if missing_providers:
-            available_list = sorted(available_providers) if available_providers else ["(none configured)"]
-            raise ValueError(
-                f"ToolConfig '{tc.tool_alias}' references provider(s) {missing_providers!r} "
-                f"which are not registered. Available providers: {available_list}"
-            )
-
-
 def create_resource_provider(
     *,
     artifact_storage: ArtifactStorage,

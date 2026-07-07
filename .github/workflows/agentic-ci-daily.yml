@@ -87,14 +87,14 @@ jobs:
           fi
 
       - name: Checkout main
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: main
           fetch-depth: 0
 
       - name: Restore runner memory
         id: cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .agentic-ci-state
@@ -773,7 +773,7 @@ jobs:
 
       - name: Save rejected gate state
         if: always() && (steps.scope_gate.outputs.rejected == 'true' || steps.lockfile_gate.outputs.rejected == 'true')
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .agentic-ci-state

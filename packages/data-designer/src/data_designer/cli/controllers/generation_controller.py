@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING, Literal
 import typer
 
 from data_designer.cli.ui import console, print_error, print_header, print_success, wait_for_navigation_key
-from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder
+from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder, load_run_config
 from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_sample_records_pager
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.run_config import RunConfig
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.engine.storage.artifact_storage import ResumeMode
 from data_designer.errors import DataDesignerError
@@ -146,8 +147,10 @@ class GenerationController:
         num_records: int,
         dataset_name: str,
         artifact_path: str | None,
+        run_config_source: str | None = None,
         resume: ResumeMode = ResumeMode.NEVER,
         output_format: str | None = None,
+        tui: bool | None = None,
     ) -> None:
         """Load config, create a full dataset, and save results to disk.
 
@@ -156,16 +159,22 @@ class GenerationController:
             num_records: Number of records to generate.
             dataset_name: Name for the generated dataset folder.
             artifact_path: Path where generated artifacts will be stored, or None for default.
+            run_config_source: Optional local YAML file containing RunConfig overrides.
             resume: Controls how interrupted runs are handled.
             output_format: If set, export the dataset to a single file in this format after
                 generation. One of 'jsonl', 'csv', 'parquet'.
+            tui: If set, overrides the active RunConfig display_tui setting for this
+                create invocation's terminal UI.
         """
         config_builder = self._load_config(config_source)
+        run_config = self._load_run_config(run_config_source) if run_config_source is not None else None
 
         resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
 
         print_header("Data Designer Create")
         console.print(f"  Config: [bold]{config_source}[/bold]")
+        if run_config_source is not None:
+            console.print(f"  Run config: [bold]{run_config_source}[/bold]")
         console.print(f"  Records: [bold]{num_records}[/bold]")
         console.print(f"  Dataset name: [bold]{dataset_name}[/bold]")
         console.print(f"  Artifact path: [bold]{resolved_artifact_path}[/bold]")
@@ -173,6 +182,14 @@ class GenerationController:
 
         try:
             data_designer = DataDesigner(artifact_path=resolved_artifact_path)
+            if run_config is not None or tui is not None:
+                run_config_updates = run_config.model_dump(exclude_unset=True) if run_config is not None else {}
+                if tui is not None:
+                    run_config_updates["display_tui"] = tui
+                effective_run_config = RunConfig.model_validate(
+                    data_designer.run_config.model_dump() | run_config_updates
+                )
+                data_designer.set_run_config(effective_run_config)
             results = data_designer.create(
                 config_builder,
                 num_records=num_records,
@@ -221,6 +238,14 @@ class GenerationController:
         """
         try:
             return load_config_builder(config_source)
+        except ConfigLoadError as e:
+            print_error(str(e))
+            raise typer.Exit(code=1)
+
+    def _load_run_config(self, run_config_source: str) -> RunConfig:
+        """Load a runtime configuration, exiting on failure."""
+        try:
+            return load_run_config(run_config_source)
         except ConfigLoadError as e:
             print_error(str(e))
             raise typer.Exit(code=1)

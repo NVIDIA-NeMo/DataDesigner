@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import contextvars
+import itertools
+import logging
 import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
-from typing import Literal, Protocol
+from threading import Lock
+from typing import Callable, Literal, Protocol
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -215,30 +220,31 @@ class RequestAdmissionEventSink(Protocol):
     def emit_request_event(self, event: RequestAdmissionEvent) -> None: ...
 
 
-class InMemoryAdmissionEventSink:
-    """Small sink used by tests, diagnostics, and benchmark smoke runs."""
+RequestAdmissionEventCallback = Callable[[RequestAdmissionEvent], None]
 
-    def __init__(self) -> None:
-        self.scheduler_events: list[SchedulerAdmissionEvent] = []
-        self.request_events: list[RequestAdmissionEvent] = []
-
-    def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None:
-        self.scheduler_events.append(event)
-
-    def emit_request_event(self, event: RequestAdmissionEvent) -> None:
-        self.request_events.append(event)
+_request_event_callback_lock = Lock()
+_request_event_callback_ids = itertools.count()
+_request_event_callbacks: dict[int, RequestAdmissionEventCallback] = {}
 
 
-@dataclass(frozen=True)
-class CorrelatedRuntimeView:
-    scheduler_events: tuple[SchedulerAdmissionEvent, ...]
-    request_events: tuple[RequestAdmissionEvent, ...]
+def subscribe_request_admission_events(callback: RequestAdmissionEventCallback) -> Callable[[], None]:
+    callback_id = next(_request_event_callback_ids)
+    with _request_event_callback_lock:
+        _request_event_callbacks[callback_id] = callback
 
-    @property
-    def timeline(self) -> tuple[SchedulerAdmissionEvent | RequestAdmissionEvent, ...]:
-        return tuple(
-            sorted(
-                (*self.scheduler_events, *self.request_events),
-                key=lambda event: (event.captured_at_monotonic, event.sequence),
-            )
-        )
+    def unsubscribe() -> None:
+        with _request_event_callback_lock:
+            _request_event_callbacks.pop(callback_id, None)
+
+    return unsubscribe
+
+
+def emit_request_admission_event(event: RequestAdmissionEvent) -> None:
+    with _request_event_callback_lock:
+        callbacks = tuple(_request_event_callbacks.values())
+
+    for callback in callbacks:
+        try:
+            callback(event)
+        except Exception:
+            logger.debug("Request admission event callback failed", exc_info=True)

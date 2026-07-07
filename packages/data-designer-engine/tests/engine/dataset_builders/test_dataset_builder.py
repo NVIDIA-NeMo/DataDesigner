@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import tracemalloc
@@ -33,6 +34,7 @@ from data_designer.engine.column_generators.generators.base import GenerationStr
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder, build_row_group_resume_plan
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroupPlan
+from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.processing.processors.base import Processor
@@ -42,6 +44,10 @@ from data_designer.engine.storage.artifact_storage import ArtifactStorage, Resum
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+def _replace_processors(builder: DatasetBuilder, processors: list[Processor]) -> None:
+    builder._processor_runner = ProcessorRunner(processors=processors, artifact_storage=builder.artifact_storage)
 
 
 @pytest.fixture
@@ -438,6 +444,28 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
     buffer_manager.free_row_group.assert_not_called()
 
 
+def test_await_async_scheduler_result_waits_for_scheduler_cleanup_on_keyboard_interrupt() -> None:
+    class MockFuture:
+        def __init__(self) -> None:
+            self.result_calls = 0
+
+        def result(self) -> None:
+            self.result_calls += 1
+            if self.result_calls == 1:
+                raise KeyboardInterrupt
+            assert scheduler.request_cancel.called
+            raise concurrent.futures.CancelledError
+
+    scheduler = Mock()
+    future = MockFuture()
+
+    with pytest.raises(KeyboardInterrupt):
+        builder_mod._await_async_scheduler_result(future, scheduler)
+
+    scheduler.request_cancel.assert_called_once_with()
+    assert future.result_calls == 2
+
+
 def test_reset_run_state_clears_per_run_signals(stub_resource_provider, stub_test_config_builder) -> None:
     """``_reset_run_state`` must clear all per-run state so reused builders don't leak."""
     builder = DatasetBuilder(
@@ -501,7 +529,7 @@ def test_run_after_generation(
     mock_processor = create_mock_processor("proc", ["process_after_generation"])
     mock_processor.process_after_generation.side_effect = processor_fn
 
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
     simple_builder._processor_runner.run_after_generation(batch_size)
 
     mock_processor.process_after_generation.assert_called_once()
@@ -524,7 +552,7 @@ def test_all_processor_stages_run_in_order(builder_with_seed, mode):
         df,
     )[1]
 
-    builder_with_seed.set_processor_runner([mock_processor])
+    _replace_processors(builder_with_seed, [mock_processor])
 
     if mode == "preview":
         raw_dataset = builder_with_seed.build_preview(num_records=3)
@@ -544,7 +572,7 @@ def test_processor_exception_in_process_after_batch_raises_error(simple_builder)
     mock_processor = create_mock_processor("failing_processor", ["process_after_batch"])
     mock_processor.process_after_batch.side_effect = ValueError("Post-batch processing failed")
 
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
 
     with pytest.raises(DatasetProcessingError, match="Failed in process_after_batch"):
         simple_builder._processor_runner.run_post_batch(lazy.pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
@@ -553,7 +581,7 @@ def test_processor_exception_in_process_after_batch_raises_error(simple_builder)
 def test_processor_with_no_implemented_stages_is_skipped(builder_with_seed):
     """Test that a processor implementing no stages doesn't cause errors."""
     mock_processor = create_mock_processor("noop_processor", [])
-    builder_with_seed.set_processor_runner([mock_processor])
+    _replace_processors(builder_with_seed, [mock_processor])
 
     result = builder_with_seed.build_preview(num_records=3)
 
@@ -573,7 +601,7 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
         p.process_before_batch.side_effect = lambda df, lbl=label: (call_order.append(lbl), df)[1]
         processors.append(p)
 
-    builder_with_seed.set_processor_runner(processors)
+    _replace_processors(builder_with_seed, processors)
     builder_with_seed.build(num_records=3)
 
     assert call_order == ["a", "b", "c"]
@@ -582,7 +610,7 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
 def test_pre_batch_processor_row_count_change_rejected(builder_with_seed, caplog):
     mock_processor = create_mock_processor("filtering_processor", ["process_before_batch"])
     mock_processor.process_before_batch.side_effect = lambda df: df.iloc[:2].reset_index(drop=True)
-    builder_with_seed.set_processor_runner([mock_processor])
+    _replace_processors(builder_with_seed, [mock_processor])
 
     with caplog.at_level(logging.INFO):
         with pytest.raises(DatasetGenerationError, match="Pre-batch processor changed row count"):
@@ -594,7 +622,7 @@ def test_pre_batch_processor_row_count_change_rejected(builder_with_seed, caplog
 def test_process_preview_with_empty_dataframe(simple_builder):
     """Test that process_preview handles empty DataFrames gracefully."""
     mock_processor = create_mock_processor("test_processor", ["process_after_batch", "process_after_generation"])
-    simple_builder.set_processor_runner([mock_processor])
+    _replace_processors(simple_builder, [mock_processor])
 
     result = simple_builder.process_preview(lazy.pd.DataFrame())
 
@@ -1604,7 +1632,7 @@ def test_build_resume_complete_dataset_runs_after_generation_when_no_marker(
 
     builder = _make_resume_builder(stub_resource_provider, stub_test_config_builder, tmp_path, buffer_size=2)
     after_gen_processor = create_mock_processor("after_gen", ["process_after_generation"])
-    builder.set_processor_runner([after_gen_processor])
+    _replace_processors(builder, [after_gen_processor])
 
     builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 

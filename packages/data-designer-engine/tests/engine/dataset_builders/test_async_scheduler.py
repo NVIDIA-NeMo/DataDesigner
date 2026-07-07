@@ -43,9 +43,7 @@ from data_designer.engine.dataset_builders.scheduling.completion import Completi
 from data_designer.engine.dataset_builders.scheduling.task_admission import TaskAdmissionConfig, TaskAdmissionLease
 from data_designer.engine.dataset_builders.scheduling.task_model import Task
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
-from data_designer.engine.dataset_builders.utils.async_progress_reporter import AsyncProgressReporter
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.errors import (
     RETRYABLE_MODEL_ERRORS,
@@ -68,8 +66,10 @@ from data_designer.engine.models.request_admission.resources import (
     RequestResourceKey,
 )
 from data_designer.engine.models.resources import ProviderModelKey
-from data_designer.engine.observability import InMemoryAdmissionEventSink
+from data_designer.engine.progress.reporter import AsyncProgressReporter
+from data_designer.engine.progress.tracker import ProgressTracker
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 MODEL_ALIAS = "stub"
 
@@ -525,6 +525,37 @@ async def test_scheduler_dispatches_seeds_first() -> None:
     assert len(seed_traces) == 1  # one batch task
     assert len(cell_traces) == 2  # two cell tasks
     assert seed_traces[0].dispatched_at < cell_traces[0].dispatched_at
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_request_cancel_wakes_scheduler_and_drains_workers() -> None:
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class BlockingCellGenerator(MockCellGenerator):
+        async def agenerate(self, data: dict) -> dict:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+            return data
+
+    provider = _mock_provider()
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": BlockingCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+    scheduler, _tracker = _build_simple_pipeline(num_records=1, generators=generators)
+    run_task = asyncio.create_task(scheduler.run())
+
+    await asyncio.wait_for(started.wait(), timeout=2)
+    await asyncio.to_thread(scheduler.request_cancel)
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(run_task, timeout=2)
+    assert cancelled.is_set()
+    assert scheduler.active_worker_count == 0
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -2233,6 +2264,21 @@ async def test_drain_frontier_raises_when_ready_but_no_capacity_or_inflight() ->
         await scheduler._drain_frontier(("seed",), False)
 
 
+@pytest.mark.asyncio(loop_scope="session")
+async def test_drain_frontier_stops_when_cancel_requested() -> None:
+    """Cancellation wakes and exits the salvage dispatch loop."""
+    scheduler, _tracker = _build_simple_pipeline(num_records=1)
+    scheduler._in_flight.add(Task(column="cell_out", row_group=0, row_index=0, task_type="cell"))
+    scheduler._run_loop = asyncio.get_running_loop()
+    drain_task = asyncio.create_task(scheduler._drain_frontier(("seed",), False))
+
+    await asyncio.sleep(0)
+    await asyncio.to_thread(scheduler.request_cancel)
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(drain_task, timeout=2)
+
+
 def test_dispatch_selected_task_rolls_back_scheduler_state_when_worker_spawn_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2301,40 +2347,6 @@ async def test_main_dispatch_loop_yields_when_pre_batch_is_pending(
     await scheduler._main_dispatch_loop(("seed",), True, ["seed"])
 
     assert yielded_delays == [0]
-
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_dispatch_does_not_scan_ready_frontier(monkeypatch: pytest.MonkeyPatch) -> None:
-    provider = _mock_provider()
-    configs = [
-        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
-        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
-    ]
-    strategies = {
-        "seed": GenerationStrategy.FULL_COLUMN,
-        "cell_out": GenerationStrategy.CELL_BY_CELL,
-    }
-    generators = {
-        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
-    }
-    graph = ExecutionGraph.create(configs, strategies)
-    tracker = CompletionTracker.with_graph(graph, [(0, 3)])
-
-    def fail_get_ready_tasks(*args: Any, **kwargs: Any) -> list[Task]:
-        raise AssertionError("scheduler should apply returned frontier deltas instead of scanning ready tasks")
-
-    monkeypatch.setattr(tracker, "get_ready_tasks", fail_get_ready_tasks)
-    scheduler = AsyncTaskScheduler(
-        generators=generators,
-        graph=graph,
-        tracker=tracker,
-        row_groups=[(0, 3)],
-    )
-
-    await asyncio.wait_for(scheduler.run(), timeout=10.0)
-
-    assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -3978,7 +3990,6 @@ def test_scheduler_adaptive_row_group_target_stays_blocked_after_llm_lease_boots
 def test_scheduler_adaptive_row_group_queue_guard_uses_in_flight_task_cap() -> None:
     scheduler, _tracker = _build_simple_pipeline(num_records=2, buffer_size=1)
     scheduler._max_in_flight_tasks = 2
-    scheduler._max_model_task_admission = 100
     scheduler._fair_queue = SimpleNamespace(
         view=lambda: SimpleNamespace(queued_total=8, queued_peer_demand_by_resource={})
     )

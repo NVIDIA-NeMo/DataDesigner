@@ -32,6 +32,7 @@ from data_designer.engine.models.resources import ProviderModelKey
 from data_designer.engine.observability import (
     RequestAdmissionEvent,
     RequestAdmissionEventSink,
+    emit_request_admission_event,
     runtime_correlation_provider,
 )
 
@@ -635,17 +636,6 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         if state.in_flight == 0 and outcome.kind not in {"local_cancelled", "local_timeout"}:
             state.consecutive_rate_limits = 0
 
-    def _increment_waiter(self, item: RequestAdmissionItem) -> None:
-        with self._lock:
-            self._get_or_create_state(item.resource).waiters += 1
-            self._sequence += 1
-
-    def _decrement_waiter(self, item: RequestAdmissionItem) -> None:
-        with self._lock:
-            state = self._get_or_create_state(item.resource)
-            state.waiters = max(0, state.waiters - 1)
-            self._sequence += 1
-
     def _get_or_create_state(self, resource: RequestResourceKey) -> AdaptiveRequestLimitState:
         state = self._domains.get(resource)
         if state is None:
@@ -778,11 +768,10 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         )
 
     def _emit_events(self, events: list[RequestAdmissionEvent]) -> None:
-        if self._event_sink is None:
-            return
         for event in events:
-            try:
-                self._event_sink.emit_request_event(event)
-            except Exception:
-                logger.warning("Request admission event sink raised; dropping event.", exc_info=True)
-                continue
+            if self._event_sink is not None:
+                try:
+                    self._event_sink.emit_request_event(event)
+                except Exception:
+                    logger.warning("Request admission event sink raised; dropping event.", exc_info=True)
+            emit_request_admission_event(event)

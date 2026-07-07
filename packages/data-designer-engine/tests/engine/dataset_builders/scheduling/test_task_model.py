@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_designer.engine.dataset_builders.scheduling.task_model import Task, TaskResult, TaskTrace
+from data_designer.engine.dataset_builders.scheduling.task_model import Task, TaskTrace
 
 
 def test_task_is_frozen() -> None:
@@ -39,23 +39,6 @@ def test_task_batch_has_none_row_index() -> None:
 def test_task_types(task_type: str) -> None:
     task = Task(column="col", row_group=0, row_index=0, task_type=task_type)
     assert task.task_type == task_type
-
-
-def test_task_result_success() -> None:
-    task = Task(column="col_a", row_group=0, row_index=0, task_type="cell")
-    result = TaskResult(task=task, status="success", output={"col_a": "value"})
-    assert result.status == "success"
-    assert result.error is None
-    assert result.retryable is False
-
-
-def test_task_result_error() -> None:
-    task = Task(column="col_a", row_group=0, row_index=0, task_type="cell")
-    exc = ValueError("bad input")
-    result = TaskResult(task=task, status="error", error=exc, retryable=True)
-    assert result.status == "error"
-    assert result.error is exc
-    assert result.retryable is True
 
 
 def test_task_trace_from_task() -> None:

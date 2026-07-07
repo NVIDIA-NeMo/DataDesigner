@@ -166,10 +166,6 @@ class PluginInstallService:
             if return_code != 0:
                 raise RuntimeError(f"Plugin package uninstaller exited with status {return_code}")
 
-    def verify_entry_point(self, entry: PluginCatalogEntry) -> bool:
-        """Verify the runtime plugin's declared entry point is installed and loadable."""
-        return self.verify_entry_points([entry])
-
     def verify_entry_points(self, entries: list[PluginCatalogEntry]) -> bool:
         """Verify every declared runtime entry point for an installed catalog package can load."""
         if not entries:

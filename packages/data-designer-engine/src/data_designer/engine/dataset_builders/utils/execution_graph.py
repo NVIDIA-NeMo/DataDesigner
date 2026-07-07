@@ -15,7 +15,6 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     DatasetBuilderColumnConfigT,
     MultiColumnConfig,
 )
-from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef
 from data_designer.engine.dataset_builders.utils.errors import ConfigCompilationError, DAGCircularDependencyError
 from data_designer.logging import LOG_INDENT
 
@@ -282,42 +281,6 @@ class ExecutionGraph:
             else:
                 counts[col] = num_row_groups
         return counts
-
-    def compute_cell_dependencies(
-        self,
-        column: str,
-        row_group: int,
-        row_index: int | None,
-        row_group_size: int,
-    ) -> list[SliceRef]:
-        """Derive cell-level deps on demand from column-level DAG + strategy.
-
-        Returns a list of ``SliceRef`` that must be complete before this task can run.
-        """
-        deps: list[SliceRef] = []
-        for up_col in self.get_upstream_columns(column):
-            up_strategy = self._strategies[up_col]
-            if up_strategy == GenerationStrategy.CELL_BY_CELL:
-                if row_index is not None:
-                    deps.append(SliceRef(up_col, row_group, row_index))
-                else:
-                    for ri in range(row_group_size):
-                        deps.append(SliceRef(up_col, row_group, ri))
-            else:
-                deps.append(SliceRef(up_col, row_group, None))
-        return deps
-
-    def to_mermaid(self) -> str:
-        """Mermaid diagram string with strategy annotations."""
-        lines = ["graph TD"]
-        for col in self._columns:
-            strat = self._strategies[col]
-            label = f"{col} [{strat.value}]"
-            lines.append(f'    {col}["{label}"]')
-        for col in self._columns:
-            for dep in sorted(self._upstream.get(col, set())):
-                lines.append(f"    {dep} --> {col}")
-        return "\n".join(lines)
 
 
 def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> list[ColumnConfigT]:

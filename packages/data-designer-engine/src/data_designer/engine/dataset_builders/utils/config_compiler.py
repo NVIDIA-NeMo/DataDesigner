@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from data_designer.config.base import ProcessorConfig
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.engine.dataset_builders.multi_column_configs import (
@@ -54,9 +53,3 @@ def compile_dataset_builder_column_configs(config: DataDesignerConfig) -> list[D
         compiled_column_configs.extend(generated_column_configs)
 
     return compiled_column_configs
-
-
-def compile_dataset_builder_processor_configs(
-    config: DataDesignerConfig,
-) -> list[ProcessorConfig]:
-    return config.processors or []
