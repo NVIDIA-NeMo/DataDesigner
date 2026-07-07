@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import contextvars
+import itertools
+import logging
 import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
-from typing import Literal, Protocol
+from threading import Lock
+from typing import Callable, Literal, Protocol
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -213,3 +218,33 @@ class SchedulerAdmissionEventSink(Protocol):
 
 class RequestAdmissionEventSink(Protocol):
     def emit_request_event(self, event: RequestAdmissionEvent) -> None: ...
+
+
+RequestAdmissionEventCallback = Callable[[RequestAdmissionEvent], None]
+
+_request_event_callback_lock = Lock()
+_request_event_callback_ids = itertools.count()
+_request_event_callbacks: dict[int, RequestAdmissionEventCallback] = {}
+
+
+def subscribe_request_admission_events(callback: RequestAdmissionEventCallback) -> Callable[[], None]:
+    callback_id = next(_request_event_callback_ids)
+    with _request_event_callback_lock:
+        _request_event_callbacks[callback_id] = callback
+
+    def unsubscribe() -> None:
+        with _request_event_callback_lock:
+            _request_event_callbacks.pop(callback_id, None)
+
+    return unsubscribe
+
+
+def emit_request_admission_event(event: RequestAdmissionEvent) -> None:
+    with _request_event_callback_lock:
+        callbacks = tuple(_request_event_callbacks.values())
+
+    for callback in callbacks:
+        try:
+            callback(event)
+        except Exception:
+            logger.debug("Request admission event callback failed", exc_info=True)

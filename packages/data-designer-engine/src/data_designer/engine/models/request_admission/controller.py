@@ -32,6 +32,7 @@ from data_designer.engine.models.resources import ProviderModelKey
 from data_designer.engine.observability import (
     RequestAdmissionEvent,
     RequestAdmissionEventSink,
+    emit_request_admission_event,
     runtime_correlation_provider,
 )
 
@@ -767,11 +768,10 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         )
 
     def _emit_events(self, events: list[RequestAdmissionEvent]) -> None:
-        if self._event_sink is None:
-            return
         for event in events:
-            try:
-                self._event_sink.emit_request_event(event)
-            except Exception:
-                logger.warning("Request admission event sink raised; dropping event.", exc_info=True)
-                continue
+            if self._event_sink is not None:
+                try:
+                    self._event_sink.emit_request_event(event)
+                except Exception:
+                    logger.warning("Request admission event sink raised; dropping event.", exc_info=True)
+            emit_request_admission_event(event)

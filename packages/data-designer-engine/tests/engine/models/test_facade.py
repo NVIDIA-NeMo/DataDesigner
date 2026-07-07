@@ -28,6 +28,7 @@ from data_designer.engine.models.errors import (
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import TokenCountSource
+from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, make_stub_completion_response
 
@@ -342,6 +343,49 @@ def test_completion_tracks_reasoning_tokens_without_changing_output_tokens(
     assert token_usage.reasoning_tokens == 3
     assert token_usage.reasoning_token_count_source == TokenCountSource.PROVIDER
     assert token_usage.total_tokens == 18
+
+
+def test_completion_emits_token_usage_event(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    events: list[TokenUsageEvent] = []
+    unsubscribe = subscribe_token_usage(events.append)
+    stub_model_client.completion.return_value = ChatCompletionResponse(
+        message=AssistantMessage(content="ok"),
+        usage=Usage(input_tokens=10, output_tokens=8),
+    )
+    try:
+        stub_model_facade.completion([ChatMessage.as_user("hi")])
+    finally:
+        unsubscribe()
+
+    assert len(events) == 1
+    assert events[0].model_alias == stub_model_facade.model_alias
+    assert events[0].model_name == stub_model_facade.model_name
+    assert events[0].input_tokens == 10
+    assert events[0].output_tokens == 8
+
+
+def test_completion_emits_token_usage_event_when_only_output_tokens_are_reported(
+    stub_model_facade: ModelFacade,
+    stub_model_client: MagicMock,
+) -> None:
+    events: list[TokenUsageEvent] = []
+    unsubscribe = subscribe_token_usage(events.append)
+    stub_model_client.completion.return_value = ChatCompletionResponse(
+        message=AssistantMessage(content="ok"),
+        usage=Usage(output_tokens=8),
+    )
+
+    try:
+        stub_model_facade.completion([ChatMessage.as_user("hi")])
+    finally:
+        unsubscribe()
+
+    assert len(events) == 1
+    assert events[0].input_tokens == 0
+    assert events[0].output_tokens == 8
 
 
 def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: ModelFacade) -> None:
@@ -1410,13 +1454,19 @@ def test_generate_image_diffusion_tracks_image_usage(
 
     assert stub_model_facade.usage_stats.image_usage.total_images == 0
 
-    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
-        images = stub_model_facade.generate_image(prompt="test prompt", extra_body={"n": 3})
+    events: list[TokenUsageEvent] = []
+    unsubscribe = subscribe_token_usage(events.append)
+    try:
+        with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+            images = stub_model_facade.generate_image(prompt="test prompt", extra_body={"n": 3})
+    finally:
+        unsubscribe()
 
     assert len(images) == 3
     assert images == ["image1_base64", "image2_base64", "image3_base64"]
     assert stub_model_facade.usage_stats.image_usage.total_images == 3
     assert stub_model_facade.usage_stats.image_usage.has_usage is True
+    assert [(event.input_tokens, event.output_tokens) for event in events] == [(0, 0)]
 
 
 def test_generate_image_chat_completion_tracks_image_usage(

@@ -12,6 +12,7 @@ import uuid
 from collections import Counter, defaultdict, deque
 from collections.abc import Coroutine, Mapping
 from dataclasses import dataclass
+from threading import Event
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
@@ -25,7 +26,11 @@ from data_designer.engine.capacity import (
     RequestAdmissionConfigSnapshot,
     RowGroupAdmission,
 )
-from data_designer.engine.context import current_row_group, current_row_group_start_offset
+from data_designer.engine.context import (
+    current_row_group,
+    current_row_group_start_offset,
+    current_run_cancel_event,
+)
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.row_group_plan import (
@@ -53,17 +58,11 @@ from data_designer.engine.dataset_builders.scheduling.task_admission import (
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
-from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
-    DEFAULT_REPORT_INTERVAL,
-    AsyncProgressReporter,
-)
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
     strip_skip_metadata_from_records,
 )
-from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError
 from data_designer.engine.models.errors import (
@@ -82,6 +81,12 @@ from data_designer.engine.observability import (
     runtime_correlation_provider,
 )
 from data_designer.engine.processing.ginja.exceptions import UserTemplateError
+from data_designer.engine.progress.reporter import (
+    DEFAULT_REPORT_INTERVAL,
+    AsyncProgressReporter,
+)
+from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel
+from data_designer.engine.progress.tracker import ProgressTracker
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGenerator
@@ -189,7 +194,7 @@ class AsyncTaskScheduler:
         num_records: int = 0,
         buffer_size: int = 0,
         progress_interval: float | None = None,
-        progress_bar: bool = False,
+        display_tui: bool = False,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
         run_id: str | None = None,
         initial_completed_records: int = 0,
@@ -312,6 +317,8 @@ class AsyncTaskScheduler:
         # engine drops rows and continues, losing the cause unless we capture it.
         self._first_non_retryable_error: Exception | None = None
         self._fatal_worker_error: BaseException | None = None
+        self._cancel_requested = Event()
+        self._run_loop: asyncio.AbstractEventLoop | None = None
 
         self._max_concurrent_row_groups = max_concurrent_row_groups
         self._max_in_flight_tasks = max_in_flight_tasks
@@ -353,7 +360,7 @@ class AsyncTaskScheduler:
         self._seed_cols: tuple[str, ...] = tuple(c for c in graph.columns if not graph.get_upstream_columns(c))
 
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
-        self._progress_bar = StickyProgressBar() if progress_bar else None
+        self._progress_bar = TerminalThroughputPanel() if display_tui else None
         self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
 
     def _setup_async_progress_reporter(
@@ -385,6 +392,7 @@ class AsyncTaskScheduler:
             trackers,
             report_interval=interval,
             progress_bar=self._progress_bar,
+            run_id=self._run_id,
         )
 
     @property
@@ -414,6 +422,13 @@ class AsyncTaskScheduler:
         Returns ``None`` for runs that completed without non-retryable errors.
         """
         return self._first_non_retryable_error
+
+    def request_cancel(self) -> None:
+        """Signal cancellation to scheduler tasks and bridged sync generator work."""
+        self._cancel_requested.set()
+        if self._run_loop is not None:
+            with contextlib.suppress(RuntimeError):
+                self._run_loop.call_soon_threadsafe(self._wake_event.set)
 
     def _raise_if_fatal_worker_error(self) -> None:
         if self._fatal_worker_error is None:
@@ -1228,51 +1243,61 @@ class AsyncTaskScheduler:
         has_pre_batch = self._on_seeds_complete is not None
 
         num_rgs = len(self._row_groups)
+        self._run_loop = asyncio.get_running_loop()
 
         with self._progress_bar or contextlib.nullcontext():
-            if self._reporter:
-                self._reporter.log_start(num_row_groups=num_rgs, scheduled_records=self._scheduled_records)
-
-            self._emit_scheduler_event("scheduler_job_started", diagnostics=self._scheduler_job_diagnostics())
-            self._emit_scheduler_health_snapshot("start")
-
-            # Launch admission as a background task so it interleaves with dispatch.
-            admission_task = asyncio.create_task(self._admit_row_groups())
-
             try:
-                # Main dispatch loop
-                await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
-            finally:
-                # Always cancel admission + drain in-flight workers, regardless
-                # of how the dispatch loop exited (normal, early shutdown,
-                # CancelledError, or processor failure).
-                if not admission_task.done():
-                    admission_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await admission_task
-                await asyncio.shield(self._cancel_workers())
-                # Salvage partially-complete row groups left over from early
-                # shutdown. Must run AFTER _cancel_workers - in-flight tasks
-                # could otherwise write into a buffer that's being finalized.
-                if self._early_shutdown and self._rg_states:
-                    self._finalize_after_shutdown(all_columns)
+                if self._reporter:
+                    self._reporter.log_start(num_row_groups=num_rgs, scheduled_records=self._scheduled_records)
 
-            # Reached only on the clean-exit path; an exception in the
-            # dispatch loop or the finally block propagates and skips this.
-            if self._reporter:
-                self._reporter.log_final()
+                self._emit_scheduler_event("scheduler_job_started", diagnostics=self._scheduler_job_diagnostics())
+                self._emit_scheduler_health_snapshot("start")
 
-            self._emit_scheduler_health_snapshot("completed")
-            self._emit_scheduler_event(
-                "scheduler_job_completed", diagnostics=self._scheduler_health_diagnostics(reason="completed")
-            )
+                # Launch admission as a background task so it interleaves with dispatch.
+                admission_task = asyncio.create_task(self._admit_row_groups())
 
-            if self._rg_states:
-                incomplete = list(self._rg_states)
-                logger.error(
-                    f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
-                    "These row groups were not checkpointed."
+                try:
+                    # Main dispatch loop
+                    try:
+                        await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
+                    except asyncio.CancelledError:
+                        self.request_cancel()
+                        raise
+                finally:
+                    # Always cancel admission + drain in-flight workers, regardless
+                    # of how the dispatch loop exited (normal, early shutdown,
+                    # CancelledError, or processor failure).
+                    if not admission_task.done():
+                        admission_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await admission_task
+                    await asyncio.shield(self._cancel_workers())
+                    # Salvage partially-complete row groups left over from early
+                    # shutdown. Must run AFTER _cancel_workers - in-flight tasks
+                    # could otherwise write into a buffer that's being finalized.
+                    if self._early_shutdown and self._rg_states:
+                        self._finalize_after_shutdown(all_columns)
+
+                # Reached only on the clean-exit path; an exception in the
+                # dispatch loop or the finally block propagates and skips this.
+                if self._reporter:
+                    self._reporter.log_final()
+
+                self._emit_scheduler_health_snapshot("completed")
+                self._emit_scheduler_event(
+                    "scheduler_job_completed", diagnostics=self._scheduler_health_diagnostics(reason="completed")
                 )
+
+                if self._rg_states:
+                    incomplete = list(self._rg_states)
+                    logger.error(
+                        f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
+                        "These row groups were not checkpointed."
+                    )
+            finally:
+                if self._reporter:
+                    self._reporter.close()
+                self._run_loop = None
 
     async def _main_dispatch_loop(
         self,
@@ -1282,6 +1307,8 @@ class AsyncTaskScheduler:
     ) -> None:
         """Core dispatch loop extracted from ``run()``."""
         while True:
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
             if self._early_shutdown:
                 logger.warning("Early shutdown triggered - non-retryable error rate exceeded threshold")
@@ -1294,6 +1321,8 @@ class AsyncTaskScheduler:
                 break
 
             self._wake_event.clear()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
 
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
@@ -1380,6 +1409,8 @@ class AsyncTaskScheduler:
     async def _drain_frontier(self, seed_cols: tuple[str, ...], has_pre_batch: bool) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
@@ -1396,7 +1427,11 @@ class AsyncTaskScheduler:
             if not self._in_flight:
                 continue
             self._wake_event.clear()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             await self._wake_event.wait()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
 
     async def _salvage_stalled_row_groups(
@@ -1765,6 +1800,7 @@ class AsyncTaskScheduler:
         """Core task execution logic."""
         num_rgs = len(self._row_groups)
         token = current_row_group.set((task.row_group, num_rgs))
+        cancel_token = current_run_cancel_event.set(self._cancel_requested)
         start_offset_token = current_row_group_start_offset.set(self._get_rg_start_offset(task.row_group))
         group = lease.item.group
         identity_hash = hashlib.sha1("\0".join(group.key.identity).encode()).hexdigest()[:16]
@@ -1783,6 +1819,7 @@ class AsyncTaskScheduler:
             await self._execute_task_inner_impl(task, lease, task_execution_id)
         finally:
             runtime_correlation_provider.reset(correlation_token)
+            current_run_cancel_event.reset(cancel_token)
             current_row_group_start_offset.reset(start_offset_token)
             current_row_group.reset(token)
 
