@@ -332,13 +332,13 @@ def test_load_config_builder_python_module_receives_script_params(
     assert result._test_argv == expected_argv
 
 
-def test_load_config_builder_python_module_accepts_keyword_only_params(tmp_path: Path) -> None:
+def test_load_config_builder_python_module_accepts_keyword_only_parameter(tmp_path: Path) -> None:
     py_file = tmp_path / "keyword_params_config.py"
     py_file.write_text(
         "from data_designer.config import DataDesignerConfigBuilder\n\n"
-        "def load_config_builder(*, params):\n"
+        "def load_config_builder(*, config):\n"
         "    builder = DataDesignerConfigBuilder()\n"
-        "    builder._test_argv = params.argv\n"
+        "    builder._test_argv = config.argv\n"
         "    return builder\n"
     )
 
@@ -364,7 +364,7 @@ def test_load_config_builder_python_module_rejects_script_args_for_legacy_signat
     assert "sensitive-value" not in str(exc_info.value)
 
 
-@pytest.mark.parametrize("signature", ["first, second", "*args", "**kwargs", "*, other"])
+@pytest.mark.parametrize("signature", ["first, second", "*args", "**kwargs"])
 def test_load_config_builder_python_module_rejects_unsupported_signature(tmp_path: Path, signature: str) -> None:
     py_file = tmp_path / "unsupported_signature.py"
     py_file.write_text(f"def load_config_builder({signature}):\n    return None\n")

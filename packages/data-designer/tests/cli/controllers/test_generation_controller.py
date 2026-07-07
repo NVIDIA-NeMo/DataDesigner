@@ -692,9 +692,12 @@ def test_run_check_models_success(mock_load_config: MagicMock, mock_dd_cls: Magi
     mock_dd.check_models.return_value = None
 
     controller = GenerationController()
-    controller.run_check_models(config_source="config.yaml")
+    controller.run_check_models(config_source="config.py", script_args=["--seed-path", "seed.parquet"])
 
-    mock_load_config.assert_called_once_with("config.yaml", DataDesignerScriptParams())
+    mock_load_config.assert_called_once_with(
+        "config.py",
+        DataDesignerScriptParams(argv=("--seed-path", "seed.parquet")),
+    )
     mock_dd_cls.assert_called_once()
     mock_dd.check_models.assert_called_once_with(mock_builder)
 

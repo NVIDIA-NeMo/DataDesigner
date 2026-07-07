@@ -246,7 +246,7 @@ def _load_from_python_module(
             parameter = parameters[0]
             if parameter.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
                 pass
-            elif parameter.kind == inspect.Parameter.KEYWORD_ONLY and parameter.name == "params":
+            elif parameter.kind == inspect.Parameter.KEYWORD_ONLY:
                 call_with_keyword = True
             else:
                 raise ConfigLoadError(signature_error)
@@ -255,7 +255,7 @@ def _load_from_python_module(
             if not parameters:
                 config_builder = func()
             elif call_with_keyword:
-                config_builder = func(params=params)
+                config_builder = func(**{parameters[0].name: params})
             else:
                 config_builder = func(params)
         except Exception as e:

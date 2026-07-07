@@ -358,10 +358,16 @@ def test_app_dispatches_lazy_check_models_command(mock_controller_cls: Mock) -> 
     mock_controller = Mock()
     mock_controller_cls.return_value = mock_controller
 
-    result = runner.invoke(app, ["check-models", "config.yaml"])
+    result = runner.invoke(
+        app,
+        ["check-models", "workflow.py", "--", "--seed-path", "seeds.parquet"],
+    )
 
     assert result.exit_code == 0
-    mock_controller.run_check_models.assert_called_once_with(config_source="config.yaml")
+    mock_controller.run_check_models.assert_called_once_with(
+        config_source="workflow.py",
+        script_args=["--seed-path", "seeds.parquet"],
+    )
 
 
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")

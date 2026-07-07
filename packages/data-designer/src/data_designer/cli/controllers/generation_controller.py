@@ -117,7 +117,7 @@ class GenerationController:
 
         print_success("Configuration is valid")
 
-    def run_check_models(self, config_source: str) -> None:
+    def run_check_models(self, config_source: str, script_args: list[str] | None = None) -> None:
         """Load config and probe every referenced model and MCP tool.
 
         Complements ``run_validate``: validate covers internal readiness
@@ -126,8 +126,9 @@ class GenerationController:
 
         Args:
             config_source: Path to a config file or Python module.
+            script_args: Arguments forwarded to a Python config module.
         """
-        config_builder = self._load_config(config_source)
+        config_builder = self._load_config(config_source, script_args)
 
         print_header("Data Designer Check Models")
         console.print(f"  Config: [bold]{config_source}[/bold]")
