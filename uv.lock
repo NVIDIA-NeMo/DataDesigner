@@ -896,6 +896,7 @@ dependencies = [
     { name = "sqlfluff" },
     { name = "starlette" },
     { name = "tiktoken" },
+    { name = "wcwidth" },
 ]
 
 [package.metadata]
@@ -930,6 +931,7 @@ requires-dist = [
     { name = "sqlfluff", specifier = ">=4.1.0,<5" },
     { name = "starlette", specifier = ">=1.2.0,<2" },
     { name = "tiktoken", specifier = ">=0.8.0,<1" },
+    { name = "wcwidth", specifier = ">=0.2.13,<1" },
 ]
 
 [[package]]
