@@ -13,6 +13,7 @@ from threading import Lock
 from typing import Sequence, TextIO
 
 import asciichartpy
+from wcwidth import wcswidth
 
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -67,13 +68,24 @@ _ProgressUpdate = tuple[int, int, int, int]
 
 
 def _visible_len(text: str) -> int:
-    return len(_ANSI_RE.sub("", text))
+    visible = _ANSI_RE.sub("", text)
+    width = wcswidth(visible)
+    return width if width >= 0 else len(visible)
+
+
+def _truncate_to_width(text: str, width: int) -> str:
+    for index in range(1, len(text) + 1):
+        prefix_width = wcswidth(text[:index])
+        if prefix_width < 0 or prefix_width > width:
+            return text[: index - 1]
+    return text
 
 
 def _fit_ansi(text: str, width: int) -> str:
     visible = _visible_len(text)
     if visible > width:
-        return _ANSI_RE.sub("", text)[:width] + _RESET
+        fitted = _truncate_to_width(_ANSI_RE.sub("", text), width)
+        return fitted + (" " * (width - _visible_len(fitted))) + _RESET
     return text + (" " * (width - visible))
 
 
@@ -87,7 +99,8 @@ def sanitize_terminal_text(label: str) -> str:
 
 def _fit_plain(text: str, width: int) -> str:
     clean = sanitize_terminal_text(text)
-    return clean[:width].ljust(width)
+    fitted = _truncate_to_width(clean, width)
+    return fitted + (" " * (width - _visible_len(fitted)))
 
 
 def _average(values: Sequence[float]) -> float:
@@ -294,6 +307,7 @@ class TerminalThroughputPanel:
         self._feedback_markers: list[_FeedbackMarker] = []
         self._lock = Lock()
         self._drawn_lines = 0
+        self._drawn_terminal_size: tuple[int, int] | None = None
         self._active = False
         self._owns_stream = False
         self._wrapped_handlers: list[tuple[logging.StreamHandler, object]] = []
@@ -344,6 +358,7 @@ class TerminalThroughputPanel:
                 self._unwrap_handlers()
                 self._active = False
                 self._drawn_lines = 0
+                self._drawn_terminal_size = None
         finally:
             self._release_stream()
 
@@ -489,12 +504,16 @@ class TerminalThroughputPanel:
 
     def _clear_bars(self) -> None:
         """Clear drawn panel lines from the terminal. Caller must hold the lock."""
+        terminal_size = shutil.get_terminal_size()
         if self._drawn_lines > 0:
-            clear_count = min(self._drawn_lines, max(0, shutil.get_terminal_size().lines - 1))
+            clear_count = min(self._drawn_lines, max(0, terminal_size.lines - 1))
             for _ in range(clear_count):
                 self._write("\033[A\033[2K")
             self._write("\r\033[2K")
             self._drawn_lines = 0
+        if self._drawn_terminal_size is not None and self._drawn_terminal_size != tuple(terminal_size):
+            self._write("\033[J")
+        self._drawn_terminal_size = None
 
     def _redraw_if_due(self, now: float, *, force: bool = False) -> None:
         if force or self._drawn_lines == 0 or now - self._last_redraw_time >= _MIN_REDRAW_INTERVAL_SECONDS:
@@ -504,7 +523,7 @@ class TerminalThroughputPanel:
         """Redraw the chart panel. Caller must hold the lock."""
         terminal_size = shutil.get_terminal_size()
         if terminal_size.columns < _MIN_TERMINAL_WIDTH or terminal_size.lines < _MIN_TERMINAL_HEIGHT:
-            self._drawn_lines = 0
+            self._clear_bars()
             self._write("\033[?25h")
             self._unwrap_handlers()
             self._active = False
@@ -521,6 +540,7 @@ class TerminalThroughputPanel:
         for line in lines:
             self._write(line + "\n")
         self._drawn_lines = len(lines)
+        self._drawn_terminal_size = tuple(terminal_size)
         self._last_redraw_time = time.perf_counter() if now is None else now
 
     def _format_panel(self) -> list[str]:
@@ -736,7 +756,7 @@ class TerminalThroughputPanel:
         fixed_width_without_label_or_progress = (
             2 + (separator_count * _LEGEND_COLUMN_GAP) + done_width + (rate_width * 2) + status_width
         )
-        content_label_width = max(len("column"), *(len(sanitize_terminal_text(bar.label)) for bar in bars))
+        content_label_width = max(_visible_len("column"), *(_visible_len(bar.label) for bar in bars))
         desired_label_width = max(_MIN_LEGEND_LABEL_WIDTH, content_label_width)
         available_width = inner_width - fixed_width_without_label_or_progress
 
@@ -826,13 +846,13 @@ class TerminalThroughputPanel:
         available_text_width = inner_width - fixed_width_without_text
         desired_alias_width = max(
             _MIN_MODEL_ALIAS_WIDTH,
-            len("model alias"),
-            *(len(state.model_alias) for state in model_usage),
+            _visible_len("model alias"),
+            *(_visible_len(state.model_alias) for state in model_usage),
         )
         desired_model_width = max(
             _MIN_MODEL_NAME_WIDTH,
-            len("model name"),
-            *(len(state.model_name) for state in model_usage),
+            _visible_len("model name"),
+            *(_visible_len(state.model_name) for state in model_usage),
         )
 
         if available_text_width >= desired_alias_width + desired_model_width:

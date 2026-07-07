@@ -4,10 +4,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 from data_designer.engine.observability import (
+    JsonlSchedulerEventSink,
     RequestAdmissionEvent,
     RuntimeCorrelation,
     RuntimeCorrelationProvider,
@@ -115,6 +121,70 @@ def test_in_memory_admission_event_sink_collects_scheduler_and_request_events() 
 
     assert sink.scheduler_events == [scheduler_event]
     assert sink.request_events == [request_event]
+
+
+def test_jsonl_scheduler_event_sink_flushes_closes_and_appends(tmp_path: Path) -> None:
+    path = tmp_path / "scheduler_events.jsonl"
+    events = [
+        SchedulerAdmissionEvent.capture("selected", sequence=1, diagnostics={"label": "café"}),
+        SchedulerAdmissionEvent.capture("task_completed", sequence=2),
+    ]
+
+    for event in events:
+        with JsonlSchedulerEventSink(path) as sink:
+            assert sink is not None
+            sink.emit_scheduler_event(event)
+            contents = path.read_text(encoding="utf-8")
+            assert json.loads(contents.splitlines()[-1]) == asdict(event)
+
+    assert "café" in contents
+    assert [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] == [
+        asdict(event) for event in events
+    ]
+
+
+def test_jsonl_scheduler_event_sink_open_failure_is_inactive(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("builtins.open", Mock(side_effect=OSError("open failed")))
+
+    with caplog.at_level(logging.WARNING):
+        with JsonlSchedulerEventSink("events.jsonl") as sink:
+            assert sink is None
+
+    assert [record.message for record in caplog.records] == ["Failed to open scheduler event file events.jsonl"]
+
+
+def test_jsonl_scheduler_event_sink_close_failure_warns_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    file = Mock()
+    file.close.side_effect = OSError("close failed")
+    monkeypatch.setattr("builtins.open", Mock(return_value=file))
+
+    with caplog.at_level(logging.WARNING):
+        with JsonlSchedulerEventSink("events.jsonl") as sink:
+            assert sink is not None
+        sink.close()
+
+    file.close.assert_called_once_with()
+    assert [record.message for record in caplog.records] == ["Failed to close scheduler event file events.jsonl"]
+
+
+def test_jsonl_scheduler_event_sink_disables_after_write_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    file = Mock()
+    file.write.side_effect = OSError("write failed")
+    monkeypatch.setattr("builtins.open", Mock(return_value=file))
+    event = SchedulerAdmissionEvent.capture("selected", sequence=1)
+
+    with JsonlSchedulerEventSink("events.jsonl") as sink:
+        assert sink is not None
+        with pytest.raises(OSError, match="write failed"):
+            sink.emit_scheduler_event(event)
+        sink.emit_scheduler_event(event)
+
+    file.write.assert_called_once()
+    file.close.assert_called_once_with()
 
 
 def test_correlated_runtime_view_timeline_sorts_events() -> None:
