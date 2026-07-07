@@ -208,6 +208,7 @@ sizing remain operational concerns owned by `RunConfig`.
 | Profiling | Profile only the final accepted dataset |
 | Model usage | Include accepted and rejected candidate work |
 | Preview | Reject record selection clearly in v1; use `create()` for accepted-row targets |
+| Hugging Face Hub | Publish only terminal accepted output and aggregate selection metadata |
 
 At the `create()` boundary, validate:
 
@@ -603,6 +604,12 @@ artifacts/<dataset>/
   builder_config.json
 ```
 
+`parquet-files/` is the accepted-only published dataset. It contains only post-trim rows whose predicate evaluated
+`True`; rows with false or null predicates, rows that failed before predicate evaluation, and predicate-true rows
+trimmed from the final overshooting batch never appear there. The predicate column itself follows its normal `drop`
+setting. During an interrupted run, `selection-accepted/` plus committed markers remain the source of truth and
+`parquet-files/` must not be treated as publishable until terminal materialization completes.
+
 Example batch marker:
 
 ```json
@@ -784,6 +791,35 @@ filtered with the DataFrame. Plugins that write untracked external side effects 
 contract are not supported with record selection in V1; plugins must return tracked artifacts or remain side-effect
 free.
 
+## Hugging Face Hub publication
+
+`DatasetCreationResults.push_to_hub()` keeps its current public API and publishes the accepted-only terminal view:
+
+- Upload `parquet-files/` to the Hub `data/` config.
+- Upload accepted engine-managed media and processor outputs through their existing published directories.
+- Upload `builder_config.json` and sanitized `metadata.json`, including aggregate record-selection diagnostics.
+- Never upload `selection-accepted/`, `selection-checkpoints/`, `selection-media-staging/`, partial results, rejected
+  media, or per-batch marker paths.
+
+Both result-based and folder-based upload must require a complete published terminal state: either
+`selection_satisfied=true`, or `selection_exhausted=true` with `on_exhausted=return_partial`. A stale or incomplete
+`parquet-files/` directory is not sufficient. `on_exhausted=raise` does not return a `DatasetCreationResults`, and an
+interrupted artifact must be resumed or finalized before folder-based upload.
+
+Hub metadata and the generated dataset card must use `metadata.json.actual_num_records` as the authoritative output
+count, with `target_num_records` shown separately. This is required for partial output and especially for a valid
+zero-row partial, where profiling is skipped and `column_statistics=[]`; falling back from missing statistics to the
+target would incorrectly advertise the dataset as complete. The card should also show whether selection was
+satisfied or exhausted, candidate attempts, and acceptance rate when record-selection metadata is present.
+
+Accepted images must be promoted into the existing published `images/` directory because the current Hub client
+uploads that directory explicitly. If V1 supports file-backed audio or video output, their published directories
+must be added explicitly to the Hub uploader; a generic committed-media directory must not be silently omitted.
+
+When updating an existing Hub repository after resume or re-publication, replace the managed `data/` and media
+prefixes rather than only uploading current files, so obsolete remote shards cannot survive a changed published
+layout.
+
 ## Failure and exhaustion behavior
 
 ### Exhaustion
@@ -960,9 +996,16 @@ Deliverables:
 - Crash-window cleanup for uncommitted candidate-batch artifacts.
 - Compatible `ResumeMode.ALWAYS` and `ResumeMode.IF_POSSIBLE` behavior.
 
-### Phase 5: Results, docs, and examples
+### Phase 5: Results, Hub publication, docs, and examples
 
-**Packages:** interface and Fern docs
+**Packages:** interface, Hugging Face integration, and Fern docs
+
+Likely files:
+
+- `interface/results.py` — preserve the existing `push_to_hub()` surface.
+- `integrations/huggingface/client.py` — enforce terminal selection state, upload only published artifacts, and
+  replace managed remote prefixes.
+- `integrations/huggingface/dataset_card.py` — use authoritative actual counts and selection diagnostics.
 
 Deliverables:
 
@@ -970,6 +1013,8 @@ Deliverables:
 - Metadata documentation.
 - Exhaustion and resume examples.
 - Explicit after-generation processor and media-artifact limitations.
+- Accepted-only Hub publication for satisfied, partial, and schema-bearing empty outputs.
+- No upload of selection checkpoints, immutable internal partitions, staging, or rejected media.
 
 ### Optional post-v1 optimization (not required for feature completeness)
 
@@ -1056,6 +1101,17 @@ commitment to implement a v2; benchmark evidence should justify it first.
 - Accepted media is promoted, rejected media is deleted, and an interrupted uncommitted media batch is cleaned on
   resume.
 
+### Hugging Face Hub tests
+
+- A satisfied run uploads only accepted published parquet rows to `data/`.
+- A non-empty partial card reports `actual_num_records`, target, exhausted state, candidate attempts, and acceptance
+  rate.
+- A zero-row partial uploads its schema-bearing empty parquet and reports zero records rather than the target.
+- Folder-based upload rejects non-terminal or stale published selection artifacts.
+- Internal accepted partitions, markers, staging, and rejected media are never uploaded.
+- Accepted images remain reachable under `images/`; supported file-backed audio/video directories are explicit.
+- Re-publishing to an existing Hub repository removes obsolete managed data and media shards.
+
 ### Regression tests motivated by PR #773
 
 - `num_records` smaller than default `buffer_size`, target first reached on candidate batch 3.
@@ -1080,6 +1136,9 @@ commitment to implement a v2; benchmark evidence should justify it first.
 | Runtime settings change during resume | Persist `buffer_size`; fail `ALWAYS` or reset `IF_POSSIBLE` on mismatch |
 | Published output is interrupted or re-chunked | Rebuild it from immutable accepted partitions without candidate regeneration |
 | Immutable and published datasets increase disk use | Document up to one extra accepted-data copy and remove both through normal artifact cleanup |
+| Hub publication leaks internal/rejected artifacts | Upload an explicit published-artifact allowlist; reject non-terminal selection state |
+| Partial or empty Hub card reports the target as actual | Use `metadata.json.actual_num_records` as the authoritative card count |
+| Re-publishing leaves stale remote shards | Replace managed Hub data/media prefixes before uploading the terminal view |
 
 ## V1 decisions
 
@@ -1102,6 +1161,7 @@ commitment to implement a v2; benchmark evidence should justify it first.
 - Return a schema-bearing empty dataset with no profile for valid zero-row `return_partial` exhaustion.
 - Reject record selection in `preview()` for v1.
 - Normalize an engine selection-exhausted error into a public interface error.
+- Keep `push_to_hub()` API-compatible while publishing only terminal accepted output and sanitized aggregate metadata.
 - Defer early predicate task cancellation and concurrent candidate batches.
 
 ## Definition of done
@@ -1119,6 +1179,8 @@ from one `DataDesigner.create()` call, with:
 - Immutable accepted partitions that survive published-output processing and re-chunking.
 - Accepted-only output, processing, and non-empty profiling; valid empty partial output skips profiling explicitly.
 - Engine-managed rejected media cleanup with crash-safe candidate staging.
+- Hugging Face publication that exposes only terminal accepted output, reports partial/empty counts correctly, and
+  cannot leak selection-internal artifacts.
 - Clear V1 rejection of preview and run-global predicate semantics.
 - Complete candidate/acceptance metadata, public exhaustion errors, and model usage accounting.
 - No dependency-layer violations.
