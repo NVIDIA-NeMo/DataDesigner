@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
+from wcwidth import wcswidth
 
 from data_designer.engine.models.usage_events import TokenUsageEvent, emit_token_usage_event
 from data_designer.engine.observability import (
@@ -36,6 +37,7 @@ from data_designer.engine.progress.tracker import ProgressTracker
 CURSOR_UP_CLEAR = "\033[A\033[2K"
 HIDE_CURSOR = "\033[?25l"
 SHOW_CURSOR = "\033[?25h"
+ERASE_TO_END = "\033[J"
 _ALL_ANSI_RE = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 
 
@@ -140,10 +142,15 @@ def test_only_one_panel_owns_a_stream(tty_stream: FakeTTY) -> None:
 def test_active_panel_falls_back_when_terminal_shrinks(tty_stream: FakeTTY) -> None:
     with TerminalThroughputPanel(stream=tty_stream) as bar:
         bar.add_bar("a", "column 'a'", 100)
+        snapshot = tty_stream.getvalue()
         with patch.object(shutil, "get_terminal_size", return_value=os.terminal_size((20, 5))):
             bar.update("a", completed=1, success=1, force=True)
             assert bar.is_active is False
             assert bar.drawn_lines == 0
+
+        resize_output = tty_stream.getvalue()[len(snapshot) :]
+        assert ERASE_TO_END in resize_output
+        assert resize_output.index(ERASE_TO_END) < resize_output.index(SHOW_CURSOR)
 
     assert tty_stream.getvalue().count(HIDE_CURSOR) == 1
     assert tty_stream.getvalue().count(SHOW_CURSOR) == 1
@@ -398,6 +405,51 @@ def test_narrow_terminal_keeps_panel_within_width(tty_stream: FakeTTY) -> None:
             output = tty_stream.getvalue()
             for line in _last_panel_lines(output):
                 assert len(line) <= 35
+
+
+@pytest.mark.parametrize(
+    ("terminal_width", "label", "model_alias", "model_name"),
+    [
+        (30, "列🚀" * 20, "模型" * 20, "提供者/模型" * 20),
+        (36, "e\u0301" * 20, "👩🏽‍💻" * 20, "模型/e\u0301" * 20),
+        (50, "列🚀" * 20, "模型" * 20, "提供者/模型" * 20),
+        (80, "e\u0301" * 20, "👩🏽‍💻" * 20, "模型/e\u0301" * 20),
+    ],
+)
+def test_wide_unicode_labels_stay_within_terminal_width(
+    tty_stream: FakeTTY,
+    terminal_width: int,
+    label: str,
+    model_alias: str,
+    model_name: str,
+) -> None:
+    with patch.object(shutil, "get_terminal_size", return_value=os.terminal_size((terminal_width, 24))):
+        with TerminalThroughputPanel(stream=tty_stream) as bar:
+            bar.add_bar("a", label, 100)
+            bar.record_model_usage(
+                model_alias=model_alias,
+                model_name=model_name,
+                input_tokens=100,
+                output_tokens=25,
+                force=True,
+            )
+
+            assert all(wcswidth(line) <= terminal_width - 1 for line in _last_panel_lines(tty_stream.getvalue()))
+
+
+def test_active_panel_clears_visible_artifacts_when_terminal_resizes(tty_stream: FakeTTY) -> None:
+    terminal_size = os.terminal_size((80, 24))
+
+    with patch.object(shutil, "get_terminal_size", side_effect=lambda: terminal_size):
+        with TerminalThroughputPanel(stream=tty_stream) as bar:
+            bar.add_bar("a", "column 'a'", 100)
+            snapshot = tty_stream.getvalue()
+            terminal_size = os.terminal_size((50, 12))
+
+            bar.update("a", completed=1, success=1, force=True)
+
+            assert bar.is_active is True
+            assert ERASE_TO_END in tty_stream.getvalue()[len(snapshot) :]
 
 
 def test_update_many_single_redraw(tty_stream: FakeTTY) -> None:
