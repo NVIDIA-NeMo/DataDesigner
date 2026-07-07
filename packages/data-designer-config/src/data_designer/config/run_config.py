@@ -150,7 +150,8 @@ class RunConfig(ConfigBase):
         write_scheduler_events: If True, create runs write structured scheduler diagnostics to
             ``scheduler_events.jsonl`` in the dataset directory. The file is JSONL, not direct
             Perfetto input, and may contain sensitive column, provider, model, task, and resource
-            labels. Preview runs do not write it. Default is False.
+            labels. Each event is flushed to disk, so enabling this option adds file I/O overhead.
+            Preview runs do not write it. Default is False.
         display_tui: If True, display the terminal throughput TUI instead of periodic
             log lines during generation. Requires a TTY; falls back to log lines in
             non-TTY environments. Default is True.
