@@ -47,13 +47,14 @@ docs = [
     "jupytext>=1.16.0,<2",
 ]
 notebooks = [
-    "aiohttp>=3.13.5,<4", # 3.13.5 fixes CVE-2026-22815 and CVE-2026-34513 through CVE-2026-34525
+    "aiohttp>=3.14.1,<4", # 3.14.1 fixes aiohttp security advisories
+    "bleach>=6.4.0,<7", # 6.4.0 fixes security advisory pulled in by nbconvert
     "datasets>=4.0.0,<5",
     "ipykernel>=6.29.0,<7",
     "jupyter>=1.0.0,<2",
-    "jupyter-server>=2.18.2,<3", # 2.18.2 fixes security advisory pulled in by jupyter
+    "jupyter-server>=2.20.0,<3", # 2.20.0 fixes jupyter-server security advisory
     "jupyterlab>=4.6.0a5,<5", # 4.6.0a5 fixes security advisory pulled in by jupyter
-    "mistune>=3.2.1,<4", # 3.2.1 fixes security advisory pulled in by nbconvert
+    "mistune>=3.3.2,<4", # 3.3.2 fixes security advisory pulled in by nbconvert
     "nbconvert>=7.17.1,<8", # 7.17.1 fixes security advisory pulled in by jupyter
     "notebook>=7.6.0a5,<8", # 7.6.0a5 fixes security advisory pulled in by jupyter
     "tornado>=6.5.7,<7", # 6.5.7 fixes security advisory pulled in by jupyterlab
