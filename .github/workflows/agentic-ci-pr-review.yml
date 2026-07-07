@@ -159,6 +159,8 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Preserve maintainer-approved fork reviews while #804 hardens isolation.
+          allow-unsafe-pr-checkout: true
           ref: ${{ steps.head.outputs.sha }}
           fetch-depth: 0
 
