@@ -1,0 +1,199 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import logging
+import time
+from collections.abc import Callable
+
+from data_designer.engine.models.usage_events import TokenUsageEvent, subscribe_token_usage
+from data_designer.engine.observability import RequestAdmissionEvent, subscribe_request_admission_events
+from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel, sanitize_terminal_text
+from data_designer.engine.progress.tracker import ProgressTracker
+from data_designer.logging import LOG_INDENT
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_REPORT_INTERVAL = 5.0
+DEFAULT_TTY_REPORT_INTERVAL = 0.75
+FEEDBACK_MARKER_EVENTS = frozenset({"request_rate_limited", "request_limit_decreased"})
+
+
+class AsyncProgressReporter:
+    """Consolidated progress reporter for async generation.
+
+    Owns per-column ProgressTracker instances (in quiet mode) and emits
+    a single grouped log block at most once per ``report_interval`` seconds.
+    """
+
+    def __init__(
+        self,
+        trackers: dict[str, ProgressTracker],
+        *,
+        report_interval: float = DEFAULT_REPORT_INTERVAL,
+        progress_bar: TerminalThroughputPanel | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        self._trackers = trackers
+        self._report_interval = report_interval
+        self._run_id = run_id
+        self._start_time = time.perf_counter()
+        self._last_report_time: float = self._start_time
+        self._last_bar_report_time: float = self._start_time
+        self._last_reported_total: int = -1
+        self._bar = progress_bar
+        self._unsubscribe_token_usage: Callable[[], None] | None = None
+        self._unsubscribe_request_admission_events: Callable[[], None] | None = None
+        if self._bar is not None:
+            for col, tracker in trackers.items():
+                self._bar.add_bar(
+                    col,
+                    tracker.label,
+                    tracker.total_records,
+                    initial_completed=tracker.completed,
+                )
+            self._ensure_event_subscriptions()
+
+    def log_start(self, num_row_groups: int, scheduled_records: int | None = None) -> None:
+        self._ensure_event_subscriptions()
+        cols = ", ".join(sanitize_terminal_text(tracker.label) for tracker in self._trackers.values())
+        total = (
+            sum(max(0, tracker.total_records - tracker.completed) for tracker in self._trackers.values())
+            if scheduled_records is None
+            else scheduled_records * len(self._trackers)
+        )
+        logger.info(
+            "⚡️ Async generation: %d column(s) (%s), %d tasks across %d row group(s)",
+            len(self._trackers),
+            cols,
+            total,
+            num_row_groups,
+        )
+
+    def record_success(self, column: str) -> None:
+        if tracker := self._trackers.get(column):
+            tracker.record_success()
+            self._maybe_report()
+
+    def record_failure(self, column: str) -> None:
+        if tracker := self._trackers.get(column):
+            tracker.record_failure()
+            self._maybe_report()
+
+    def record_skipped(self, column: str) -> None:
+        if tracker := self._trackers.get(column):
+            tracker.record_skipped()
+            self._maybe_report()
+
+    def log_final(self) -> None:
+        try:
+            if self._bar is not None and self._bar.is_active:
+                self._update_bar(force=True)
+            else:
+                self._emit()
+            elapsed = time.perf_counter() - self._start_time
+            snapshots = [tracker.get_snapshot(elapsed) for tracker in self._trackers.values()]
+            total_ok = sum(snapshot[2] for snapshot in snapshots)
+            total_fail = sum(snapshot[3] for snapshot in snapshots)
+            total_skipped = sum(snapshot[4] for snapshot in snapshots)
+            skipped_suffix = f", {total_skipped} skipped" if total_skipped else ""
+            logger.info(
+                "✅ Async generation complete [%.1fs]: %d ok, %d failed%s across %d column(s)",
+                elapsed,
+                total_ok,
+                total_fail,
+                skipped_suffix,
+                len(self._trackers),
+            )
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if self._unsubscribe_token_usage is not None:
+            self._unsubscribe_token_usage()
+            self._unsubscribe_token_usage = None
+        if self._unsubscribe_request_admission_events is not None:
+            self._unsubscribe_request_admission_events()
+            self._unsubscribe_request_admission_events = None
+
+    def _maybe_report(self) -> None:
+        now = time.perf_counter()
+        if self._bar is not None and self._bar.is_active:
+            self._ensure_event_subscriptions()
+            if now - self._last_bar_report_time < DEFAULT_TTY_REPORT_INTERVAL:
+                return
+            self._last_bar_report_time = now
+            self._update_bar()
+            return
+        if now - self._last_report_time < self._report_interval:
+            return
+        self._last_report_time = now
+        self._emit()
+
+    def _update_bar(self, *, force: bool = False) -> None:
+        elapsed = time.perf_counter() - self._start_time
+        updates: dict[str, tuple[int, int, int, int]] = {}
+        for col, tracker in self._trackers.items():
+            completed, _total, success, failed, skipped, _pct, _rate, _emoji = tracker.get_snapshot(elapsed)
+            updates[col] = (completed, success, failed, skipped)
+        self._bar.update_many(updates, force=force)
+
+    def _ensure_event_subscriptions(self) -> None:
+        if self._bar is None or not self._bar.is_active:
+            return
+        if self._unsubscribe_token_usage is None:
+            self._unsubscribe_token_usage = subscribe_token_usage(self._record_token_usage)
+        if self._unsubscribe_request_admission_events is None:
+            self._unsubscribe_request_admission_events = subscribe_request_admission_events(
+                self._record_request_admission_event
+            )
+
+    def _record_token_usage(self, event: TokenUsageEvent) -> None:
+        if self._bar is not None and self._matches_run(event.correlation):
+            self._bar.record_model_usage(
+                model_alias=event.model_alias,
+                model_name=event.model_name,
+                input_tokens=event.input_tokens,
+                output_tokens=event.output_tokens,
+            )
+
+    def _record_request_admission_event(self, event: RequestAdmissionEvent) -> None:
+        if (
+            self._bar is not None
+            and event.event_kind in FEEDBACK_MARKER_EVENTS
+            and self._matches_run(event.captured_correlation)
+        ):
+            self._bar.record_feedback_signal()
+
+    def _matches_run(self, correlation: object) -> bool:
+        if self._run_id is None:
+            return True
+        if correlation is None:
+            return False
+        if isinstance(correlation, dict):
+            return correlation.get("run_id") == self._run_id
+        return getattr(correlation, "run_id", None) == self._run_id
+
+    def _emit(self) -> None:
+        current_total = sum(tracker.get_snapshot(0.0)[0] for tracker in self._trackers.values())
+        if current_total == self._last_reported_total:
+            return
+        self._last_reported_total = current_total
+
+        elapsed = time.perf_counter() - self._start_time
+        logger.info("📊 Progress [%.1fs]:", elapsed)
+        for tracker in self._trackers.values():
+            completed, total_records, _success, _failed, skipped, pct, rate, emoji = tracker.get_snapshot(elapsed)
+            skipped_suffix = f", {skipped} skipped" if skipped else ""
+            logger.info(
+                "%s%s %s: %d/%d (%.0f%%) %.1f rec/s%s",
+                LOG_INDENT,
+                emoji,
+                sanitize_terminal_text(tracker.label),
+                completed,
+                total_records,
+                pct,
+                rate,
+                skipped_suffix,
+            )

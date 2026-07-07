@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import logging
 import threading
 
 import pytest
 
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
+from data_designer.engine.progress.tracker import ProgressTracker
 
 
 @pytest.fixture

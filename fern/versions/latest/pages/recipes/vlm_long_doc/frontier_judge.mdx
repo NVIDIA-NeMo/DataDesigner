@@ -330,7 +330,7 @@ def create_dataset(
         model_providers=model_providers,
     )
     data_designer.set_run_config(
-        dd.RunConfig(disable_early_shutdown=True, progress_bar=True),
+        dd.RunConfig(disable_early_shutdown=True, display_tui=True),
     )
     results = data_designer.create(config_builder, num_records=num_records, dataset_name="frontier_judge")
     return results

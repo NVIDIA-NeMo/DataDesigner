@@ -9,6 +9,7 @@ import asyncio
 import concurrent.futures
 import inspect
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 # derivation in ``_compute_bridge_timeout`` exceeds this floor.
 # Module-level so tests can patch it for fast feedback.
 _BRIDGE_TIMEOUT_FLOOR_S: float = 60.0
+_BRIDGE_CANCEL_POLL_S: float = 0.1
 
 
 def _compute_bridge_timeout(
@@ -86,6 +88,7 @@ class _AsyncBridgedModelFacade:
                 "Use 'await model.agenerate()' in async custom columns."
             )
 
+        from data_designer.engine.context import is_run_cancellation_requested
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
 
         # Honor a per-call ``timeout=`` override (passed straight through to the
@@ -99,19 +102,46 @@ class _AsyncBridgedModelFacade:
         conversation_restarts = int(kwargs.get("max_conversation_restarts", 0) or 0)
         bridge_timeout = _compute_bridge_timeout(per_request_timeout, correction_steps, conversation_restarts)
 
+        if is_run_cancellation_requested():
+            raise asyncio.CancelledError
+
+        async def agenerate_with_cancellation_check() -> tuple[Any, list]:
+            if is_run_cancellation_requested():
+                raise asyncio.CancelledError
+            return await facade.agenerate(*args, **kwargs)
+
         loop = ensure_async_engine_loop()
-        future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
+        coro = agenerate_with_cancellation_check()
         try:
-            return future.result(timeout=bridge_timeout)
-        except concurrent.futures.TimeoutError as exc:
-            future.cancel()
-            # Demoted to debug: the raised ModelTimeoutError already surfaces
-            # the timeout at the scheduler with full context, and the request-admission
-            # degraded-provider WARN is the user-facing signal under sustained
-            # bridge timeouts. Per-event WARN was noise on top of those.
-            logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
-            # Raise as ModelTimeoutError so the scheduler classifies it retryable.
-            raise ModelTimeoutError(f"model.generate() bridge timed out after {bridge_timeout:.0f}s") from exc
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError as exc:
+            coro.close()
+            if is_run_cancellation_requested() or "interpreter shutdown" in str(exc):
+                raise asyncio.CancelledError from exc
+            raise
+        deadline = time.monotonic() + bridge_timeout
+        while True:
+            if is_run_cancellation_requested():
+                future.cancel()
+                raise asyncio.CancelledError
+            try:
+                return future.result(timeout=max(0.0, min(_BRIDGE_CANCEL_POLL_S, deadline - time.monotonic())))
+            except concurrent.futures.CancelledError as exc:
+                raise asyncio.CancelledError from exc
+            except concurrent.futures.TimeoutError as exc:
+                if is_run_cancellation_requested():
+                    future.cancel()
+                    raise asyncio.CancelledError from exc
+                if time.monotonic() < deadline:
+                    continue
+                future.cancel()
+                # Demoted to debug: the raised ModelTimeoutError already surfaces
+                # the timeout at the scheduler with full context, and the request-admission
+                # degraded-provider WARN is the user-facing signal under sustained
+                # bridge timeouts. Per-event WARN was noise on top of those.
+                logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
+                # Raise as ModelTimeoutError so the scheduler classifies it retryable.
+                raise ModelTimeoutError(f"model.generate() bridge timed out after {bridge_timeout:.0f}s") from exc
 
     def __getattr__(self, name: str) -> Any:
         return getattr(object.__getattribute__(self, "_facade"), name)

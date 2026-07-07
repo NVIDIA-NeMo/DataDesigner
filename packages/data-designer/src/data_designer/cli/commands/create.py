@@ -61,6 +61,14 @@ def create_command(
             "The file is written to <artifact-path>/<dataset-name>/<dataset-name>.<format>."
         ),
     ),
+    tui: bool | None = typer.Option(
+        None,
+        "--tui/--no-tui",
+        help=(
+            "Force the terminal progress TUI on or off for this run. "
+            "When omitted, uses the configured RunConfig setting."
+        ),
+    ),
 ) -> None:
     """Create a full dataset and save results to disk.
 
@@ -91,4 +99,5 @@ def create_command(
         artifact_path=artifact_path,
         resume=resume,
         output_format=output_format,
+        tui=tui,
     )
