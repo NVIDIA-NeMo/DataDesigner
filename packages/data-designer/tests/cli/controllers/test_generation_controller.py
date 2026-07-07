@@ -14,6 +14,7 @@ from data_designer.cli.utils.config_loader import ConfigLoadError
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.run_config import RequestAdmissionTuningConfig, RunConfig
+from data_designer.config.script_params import DataDesignerScriptParams
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.engine.storage.artifact_storage import ResumeMode
 
@@ -54,9 +55,17 @@ def test_run_preview_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock
     mock_dd.preview.return_value = _make_mock_preview_results(5)
 
     controller = GenerationController()
-    controller.run_preview(config_source="config.yaml", num_records=5, non_interactive=True)
+    controller.run_preview(
+        config_source="config.py",
+        num_records=5,
+        non_interactive=True,
+        script_args=["--seed-path", "seed.parquet"],
+    )
 
-    mock_load_config.assert_called_once_with("config.yaml")
+    mock_load_config.assert_called_once_with(
+        "config.py",
+        DataDesignerScriptParams(argv=("--seed-path", "seed.parquet")),
+    )
     mock_dd_cls.assert_called_once()
     mock_dd.preview.assert_called_once_with(mock_builder, num_records=5)
 
@@ -612,9 +621,12 @@ def test_run_validate_success(mock_load_config: MagicMock, mock_dd_cls: MagicMoc
     mock_dd.validate.return_value = None
 
     controller = GenerationController()
-    controller.run_validate(config_source="config.yaml")
+    controller.run_validate(config_source="config.py", script_args=["--seed-path", "seed.parquet"])
 
-    mock_load_config.assert_called_once_with("config.yaml")
+    mock_load_config.assert_called_once_with(
+        "config.py",
+        DataDesignerScriptParams(argv=("--seed-path", "seed.parquet")),
+    )
     mock_dd_cls.assert_called_once()
     mock_dd.validate.assert_called_once_with(mock_builder)
 
@@ -680,9 +692,12 @@ def test_run_check_models_success(mock_load_config: MagicMock, mock_dd_cls: Magi
     mock_dd.check_models.return_value = None
 
     controller = GenerationController()
-    controller.run_check_models(config_source="config.yaml")
+    controller.run_check_models(config_source="config.py", script_args=["--seed-path", "seed.parquet"])
 
-    mock_load_config.assert_called_once_with("config.yaml")
+    mock_load_config.assert_called_once_with(
+        "config.py",
+        DataDesignerScriptParams(argv=("--seed-path", "seed.parquet")),
+    )
     mock_dd_cls.assert_called_once()
     mock_dd.check_models.assert_called_once_with(mock_builder)
 
@@ -761,9 +776,18 @@ def test_run_create_success(
     mock_dd.create.return_value = _make_mock_create_results()
 
     controller = GenerationController()
-    controller.run_create(config_source="config.yaml", num_records=10, dataset_name="dataset", artifact_path=None)
+    controller.run_create(
+        config_source="config.py",
+        num_records=10,
+        dataset_name="dataset",
+        artifact_path=None,
+        script_args=["--seed-path", "seed.parquet"],
+    )
 
-    mock_load_config.assert_called_once_with("config.yaml")
+    mock_load_config.assert_called_once_with(
+        "config.py",
+        DataDesignerScriptParams(argv=("--seed-path", "seed.parquet")),
+    )
     mock_dd_cls.assert_called_once_with(artifact_path=Path.cwd() / "artifacts")
     mock_dd.create.assert_called_once_with(
         mock_builder, num_records=10, dataset_name="dataset", resume=ResumeMode.NEVER

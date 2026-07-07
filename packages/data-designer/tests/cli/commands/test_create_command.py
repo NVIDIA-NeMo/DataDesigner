@@ -28,6 +28,7 @@ def test_create_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> Non
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
     mock_ctrl_cls.assert_called_once()
@@ -40,6 +41,7 @@ def test_create_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> Non
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
 
@@ -58,6 +60,7 @@ def test_create_command_passes_custom_options(mock_ctrl_cls: MagicMock) -> None:
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=None,
+        script_args=["--seed-path", "seed.parquet"],
     )
 
     mock_ctrl.run_create.assert_called_once_with(
@@ -69,6 +72,7 @@ def test_create_command_passes_custom_options(mock_ctrl_cls: MagicMock) -> None:
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=None,
+        script_args=["--seed-path", "seed.parquet"],
     )
 
 
@@ -87,6 +91,7 @@ def test_create_command_default_artifact_path_is_none(mock_ctrl_cls: MagicMock) 
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
     mock_ctrl.run_create.assert_called_once_with(
@@ -98,6 +103,7 @@ def test_create_command_default_artifact_path_is_none(mock_ctrl_cls: MagicMock) 
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
 
@@ -116,6 +122,7 @@ def test_create_command_passes_resume_always(mock_ctrl_cls: MagicMock) -> None:
         resume=ResumeMode.ALWAYS,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
     mock_ctrl.run_create.assert_called_once_with(
@@ -127,6 +134,7 @@ def test_create_command_passes_resume_always(mock_ctrl_cls: MagicMock) -> None:
         resume=ResumeMode.ALWAYS,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
 
@@ -145,6 +153,7 @@ def test_create_command_passes_resume_if_possible(mock_ctrl_cls: MagicMock) -> N
         resume=ResumeMode.IF_POSSIBLE,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
     mock_ctrl.run_create.assert_called_once_with(
@@ -156,6 +165,7 @@ def test_create_command_passes_resume_if_possible(mock_ctrl_cls: MagicMock) -> N
         resume=ResumeMode.IF_POSSIBLE,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
 
@@ -174,6 +184,7 @@ def test_create_command_passes_output_format(mock_ctrl_cls: MagicMock) -> None:
         resume=ResumeMode.NEVER,
         output_format="jsonl",
         tui=None,
+        script_args=None,
     )
 
     mock_ctrl.run_create.assert_called_once_with(
@@ -185,6 +196,7 @@ def test_create_command_passes_output_format(mock_ctrl_cls: MagicMock) -> None:
         resume=ResumeMode.NEVER,
         output_format="jsonl",
         tui=None,
+        script_args=None,
     )
 
 
@@ -203,6 +215,7 @@ def test_create_command_passes_tui_override(mock_ctrl_cls: MagicMock) -> None:
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=False,
+        script_args=None,
     )
 
     mock_ctrl.run_create.assert_called_once_with(
@@ -214,4 +227,5 @@ def test_create_command_passes_tui_override(mock_ctrl_cls: MagicMock) -> None:
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=False,
+        script_args=None,
     )
