@@ -33,6 +33,7 @@ from data_designer.engine.observability import (
     RequestAdmissionEvent,
     RequestAdmissionEventSink,
     emit_request_admission_event,
+    request_event_sink_accepts,
     runtime_correlation_provider,
 )
 
@@ -768,10 +769,11 @@ class AdaptiveRequestAdmissionController(RequestPressureSnapshotProvider):
         )
 
     def _emit_events(self, events: list[RequestAdmissionEvent]) -> None:
+        sink = self._event_sink
         for event in events:
-            if self._event_sink is not None:
+            if sink is not None and request_event_sink_accepts(sink, event.event_kind):
                 try:
-                    self._event_sink.emit_request_event(event)
+                    sink.emit_request_event(event)
                 except Exception:
                     logger.warning("Request admission event sink raised; dropping event.", exc_info=True)
             emit_request_admission_event(event)

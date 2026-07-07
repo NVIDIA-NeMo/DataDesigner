@@ -35,7 +35,9 @@ from data_designer.engine.models.request_admission.resources import (
 )
 from data_designer.engine.observability import (
     RequestAdmissionEvent,
+    RequestAdmissionEventKind,
     RequestAdmissionEventSink,
+    request_event_sink_accepts,
     runtime_correlation_provider,
 )
 
@@ -122,11 +124,12 @@ class ModelRequestExecutor(ModelClient):
             lease = self._request_admission.acquire_sync(item)
         except RequestAdmissionError as exc:
             raise self._provider_error_from_request_admission(exc) from exc
-        self._emit_model_event("model_request_started", item=item, lease=lease)
-        started_at = time.perf_counter()
+        started_at = 0.0
         duration_seconds = 0.0
         outcome = "unexpected_exception"
         try:
+            self._emit_model_event("model_request_started", item=item, lease=lease)
+            started_at = time.perf_counter()
             try:
                 result = call()
             finally:
@@ -173,11 +176,12 @@ class ModelRequestExecutor(ModelClient):
             raise self._provider_error_from_request_admission(exc) from exc
         except asyncio.CancelledError:
             raise
-        self._emit_model_event("model_request_started", item=item, lease=lease)
-        started_at = time.perf_counter()
+        started_at = 0.0
         duration_seconds = 0.0
         outcome = "unexpected_exception"
         try:
+            self._emit_model_event("model_request_started", item=item, lease=lease)
+            started_at = time.perf_counter()
             try:
                 result = await call()
             finally:
@@ -286,20 +290,21 @@ class ModelRequestExecutor(ModelClient):
 
     def _emit_model_event(
         self,
-        event_kind: str,
+        event_kind: RequestAdmissionEventKind,
         *,
         item: RequestAdmissionItem,
         lease: RequestAdmissionLease,
         diagnostics: dict[str, object] | None = None,
     ) -> None:
-        if self._event_sink is None:
+        sink = self._event_sink
+        if sink is None or not request_event_sink_accepts(sink, event_kind):
             return
         self._event_sequence += 1
         context = item.event_context
         try:
-            self._event_sink.emit_request_event(
+            sink.emit_request_event(
                 RequestAdmissionEvent.capture(
-                    event_kind,  # type: ignore[arg-type]
+                    event_kind,
                     sequence=self._event_sequence,
                     correlation=context.captured_correlation
                     if context is not None

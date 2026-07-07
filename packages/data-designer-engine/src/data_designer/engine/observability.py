@@ -313,6 +313,23 @@ class RequestAdmissionEventSink(Protocol):
     def emit_request_event(self, event: RequestAdmissionEvent) -> None: ...
 
 
+def request_event_sink_accepts(
+    sink: RequestAdmissionEventSink | None,
+    event_kind: RequestAdmissionEventKind,
+) -> bool:
+    """Return whether a request sink wants an event, defaulting to all events."""
+    if sink is None:
+        return False
+    accepts = getattr(sink, "accepts_request_event", None)
+    if accepts is None:
+        return True
+    try:
+        return bool(accepts(event_kind))
+    except Exception:
+        logger.warning("Request admission event interest check raised; dropping event.", exc_info=True)
+        return False
+
+
 RequestAdmissionEventCallback = Callable[[RequestAdmissionEvent], None]
 
 _request_event_callback_lock = Lock()

@@ -16,6 +16,7 @@ from typing import Any
 from data_designer.config.version import get_library_version
 from data_designer.engine.observability import (
     RequestAdmissionEvent,
+    RequestAdmissionEventKind,
     RuntimeCorrelation,
     SchedulerAdmissionEvent,
     SchedulerAdmissionEventKind,
@@ -140,6 +141,10 @@ class OpenTelemetryRuntime:
         with self._lock:
             return bool(self._active_run_ids) and event_kind in _SCHEDULER_EVENT_NAMES
 
+    def accepts_request_event(self, event_kind: RequestAdmissionEventKind) -> bool:
+        with self._lock:
+            return bool(self._active_run_ids) and event_kind in {"model_request_started", "model_request_completed"}
+
     def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None:
         run_id = self._event_run_id(event.captured_correlation)
         if run_id is None:
@@ -199,7 +204,7 @@ class OpenTelemetryRuntime:
             attributes["gen_ai.provider.name"] = _bounded_attribute(provider_name)
         model_id = resource.get("model_id")
         if model_id:
-            attributes["gen_ai.request.model"] = str(model_id)
+            attributes["gen_ai.request.model"] = _bounded_model_attribute(model_id)
         attempt_id = event.request_attempt_id or event.request_lease_id
         attempt_key = (run_id, attempt_id) if isinstance(attempt_id, str) and attempt_id else None
         with self._lock:
@@ -473,6 +478,11 @@ def _non_negative_int(value: object) -> int:
 
 def _bounded_attribute(value: object) -> str:
     normalized = "".join(character for character in str(value) if character.isalnum() or character in "._-")
+    return normalized[:128] or "_OTHER"
+
+
+def _bounded_model_attribute(value: object) -> str:
+    normalized = "".join(character for character in str(value) if character.isalnum() or character in "._-/")
     return normalized[:128] or "_OTHER"
 
 

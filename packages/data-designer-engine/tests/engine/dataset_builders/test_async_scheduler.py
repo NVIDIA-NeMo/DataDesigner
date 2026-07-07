@@ -1435,6 +1435,7 @@ async def test_zero_survivor_shutdown_does_not_raise() -> None:
     )
     generators, graph, row_groups, tracker, buffer_mgr, storage = _seed_plus_cell_setup(cell, num_records=5)
     finalized: list[int] = []
+    sink = _FilteringSchedulerSink({"scheduler_job_completed"})
 
     def on_finalize(rg_id: int) -> None:
         buffer_mgr.checkpoint_row_group(rg_id)
@@ -1449,6 +1450,7 @@ async def test_zero_survivor_shutdown_does_not_raise() -> None:
         on_finalize_row_group=on_finalize,
         shutdown_error_rate=0.5,
         shutdown_error_window=2,
+        scheduler_event_sink=sink,
     )
     # Must not raise (no FileNotFoundError, no DataDesignerGenerationError).
     await scheduler.run()
@@ -1460,6 +1462,10 @@ async def test_zero_survivor_shutdown_does_not_raise() -> None:
     assert finalized == []
     assert scheduler.partial_row_groups == ()
     storage.write_batch_to_parquet_file.assert_not_called()
+    [completed] = sink.scheduler_events
+    assert completed.reason_or_result == "early_shutdown"
+    assert completed.diagnostics["outcome"] == "early_shutdown"
+    assert completed.diagnostics["reason"] == "completed"
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -3733,7 +3739,10 @@ async def test_scheduler_emits_job_health_and_row_group_telemetry() -> None:
     completed = [event for event in sink.scheduler_events if event.event_kind == "scheduler_job_completed"]
     assert len(completed) == 1
     assert completed[0].reason_or_result == "success"
-    assert completed[0].diagnostics == {"outcome": "success"}
+    assert completed[0].diagnostics["outcome"] == "success"
+    assert completed[0].diagnostics["reason"] == "completed"
+    assert "queued_total" in completed[0].diagnostics
+    assert "request_pressure" in completed[0].diagnostics
     assert "error_type" not in completed[0].diagnostics
 
 

@@ -42,6 +42,7 @@ def stub_resource_provider(tmp_path, stub_model_facade):
     mock_provider.seed_reader = Mock()
     mock_provider.seed_reader.get_column_names.return_value = []
     mock_provider.run_config = RunConfig()
+    mock_provider.scheduler_event_sink = None
     return mock_provider
 
 

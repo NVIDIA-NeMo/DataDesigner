@@ -1319,7 +1319,13 @@ class AsyncTaskScheduler:
             raise
         finally:
             self._run_loop = None
+            if outcome == "success" and self._early_shutdown:
+                outcome = "early_shutdown"
             terminal_diagnostics: dict[str, object] = {"outcome": outcome}
+            if outcome in {"success", "early_shutdown"} and scheduler_event_sink_accepts(
+                self._scheduler_event_sink, "scheduler_job_completed"
+            ):
+                terminal_diagnostics = self._scheduler_health_diagnostics(reason="completed") | terminal_diagnostics
             if error_type is not None:
                 terminal_diagnostics["error_type"] = error_type
             self._emit_scheduler_event(

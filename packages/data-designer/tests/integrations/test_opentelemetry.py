@@ -71,6 +71,21 @@ def _active_request_total(runtime: OpenTelemetryRuntime) -> float:
     )
 
 
+def test_runtime_only_accepts_exported_events_during_active_runs(runtime: OpenTelemetryRuntime) -> None:
+    assert not runtime.accepts_scheduler_event("scheduler_job_started")
+    assert not runtime.accepts_request_event("model_request_started")
+
+    with runtime.observe_create(_free_port()):
+        assert runtime.accepts_scheduler_event("scheduler_job_started")
+        assert not runtime.accepts_scheduler_event("selected")
+        assert runtime.accepts_request_event("model_request_started")
+        assert runtime.accepts_request_event("model_request_completed")
+        assert not runtime.accepts_request_event("request_wait_started")
+
+    assert not runtime.accepts_scheduler_event("scheduler_job_started")
+    assert not runtime.accepts_request_event("model_request_started")
+
+
 def test_runtime_exports_bounded_metrics_without_log_bodies(
     runtime: OpenTelemetryRuntime,
     caplog: pytest.LogCaptureFixture,
@@ -548,6 +563,35 @@ def test_runtime_maps_genai_operations(
     assert f'gen_ai_operation_name="{operation}"' in line
     assert 'error_type="provider_timeout"' in line
     assert 'gen_ai_request_model="model-1"' in line
+
+
+def test_runtime_bounds_model_attribute_and_preserves_slashes(runtime: OpenTelemetryRuntime) -> None:
+    model_id = "organization/" + ("m" * 200)
+    expected_model_id = model_id[:128]
+    with runtime.observe_create(_free_port()):
+        correlation = _correlation()
+        resource = RequestResourceKey("provider", model_id, RequestDomain.CHAT)
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_started",
+                sequence=1,
+                correlation=correlation,
+                request_resource_key=resource,
+            )
+        )
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_completed",
+                sequence=2,
+                correlation=correlation,
+                request_resource_key=resource,
+                diagnostics={"duration_seconds": 0.1, "outcome": "success"},
+            )
+        )
+
+    metrics = _scrape(runtime)
+    assert f'gen_ai_request_model="{expected_model_id}"' in metrics
+    assert model_id not in metrics
 
 
 def test_runtime_collapses_unknown_genai_operation(runtime: OpenTelemetryRuntime) -> None:
