@@ -85,18 +85,12 @@ logger = logging.getLogger(__name__)
 
 _CHECK_MODELS_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 
-_interface_runtime_initialized = False
-
 
 def _initialize_interface_runtime(*, auto_configure_logging: bool = True) -> None:
-    """Run one-time runtime initialization for the interface package."""
-    global _interface_runtime_initialized
-    if _interface_runtime_initialized:
-        return
+    """Run idempotent runtime initialization for the interface package."""
     if auto_configure_logging and not is_logging_configured():
         configure_logging()
     resolve_seed_default_model_settings()
-    _interface_runtime_initialized = True
 
 
 DEFAULT_SECRET_RESOLVER = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])

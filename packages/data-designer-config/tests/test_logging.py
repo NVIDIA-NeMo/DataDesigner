@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import logging
 import sys
 import tempfile
@@ -8,8 +10,10 @@ from pathlib import Path
 
 import pytest
 
-import data_designer.logging as logging_mod
 from data_designer.logging import (
+    DataDesignerFileHandler,
+    DataDesignerManagedHandler,
+    DataDesignerStreamHandler,
     LoggerConfig,
     LoggingConfig,
     OutputConfig,
@@ -17,6 +21,7 @@ from data_designer.logging import (
     configure_logging,
     is_logging_configured,
     quiet_noisy_logger,
+    reset_logging,
 )
 
 
@@ -107,14 +112,55 @@ def test_configure_logging_basic(stub_default_logging_config):
     assert ndd_logger.level == logging.INFO
 
 
-def test_configure_logging_marks_logging_configured(stub_default_logging_config, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(logging_mod, "_logging_configured", False)
+def test_configure_logging_marks_logging_configured(stub_default_logging_config) -> None:
+    reset_logging()
 
     assert is_logging_configured() is False
 
     configure_logging(stub_default_logging_config)
 
     assert is_logging_configured() is True
+    assert all(isinstance(handler, DataDesignerManagedHandler) for handler in logging.getLogger().handlers)
+    assert isinstance(logging.getLogger().handlers[0], DataDesignerStreamHandler)
+
+
+def test_is_logging_configured_reflects_managed_handler_state(stub_default_logging_config) -> None:
+    configure_logging(stub_default_logging_config)
+    logging.getLogger().handlers.clear()
+
+    assert is_logging_configured() is False
+
+
+def test_reset_logging_clears_data_designer_configuration(stub_debug_logging_config) -> None:
+    configure_logging(stub_debug_logging_config)
+
+    reset_logging()
+
+    assert is_logging_configured() is False
+    assert logging.getLogger().level == logging.WARNING
+    assert logging.getLogger("data_designer").level == logging.NOTSET
+
+
+def test_reset_logging_preserves_foreign_handlers(stub_default_logging_config) -> None:
+    configure_logging(stub_default_logging_config)
+    root_logger = logging.getLogger()
+    foreign_handler = logging.NullHandler()
+    root_logger.addHandler(foreign_handler)
+
+    try:
+        reset_logging()
+
+        assert foreign_handler in root_logger.handlers
+        assert is_logging_configured() is False
+    finally:
+        root_logger.removeHandler(foreign_handler)
+
+
+def test_reset_logging_is_idempotent() -> None:
+    reset_logging()
+    reset_logging()
+
+    assert is_logging_configured() is False
 
 
 def test_configure_logging_with_file():
@@ -131,7 +177,7 @@ def test_configure_logging_with_file():
 
         root_logger = logging.getLogger()
         assert root_logger.level == logging.DEBUG
-        assert any(isinstance(h, logging.FileHandler) for h in root_logger.handlers)
+        assert any(isinstance(handler, DataDesignerFileHandler) for handler in root_logger.handlers)
     finally:
         tmp_path.unlink(missing_ok=True)
 

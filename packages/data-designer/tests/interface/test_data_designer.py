@@ -1515,24 +1515,25 @@ def test_validate_raises_error_when_seed_collides(
         data_designer.validate(config_builder)
 
 
-def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_initialize_interface_runtime only runs initialization once."""
-    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
-    monkeypatch.setattr(dd_logging, "_logging_configured", False)
+def test_initialize_interface_runtime_is_idempotent() -> None:
+    dd_logging.reset_logging()
 
     with (
-        patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
+        patch(
+            "data_designer.interface.data_designer.configure_logging",
+            wraps=dd_logging.configure_logging,
+        ) as mock_logging,
         patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
     ):
         dd_mod._initialize_interface_runtime()
         dd_mod._initialize_interface_runtime()
+
         mock_logging.assert_called_once()
-        mock_resolve.assert_called_once()
+        assert mock_resolve.call_count == 2
 
 
-def test_initialize_interface_runtime_respects_preconfigured_logging(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
-    monkeypatch.setattr(dd_logging, "_logging_configured", True)
+def test_initialize_interface_runtime_respects_preconfigured_logging() -> None:
+    dd_logging.configure_logging()
 
     with (
         patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
@@ -1544,11 +1545,8 @@ def test_initialize_interface_runtime_respects_preconfigured_logging(monkeypatch
         mock_resolve.assert_called_once()
 
 
-def test_initialize_interface_runtime_skips_logging_when_auto_configure_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
-    monkeypatch.setattr(dd_logging, "_logging_configured", False)
+def test_initialize_interface_runtime_skips_logging_when_auto_configure_disabled() -> None:
+    dd_logging.reset_logging()
 
     with (
         patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
@@ -1561,12 +1559,10 @@ def test_initialize_interface_runtime_skips_logging_when_auto_configure_disabled
 
 
 def test_init_auto_configures_logging_by_default(
-    monkeypatch: pytest.MonkeyPatch,
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
 ) -> None:
-    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
-    monkeypatch.setattr(dd_logging, "_logging_configured", False)
+    dd_logging.reset_logging()
 
     with patch("data_designer.interface.data_designer.configure_logging") as mock_logging:
         DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
@@ -1575,12 +1571,11 @@ def test_init_auto_configures_logging_by_default(
 
 
 def test_init_auto_configure_logging_false_preserves_root_handlers(
-    monkeypatch: pytest.MonkeyPatch,
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
 ) -> None:
-    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
-    monkeypatch.setattr(dd_logging, "_logging_configured", False)
+    dd_logging.reset_logging()
+
     root_logger = logging.getLogger()
     sentinel_handler = logging.NullHandler()
     root_logger.addHandler(sentinel_handler)
@@ -1599,23 +1594,35 @@ def test_init_auto_configure_logging_false_preserves_root_handlers(
 
 
 def test_init_preserves_preconfigured_logging(
-    monkeypatch: pytest.MonkeyPatch,
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
 ) -> None:
-    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
-    monkeypatch.setattr(dd_logging, "_logging_configured", False)
     data_designer_logger = logging.getLogger("data_designer")
-    previous_level = data_designer_logger.level
 
-    try:
-        dd_logging.configure_logging(dd_logging.LoggingConfig.debug())
+    dd_logging.configure_logging(dd_logging.LoggingConfig.debug())
 
-        DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
-        assert data_designer_logger.level == logging.DEBUG
-    finally:
-        data_designer_logger.setLevel(previous_level)
+    assert data_designer_logger.level == logging.DEBUG
+
+
+def test_init_auto_configure_logging_applies_per_instance(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    dd_logging.reset_logging()
+
+    DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        auto_configure_logging=False,
+    )
+
+    assert dd_logging.is_logging_configured() is False
+
+    DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    assert dd_logging.is_logging_configured() is True
 
 
 def test_create_dataset_e2e_with_directory_seed_source(
@@ -2208,6 +2215,7 @@ def test_create_dataset_warns_for_unhandled_transform_files(
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
+        auto_configure_logging=False,
     )
 
     results = data_designer.create(builder, num_records=2, dataset_name="trace-unhandled-test")
