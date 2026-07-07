@@ -13,7 +13,7 @@ from importlib.metadata import PackageNotFoundError, distribution, packages_dist
 from pathlib import Path
 from typing import Any
 
-from packaging.requirements import Requirement
+from packaging.requirements import InvalidRequirement, Requirement
 
 try:
     import tomllib
@@ -39,7 +39,34 @@ def dependency_name(specifier: str) -> str | None:
     return normalize_name(match.group()) if match else None
 
 
-def declared_dependencies(pyproject_path: Path) -> set[str]:
+def requirement_dependencies(
+    specifiers: list[str],
+    selected_extras: set[str] | None = None,
+    *,
+    allow_version_template: bool = False,
+) -> dict[str, set[str]]:
+    dependencies: dict[str, set[str]] = defaultdict(set)
+    marker_extras = {"", *(selected_extras or set())}
+
+    for specifier in specifiers:
+        try:
+            requirement = Requirement(specifier)
+        except InvalidRequirement:
+            if not allow_version_template or "{{ version }}" not in specifier:
+                raise
+            if name := dependency_name(specifier):
+                dependencies[name]
+            continue
+
+        # Marker evaluation is intentionally relative to the current audit environment.
+        if requirement.marker and not any(requirement.marker.evaluate({"extra": extra}) for extra in marker_extras):
+            continue
+        dependencies[normalize_name(requirement.name)].update(normalize_name(extra) for extra in requirement.extras)
+
+    return dict(dependencies)
+
+
+def declared_dependencies(pyproject_path: Path) -> dict[str, set[str]]:
     with pyproject_path.open("rb") as file:
         config = tomllib.load(file)
 
@@ -52,11 +79,10 @@ def declared_dependencies(pyproject_path: Path) -> set[str]:
         .get("uv-dynamic-versioning", {})
         .get("dependencies", [])
     )
-    return {
-        name
-        for specifier in [*project_dependencies, *dynamic_dependencies]
-        if (name := dependency_name(specifier)) is not None
-    }
+    dependencies = requirement_dependencies(project_dependencies)
+    for name, extras in requirement_dependencies(dynamic_dependencies, allow_version_template=True).items():
+        dependencies.setdefault(name, set()).update(extras)
+    return dependencies
 
 
 def imported_modules(source_root: Path, repository_root: Path) -> dict[str, list[str]]:
@@ -64,6 +90,7 @@ def imported_modules(source_root: Path, repository_root: Path) -> dict[str, list
     for path in sorted(source_root.rglob("*.py")):
         tree = ast.parse(path.read_text(), filename=str(path))
         relative_path = str(path.relative_to(repository_root))
+        # Include guarded and TYPE_CHECKING imports; the recipe re-verifies runtime use before fixing a gap.
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 modules = [alias.name.partition(".")[0] for alias in node.names]
@@ -94,18 +121,13 @@ def resolve_distribution(
     return normalized[0] if len(normalized) == 1 else None
 
 
-def installed_requirements(distribution_name: str) -> set[str]:
+def installed_requirements(distribution_name: str, selected_extras: set[str]) -> dict[str, set[str]]:
     try:
         requirements = distribution(distribution_name).requires or []
     except PackageNotFoundError:
-        return set()
+        return {}
 
-    result = set()
-    for specifier in requirements:
-        requirement = Requirement(specifier)
-        if requirement.marker is None or requirement.marker.evaluate({"extra": ""}):
-            result.add(normalize_name(requirement.name))
-    return result
+    return requirement_dependencies(requirements, selected_extras)
 
 
 def audit_repository(
@@ -122,71 +144,79 @@ def audit_repository(
             project_name = normalize_name(tomllib.load(file)["project"]["name"])
         projects[project_name] = {
             "path": str(package_dir.relative_to(repository_root)),
-            "declared": declared_dependencies(package_dir / "pyproject.toml"),
+            "declarations": declared_dependencies(package_dir / "pyproject.toml"),
             "imports": imported_modules(package_dir / "src", repository_root),
         }
 
     declared_by: dict[str, set[str]] = defaultdict(set)
     for project_name, project in projects.items():
-        for dependency in project["declared"]:
+        for dependency in project["declarations"]:
             declared_by[dependency].add(project_name)
 
     distribution_map = module_distributions if module_distributions is not None else packages_distributions()
     declared_anywhere = set(declared_by)
 
-    requirement_cache: dict[str, set[str]] = {}
+    requirement_cache: dict[tuple[str, frozenset[str]], dict[str, set[str]]] = {}
 
-    def requirements_for(distribution_name: str) -> set[str]:
+    def requirements_for(distribution_name: str, selected_extras: set[str]) -> dict[str, set[str]]:
         if distribution_name in projects:
-            return projects[distribution_name]["declared"]
+            return projects[distribution_name]["declarations"]
         if requirement_map is not None:
-            return {normalize_name(name) for name in requirement_map.get(distribution_name, [])}
-        if distribution_name not in requirement_cache:
-            requirement_cache[distribution_name] = installed_requirements(distribution_name)
-        return requirement_cache[distribution_name]
+            return requirement_dependencies(requirement_map.get(distribution_name, []), selected_extras)
+        cache_key = (distribution_name, frozenset(selected_extras))
+        if cache_key not in requirement_cache:
+            requirement_cache[cache_key] = installed_requirements(distribution_name, selected_extras)
+        return requirement_cache[cache_key]
 
-    def dependency_closure(distribution_name: str) -> set[str]:
+    def dependency_closure(distribution_name: str, selected_extras: set[str]) -> set[str]:
         closure = set()
-        pending = [distribution_name]
+        pending = [(distribution_name, selected_extras)]
+        visited: set[tuple[str, frozenset[str]]] = set()
         while pending:
-            current = pending.pop()
-            for dependency in requirements_for(current):
-                if dependency not in closure:
-                    closure.add(dependency)
-                    pending.append(dependency)
+            current, extras = pending.pop()
+            current_key = (current, frozenset(extras))
+            if current_key in visited:
+                continue
+            visited.add(current_key)
+            for dependency, dependency_extras in requirements_for(current, extras).items():
+                closure.add(dependency)
+                pending.append((dependency, dependency_extras))
         return closure
 
     results = []
     for project_name, project in projects.items():
-        declared = project["declared"]
-        dependency_closures = {dependency: dependency_closure(dependency) for dependency in declared}
+        declarations = project["declarations"]
+        declared = set(declarations)
+        dependency_closures = {
+            dependency: dependency_closure(dependency, extras) for dependency, extras in declarations.items()
+        }
         resolved_imports: dict[str, dict[str, set[str]]] = defaultdict(lambda: {"modules": set(), "files": set()})
         unresolved = []
 
         for module, files in project["imports"].items():
-            distribution = resolve_distribution(
+            distribution_name = resolve_distribution(
                 module,
                 distribution_map.get(module, []),
                 declared,
                 declared_anywhere,
             )
-            if distribution is None:
+            if distribution_name is None:
                 unresolved.append({"module": module, "files": files})
                 continue
-            resolved_imports[distribution]["modules"].add(module)
-            resolved_imports[distribution]["files"].update(files)
+            resolved_imports[distribution_name]["modules"].add(module)
+            resolved_imports[distribution_name]["files"].update(files)
 
         missing = []
-        for distribution, usage in sorted(resolved_imports.items()):
-            if distribution in declared:
+        for distribution_name, usage in sorted(resolved_imports.items()):
+            if distribution_name in declared:
                 continue
-            sibling_declarations = sorted(declared_by[distribution] - {project_name})
+            sibling_declarations = sorted(declared_by[distribution_name] - {project_name})
             guaranteed_by = sorted(
-                dependency for dependency, closure in dependency_closures.items() if distribution in closure
+                dependency for dependency, closure in dependency_closures.items() if distribution_name in closure
             )
             missing.append(
                 {
-                    "dependency": distribution,
+                    "dependency": distribution_name,
                     "modules": sorted(usage["modules"]),
                     "files": sorted(usage["files"]),
                     "declared_by": sibling_declarations,

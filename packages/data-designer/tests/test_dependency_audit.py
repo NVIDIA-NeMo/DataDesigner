@@ -89,3 +89,58 @@ def test_marks_external_transitive_gap_low(tmp_path: Path) -> None:
 
     assert result["packages"][0]["missing"][0]["severity"] == "low"
     assert result["packages"][0]["missing"][0]["guaranteed_by"] == ["typer"]
+
+
+def test_marks_dependency_from_selected_extra_low(tmp_path: Path) -> None:
+    package = tmp_path / "packages" / "example"
+    (package / "src").mkdir(parents=True)
+    (package / "pyproject.toml").write_text('[project]\nname = "example"\ndependencies = ["pydantic[email]"]\n')
+    (package / "src" / "example.py").write_text("import email_validator\n")
+
+    result = audit(
+        tmp_path,
+        {"email_validator": ["email-validator"]},
+        {"pydantic": ['email-validator; extra == "email"']},
+    )
+
+    assert result["packages"][0]["missing"][0]["severity"] == "low"
+    assert result["packages"][0]["missing"][0]["guaranteed_by"] == ["pydantic"]
+
+
+def test_ignores_inactive_project_marker(tmp_path: Path) -> None:
+    package = tmp_path / "packages" / "example"
+    (package / "src").mkdir(parents=True)
+    (package / "pyproject.toml").write_text(
+        '[project]\nname = "example"\ndependencies = ["typing-extensions; python_version < \'1\'"]\n'
+    )
+    (package / "src" / "example.py").write_text("import typing_extensions\n")
+
+    result = audit(tmp_path, {"typing_extensions": ["typing-extensions"]})
+
+    assert result["packages"][0]["missing"][0]["severity"] == "high"
+    assert result["packages"][0]["missing"][0]["guaranteed_by"] == []
+
+
+def test_reports_ambiguous_module_as_unresolved(tmp_path: Path) -> None:
+    package = tmp_path / "packages" / "example"
+    (package / "src").mkdir(parents=True)
+    (package / "pyproject.toml").write_text('[project]\nname = "example"\ndependencies = []\n')
+    (package / "src" / "example.py").write_text("import shared_namespace\n")
+
+    result = audit(tmp_path, {"shared_namespace": ["first-package", "second-package"]})
+
+    assert result["packages"][0]["missing"] == []
+    assert result["packages"][0]["unresolved_modules"] == [
+        {"module": "shared_namespace", "files": ["packages/example/src/example.py"]}
+    ]
+
+
+def test_applies_module_distribution_override(tmp_path: Path) -> None:
+    package = tmp_path / "packages" / "example"
+    (package / "src").mkdir(parents=True)
+    (package / "pyproject.toml").write_text('[project]\nname = "example"\ndependencies = []\n')
+    (package / "src" / "example.py").write_text("import yaml\n")
+
+    result = audit(tmp_path, {})
+
+    assert result["packages"][0]["missing"][0]["dependency"] == "pyyaml"

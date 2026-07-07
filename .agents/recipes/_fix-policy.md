@@ -11,7 +11,9 @@ When in doubt, fall back to report-only.
 
 A finding may be converted to a fix only if all hold:
 
-- **Bounded scope**: ≤3 files, ≤50 LOC net.
+- **Bounded scope**: ≤3 files, ≤50 LOC net. For the dependencies suite,
+  exclude generated `uv.lock` changes from the LOC total; the lockfile still
+  counts toward the file cap and must pass the path allowlist.
 - **Reversible**: no public API changes, no `__all__` deletions, no version
   bumps (Dependabot owns those), no schema changes, no migrations.
 - **Self-evident**: the audit established both the problem *and* the unique
@@ -83,6 +85,8 @@ code-quality and unset elsewhere) controls draft-PR mode.
 
 Batch PRs still record one `attempted_fixes` entry per finding. Multiple
 entries may point to the same `pr_number` and `branch`.
+Post-fix gates group those entries by `(pr_number, branch)`, validate the
+shared diff once, and update every associated finding together on rejection.
 
 ### `fix_backlog` rules (audit phase populates this)
 
