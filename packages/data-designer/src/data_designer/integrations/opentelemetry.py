@@ -270,14 +270,16 @@ class OpenTelemetryRuntime:
                 provider.shutdown()
 
     def _activate_run(self, run_id: str, port: int) -> bool:
+        old_server: Any = None
+        old_thread: threading.Thread | None = None
         try:
             with self._lock:
                 if not self._initialized:
                     self._initialize()
                 if self._server is None:
-                    self._rebind(port)
+                    old_server, old_thread = self._rebind(port)
                 elif self._port != port and not self._active_run_ids:
-                    self._rebind(port)
+                    old_server, old_thread = self._rebind(port)
                 elif self._port != port:
                     logger.warning(
                         "OpenTelemetry metrics already active at %s; reusing it instead of requested port %d.",
@@ -287,7 +289,8 @@ class OpenTelemetryRuntime:
                 if self._server is None:
                     return False
                 self._active_run_ids.add(run_id)
-                return True
+            _stop_server(old_server, old_thread)
+            return True
         except Exception:
             logger.warning("OpenTelemetry metrics are unavailable; continuing without them.", exc_info=True)
             return False
@@ -384,14 +387,14 @@ class OpenTelemetryRuntime:
         self._log_handler = handler
         self._initialized = True
 
-    def _rebind(self, port: int) -> None:
+    def _rebind(self, port: int) -> tuple[Any, threading.Thread | None]:
         if self._start_http_server is None:
-            return
+            return None, None
         server, thread = self._start_http_server(port=port, addr=_HOST, registry=self._registry)
         old_server, old_thread = self._server, self._server_thread
         self._server, self._server_thread, self._port = server, thread, port
-        _stop_server(old_server, old_thread)
         logger.info("OpenTelemetry metrics available at %s", self.metrics_url)
+        return old_server, old_thread
 
     @staticmethod
     def _event_run_id(correlation: object) -> str | None:
@@ -460,7 +463,8 @@ def _stop_server(server: Any, thread: threading.Thread | None) -> None:
     with contextlib.suppress(Exception):
         server.server_close()
     if thread is not None:
-        thread.join(timeout=5.0)
+        with contextlib.suppress(Exception):
+            thread.join(timeout=5.0)
 
 
 def _non_negative_int(value: object) -> int:

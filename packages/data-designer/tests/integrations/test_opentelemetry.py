@@ -19,6 +19,7 @@ from urllib.request import urlopen
 
 import pytest
 
+import data_designer.integrations.opentelemetry as opentelemetry
 from data_designer.config.column_configs import LLMTextColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.models import ModelConfig, ModelProvider
@@ -625,6 +626,35 @@ def test_runtime_rebinds_idle_listener_and_preserves_metrics(runtime: OpenTeleme
     assert " 3.0" in _scrape(runtime)
     with pytest.raises(URLError):
         urlopen(first_url, timeout=0.2)
+
+
+def test_runtime_stops_rebound_listener_outside_runtime_lock(runtime: OpenTelemetryRuntime) -> None:
+    first_port = _free_port()
+    with runtime.observe_create(first_port):
+        pass
+
+    lock_was_available = False
+    original_stop_server = opentelemetry._stop_server
+
+    def stop_server(server: object, thread: object) -> None:
+        nonlocal lock_was_available
+
+        def lock_is_available() -> bool:
+            acquired = runtime._lock.acquire(blocking=False)
+            if acquired:
+                runtime._lock.release()
+            return acquired
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            lock_was_available = executor.submit(lock_is_available).result(timeout=5)
+        original_stop_server(server, thread)  # type: ignore[arg-type]
+
+    with patch.object(opentelemetry, "_stop_server", side_effect=stop_server) as stop_server_mock:
+        with runtime.observe_create(_free_port()):
+            pass
+
+    stop_server_mock.assert_called_once()
+    assert lock_was_available is True
 
 
 def test_runtime_reuses_active_listener_for_conflicting_port(
