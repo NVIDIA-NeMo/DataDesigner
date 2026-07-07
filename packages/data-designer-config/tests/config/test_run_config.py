@@ -24,8 +24,8 @@ def test_run_config_accepts_native_renderer() -> None:
     assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.NATIVE
 
 
-def test_run_config_defaults_to_display_tui_enabled() -> None:
-    assert RunConfig().display_tui is True
+def test_run_config_defaults_to_display_tui_disabled() -> None:
+    assert RunConfig().display_tui is False
 
 
 def test_run_config_accepts_display_tui() -> None:
