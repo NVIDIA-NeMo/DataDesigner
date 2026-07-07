@@ -169,9 +169,10 @@ def reset_logging() -> None:
     logging configuration that existed before ``configure_logging()`` was called.
     """
     root_logger = logging.getLogger()
-    root_logger.handlers[:] = [
-        handler for handler in root_logger.handlers if not isinstance(handler, DataDesignerManagedHandler)
-    ]
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, DataDesignerManagedHandler):
+            root_logger.removeHandler(handler)
+            handler.close()
     root_logger.setLevel(logging.WARNING)
     logging.getLogger("data_designer").setLevel(logging.NOTSET)
 

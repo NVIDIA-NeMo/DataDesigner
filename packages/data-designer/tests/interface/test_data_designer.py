@@ -1515,59 +1515,29 @@ def test_validate_raises_error_when_seed_collides(
         data_designer.validate(config_builder)
 
 
-def test_initialize_interface_runtime_is_idempotent() -> None:
-    dd_logging.reset_logging()
-
-    with (
-        patch(
-            "data_designer.interface.data_designer.configure_logging",
-            wraps=dd_logging.configure_logging,
-        ) as mock_logging,
-        patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
-    ):
-        dd_mod._initialize_interface_runtime()
-        dd_mod._initialize_interface_runtime()
-
-        mock_logging.assert_called_once()
-        assert mock_resolve.call_count == 2
-
-
-def test_initialize_interface_runtime_respects_preconfigured_logging() -> None:
-    dd_logging.configure_logging()
-
-    with (
-        patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
-        patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
-    ):
-        dd_mod._initialize_interface_runtime()
-
-        mock_logging.assert_not_called()
-        mock_resolve.assert_called_once()
-
-
-def test_initialize_interface_runtime_skips_logging_when_auto_configure_disabled() -> None:
-    dd_logging.reset_logging()
-
-    with (
-        patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
-        patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
-    ):
-        dd_mod._initialize_interface_runtime(auto_configure_logging=False)
-
-        mock_logging.assert_not_called()
-        mock_resolve.assert_called_once()
-
-
 def test_init_auto_configures_logging_by_default(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
 ) -> None:
     dd_logging.reset_logging()
 
-    with patch("data_designer.interface.data_designer.configure_logging") as mock_logging:
+    DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    configured_handlers = tuple(logging.getLogger().handlers)
+    DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    assert dd_logging.is_logging_configured() is True
+    assert tuple(logging.getLogger().handlers) == configured_handlers
+
+
+def test_init_resolves_seed_default_model_settings_per_instance(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+) -> None:
+    with patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve:
+        DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
         DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
-        mock_logging.assert_called_once()
+    assert mock_resolve.call_count == 2
 
 
 def test_init_auto_configure_logging_false_preserves_root_handlers(
@@ -1600,10 +1570,12 @@ def test_init_preserves_preconfigured_logging(
     data_designer_logger = logging.getLogger("data_designer")
 
     dd_logging.configure_logging(dd_logging.LoggingConfig.debug())
+    configured_handlers = tuple(logging.getLogger().handlers)
 
     DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
     assert data_designer_logger.level == logging.DEBUG
+    assert tuple(logging.getLogger().handlers) == configured_handlers
 
 
 def test_init_auto_configure_logging_applies_per_instance(

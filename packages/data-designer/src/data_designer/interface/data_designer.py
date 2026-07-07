@@ -85,14 +85,6 @@ logger = logging.getLogger(__name__)
 
 _CHECK_MODELS_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 
-
-def _initialize_interface_runtime(*, auto_configure_logging: bool = True) -> None:
-    """Run idempotent runtime initialization for the interface package."""
-    if auto_configure_logging and not is_logging_configured():
-        configure_logging()
-    resolve_seed_default_model_settings()
-
-
 DEFAULT_SECRET_RESOLVER = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
 
 DEFAULT_SEED_READERS = [
@@ -156,7 +148,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         mcp_providers: list[MCPProviderT] | None = None,
         auto_configure_logging: bool = True,
     ):
-        _initialize_interface_runtime(auto_configure_logging=auto_configure_logging)
+        if auto_configure_logging and not is_logging_configured():
+            configure_logging()
+        resolve_seed_default_model_settings()
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
