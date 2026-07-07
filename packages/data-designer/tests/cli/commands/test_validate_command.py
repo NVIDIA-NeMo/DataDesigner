@@ -18,10 +18,10 @@ def test_validate_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> N
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    validate_command(config_source="config.yaml")
+    validate_command(config_source="config.yaml", script_args=None)
 
     mock_ctrl_cls.assert_called_once()
-    mock_ctrl.run_validate.assert_called_once_with(config_source="config.yaml")
+    mock_ctrl.run_validate.assert_called_once_with(config_source="config.yaml", script_args=None)
 
 
 @patch("data_designer.cli.commands.validate.GenerationController")
@@ -30,6 +30,9 @@ def test_validate_command_passes_python_module_source(mock_ctrl_cls: MagicMock) 
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    validate_command(config_source="my_config.py")
+    validate_command(config_source="my_config.py", script_args=["--seed-path", "seed.parquet"])
 
-    mock_ctrl.run_validate.assert_called_once_with(config_source="my_config.py")
+    mock_ctrl.run_validate.assert_called_once_with(
+        config_source="my_config.py",
+        script_args=["--seed-path", "seed.parquet"],
+    )
