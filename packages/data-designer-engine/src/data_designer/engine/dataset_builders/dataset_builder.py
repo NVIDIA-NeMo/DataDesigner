@@ -953,6 +953,7 @@ class DatasetBuilder:
             tracker=tracker,
             row_groups=row_groups,
             buffer_manager=buffer_manager,
+            max_concurrent_row_groups=self._resource_provider.run_config.max_concurrent_row_groups,
             max_in_flight_tasks=max_in_flight_tasks,
             max_model_task_admission=max_model_task_admission,
             on_finalize_row_group=on_finalize_row_group,
