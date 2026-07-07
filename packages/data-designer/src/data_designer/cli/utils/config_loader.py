@@ -9,9 +9,12 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+from pydantic import ValidationError
+
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.run_config import RunConfig
 from data_designer.config.script_params import DataDesignerScriptParams
-from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url
+from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url, smart_load_yaml
 
 
 class ConfigLoadError(Exception):
@@ -20,6 +23,7 @@ class ConfigLoadError(Exception):
 
 PYTHON_EXTENSIONS = {".py"}
 ALL_SUPPORTED_EXTENSIONS = VALID_CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
+RUN_CONFIG_EXTENSIONS = {".yaml", ".yml"}
 
 USER_MODULE_FUNC_NAME = "load_config_builder"
 
@@ -76,6 +80,56 @@ def load_config_builder(
         return _load_from_config_file(path)
 
     return _load_from_python_module(path, script_params)
+
+
+def load_run_config(config_source: str) -> RunConfig:
+    """Load a partial RunConfig from a local YAML file.
+
+    Args:
+        config_source: Path to a local .yaml or .yml file whose root is a mapping
+            of RunConfig fields.
+
+    Returns:
+        A validated RunConfig that preserves which fields were explicitly set.
+
+    Raises:
+        ConfigLoadError: If the source is remote, missing, not a file, has an
+            unsupported extension, or cannot be parsed or validated.
+    """
+    error_source = config_source
+    try:
+        if config_source.lower().startswith(("http://", "https://")):
+            try:
+                parsed_url = urlparse(config_source)
+                error_source = f"{parsed_url.scheme}://{parsed_url.hostname or ''}{parsed_url.path}"
+            except ValueError:
+                error_source = "<invalid remote URL>"
+            raise ConfigLoadError(f"Failed to load run config from '{error_source}': remote URLs are not supported")
+
+        path = Path(config_source)
+        error_source = str(path)
+        if not path.exists():
+            raise ConfigLoadError(f"Failed to load run config from '{path}': file not found")
+        if not path.is_file():
+            raise ConfigLoadError(f"Failed to load run config from '{path}': path is not a file")
+        if path.suffix.lower() not in RUN_CONFIG_EXTENSIONS:
+            supported = ", ".join(sorted(RUN_CONFIG_EXTENSIONS))
+            raise ConfigLoadError(
+                f"Failed to load run config from '{path}': unsupported file extension "
+                f"'{path.suffix}'. Supported extensions: {supported}"
+            )
+
+        return RunConfig.model_validate(smart_load_yaml(path))
+    except ConfigLoadError:
+        raise
+    except ValidationError as e:
+        details = "\n".join(
+            f"{'.'.join(map(str, error['loc'])) or 'run_config'}: {error['msg']}"
+            for error in e.errors(include_url=False, include_context=False, include_input=False)
+        )
+        raise ConfigLoadError(f"Failed to load run config from '{error_source}':\n{details}") from e
+    except Exception as e:
+        raise ConfigLoadError(f"Failed to load run config from '{error_source}': {e}") from e
 
 
 def _load_from_config_url(config_source: str) -> DataDesignerConfigBuilder:
