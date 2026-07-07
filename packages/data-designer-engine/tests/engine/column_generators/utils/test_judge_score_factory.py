@@ -4,7 +4,7 @@
 from enum import Enum
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from data_designer.config.column_configs import Score
 from data_designer.engine.column_generators.utils.judge_score_factory import (
@@ -61,6 +61,28 @@ def test_judge_score_factory_create_judge_response_model():
     assert instance.reasoning == "Test reasoning"
 
 
+@pytest.mark.parametrize(
+    ("options", "input_score", "expected_score"),
+    [
+        ({"1": "Low quality", "2": "High quality"}, 1, "1"),
+        ({"1": "Low quality", "2": "High quality"}, 1.0, "1"),
+        ({1: "Low quality", 2: "High quality"}, "1", 1),
+        ({"Poor": "Low quality", "Good": "High quality"}, " good ", "Good"),
+    ],
+)
+def test_judge_score_factory_coerces_score_drift(options, input_score, expected_score):
+    score = Score(
+        name="quality_score",
+        description="Quality assessment score",
+        options=options,
+    )
+
+    model_class = create_judge_response_model(score)
+    instance = model_class(score=input_score, reasoning="Test reasoning")
+
+    assert instance.score == expected_score
+
+
 def test_judge_score_factory_create_judge_structured_output_model():
     score = Score(
         name="quality_score",
@@ -73,6 +95,47 @@ def test_judge_score_factory_create_judge_structured_output_model():
 
     assert issubclass(model_class, BaseModel)
     assert "quality_score" in model_class.model_fields
+
+
+def test_judge_score_factory_structured_output_coerces_nested_score_drift():
+    score = Score(
+        name="quality_score",
+        description="Quality assessment score",
+        options={"1": "Low quality", "2": "High quality"},
+    )
+
+    response_model = create_judge_response_model(score)
+    model_class = create_judge_structured_output_model([response_model])
+
+    instance = model_class(quality_score={"score": 1, "reasoning": "Test reasoning"})
+
+    assert instance.quality_score.score == "1"
+
+
+def test_judge_score_factory_invalid_unhashable_score_uses_pydantic_validation():
+    score = Score(
+        name="quality_score",
+        description="Quality assessment score",
+        options={"1": "Low quality", "2": "High quality"},
+    )
+
+    model_class = create_judge_response_model(score)
+
+    with pytest.raises(ValidationError):
+        model_class(score=["1"], reasoning="Test reasoning")
+
+
+def test_judge_score_factory_out_of_range_score_uses_pydantic_validation():
+    score = Score(
+        name="quality_score",
+        description="Quality assessment score",
+        options={"1": "Low quality", "2": "High quality"},
+    )
+
+    model_class = create_judge_response_model(score)
+
+    with pytest.raises(ValidationError):
+        model_class(score=99, reasoning="Test reasoning")
 
 
 def test_judge_score_factory_preserves_score_name_casing():
