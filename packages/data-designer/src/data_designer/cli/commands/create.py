@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import click
 import typer
 
@@ -79,6 +81,10 @@ def create_command(
             "When omitted, uses the configured RunConfig setting."
         ),
     ),
+    script_args: Annotated[
+        list[str] | None,
+        typer.Argument(help="Arguments forwarded to a local Python config module after '--'."),
+    ] = None,
 ) -> None:
     """Create a full dataset and save results to disk.
 
@@ -110,6 +116,9 @@ def create_command(
 
         # Create from a Python module with custom output path
         data-designer create my_config.py --artifact-path /path/to/output
+
+        # Forward arguments to a Python config module
+        data-designer create workflow.py --num-records 32 -- --seed-path seeds.parquet
     """
     controller = GenerationController()
     controller.run_create(
@@ -121,4 +130,5 @@ def create_command(
         resume=resume,
         output_format=output_format,
         tui=tui,
+        script_args=script_args,
     )

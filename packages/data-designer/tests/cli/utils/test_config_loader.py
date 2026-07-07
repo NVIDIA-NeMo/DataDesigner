@@ -14,6 +14,7 @@ from data_designer.cli.utils.config_loader import (
     load_config_builder,
     load_run_config,
 )
+from data_designer.config import DataDesignerScriptParams
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.run_config import JinjaRenderingEngine, RequestAdmissionTuningConfig, RunConfig
 
@@ -224,7 +225,7 @@ def test_load_config_builder_from_yaml(mock_from_config: MagicMock, tmp_path: Pa
     mock_builder = MagicMock()
     mock_from_config.return_value = mock_builder
 
-    result = load_config_builder(str(yaml_file))
+    result = load_config_builder(str(yaml_file), DataDesignerScriptParams())
 
     mock_from_config.assert_called_once_with(yaml_file)
     assert result is mock_builder
@@ -297,8 +298,108 @@ def test_load_config_builder_from_python_module(tmp_path: Path) -> None:
 
         result = load_config_builder(str(py_file))
 
-        mock_load_py.assert_called_once_with(py_file)
+        mock_load_py.assert_called_once_with(py_file, None)
         assert result is mock_builder
+
+
+@pytest.mark.parametrize(
+    ("script_params", "expected_argv"),
+    [
+        pytest.param(None, (), id="empty"),
+        pytest.param(
+            DataDesignerScriptParams(argv=("--seed-path", "seed.parquet")),
+            ("--seed-path", "seed.parquet"),
+            id="forwarded",
+        ),
+    ],
+)
+def test_load_config_builder_python_module_receives_script_params(
+    tmp_path: Path,
+    script_params: DataDesignerScriptParams | None,
+    expected_argv: tuple[str, ...],
+) -> None:
+    py_file = tmp_path / "params_config.py"
+    py_file.write_text(
+        "from data_designer.config import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder(params):\n"
+        "    builder = DataDesignerConfigBuilder()\n"
+        "    builder._test_argv = params.argv\n"
+        "    return builder\n"
+    )
+
+    result = load_config_builder(str(py_file), script_params)
+
+    assert result._test_argv == expected_argv
+
+
+def test_load_config_builder_python_module_accepts_keyword_only_parameter(tmp_path: Path) -> None:
+    py_file = tmp_path / "keyword_params_config.py"
+    py_file.write_text(
+        "from data_designer.config import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder(*, config):\n"
+        "    builder = DataDesignerConfigBuilder()\n"
+        "    builder._test_argv = config.argv\n"
+        "    return builder\n"
+    )
+
+    result = load_config_builder(str(py_file), DataDesignerScriptParams(argv=("--variant", "compact")))
+
+    assert result._test_argv == ("--variant", "compact")
+
+
+def test_load_config_builder_python_module_rejects_script_args_for_legacy_signature(tmp_path: Path) -> None:
+    py_file = tmp_path / "legacy_config.py"
+    py_file.write_text(
+        "from data_designer.config import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder():\n"
+        "    return DataDesignerConfigBuilder()\n"
+    )
+
+    with pytest.raises(ConfigLoadError, match="does not accept script arguments") as exc_info:
+        load_config_builder(
+            str(py_file),
+            DataDesignerScriptParams(argv=("--api-key", "sensitive-value")),
+        )
+
+    assert "sensitive-value" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("signature", ["first, second", "*args", "**kwargs"])
+def test_load_config_builder_python_module_rejects_unsupported_signature(tmp_path: Path, signature: str) -> None:
+    py_file = tmp_path / "unsupported_signature.py"
+    py_file.write_text(f"def load_config_builder({signature}):\n    return None\n")
+
+    with pytest.raises(ConfigLoadError, match="Unsupported 'load_config_builder\\(\\)' signature"):
+        load_config_builder(str(py_file))
+
+
+@pytest.mark.parametrize(
+    ("filename", "contents"),
+    [
+        ("config.yaml", "data_designer:\n  columns: []\n"),
+        ("config.yml", "data_designer:\n  columns: []\n"),
+        ("config.json", '{"data_designer": {"columns": []}}'),
+    ],
+)
+def test_load_config_builder_rejects_script_args_for_serialized_config(
+    tmp_path: Path,
+    filename: str,
+    contents: str,
+) -> None:
+    config_file = tmp_path / filename
+    config_file.write_text(contents)
+
+    with pytest.raises(ConfigLoadError, match="only supported for local Python config modules"):
+        load_config_builder(str(config_file), DataDesignerScriptParams(argv=("--custom", "value")))
+
+
+@pytest.mark.parametrize(
+    "config_url",
+    ["https://example.com/config.yaml", "https://example.com/config.json", "https://example.com/config.py"],
+)
+def test_load_config_builder_rejects_script_args_for_remote_config(config_url: str) -> None:
+    with pytest.raises(ConfigLoadError, match="only supported for local Python config modules"):
+        load_config_builder(config_url, DataDesignerScriptParams(argv=("--custom", "value")))
 
 
 def test_load_config_builder_file_not_found() -> None:

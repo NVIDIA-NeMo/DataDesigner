@@ -16,6 +16,7 @@ from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_b
 from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_sample_records_pager
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.run_config import RunConfig
+from data_designer.config.script_params import DataDesignerScriptParams
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.engine.storage.artifact_storage import ResumeMode
 from data_designer.errors import DataDesignerError
@@ -41,6 +42,7 @@ class GenerationController:
         artifact_path: str | None = None,
         theme: Literal["dark", "light"] = "dark",
         display_width: int = DEFAULT_DISPLAY_WIDTH,
+        script_args: list[str] | None = None,
     ) -> None:
         """Load config, generate a preview dataset, and display the results.
 
@@ -52,8 +54,9 @@ class GenerationController:
             artifact_path: Directory to save results in, or None for ./artifacts.
             theme: Color theme for HTML output (dark or light).
             display_width: Maximum width of the rendered record output in characters.
+            script_args: Arguments forwarded to a Python config module.
         """
-        config_builder = self._load_config(config_source)
+        config_builder = self._load_config(config_source, script_args)
 
         print_header("Data Designer Preview")
         console.print(f"  Config: [bold]{config_source}[/bold]")
@@ -89,13 +92,14 @@ class GenerationController:
         console.print()
         print_success(f"Preview complete — {total} record(s) generated")
 
-    def run_validate(self, config_source: str) -> None:
+    def run_validate(self, config_source: str, script_args: list[str] | None = None) -> None:
         """Load config and validate it against the engine.
 
         Args:
             config_source: Path to a config file or Python module.
+            script_args: Arguments forwarded to a Python config module.
         """
-        config_builder = self._load_config(config_source)
+        config_builder = self._load_config(config_source, script_args)
 
         print_header("Data Designer Validate")
         console.print(f"  Config: [bold]{config_source}[/bold]")
@@ -113,7 +117,7 @@ class GenerationController:
 
         print_success("Configuration is valid")
 
-    def run_check_models(self, config_source: str) -> None:
+    def run_check_models(self, config_source: str, script_args: list[str] | None = None) -> None:
         """Load config and probe every referenced model and MCP tool.
 
         Complements ``run_validate``: validate covers internal readiness
@@ -122,8 +126,9 @@ class GenerationController:
 
         Args:
             config_source: Path to a config file or Python module.
+            script_args: Arguments forwarded to a Python config module.
         """
-        config_builder = self._load_config(config_source)
+        config_builder = self._load_config(config_source, script_args)
 
         print_header("Data Designer Check Models")
         console.print(f"  Config: [bold]{config_source}[/bold]")
@@ -151,6 +156,7 @@ class GenerationController:
         resume: ResumeMode = ResumeMode.NEVER,
         output_format: str | None = None,
         tui: bool | None = None,
+        script_args: list[str] | None = None,
     ) -> None:
         """Load config, create a full dataset, and save results to disk.
 
@@ -165,8 +171,9 @@ class GenerationController:
                 generation. One of 'jsonl', 'csv', 'parquet'.
             tui: If set, overrides the active RunConfig display_tui setting for this
                 create invocation's terminal UI.
+            script_args: Arguments forwarded to a Python config module.
         """
-        config_builder = self._load_config(config_source)
+        config_builder = self._load_config(config_source, script_args)
         run_config = self._load_run_config(run_config_source) if run_config_source is not None else None
 
         resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
@@ -224,11 +231,16 @@ class GenerationController:
         print_success(f"Dataset created — {actual_record_count} record(s) generated")
         console.print()
 
-    def _load_config(self, config_source: str) -> DataDesignerConfigBuilder:
+    def _load_config(
+        self,
+        config_source: str,
+        script_args: list[str] | None = None,
+    ) -> DataDesignerConfigBuilder:
         """Load a config builder from the given source, exiting on failure.
 
         Args:
             config_source: Path to a config file or Python module.
+            script_args: Arguments forwarded to a Python config module.
 
         Returns:
             A DataDesignerConfigBuilder instance.
@@ -236,8 +248,9 @@ class GenerationController:
         Raises:
             typer.Exit: If the config cannot be loaded.
         """
+        script_params = DataDesignerScriptParams(argv=tuple(script_args or ()))
         try:
-            return load_config_builder(config_source)
+            return load_config_builder(config_source, script_params)
         except ConfigLoadError as e:
             print_error(str(e))
             raise typer.Exit(code=1)
