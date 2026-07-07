@@ -90,6 +90,40 @@ results.display_sample_record()
 
 🎉 That's it! You've just designed your first synthetic dataset.
 
+## Parameterize Python Config Workflows
+
+Local Python config modules can accept workflow-specific command-line arguments without hardcoding values. Define `load_config_builder` with an optional `DataDesignerScriptParams` argument and parse its raw `argv` with your preferred library:
+
+```python
+import argparse
+
+import data_designer.config as dd
+
+
+def load_config_builder(
+    params: dd.DataDesignerScriptParams | None = None,
+) -> dd.DataDesignerConfigBuilder:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed-path", required=True)
+    args = parser.parse_args(list(params.argv if params else ()))
+
+    builder = dd.DataDesignerConfigBuilder()
+    builder.with_seed_dataset(dd.LocalFileSeedSource(path=args.seed_path))
+    return builder
+```
+
+Keep Data Designer options before `--`; arguments after it are forwarded unchanged to the workflow:
+
+```bash
+data-designer create workflow.py --num-records 32 --dataset-name run_a -- --seed-path seeds.parquet
+data-designer preview workflow.py -n 3 -- --seed-path sample.parquet
+data-designer validate workflow.py -- --seed-path seeds.parquet
+```
+
+<Note>
+Forwarded arguments are supported only for local `.py` config modules. YAML, JSON, and remote config URLs reject them.
+</Note>
+
 ## 🚀 Next Steps
 
 <CardGroup cols={3}>

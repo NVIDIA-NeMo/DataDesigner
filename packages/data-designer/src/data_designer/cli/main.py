@@ -49,7 +49,7 @@ def _version_callback(value: bool) -> None:
 
 
 def _is_version_request(args: list[str]) -> bool:
-    return "--version" in args
+    return "--version" in args[: args.index("--")] if "--" in args else "--version" in args
 
 
 # Initialize Typer app with custom configuration

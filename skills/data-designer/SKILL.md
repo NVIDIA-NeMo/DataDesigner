@@ -47,7 +47,7 @@ Read **only** the workflow file that matches the selected mode, then follow it:
 
 # Output Template
 
-Write a Python file to the current directory with a `load_config_builder()` function returning a `DataDesignerConfigBuilder`. Name the file descriptively (e.g., `customer_reviews.py`). Use PEP 723 inline metadata for dependencies.
+Write a Python file to the current directory with a `load_config_builder(params)` function returning a `DataDesignerConfigBuilder`. The optional `DataDesignerScriptParams` argument lets the workflow accept runtime inputs after the Data Designer CLI's `--` separator. Name the file descriptively (e.g., `customer_reviews.py`). Use PEP 723 inline metadata for dependencies.
 
 ```python
 # /// script
@@ -79,7 +79,10 @@ def generator_function(row: dict) -> dict:
     return row
 
 
-def load_config_builder() -> dd.DataDesignerConfigBuilder:
+def load_config_builder(
+    params: dd.DataDesignerScriptParams | None = None,
+) -> dd.DataDesignerConfigBuilder:
+    # For runtime inputs, parse list(params.argv if params else ()) with argparse.
     config_builder = dd.DataDesignerConfigBuilder()
 
     # Seed dataset (only if the user explicitly mentions a seed dataset path)
@@ -92,3 +95,5 @@ def load_config_builder() -> dd.DataDesignerConfigBuilder:
 ```
 
 Only include Pydantic models, custom generators, seed datasets, and extra dependencies when the task requires them.
+
+Pass workflow-specific arguments after `--`, for example: `data-designer preview customer_reviews.py -- --locale en-US`.
