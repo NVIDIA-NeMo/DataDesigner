@@ -12,6 +12,7 @@ from data_designer.engine.resources.resource_provider import (
     create_resource_provider,
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
 def _stub_model_registry() -> ModelRegistry:
@@ -52,6 +53,28 @@ def test_create_resource_provider_error_cases(test_case, expected_error, tmp_pat
                 model_provider_registry=mock_model_provider_registry,
                 seed_reader_registry=mock_seed_reader_registry,
             )
+
+
+def test_create_resource_provider_forwards_observability_sinks(tmp_path) -> None:
+    artifact_storage = ArtifactStorage(artifact_path=str(tmp_path), dataset_name="test")
+    sink = InMemoryAdmissionEventSink()
+
+    with patch(
+        "data_designer.engine.resources.resource_provider.create_model_registry",
+        return_value=_stub_model_registry(),
+    ) as create_registry:
+        provider = create_resource_provider(
+            artifact_storage=artifact_storage,
+            model_configs=[],
+            secret_resolver=Mock(),
+            model_provider_registry=Mock(),
+            seed_reader_registry=Mock(),
+            scheduler_event_sink=sink,
+            request_event_sink=sink,
+        )
+
+    assert provider.scheduler_event_sink is sink
+    assert create_registry.call_args.kwargs["request_event_sink"] is sink
 
 
 class TestToolConfigValidation:

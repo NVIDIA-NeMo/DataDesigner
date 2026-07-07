@@ -521,6 +521,46 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer.run_config.max_conversation_correction_steps == 1
 
 
+def test_create_observes_configured_otel_port(stub_artifact_path, stub_model_providers) -> None:
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    telemetry = MagicMock()
+    telemetry.observe_create.return_value = contextlib.nullcontext()
+    data_designer._open_telemetry = telemetry
+
+    with (
+        patch.object(data_designer, "_create_resource_provider", side_effect=RuntimeError("stop")),
+        pytest.raises(RuntimeError, match="stop"),
+    ):
+        data_designer.create(MagicMock())
+
+    telemetry.observe_create.assert_called_once_with(9464)
+
+
+def test_resource_provider_uses_otel_sink_only_when_enabled(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_sampler_only_config_builder,
+) -> None:
+    person_reader = MagicMock()
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        person_reader=person_reader,
+    )
+    telemetry = MagicMock()
+    data_designer._open_telemetry = telemetry
+
+    with patch.object(dd_mod, "create_resource_provider", return_value=MagicMock()) as create_provider:
+        data_designer._create_resource_provider("enabled", stub_sampler_only_config_builder)
+        assert create_provider.call_args.kwargs["request_event_sink"] is telemetry
+        assert create_provider.call_args.kwargs["scheduler_event_sink"] is telemetry
+
+        data_designer.set_run_config(RunConfig(otel_metrics_port=None))
+        data_designer._create_resource_provider("disabled", stub_sampler_only_config_builder)
+        assert create_provider.call_args.kwargs["request_event_sink"] is None
+        assert create_provider.call_args.kwargs["scheduler_event_sink"] is None
+
+
 def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
     """Test that shutdown_error_rate is normalized to 1.0 when disabled."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)

@@ -150,6 +150,26 @@ def test_dataset_builder_artifact_storage_property(stub_dataset_builder, stub_re
     assert stub_dataset_builder.artifact_storage == stub_resource_provider.artifact_storage
 
 
+def test_dataset_builder_forwards_scheduler_event_sink(
+    stub_resource_provider,
+    stub_test_config_builder,
+) -> None:
+    sink = Mock()
+    stub_resource_provider.scheduler_event_sink = sink
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    generators, _graph = builder._initialize_generators_and_graph()
+    for generator in generators:
+        generator.log_pre_generation = Mock()
+
+    with patch.object(builder_mod, "AsyncTaskScheduler", return_value=Mock()) as scheduler_factory:
+        builder._prepare_async_run(generators, num_records=1, buffer_size=1)
+
+    assert scheduler_factory.call_args.kwargs["scheduler_event_sink"] is sink
+
+
 @pytest.mark.parametrize(
     "config_type,expected_single_configs",
     [

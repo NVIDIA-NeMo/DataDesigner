@@ -211,6 +211,9 @@ def test_model_request_executor_retries_provider_503_with_fresh_leases() -> None
     assert len(acquired) == 2
     assert len(released) == 2
     assert {event.request_lease_id for event in acquired} == {event.request_lease_id for event in released}
+    completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
+    assert len(completed) == 2
+    assert all(event.diagnostics["duration_seconds"] >= 0 for event in completed)
 
 
 def test_model_request_executor_does_not_retry_provider_timeout_without_status() -> None:
@@ -284,6 +287,9 @@ async def test_model_request_executor_retries_async_provider_503_with_fresh_leas
     assert len(acquired) == 2
     assert len(released) == 2
     assert {event.request_lease_id for event in acquired} == {event.request_lease_id for event in released}
+    completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
+    assert len(completed) == 2
+    assert all(event.diagnostics["duration_seconds"] >= 0 for event in completed)
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -341,6 +347,7 @@ async def test_model_request_executor_classifies_async_keyboard_interrupt_as_can
     assert snapshot.last_outcome == "local_cancelled"
     completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
     assert completed[-1].diagnostics["outcome"] == "local_cancelled"
+    assert completed[-1].diagnostics["duration_seconds"] >= 0
 
 
 def test_model_request_executor_maps_image_chat_domain() -> None:
@@ -423,6 +430,10 @@ def test_model_request_executor_emits_attempt_events_with_correlation_fields() -
     for event in attempt_events:
         assert isinstance(event.pressure_snapshot, dict)
         assert event.pressure_snapshot["resource"] == event.request_resource_key
+    completed = [event for event in attempt_events if event.event_kind == "model_request_completed"]
+    assert len(completed) == 1
+    assert completed[0].diagnostics["outcome"] == "success"
+    assert completed[0].diagnostics["duration_seconds"] >= 0
 
 
 def test_model_request_executor_logs_sink_failures(caplog: pytest.LogCaptureFixture) -> None:

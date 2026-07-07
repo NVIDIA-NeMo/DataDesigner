@@ -50,7 +50,11 @@ from data_designer.engine.dataset_builders.utils.execution_graph import Executio
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
-from data_designer.engine.observability import JsonlSchedulerEventSink, SchedulerAdmissionEventSink
+from data_designer.engine.observability import (
+    JsonlSchedulerEventSink,
+    SchedulerAdmissionEventSink,
+    fanout_scheduler_event_sinks,
+)
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.readiness import run_readiness_check
@@ -984,7 +988,10 @@ class DatasetBuilder:
             initial_completed_records=initial_actual_num_records,
             progress_interval=self._resource_provider.run_config.progress_interval,
             display_tui=self._resource_provider.run_config.display_tui,
-            scheduler_event_sink=scheduler_event_sink,
+            scheduler_event_sink=fanout_scheduler_event_sinks(
+                scheduler_event_sink,
+                self._resource_provider.scheduler_event_sink,
+            ),
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
             request_pressure_advisory=True,
         )

@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from enum import Enum
 from os import PathLike
 from threading import Lock
-from typing import Callable, Literal, Protocol, TextIO
+from typing import Callable, Literal, Protocol, TextIO, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +214,7 @@ class RequestAdmissionEvent:
         )
 
 
+@runtime_checkable
 class SchedulerAdmissionEventSink(Protocol):
     def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None: ...
 
@@ -263,6 +264,49 @@ class JsonlSchedulerEventSink:
             file.close()
         except Exception:
             logger.warning("Failed to close scheduler event file %s", self._path, exc_info=True)
+
+
+def scheduler_event_sink_accepts(
+    sink: SchedulerAdmissionEventSink | None,
+    event_kind: SchedulerAdmissionEventKind,
+) -> bool:
+    """Return whether a scheduler sink wants an event, defaulting to all events."""
+    if sink is None:
+        return False
+    accepts = getattr(sink, "accepts_scheduler_event", None)
+    if accepts is None:
+        return True
+    try:
+        return bool(accepts(event_kind))
+    except Exception:
+        logger.warning("Scheduler admission event interest check raised; dropping event.", exc_info=True)
+        return False
+
+
+class _FanoutSchedulerEventSink:
+    def __init__(self, sinks: tuple[SchedulerAdmissionEventSink, ...]) -> None:
+        self._sinks = sinks
+
+    def accepts_scheduler_event(self, event_kind: SchedulerAdmissionEventKind) -> bool:
+        return any(scheduler_event_sink_accepts(sink, event_kind) for sink in self._sinks)
+
+    def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None:
+        for sink in self._sinks:
+            if not scheduler_event_sink_accepts(sink, event.event_kind):
+                continue
+            try:
+                sink.emit_scheduler_event(event)
+            except Exception:
+                logger.warning("Scheduler admission event sink raised; dropping event.", exc_info=True)
+
+
+def fanout_scheduler_event_sinks(
+    *sinks: SchedulerAdmissionEventSink | None,
+) -> SchedulerAdmissionEventSink | None:
+    active_sinks = tuple(sink for sink in sinks if sink is not None)
+    if len(active_sinks) < 2:
+        return active_sinks[0] if active_sinks else None
+    return _FanoutSchedulerEventSink(active_sinks)
 
 
 class RequestAdmissionEventSink(Protocol):

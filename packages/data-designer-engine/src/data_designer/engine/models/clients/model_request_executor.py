@@ -122,32 +122,38 @@ class ModelRequestExecutor(ModelClient):
             lease = self._request_admission.acquire_sync(item)
         except RequestAdmissionError as exc:
             raise self._provider_error_from_request_admission(exc) from exc
+        self._emit_model_event("model_request_started", item=item, lease=lease)
+        started_at = time.perf_counter()
+        duration_seconds = 0.0
+        outcome = "unexpected_exception"
         try:
-            self._emit_model_event("model_request_started", item=item, lease=lease)
-            result = call()
+            try:
+                result = call()
+            finally:
+                duration_seconds = time.perf_counter() - started_at
         except ProviderError as exc:
+            outcome = exc.kind.value
             self._release_provider_error(lease, exc)
-            self._emit_model_event(
-                "model_request_completed", item=item, lease=lease, diagnostics={"outcome": exc.kind.value}
-            )
             raise
         except TimeoutError:
+            outcome = "provider_timeout"
             self._request_admission.release(lease, RequestReleaseOutcome(kind="provider_timeout"))
-            self._emit_model_event(
-                "model_request_completed", item=item, lease=lease, diagnostics={"outcome": "provider_timeout"}
-            )
             raise
         except BaseException as exc:
             outcome = "local_cancelled" if isinstance(exc, KeyboardInterrupt) else "unexpected_exception"
             self._request_admission.release(lease, RequestReleaseOutcome(kind=outcome))
-            self._emit_model_event("model_request_completed", item=item, lease=lease, diagnostics={"outcome": outcome})
             raise
         else:
+            outcome = "success"
             self._request_admission.release(lease, RequestReleaseOutcome(kind="success"))
-            self._emit_model_event(
-                "model_request_completed", item=item, lease=lease, diagnostics={"outcome": "success"}
-            )
             return result
+        finally:
+            self._emit_model_event(
+                "model_request_completed",
+                item=item,
+                lease=lease,
+                diagnostics={"outcome": outcome, "duration_seconds": duration_seconds},
+            )
 
     async def _execute_async(self, domain: RequestDomain, call: Callable[[], Awaitable[_T]]) -> _T:
         for attempt in range(self._max_attempts()):
@@ -167,38 +173,42 @@ class ModelRequestExecutor(ModelClient):
             raise self._provider_error_from_request_admission(exc) from exc
         except asyncio.CancelledError:
             raise
+        self._emit_model_event("model_request_started", item=item, lease=lease)
+        started_at = time.perf_counter()
+        duration_seconds = 0.0
+        outcome = "unexpected_exception"
         try:
-            self._emit_model_event("model_request_started", item=item, lease=lease)
-            result = await call()
+            try:
+                result = await call()
+            finally:
+                duration_seconds = time.perf_counter() - started_at
         except asyncio.CancelledError:
+            outcome = "local_cancelled"
             self._request_admission.release(lease, RequestReleaseOutcome(kind="local_cancelled"))
-            self._emit_model_event(
-                "model_request_completed", item=item, lease=lease, diagnostics={"outcome": "local_cancelled"}
-            )
             raise
         except ProviderError as exc:
+            outcome = exc.kind.value
             self._release_provider_error(lease, exc)
-            self._emit_model_event(
-                "model_request_completed", item=item, lease=lease, diagnostics={"outcome": exc.kind.value}
-            )
             raise
         except TimeoutError:
+            outcome = "provider_timeout"
             self._request_admission.release(lease, RequestReleaseOutcome(kind="provider_timeout"))
-            self._emit_model_event(
-                "model_request_completed", item=item, lease=lease, diagnostics={"outcome": "provider_timeout"}
-            )
             raise
         except BaseException as exc:
             outcome = "local_cancelled" if isinstance(exc, KeyboardInterrupt) else "unexpected_exception"
             self._request_admission.release(lease, RequestReleaseOutcome(kind=outcome))
-            self._emit_model_event("model_request_completed", item=item, lease=lease, diagnostics={"outcome": outcome})
             raise
         else:
+            outcome = "success"
             self._request_admission.release(lease, RequestReleaseOutcome(kind="success"))
-            self._emit_model_event(
-                "model_request_completed", item=item, lease=lease, diagnostics={"outcome": "success"}
-            )
             return result
+        finally:
+            self._emit_model_event(
+                "model_request_completed",
+                item=item,
+                lease=lease,
+                diagnostics={"outcome": outcome, "duration_seconds": duration_seconds},
+            )
 
     def _max_attempts(self) -> int:
         return max(1, self._retry_config.max_retries + 1)
