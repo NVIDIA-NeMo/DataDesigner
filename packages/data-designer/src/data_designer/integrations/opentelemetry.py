@@ -130,10 +130,10 @@ class OpenTelemetryRuntime:
                     self._record_create_duration(time.perf_counter() - started_at)
         finally:
             if enabled:
-                self._finish_active_dataset(run_id)
-                self._finish_active_requests(run_id)
                 with self._lock:
                     self._active_run_ids.discard(run_id)
+                    self._finish_active_dataset(run_id)
+                    self._finish_active_requests(run_id)
             runtime_correlation_provider.reset(token)
 
     def accepts_scheduler_event(self, event_kind: SchedulerAdmissionEventKind) -> bool:
@@ -142,50 +142,49 @@ class OpenTelemetryRuntime:
 
     def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None:
         run_id = self._event_run_id(event.captured_correlation)
-        if run_id is None or not self._event_is_active(event.captured_correlation):
+        if run_id is None:
             return
-        if event.event_kind == "row_group_checkpointed":
-            diagnostics = event.diagnostics
-            generated = _non_negative_int(diagnostics.get("surviving_rows"))
-            dropped = _non_negative_int(diagnostics.get("dropped_rows"))
-            self._dataset_records.add(
-                generated,
-                {"record.result": "generated"},
-            )
-            self._dataset_records.add(
-                dropped,
-                {"record.result": "dropped"},
-            )
-            self._advance_dataset_progress(run_id, generated + dropped)
-            return
-        if event.event_kind == "scheduler_job_started":
-            self._start_dataset_progress(run_id, _non_negative_int(event.diagnostics.get("row_group_total_rows")))
+        with self._lock:
+            if run_id not in self._active_run_ids:
+                return
+            if event.event_kind == "row_group_checkpointed":
+                diagnostics = event.diagnostics
+                generated = _non_negative_int(diagnostics.get("surviving_rows"))
+                dropped = _non_negative_int(diagnostics.get("dropped_rows"))
+                self._dataset_records.add(
+                    generated,
+                    {"record.result": "generated"},
+                )
+                self._dataset_records.add(
+                    dropped,
+                    {"record.result": "dropped"},
+                )
+                self._advance_dataset_progress(run_id, generated + dropped)
+                return
+            if event.event_kind == "scheduler_job_started":
+                self._start_dataset_progress(run_id, _non_negative_int(event.diagnostics.get("row_group_total_rows")))
 
-        event_name = _SCHEDULER_EVENT_NAMES.get(event.event_kind)
-        if event_name is None:
-            return
-        attributes: dict[str, str] = {"event.name": event_name}
-        if event.event_kind == "scheduler_job_completed":
-            attributes["outcome"] = _bounded_attribute(event.reason_or_result or "success")
-        if event.event_kind in {"scheduler_job_completed", "non_retryable_dropped"}:
-            error_type = event.diagnostics.get("error_type")
-        elif event.event_kind == "worker_spawn_failed":
-            error_type = "worker_spawn_failed"
-        else:
-            error_type = None
-        if error_type is not None:
-            attributes["error.type"] = _bounded_attribute(error_type)
-        self._scheduler_events.add(1, attributes)
-        if event.event_kind == "scheduler_job_completed":
-            self._finish_active_dataset(run_id)
+            event_name = _SCHEDULER_EVENT_NAMES.get(event.event_kind)
+            if event_name is None:
+                return
+            attributes: dict[str, str] = {"event.name": event_name}
+            if event.event_kind == "scheduler_job_completed":
+                attributes["outcome"] = _bounded_attribute(event.reason_or_result or "success")
+            if event.event_kind in {"scheduler_job_completed", "non_retryable_dropped"}:
+                error_type = event.diagnostics.get("error_type")
+            elif event.event_kind == "worker_spawn_failed":
+                error_type = "worker_spawn_failed"
+            else:
+                error_type = None
+            if error_type is not None:
+                attributes["error.type"] = _bounded_attribute(error_type)
+            self._scheduler_events.add(1, attributes)
+            if event.event_kind == "scheduler_job_completed":
+                self._finish_active_dataset(run_id)
 
     def emit_request_event(self, event: RequestAdmissionEvent) -> None:
         run_id = self._event_run_id(event.captured_correlation)
-        if (
-            run_id is None
-            or event.event_kind not in {"model_request_started", "model_request_completed"}
-            or not self._event_is_active(event.captured_correlation)
-        ):
+        if run_id is None or event.event_kind not in {"model_request_started", "model_request_completed"}:
             return
         resource = event.request_resource_key if isinstance(event.request_resource_key, dict) else {}
         raw_domain = resource.get("domain")
@@ -203,28 +202,29 @@ class OpenTelemetryRuntime:
             attributes["gen_ai.request.model"] = str(model_id)
         attempt_id = event.request_attempt_id or event.request_lease_id
         attempt_key = (run_id, attempt_id) if isinstance(attempt_id, str) and attempt_id else None
-        if event.event_kind == "model_request_started":
-            if attempt_key is not None:
-                with self._lock:
+        with self._lock:
+            if run_id not in self._active_run_ids:
+                return
+            if event.event_kind == "model_request_started":
+                if attempt_key is not None:
                     if attempt_key not in self._active_request_attempts:
                         self._active_model_requests.add(1, attributes)
                         self._active_request_attempts[attempt_key] = dict(attributes)
-            return
+                return
 
-        if attempt_key is not None:
-            with self._lock:
+            if attempt_key is not None:
                 active_attributes = self._active_request_attempts.get(attempt_key)
                 if active_attributes is not None:
                     self._active_model_requests.add(-1, active_attributes)
                     self._active_request_attempts.pop(attempt_key, None)
-        duration = event.diagnostics.get("duration_seconds")
-        if not isinstance(duration, int | float) or duration < 0:
-            return
-        outcome = event.diagnostics.get("outcome")
-        if outcome not in (None, "success"):
-            attributes = dict(attributes)
-            attributes["error.type"] = _bounded_attribute(outcome)
-        self._request_duration.record(float(duration), attributes)
+            duration = event.diagnostics.get("duration_seconds")
+            if not isinstance(duration, int | float) or duration < 0:
+                return
+            outcome = event.diagnostics.get("outcome")
+            if outcome not in (None, "success"):
+                attributes = dict(attributes)
+                attributes["error.type"] = _bounded_attribute(outcome)
+            self._request_duration.record(float(duration), attributes)
 
     def record_log(self, level: int) -> None:
         correlation = runtime_correlation_provider.current()
@@ -233,7 +233,7 @@ class OpenTelemetryRuntime:
         with self._lock:
             if correlation.run_id not in self._active_run_ids:
                 return
-        self._log_records.add(1, {"log.severity": _log_severity(level)})
+            self._log_records.add(1, {"log.severity": _log_severity(level)})
 
     def shutdown(self) -> None:
         with self._lock:
@@ -397,11 +397,6 @@ class OpenTelemetryRuntime:
     def _event_run_id(correlation: object) -> str | None:
         run_id = correlation.get("run_id") if isinstance(correlation, Mapping) else None
         return run_id if isinstance(run_id, str) else None
-
-    def _event_is_active(self, correlation: object) -> bool:
-        run_id = self._event_run_id(correlation)
-        with self._lock:
-            return run_id in self._active_run_ids
 
     def _start_dataset_progress(self, run_id: str, scheduled: int) -> None:
         with self._lock:

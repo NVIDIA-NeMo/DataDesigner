@@ -12,7 +12,7 @@ import sys
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -60,6 +60,14 @@ def _correlation() -> RuntimeCorrelation:
     correlation = runtime_correlation_provider.current()
     assert correlation is not None
     return correlation
+
+
+def _active_request_total(runtime: OpenTelemetryRuntime) -> float:
+    return sum(
+        float(line.rsplit(" ", maxsplit=1)[1])
+        for line in _scrape(runtime).splitlines()
+        if line.startswith("data_designer_model_request_active{")
+    )
 
 
 def test_runtime_exports_bounded_metrics_without_log_bodies(
@@ -210,16 +218,27 @@ def test_runtime_reconciles_duplicate_unmatched_and_orphan_model_requests(runtim
     port = _free_port()
     with runtime.observe_create(port):
         correlation = _correlation()
-        for sequence in (1, 2):
-            runtime.emit_request_event(
-                RequestAdmissionEvent.capture(
-                    "model_request_started",
-                    sequence=sequence,
-                    correlation=correlation,
-                    request_resource_key=resource,
-                    request_attempt_id="attempt-1",
-                )
+        start = RequestAdmissionEvent.capture(
+            "model_request_started",
+            sequence=1,
+            correlation=correlation,
+            request_resource_key=resource,
+            request_attempt_id="attempt-1",
+        )
+        runtime.emit_request_event(start)
+        assert _active_request_total(runtime) == 1
+
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_started",
+                sequence=2,
+                correlation=correlation,
+                request_resource_key=resource,
+                request_attempt_id="attempt-1",
             )
+        )
+        assert _active_request_total(runtime) == 1
+
         runtime.emit_request_event(
             RequestAdmissionEvent.capture(
                 "model_request_completed",
@@ -230,22 +249,32 @@ def test_runtime_reconciles_duplicate_unmatched_and_orphan_model_requests(runtim
                 diagnostics={"duration_seconds": 0.1, "outcome": "success"},
             )
         )
-        active_line = next(
-            line for line in _scrape(runtime).splitlines() if line.startswith("data_designer_model_request_active{")
-        )
-        assert active_line.endswith(" 1.0")
+        assert _active_request_total(runtime) == 1
 
-        for sequence in (4, 5):
-            runtime.emit_request_event(
-                RequestAdmissionEvent.capture(
-                    "model_request_completed",
-                    sequence=sequence,
-                    correlation=correlation,
-                    request_resource_key=resource,
-                    request_attempt_id="attempt-1",
-                    diagnostics={"duration_seconds": 0.1, "outcome": "local_cancelled"},
-                )
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_completed",
+                sequence=4,
+                correlation=correlation,
+                request_resource_key=resource,
+                request_attempt_id="attempt-1",
+                diagnostics={"duration_seconds": 0.1, "outcome": "local_cancelled"},
             )
+        )
+        assert _active_request_total(runtime) == 0
+
+        runtime.emit_request_event(
+            RequestAdmissionEvent.capture(
+                "model_request_completed",
+                sequence=5,
+                correlation=correlation,
+                request_resource_key=resource,
+                request_attempt_id="attempt-1",
+                diagnostics={"duration_seconds": 0.1, "outcome": "local_cancelled"},
+            )
+        )
+        assert _active_request_total(runtime) == 0
+
         runtime.emit_request_event(
             RequestAdmissionEvent.capture(
                 "model_request_started",
@@ -255,12 +284,125 @@ def test_runtime_reconciles_duplicate_unmatched_and_orphan_model_requests(runtim
                 request_attempt_id="orphan-attempt",
             )
         )
-        assert "attempt-1" not in _scrape(runtime)
+        assert _active_request_total(runtime) == 1
 
-    reconciled_line = next(
-        line for line in _scrape(runtime).splitlines() if line.startswith("data_designer_model_request_active{")
+    assert _active_request_total(runtime) == 0
+
+
+def test_runtime_rejects_request_that_reaches_state_update_after_teardown(runtime: OpenTelemetryRuntime) -> None:
+    entered = Event()
+    release = Event()
+
+    def pause_delayed_provider(value: object) -> str:
+        if value == "delayed-provider":
+            entered.set()
+            assert release.wait(timeout=5)
+        return str(value)
+
+    resource = RequestResourceKey("provider", "model-1", RequestDomain.CHAT)
+    with (
+        patch(
+            "data_designer.integrations.opentelemetry._bounded_attribute",
+            side_effect=pause_delayed_provider,
+        ),
+        ThreadPoolExecutor(max_workers=1) as executor,
+    ):
+        future = None
+        try:
+            with runtime.observe_create(_free_port()):
+                correlation = _correlation()
+                runtime.emit_request_event(
+                    RequestAdmissionEvent.capture(
+                        "model_request_started",
+                        sequence=1,
+                        correlation=correlation,
+                        request_resource_key=resource,
+                        request_attempt_id="baseline",
+                    )
+                )
+                runtime.emit_request_event(
+                    RequestAdmissionEvent.capture(
+                        "model_request_completed",
+                        sequence=2,
+                        correlation=correlation,
+                        request_resource_key=resource,
+                        request_attempt_id="baseline",
+                        diagnostics={"duration_seconds": 0.1, "outcome": "success"},
+                    )
+                )
+                future = executor.submit(
+                    runtime.emit_request_event,
+                    RequestAdmissionEvent.capture(
+                        "model_request_started",
+                        sequence=3,
+                        correlation=correlation,
+                        request_resource_key=RequestResourceKey(
+                            "delayed-provider",
+                            "model-1",
+                            RequestDomain.CHAT,
+                        ),
+                        request_attempt_id="delayed",
+                    ),
+                )
+                assert entered.wait(timeout=5)
+        finally:
+            release.set()
+        assert future is not None
+        future.result(timeout=5)
+
+    assert _active_request_total(runtime) == 0
+
+
+def test_runtime_deactivation_holds_lock_through_state_cleanup(
+    runtime: OpenTelemetryRuntime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_finish_dataset = runtime._finish_active_dataset
+    original_finish_requests = runtime._finish_active_requests
+
+    def lock_is_available_to_another_thread() -> bool:
+        acquired = runtime._lock.acquire(blocking=False)
+        if acquired:
+            runtime._lock.release()
+        return acquired
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+
+        def finish_dataset(run_id: str) -> None:
+            assert executor.submit(lock_is_available_to_another_thread).result(timeout=5) is False
+            original_finish_dataset(run_id)
+
+        def finish_requests(run_id: str) -> None:
+            assert executor.submit(lock_is_available_to_another_thread).result(timeout=5) is False
+            original_finish_requests(run_id)
+
+        monkeypatch.setattr(runtime, "_finish_active_dataset", finish_dataset)
+        monkeypatch.setattr(runtime, "_finish_active_requests", finish_requests)
+        with runtime.observe_create(_free_port()):
+            correlation = _correlation()
+            runtime.emit_scheduler_event(
+                SchedulerAdmissionEvent.capture(
+                    "scheduler_job_started",
+                    sequence=1,
+                    correlation=correlation,
+                    diagnostics={"row_group_total_rows": 2},
+                )
+            )
+            runtime.emit_request_event(
+                RequestAdmissionEvent.capture(
+                    "model_request_started",
+                    sequence=2,
+                    correlation=correlation,
+                    request_resource_key=RequestResourceKey("provider", "model-1", RequestDomain.CHAT),
+                    request_attempt_id="orphan",
+                )
+            )
+
+    assert _active_request_total(runtime) == 0
+    progress_line = next(
+        line for line in _scrape(runtime).splitlines() if line.startswith("data_designer_dataset_progress{")
     )
-    assert reconciled_line.endswith(" 0.0")
+    assert progress_line.endswith(" 0.0")
 
 
 def test_runtime_progress_resets_for_sequential_runs(runtime: OpenTelemetryRuntime) -> None:
