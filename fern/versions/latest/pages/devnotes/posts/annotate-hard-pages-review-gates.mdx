@@ -11,7 +11,7 @@ One of the traps in synthetic data generation is treating the run as the unit of
 
 Real pipelines are rarely that tidy. The interesting moment often happens halfway through: an evaluator finds a risky slice, a reviewer needs to fix a small subset, a team wants to compare two downstream strategies, or an expensive upstream stage should not be replayed just because the last step changed.
 
-Without a first-class boundary, those moments turn into side artifacts, one-off cache folders, and brittle restart scripts. The pipeline has a checkpoint in practice, but the system does not know how to operate around it.
+Running two separate Data Designer workflows can pass one dataset into another, but the caller owns the handoff: selecting and persisting the output, loading it as the next seed, correlating the artifacts, and deciding what can be reused. The pipeline has a checkpoint in practice, but Data Designer does not know how to operate around it.
 
 Workflow chaining is the control surface for those moments. It lets a Data Designer workflow pause at a named stage, export the stage output as a durable artifact, allow something outside the workflow to inspect or replace that artifact, and then resume downstream from the replacement.
 
@@ -48,6 +48,19 @@ In that shape, `quality_gate` is both a normal stage and a contract. Upstream wo
 
 ![Linear workflow chain showing source rows, named stages, a durable stage boundary, and downstream resume](/assets/document-hitl/workflow-chaining-linear-chain.png)
 
+### Why Not Just Run Two Workflows?
+
+Two independent workflows can reproduce the happy path: export from one, then load the result as the seed for the next. Workflow chaining does not make that data transformation newly possible. It makes the relationship operationally first-class.
+
+| Two independent workflows | One workflow chain |
+| --- | --- |
+| Caller selects, persists, loads, and passes the intermediate output | The stage declares its selected output, and the chain seeds the next stage |
+| Caller correlates separate configs and artifact directories | Workflow metadata records stage order, configs, selected outputs, statuses, and fingerprints |
+| Stop, replace, and restart behavior is custom orchestration | `targets`, `resume`, `rerun_from`, and `stage_output_overrides` provide one pause/inspect/replace/resume path |
+| Reuse and invalidation rules live in application code | Compatible completed stages are reused, while changed stages invalidate downstream work |
+
+The advantage is not fewer generation calls. It is that Data Designer understands those calls as stages of one workflow, so it can manage the handoff and retain the information needed to resume or audit it. Separate workflows remain useful when they do not share an execution lifecycle.
+
 ## The Story
 
 Picture a long generation workflow that starts with source data, proposes labels, scores quality, repairs weak examples, and writes a final training dataset. The early stages are expensive and deterministic enough to trust once they finish. The later stages are where judgment enters.
@@ -76,7 +89,7 @@ Human-in-the-loop review is the easiest pattern to recognize, but it is not the 
 | Cost control | Expensive upstream generations are reused across experiments |
 | Team handoff | One person exports a stage; another resumes from it |
 
-The value is not only that these things are possible. They were always possible with enough scripts. The value is that the workflow model can treat the boundary as a named artifact and resume from it.
+The value is not only that these things are possible. Two workflows and glue code can reproduce the happy path. Chaining gives Data Designer enough context to name the handoff, track it, and resume from it consistently.
 
 ## A Review Gate Example
 
@@ -193,9 +206,7 @@ The current workflow-chaining API is intentionally linear: stage A hands a selec
 
 The same boundary idea gets more interesting once the workflow shape grows. Planned DAG support would let a workflow fan out into independent evaluators, checks, or downstream experiments, then join their outputs back into a named downstream artifact. The contract stays the same: every edge is still an output that another stage can consume.
 
-The other direction is bounded repetition. A draft `RepeatUntil` stage policy explores the rejection-sampling shape: generate a batch, filter it, append or discard according to policy, and stop when enough accepted rows exist or a budget is exhausted. In that model, the loop is not an accidental rerun script. It is workflow metadata.
-
-![Future workflow shapes showing planned DAG branches, joins, and a bounded repeat-until loop](/assets/document-hitl/workflow-chaining-next-dag-loop.png)
+![Future workflow shape showing planned DAG branches and a join](/assets/document-hitl/workflow-chaining-next-dag.png)
 
 The goal is the same as the review gate: make the workflow's middle visible enough for a reviewer or evaluator to act without breaking the pipeline apart.
 
