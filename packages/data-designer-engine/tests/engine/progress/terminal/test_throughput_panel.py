@@ -436,7 +436,7 @@ def test_wide_unicode_labels_stay_within_terminal_width(
                 force=True,
             )
 
-            assert all(wcswidth(line) <= terminal_width - 1 for line in _last_panel_lines(tty_stream.getvalue()))
+            assert all(wcswidth(line) == terminal_width - 1 for line in _last_panel_lines(tty_stream.getvalue()))
 
 
 def test_active_panel_clears_visible_artifacts_when_terminal_resizes(tty_stream: FakeTTY) -> None:

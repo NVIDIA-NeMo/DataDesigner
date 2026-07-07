@@ -84,7 +84,8 @@ def _truncate_to_width(text: str, width: int) -> str:
 def _fit_ansi(text: str, width: int) -> str:
     visible = _visible_len(text)
     if visible > width:
-        return _truncate_to_width(_ANSI_RE.sub("", text), width) + _RESET
+        fitted = _truncate_to_width(_ANSI_RE.sub("", text), width)
+        return fitted + (" " * (width - _visible_len(fitted))) + _RESET
     return text + (" " * (width - visible))
 
 
