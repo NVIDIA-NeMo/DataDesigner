@@ -51,10 +51,27 @@ The built-in `nvidia` catalog points at `https://nvidia-nemo.github.io/DataDesig
 
 `preview`, `create`, and `validate` commands use `GenerationController`, which:
 1. Loads config via `load_config_builder`
-2. Calls `DataDesigner.preview()`, `DataDesigner.create()`, or `DataDesigner.validate()` directly
-3. Handles output display and error formatting
+2. For `create`, optionally loads a local per-run `RunConfig` YAML via `load_run_config`
+3. Calls `DataDesigner.preview()`, `DataDesigner.create()`, or `DataDesigner.validate()` directly
+4. Handles output display and error formatting
 
 This keeps generation aligned with the public Python API — the CLI is a thin wrapper, not a separate code path.
+
+#### Per-run configuration for `create`
+
+`data-designer create DATASET_CONFIG --run-config run-config.yaml` (or `-c run-config.yaml`) accepts one local `.yaml` or `.yml` file. The YAML root is a direct mapping of `RunConfig` fields, without a `run_config:` wrapper. Partial files are valid.
+
+The controller builds the effective runtime configuration in this order:
+
+1. The active `DataDesigner.run_config` baseline (the built-in defaults today)
+2. Top-level fields explicitly supplied by the per-run YAML
+3. An explicit `--tui` or `--no-tui` invocation flag
+
+The overlay is shallow. If YAML supplies `request_admission`, that nested object replaces the baseline value and its omitted fields use `RequestAdmissionTuningConfig` defaults. The effective mapping is validated through `RunConfig`, then applied once through `DataDesigner.set_run_config()` before generation so request-admission state is rebuilt consistently.
+
+`DATA_DESIGNER_ASYNC_TRACE=1` remains a field-specific exception and forces tracing even when YAML sets `async_trace: false`. Likewise, `display_tui: true` requests the TUI but falls back to log output when the process does not have a TTY.
+
+Resume compatibility still checks `buffer_size` and `preserve_dropped_columns` against the interrupted run. Artifacts do not persist the complete effective `RunConfig` or copy the source YAML, so callers must retain the runtime file when they need to reproduce other operational settings.
 
 ### UI Utilities
 
@@ -107,8 +124,11 @@ User invokes command (e.g., `data-designer plugin uninstall calculator`)
 
 ### Generation
 ```
-User invokes command (e.g., `data-designer create config.yaml`)
-  → GenerationController loads config
+User invokes command (e.g., `data-designer create config.yaml --run-config run.yaml --no-tui`)
+  → GenerationController loads the dataset config
+  → GenerationController optionally loads and validates the per-run YAML
+  → Active baseline → explicit YAML fields → explicit TUI flag
+  → DataDesigner.set_run_config() applies the effective model once
   → DataDesigner.create() runs the full pipeline
   → Results displayed via Rich console
 ```
