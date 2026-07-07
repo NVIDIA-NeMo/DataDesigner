@@ -172,6 +172,7 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
     assert result.exit_code == 0
     mock_controller.run_create.assert_called_once_with(
         config_source="config.yaml",
+        run_config_source=None,
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
@@ -192,6 +193,7 @@ def test_app_dispatches_create_tui_flags(mock_controller_cls: Mock) -> None:
     assert result.exit_code == 0
     mock_controller.run_create.assert_called_once_with(
         config_source="config.yaml",
+        run_config_source=None,
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
@@ -207,6 +209,7 @@ def test_app_dispatches_create_tui_flags(mock_controller_cls: Mock) -> None:
     assert result.exit_code == 0
     mock_controller.run_create.assert_called_once_with(
         config_source="config.yaml",
+        run_config_source=None,
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
@@ -214,6 +217,51 @@ def test_app_dispatches_create_tui_flags(mock_controller_cls: Mock) -> None:
         output_format=None,
         tui=True,
     )
+
+
+@patch("data_designer.cli.commands.create.GenerationController")
+def test_app_dispatches_create_run_config_aliases(mock_controller_cls: Mock) -> None:
+    """The create command parses both runtime-config option names lazily."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    for option in ("--run-config", "-c"):
+        result = runner.invoke(app, ["create", "config.yaml", option, "run-config.yaml"])
+
+        assert result.exit_code == 0
+        mock_controller.run_create.assert_called_once_with(
+            config_source="config.yaml",
+            run_config_source="run-config.yaml",
+            num_records=DEFAULT_NUM_RECORDS,
+            dataset_name="dataset",
+            artifact_path=None,
+            resume=ResumeMode.NEVER,
+            output_format=None,
+            tui=None,
+        )
+        mock_controller.reset_mock()
+
+
+def test_create_run_config_does_not_replace_required_dataset_config() -> None:
+    result = runner.invoke(app, ["create", "-c", "run-config.yaml"])
+
+    assert result.exit_code != 0
+    assert "CONFIG_SOURCE" in result.output
+    assert "Missing argument" in result.output
+
+
+def test_create_help_documents_run_config_contract() -> None:
+    result = runner.invoke(app, ["create", "--help"], terminal_width=160)
+    help_text = " ".join(result.output.replace("│", " ").split())
+
+    assert result.exit_code == 0
+    assert "Required dataset configuration" in help_text
+    assert "--run-config" in help_text
+    assert "-c" in help_text
+    assert "Optional local .yaml/.yml file" in help_text
+    assert "direct mapping of RunConfig fields" in help_text
+    assert "active RunConfig baseline, then YAML fields, then explicit --tui/--no-tui" in help_text
+    assert "data-designer create dataset.yaml --run-config run-config.yaml" in help_text
 
 
 @patch("data_designer.cli.commands.check_models.GenerationController")
