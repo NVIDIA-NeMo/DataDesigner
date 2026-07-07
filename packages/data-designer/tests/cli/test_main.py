@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.metadata
 from unittest.mock import Mock, call, patch
 
+import click
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app, main
@@ -252,7 +253,7 @@ def test_create_run_config_does_not_replace_required_dataset_config() -> None:
 
 def test_create_help_documents_run_config_contract() -> None:
     result = runner.invoke(app, ["create", "--help"], terminal_width=160)
-    help_text = " ".join(result.output.replace("│", " ").split())
+    help_text = " ".join(click.unstyle(result.output).replace("│", " ").split())
 
     assert result.exit_code == 0
     assert "Required dataset configuration" in help_text
