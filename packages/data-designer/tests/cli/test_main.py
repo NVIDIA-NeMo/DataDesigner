@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.metadata
 from unittest.mock import Mock, call, patch
 
+import click
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app, main
@@ -295,7 +296,7 @@ def test_app_rejects_unknown_options_before_script_separator(mock_controller_cls
     )
 
     assert result.exit_code == 2
-    assert "No such option: --num-recrods" in result.output
+    assert "No such option: --num-recrods" in click.unstyle(result.output)
     mock_controller_cls.assert_not_called()
 
 
