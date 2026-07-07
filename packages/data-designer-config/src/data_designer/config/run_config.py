@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import Field, model_validator
@@ -11,6 +12,7 @@ from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.utils.type_helpers import StrEnum
+from data_designer.config.utils.warning_helpers import warn_at_caller
 
 
 class JinjaRenderingEngine(StrEnum):
@@ -24,6 +26,7 @@ _THROTTLE_DEPRECATION_MESSAGE = (
     "RunConfig.throttle and ThrottleConfig are deprecated. Use RunConfig.request_admission with "
     "RequestAdmissionTuningConfig for supported advanced request-admission tuning."
 )
+_PROGRESS_BAR_DEPRECATION_MESSAGE = "RunConfig.progress_bar is deprecated. Use RunConfig.display_tui instead."
 
 
 class RequestAdmissionTuningConfig(ConfigBase):
@@ -144,9 +147,9 @@ class RunConfig(ConfigBase):
             single conversation when generation tasks call `ModelFacade.generate(...)`. Must be >= 0.
             Default is 0.
         async_trace: If True, collect per-task tracing data. Default is False.
-        progress_bar: If True, display sticky ANSI progress bars instead of periodic log lines
-            during generation. Requires a TTY; falls back to log lines in non-TTY environments.
-            Default is False.
+        display_tui: If True, display the terminal throughput TUI instead of periodic
+            log lines during generation. Requires a TTY; falls back to log lines in
+            non-TTY environments. Default is True.
         progress_interval: How often (in seconds) the async progress reporter emits a
             consolidated log block. Must be > 0. Default is 5.0.
         preserve_dropped_columns: If True, write columns removed by drop processors to
@@ -182,7 +185,7 @@ class RunConfig(ConfigBase):
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
     async_trace: bool = False
-    progress_bar: bool = False
+    display_tui: bool = True
     progress_interval: float = Field(default=5.0, gt=0.0)
     preserve_dropped_columns: bool = Field(
         default=True,
@@ -201,9 +204,21 @@ class RunConfig(ConfigBase):
 
     @model_validator(mode="before")
     @classmethod
-    def translate_deprecated_throttle_config(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "throttle" in data:
-            normalized = dict(data)
+    def translate_deprecated_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+
+        if "progress_bar" in normalized:
+            progress_bar = normalized.pop("progress_bar")
+            normalized.setdefault("display_tui", progress_bar)
+            warn_at_caller(
+                _PROGRESS_BAR_DEPRECATION_MESSAGE,
+                DeprecationWarning,
+            )
+
+        if "throttle" in normalized:
             throttle = normalized.pop("throttle")
             if normalized.get("request_admission") is not None:
                 raise ValueError(
@@ -215,13 +230,43 @@ class RunConfig(ConfigBase):
                     throttle if isinstance(throttle, ThrottleConfig) else ThrottleConfig.model_validate(throttle)
                 )
                 normalized["request_admission"] = throttle_config.to_request_admission_tuning()
-            warnings.warn(
+            warn_at_caller(
                 _THROTTLE_DEPRECATION_MESSAGE,
+                DeprecationWarning,
+            )
+            return normalized
+        return normalized
+
+    @property
+    def progress_bar(self) -> bool:
+        warnings.warn(
+            _PROGRESS_BAR_DEPRECATION_MESSAGE,
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.display_tui
+
+    @progress_bar.setter
+    def progress_bar(self, value: bool) -> None:
+        warnings.warn(
+            _PROGRESS_BAR_DEPRECATION_MESSAGE,
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.display_tui = value
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        if update is not None and "progress_bar" in update:
+            normalized_update = dict(update)
+            progress_bar = normalized_update.pop("progress_bar")
+            normalized_update.setdefault("display_tui", progress_bar)
+            warnings.warn(
+                _PROGRESS_BAR_DEPRECATION_MESSAGE,
                 DeprecationWarning,
                 stacklevel=2,
             )
-            return normalized
-        return data
+            update = normalized_update
+        return super().model_copy(update=update, deep=deep)
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:
