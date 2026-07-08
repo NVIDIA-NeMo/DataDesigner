@@ -131,8 +131,10 @@ def configure_logging(config: LoggingConfig | None = None) -> None:
 
     root_logger = logging.getLogger()
 
-    # Remove all handlers
-    root_logger.handlers.clear()
+    # Remove and close all handlers replaced by this configuration.
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+        handler.close()
 
     # Create and attach handler(s)
     handlers = [_create_handler(output_config) for output_config in config.output_configs]

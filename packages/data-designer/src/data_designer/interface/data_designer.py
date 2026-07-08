@@ -132,8 +132,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             configuration during construction. Set to False when embedding Data
             Designer in an application that manages its own logging — Data Designer
             will then leave existing root handlers and log levels untouched.
-            Automatic configuration is also skipped when
-            `data_designer.logging.configure_logging()` was already called.
+            Automatic configuration is also skipped while a Data Designer-managed
+            handler remains attached to the root logger.
     """
 
     def __init__(

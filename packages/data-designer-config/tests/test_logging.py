@@ -179,6 +179,24 @@ def test_reset_logging_closes_managed_file_handlers(tmp_path: Path) -> None:
     assert file_handler not in logging.getLogger().handlers
 
 
+def test_configure_logging_closes_replaced_file_handlers(
+    stub_default_logging_config: LoggingConfig, tmp_path: Path
+) -> None:
+    config = LoggingConfig(
+        logger_configs=[LoggerConfig(name="data_designer", level="INFO")],
+        output_configs=[OutputConfig(destination=tmp_path / "data-designer.log", structured=False)],
+    )
+    configure_logging(config)
+    file_handler = next(
+        handler for handler in logging.getLogger().handlers if isinstance(handler, DataDesignerFileHandler)
+    )
+
+    configure_logging(stub_default_logging_config)
+
+    assert file_handler.stream is None
+    assert file_handler not in logging.getLogger().handlers
+
+
 def test_configure_logging_with_file():
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as tmp_file:
         tmp_path = Path(tmp_file.name)
