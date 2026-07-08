@@ -147,6 +147,11 @@ class RunConfig(ConfigBase):
             single conversation when generation tasks call `ModelFacade.generate(...)`. Must be >= 0.
             Default is 0.
         async_trace: If True, collect per-task tracing data. Default is False.
+        write_scheduler_events: If True, create runs write structured scheduler diagnostics to
+            ``scheduler_events.jsonl`` in the dataset directory. The file is JSONL, not direct
+            Perfetto input, and may contain sensitive column, provider, model, task, and resource
+            labels. Each event is flushed to disk, so enabling this option adds file I/O overhead.
+            Preview runs do not write it. Default is False.
         display_tui: If True, display the terminal throughput TUI instead of periodic
             log lines during generation. Requires a TTY; falls back to log lines in
             non-TTY environments. Default is False.
@@ -185,6 +190,7 @@ class RunConfig(ConfigBase):
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
     async_trace: bool = False
+    write_scheduler_events: bool = False
     display_tui: bool = False
     progress_interval: float = Field(default=5.0, gt=0.0)
     preserve_dropped_columns: bool = Field(

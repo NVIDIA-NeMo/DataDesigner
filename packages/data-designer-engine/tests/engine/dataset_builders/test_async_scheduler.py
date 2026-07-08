@@ -3168,19 +3168,21 @@ class SlowModelBoundCellGenerator(SlowCellGenerator):
         *args: Any,
         provider_name: str = "provider",
         model_id: str = "model",
+        generation_kind: str = "chat",
         request_weight: int = 1,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._provider_name = provider_name
         self._model_id = model_id
+        self._generation_kind = generation_kind
         self._request_weight = request_weight
 
     def get_scheduling_metadata(self) -> SchedulingMetadata:
         return SchedulingMetadata.model(
             self._provider_name,
             self._model_id,
-            "chat",
+            self._generation_kind,
             weight=self._request_weight,
         )
 
@@ -3765,6 +3767,480 @@ async def test_scheduler_adaptive_row_group_admission_expands_target_for_horizon
     assert any(event.event_kind == "row_group_admission_target_changed" for event in sink.scheduler_events)
 
 
+def _build_adaptive_model_resource_scheduler(
+    *,
+    columns: tuple[str, ...] = ("cooling", "healthy"),
+    row_groups: list[tuple[int, int]] | None = None,
+) -> tuple[AsyncTaskScheduler, CompletionTracker]:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        *[LLMTextColumnConfig(name=column, prompt="{{ seed }}", model_alias=MODEL_ALIAS) for column in columns],
+    ]
+    strategies: dict[str, GenerationStrategy] = {"seed": GenerationStrategy.FULL_COLUMN}
+    strategies.update({column: GenerationStrategy.CELL_BY_CELL for column in columns})
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+    }
+    for column in columns:
+        generators[column] = SlowModelBoundCellGenerator(
+            config=_expr_config(column),
+            resource_provider=provider,
+            provider_name="provider",
+            model_id=column,
+            delay=0.0,
+        )
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = row_groups or [(0, 1), (1, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=max(2, len(row_groups)),
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+        num_records=sum(size for _row_group, size in row_groups),
+        buffer_size=1,
+    )
+    return scheduler, tracker
+
+
+def _set_next_row_group_pending(scheduler: AsyncTaskScheduler, row_group: int = 1, row_group_size: int = 1) -> None:
+    scheduler._row_group_admission_pending = (row_group, row_group_size)
+
+
+def test_scheduler_adaptive_row_group_ignores_unrelated_deferred_retry_resource() -> None:
+    scheduler, _tracker = _build_adaptive_model_resource_scheduler()
+    scheduler._rg_states[0] = SimpleNamespace(size=1, seeds_dispatched=True, pre_batch_done=True, in_flight_count=0)
+    _set_next_row_group_pending(scheduler)
+    deferred = Task(column="cooling", row_group=0, row_index=0, task_type="cell")
+    scheduler._deferred = [deferred]
+    scheduler._deferred_errors[deferred] = ModelRateLimitError("429 Too Many Requests")
+
+    diagnostics = scheduler._row_group_admission_diagnostics(reason="probe")["deferred_admission"]
+
+    assert scheduler._adaptive_row_group_block_reason() is None
+    assert diagnostics["blocks_next_row_group"] is False
+    assert diagnostics["scope"] == "localized"
+    assert diagnostics["columns"] == {"cooling": 1}
+    assert diagnostics["request_resources"] == {"provider/cooling/chat": 1}
+    assert "healthy" in diagnostics["independent_candidate_columns"]
+
+
+def test_scheduler_adaptive_row_group_blocks_same_deferred_retry_resource() -> None:
+    scheduler, _tracker = _build_adaptive_model_resource_scheduler(columns=("cooling",))
+    scheduler._rg_states[0] = SimpleNamespace(size=1, seeds_dispatched=True, pre_batch_done=True, in_flight_count=0)
+    _set_next_row_group_pending(scheduler)
+    deferred = Task(column="cooling", row_group=0, row_index=0, task_type="cell")
+    scheduler._deferred = [deferred]
+    scheduler._deferred_errors[deferred] = ModelRateLimitError("429 Too Many Requests")
+
+    diagnostics = scheduler._row_group_admission_diagnostics(reason="probe")["deferred_admission"]
+
+    assert scheduler._adaptive_row_group_block_reason() == "deferred_tasks"
+    assert diagnostics["blocks_next_row_group"] is True
+    assert set(diagnostics["candidate_columns"]) == {"seed", "cooling"}
+    assert diagnostics["independent_candidate_columns"] == ()
+
+
+def test_scheduler_adaptive_row_group_blocks_downstream_candidate_behind_deferred_resource() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cooling_a", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="cooling_b", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="healthy", prompt="{{ cooling_b }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cooling_a": GenerationStrategy.CELL_BY_CELL,
+        "cooling_b": GenerationStrategy.CELL_BY_CELL,
+        "healthy": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1), (1, 1)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cooling_a": SlowModelBoundCellGenerator(
+                config=_expr_config("cooling_a"),
+                resource_provider=provider,
+                provider_name="provider",
+                model_id="cooling",
+                delay=0.0,
+            ),
+            "cooling_b": SlowModelBoundCellGenerator(
+                config=_expr_config("cooling_b"),
+                resource_provider=provider,
+                provider_name="provider",
+                model_id="cooling",
+                delay=0.0,
+            ),
+            "healthy": SlowModelBoundCellGenerator(
+                config=_expr_config("healthy"),
+                resource_provider=provider,
+                provider_name="provider",
+                model_id="healthy",
+                delay=0.0,
+            ),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+        num_records=2,
+        buffer_size=1,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1, seeds_dispatched=True, pre_batch_done=True, in_flight_count=0)
+    _set_next_row_group_pending(scheduler)
+    deferred = Task(column="cooling_a", row_group=0, row_index=0, task_type="cell")
+    scheduler._deferred = [deferred]
+    scheduler._deferred_errors[deferred] = ModelRateLimitError("429 Too Many Requests")
+
+    diagnostics = scheduler._row_group_admission_diagnostics(reason="probe")["deferred_admission"]
+
+    assert scheduler._adaptive_row_group_block_reason() == "deferred_tasks"
+    assert diagnostics["blocks_next_row_group"] is True
+    assert set(diagnostics["candidate_columns"]) == {"seed", "cooling_a", "cooling_b", "healthy"}
+    assert diagnostics["independent_candidate_columns"] == ()
+
+
+def test_scheduler_adaptive_row_group_blocks_multi_output_sibling_dependency() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cooling_a", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="cooling_b", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="healthy", prompt="{{ cooling_b }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cooling_a": GenerationStrategy.CELL_BY_CELL,
+        "cooling_b": GenerationStrategy.CELL_BY_CELL,
+        "healthy": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1), (1, 1)]
+    graph = ExecutionGraph.create(configs, strategies)
+    cooling = SlowModelBoundCellGenerator(
+        config=_expr_config("cooling_a"),
+        resource_provider=provider,
+        provider_name="provider",
+        model_id="cooling",
+        delay=0.0,
+    )
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cooling_a": cooling,
+            "cooling_b": cooling,
+            "healthy": SlowModelBoundCellGenerator(
+                config=_expr_config("healthy"),
+                resource_provider=provider,
+                provider_name="provider",
+                model_id="healthy",
+                delay=0.0,
+            ),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+        num_records=2,
+        buffer_size=1,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1, seeds_dispatched=True, pre_batch_done=True, in_flight_count=0)
+    _set_next_row_group_pending(scheduler)
+    deferred = Task(column="cooling_a", row_group=0, row_index=0, task_type="cell")
+    scheduler._deferred = [deferred]
+    scheduler._deferred_errors[deferred] = ModelRateLimitError("429 Too Many Requests")
+
+    diagnostics = scheduler._row_group_admission_diagnostics(reason="probe")["deferred_admission"]
+
+    assert scheduler._adaptive_row_group_block_reason() == "deferred_tasks"
+    assert diagnostics["blocks_next_row_group"] is True
+    assert "healthy" not in diagnostics["independent_candidate_columns"]
+
+
+def test_scheduler_adaptive_row_group_blocks_shared_scheduler_resource_across_domains() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="chat_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="embedding_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "chat_col": GenerationStrategy.CELL_BY_CELL,
+        "embedding_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1), (1, 1)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "chat_col": SlowModelBoundCellGenerator(
+                config=_expr_config("chat_col"),
+                resource_provider=provider,
+                provider_name="provider",
+                model_id="model",
+                generation_kind=RequestDomain.CHAT.value,
+                delay=0.0,
+            ),
+            "embedding_col": SlowModelBoundCellGenerator(
+                config=_expr_config("embedding_col"),
+                resource_provider=provider,
+                provider_name="provider",
+                model_id="model",
+                generation_kind=RequestDomain.EMBEDDING.value,
+                delay=0.0,
+            ),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+        num_records=2,
+        buffer_size=1,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1, seeds_dispatched=True, pre_batch_done=True, in_flight_count=0)
+    _set_next_row_group_pending(scheduler)
+    deferred = Task(column="chat_col", row_group=0, row_index=0, task_type="cell")
+    scheduler._deferred = [deferred]
+    scheduler._deferred_errors[deferred] = ModelRateLimitError("429 Too Many Requests")
+
+    diagnostics = scheduler._row_group_admission_diagnostics(reason="probe")["deferred_admission"]
+
+    assert scheduler._adaptive_row_group_block_reason() == "deferred_tasks"
+    assert diagnostics["blocks_next_row_group"] is True
+    assert diagnostics["request_resources"] == {"provider/model/chat": 1}
+    assert diagnostics["scheduler_resources"] == {"request:provider/model": 1}
+    assert diagnostics["independent_candidate_columns"] == ()
+
+
+def test_scheduler_adaptive_row_group_counts_independent_local_branch() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cooling", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        ExpressionColumnConfig(name="local_branch", expr="'local'", dtype="str"),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cooling": GenerationStrategy.CELL_BY_CELL,
+        "local_branch": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1), (1, 1)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cooling": SlowModelBoundCellGenerator(
+                config=_expr_config("cooling"),
+                resource_provider=provider,
+                provider_name="provider",
+                model_id="cooling",
+                delay=0.0,
+            ),
+            "local_branch": MockCellGenerator(config=_expr_config("local_branch"), resource_provider=provider),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+        num_records=2,
+        buffer_size=1,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1, seeds_dispatched=True, pre_batch_done=True, in_flight_count=0)
+    _set_next_row_group_pending(scheduler)
+    deferred = Task(column="cooling", row_group=0, row_index=0, task_type="cell")
+    scheduler._deferred = [deferred]
+    scheduler._deferred_errors[deferred] = ModelRateLimitError("429 Too Many Requests")
+
+    diagnostics = scheduler._row_group_admission_diagnostics(reason="probe")["deferred_admission"]
+
+    assert scheduler._adaptive_row_group_block_reason() is None
+    assert diagnostics["blocks_next_row_group"] is False
+    assert "local_branch" in diagnostics["independent_candidate_columns"]
+    assert "seed" not in diagnostics["independent_candidate_columns"]
+
+
+def test_scheduler_adaptive_row_group_localizes_custom_model_deferred_retry() -> None:
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cooling", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="healthy", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cooling": GenerationStrategy.CELL_BY_CELL,
+        "healthy": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(0, 1), (1, 1)]
+    graph = ExecutionGraph.create(configs, strategies)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cooling": SlowLLMBoundCellGenerator(
+                config=_expr_config("cooling"),
+                resource_provider=provider,
+                delay=0.0,
+            ),
+            "healthy": SlowLLMBoundCellGenerator(
+                config=_expr_config("healthy"),
+                resource_provider=provider,
+                delay=0.0,
+            ),
+        },
+        graph=graph,
+        tracker=CompletionTracker.with_graph(graph, row_groups),
+        row_groups=row_groups,
+        max_concurrent_row_groups=2,
+        max_in_flight_tasks=16,
+        max_model_task_admission=16,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+        num_records=2,
+        buffer_size=1,
+    )
+    scheduler._rg_states[0] = SimpleNamespace(size=1, seeds_dispatched=True, pre_batch_done=True, in_flight_count=0)
+    _set_next_row_group_pending(scheduler)
+    deferred = Task(column="cooling", row_group=0, row_index=0, task_type="cell")
+    scheduler._deferred = [deferred]
+    scheduler._deferred_errors[deferred] = ModelRateLimitError("429 Too Many Requests")
+
+    diagnostics = scheduler._row_group_admission_diagnostics(reason="probe")["deferred_admission"]
+
+    assert scheduler._adaptive_row_group_block_reason() is None
+    assert diagnostics["blocks_next_row_group"] is False
+    assert diagnostics["request_resources"] == {}
+    assert "healthy" in diagnostics["independent_candidate_columns"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_adaptive_row_group_admission_keeps_healthy_resource_exposed_during_deferred_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _mock_provider()
+    monkeypatch.setattr(async_scheduler_module, "RETRYABLE_RESALVAGE_BACKOFF_S", 0.001)
+    healthy_threshold = asyncio.Event()
+
+    class AlwaysCoolingModelGenerator(SlowModelBoundCellGenerator):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.calls = 0
+
+        async def agenerate(self, data: dict) -> dict:
+            self.calls += 1
+            raise ModelRateLimitError("429 Too Many Requests")
+
+    class CountingHealthyModelGenerator(SlowModelBoundCellGenerator):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.calls = 0
+
+        async def agenerate(self, data: dict) -> dict:
+            self.calls += 1
+            if self.calls >= 16:
+                healthy_threshold.set()
+            return await super().agenerate(data)
+
+    cooling = AlwaysCoolingModelGenerator(
+        config=_expr_config("cooling"),
+        resource_provider=provider,
+        provider_name="provider",
+        model_id="cooling",
+        request_weight=1,
+        delay=0.0,
+    )
+    healthy = CountingHealthyModelGenerator(
+        config=_expr_config("healthy"),
+        resource_provider=provider,
+        provider_name="provider",
+        model_id="healthy",
+        request_weight=8,
+        delay=0.0,
+    )
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cooling", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="healthy", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cooling": GenerationStrategy.CELL_BY_CELL,
+        "healthy": GenerationStrategy.CELL_BY_CELL,
+    }
+    row_groups = [(row_group, 1) for row_group in range(64)]
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    scheduler = AsyncTaskScheduler(
+        generators={
+            "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+            "cooling": cooling,
+            "healthy": healthy,
+        },
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_concurrent_row_groups=32,
+        max_in_flight_tasks=32,
+        max_model_task_admission=32,
+        adaptive_row_group_admission=True,
+        adaptive_row_group_initial_target=1,
+        salvage_max_rounds=1,
+        num_records=64,
+        buffer_size=1,
+    )
+
+    run_task = asyncio.create_task(scheduler.run())
+    threshold_task = asyncio.create_task(healthy_threshold.wait())
+    pending: set[asyncio.Task] = set()
+    try:
+        done, pending = await asyncio.wait(
+            {run_task, threshold_task},
+            timeout=5.0,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if run_task in done:
+            await run_task
+
+        assert threshold_task in done
+        assert healthy.calls >= 16
+        assert cooling.calls >= 1
+        assert scheduler._observed_max_row_group_admission_target > 1
+        assert scheduler._observed_max_row_groups_in_flight > 1
+    finally:
+        for pending_task in pending:
+            pending_task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        run_task.cancel()
+        try:
+            await run_task
+        except asyncio.CancelledError:
+            pass
+
+
 def test_scheduler_adaptive_row_group_row_guard_blocks_extra_large_groups() -> None:
     provider = _mock_provider()
     configs = [
@@ -3830,6 +4306,19 @@ def _stub_row_group_admission_resource_views(
     )
 
 
+def test_scheduler_adaptive_row_group_row_guard_precedes_unrelated_deferred_retry() -> None:
+    row_groups = [(0, 5_000), (1, 5_000)]
+    scheduler, _tracker = _build_adaptive_model_resource_scheduler(row_groups=row_groups)
+    scheduler._rg_states[0] = SimpleNamespace(size=5_000, seeds_dispatched=True, pre_batch_done=True, in_flight_count=0)
+    _set_next_row_group_pending(scheduler, row_group=1, row_group_size=5_000)
+    deferred = Task(column="cooling", row_group=0, row_index=0, task_type="cell")
+    scheduler._deferred = [deferred]
+    scheduler._deferred_errors[deferred] = ModelRateLimitError("429 Too Many Requests")
+
+    assert scheduler._adaptive_max_admitted_rows == 8_192
+    assert scheduler._adaptive_row_group_block_reason() == "max_admitted_rows"
+
+
 def test_scheduler_adaptive_row_group_block_reason_prefers_llm_saturation() -> None:
     provider = _mock_provider()
     configs = [
@@ -3867,6 +4356,7 @@ def test_scheduler_adaptive_row_group_block_reason_prefers_llm_saturation() -> N
         llm_available=0,
         llm_leased=1,
     )
+    _set_next_row_group_pending(scheduler)
 
     assert scheduler._adaptive_row_group_block_reason() == "llm_wait_saturated"
 
@@ -3881,6 +4371,7 @@ def test_scheduler_adaptive_row_group_block_reason_allows_zero_llm_lease_bootstr
         llm_available=3,
         llm_leased=0,
     )
+    _set_next_row_group_pending(scheduler)
 
     assert scheduler._adaptive_row_group_block_reason() is None
 
@@ -3895,6 +4386,7 @@ def test_scheduler_adaptive_row_group_block_reason_blocks_queued_llm_demand_afte
         llm_available=3,
         llm_leased=1,
     )
+    _set_next_row_group_pending(scheduler)
 
     assert scheduler._adaptive_row_group_block_reason() == "queued_llm_demand"
 
@@ -3950,6 +4442,7 @@ def test_scheduler_adaptive_row_group_target_grows_for_zero_llm_lease_bootstrap(
         llm_available=3,
         llm_leased=0,
     )
+    _set_next_row_group_pending(scheduler)
 
     scheduler._maybe_update_adaptive_row_group_target()
     assert scheduler._row_group_admission_target == 1
@@ -3978,6 +4471,7 @@ def test_scheduler_adaptive_row_group_target_stays_blocked_after_llm_lease_boots
         llm_available=3,
         llm_leased=1,
     )
+    _set_next_row_group_pending(scheduler)
 
     scheduler._maybe_update_adaptive_row_group_target()
     scheduler._maybe_update_adaptive_row_group_target()
@@ -3993,6 +4487,7 @@ def test_scheduler_adaptive_row_group_queue_guard_uses_in_flight_task_cap() -> N
     scheduler._fair_queue = SimpleNamespace(
         view=lambda: SimpleNamespace(queued_total=8, queued_peer_demand_by_resource={})
     )
+    _set_next_row_group_pending(scheduler)
 
     assert scheduler._adaptive_row_group_block_reason() == "queued_task_guardrail"
 

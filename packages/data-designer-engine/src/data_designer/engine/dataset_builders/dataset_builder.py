@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import functools
 import json
 import logging
@@ -49,6 +50,7 @@ from data_designer.engine.dataset_builders.utils.execution_graph import Executio
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
+from data_designer.engine.observability import JsonlSchedulerEventSink, SchedulerAdmissionEventSink
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.readiness import run_readiness_check
@@ -808,38 +810,45 @@ class DatasetBuilder:
                 buffer_size=buffer_size,
             )
 
-        scheduler, buffer_manager = self._prepare_async_run(
-            generators,
-            num_records,
-            buffer_size,
-            on_finalize_row_group=finalize_row_group,
-            shutdown_error_rate=settings.shutdown_error_rate,
-            shutdown_error_window=settings.shutdown_error_window,
-            disable_early_shutdown=settings.disable_early_shutdown,
-            trace=trace_enabled,
-            precomputed_row_groups=precomputed_row_groups,
-            initial_actual_num_records=initial_actual_num_records,
-            initial_total_num_batches=initial_total_num_batches,
-        )
-
         # Telemetry snapshot
         group_id = uuid.uuid4().hex
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
 
-        # Run on background event loop. Capture scheduler state in `finally`
-        # so the structured signal is preserved even if `scheduler.run()`
-        # raises during the salvage path - otherwise callers see a generic
-        # error and lose the early-shutdown context.
-        loop = ensure_async_engine_loop()
-        future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        try:
-            _await_async_scheduler_result(future, scheduler)
-        finally:
-            self._task_traces = scheduler.traces
-            self._early_shutdown = scheduler.early_shutdown
-            self._partial_row_groups = scheduler.partial_row_groups
-            self._actual_num_records = buffer_manager.actual_num_records
-            self._first_non_retryable_error = scheduler.first_non_retryable_error
+        event_sink_context = (
+            JsonlSchedulerEventSink(self.artifact_storage.base_dataset_path / "scheduler_events.jsonl")
+            if settings.write_scheduler_events
+            else contextlib.nullcontext()
+        )
+        with event_sink_context as scheduler_event_sink:
+            scheduler, buffer_manager = self._prepare_async_run(
+                generators,
+                num_records,
+                buffer_size,
+                on_finalize_row_group=finalize_row_group,
+                shutdown_error_rate=settings.shutdown_error_rate,
+                shutdown_error_window=settings.shutdown_error_window,
+                disable_early_shutdown=settings.disable_early_shutdown,
+                trace=trace_enabled,
+                precomputed_row_groups=precomputed_row_groups,
+                initial_actual_num_records=initial_actual_num_records,
+                initial_total_num_batches=initial_total_num_batches,
+                scheduler_event_sink=scheduler_event_sink,
+            )
+
+            # Run on background event loop. Capture scheduler state in `finally`
+            # so the structured signal is preserved even if `scheduler.run()`
+            # raises during the salvage path - otherwise callers see a generic
+            # error and lose the early-shutdown context.
+            loop = ensure_async_engine_loop()
+            future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
+            try:
+                _await_async_scheduler_result(future, scheduler)
+            finally:
+                self._task_traces = scheduler.traces
+                self._early_shutdown = scheduler.early_shutdown
+                self._partial_row_groups = scheduler.partial_row_groups
+                self._actual_num_records = buffer_manager.actual_num_records
+                self._first_non_retryable_error = scheduler.first_non_retryable_error
 
         # Emit telemetry
         try:
@@ -889,6 +898,7 @@ class DatasetBuilder:
         precomputed_row_groups: RowGroupInput | None = None,
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
+        scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
         """Build a fully-wired scheduler and buffer manager for async generation.
 
@@ -973,6 +983,7 @@ class DatasetBuilder:
             initial_completed_records=initial_actual_num_records,
             progress_interval=self._resource_provider.run_config.progress_interval,
             display_tui=self._resource_provider.run_config.display_tui,
+            scheduler_event_sink=scheduler_event_sink,
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
             request_pressure_advisory=True,
         )

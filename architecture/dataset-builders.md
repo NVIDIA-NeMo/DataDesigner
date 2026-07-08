@@ -88,6 +88,8 @@ Metadata writes are atomic (`tmp` file + `fsync` + `os.replace`) because `metada
 
 `DatasetCreationResults` from a resume invocation reflects the full on-disk dataset for anything that reads the artifact directory (`load_dataset`, `count_records`, `load_analysis`, `export`, `push_to_hub`), but per-run observability (`task_traces`, model-usage logs, telemetry events) is scoped to the current invocation — the original run's in-memory state is not persisted across process boundaries.
 
+When `RunConfig.write_scheduler_events` is enabled, each invocation also appends its scheduler event segment to `scheduler_events.jsonl` in the dataset directory.
+
 ## Data Flow
 
 ```
