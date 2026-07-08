@@ -303,6 +303,7 @@ class _FanoutSchedulerEventSink:
 def fanout_scheduler_event_sinks(
     *sinks: SchedulerAdmissionEventSink | None,
 ) -> SchedulerAdmissionEventSink | None:
+    """Combine scheduler event sinks while isolating individual sink failures."""
     active_sinks = tuple(sink for sink in sinks if sink is not None)
     if len(active_sinks) < 2:
         return active_sinks[0] if active_sinks else None

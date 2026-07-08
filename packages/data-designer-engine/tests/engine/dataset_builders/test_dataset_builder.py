@@ -37,10 +37,12 @@ from data_designer.engine.dataset_builders.row_group_plan import CompactRowGroup
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
+from data_designer.engine.observability import SchedulerAdmissionEvent
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.seed_reader import DataFrameSeedReader
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -150,12 +152,13 @@ def test_dataset_builder_artifact_storage_property(stub_dataset_builder, stub_re
     assert stub_dataset_builder.artifact_storage == stub_resource_provider.artifact_storage
 
 
-def test_dataset_builder_forwards_scheduler_event_sink(
+def test_dataset_builder_combines_scheduler_event_sinks(
     stub_resource_provider,
     stub_test_config_builder,
 ) -> None:
-    sink = Mock()
-    stub_resource_provider.scheduler_event_sink = sink
+    provider_sink = InMemoryAdmissionEventSink()
+    local_sink = InMemoryAdmissionEventSink()
+    stub_resource_provider.scheduler_event_sink = provider_sink
     builder = DatasetBuilder(
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
@@ -165,9 +168,15 @@ def test_dataset_builder_forwards_scheduler_event_sink(
         generator.log_pre_generation = Mock()
 
     with patch.object(builder_mod, "AsyncTaskScheduler", return_value=Mock()) as scheduler_factory:
-        builder._prepare_async_run(generators, num_records=1, buffer_size=1)
+        builder._prepare_async_run(generators, num_records=1, buffer_size=1, scheduler_event_sink=local_sink)
 
-    assert scheduler_factory.call_args.kwargs["scheduler_event_sink"] is sink
+    sink = scheduler_factory.call_args.kwargs["scheduler_event_sink"]
+    assert sink is not None
+    event = SchedulerAdmissionEvent.capture("scheduler_job_started", sequence=1)
+    sink.emit_scheduler_event(event)
+
+    assert local_sink.scheduler_events == [event]
+    assert provider_sink.scheduler_events == [event]
 
 
 @pytest.mark.parametrize(
