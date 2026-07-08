@@ -135,6 +135,8 @@ class RunConfig(ConfigBase):
             monitoring begins. Must be >= 1. Default is 10.
         buffer_size: Number of records in each row group during dataset generation.
             Must be > 0. Default is 1000.
+        max_concurrent_row_groups: Maximum number of row groups the async scheduler may
+            keep active at once. Must be >= 1. Default is 3.
         max_in_flight_tasks: Maximum number of async scheduler tasks that may hold task
             leases at once. Tasks may be executing, awaiting I/O, or waiting on model
             request admission. Model API request concurrency is controlled separately by
@@ -178,6 +180,11 @@ class RunConfig(ConfigBase):
     shutdown_error_rate: float = Field(default=0.5, ge=0.0, le=1.0)
     shutdown_error_window: int = Field(default=10, ge=1)
     buffer_size: int = Field(default=1000, gt=0)
+    max_concurrent_row_groups: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum number of row groups the async scheduler may keep active at once.",
+    )
     max_in_flight_tasks: int = Field(
         default=1024,
         ge=1,

@@ -91,6 +91,19 @@ def test_run_config_accepts_disabled_dropped_column_preservation() -> None:
     assert run_config.preserve_dropped_columns is False
 
 
+def test_run_config_defaults_max_concurrent_row_groups_to_three() -> None:
+    assert RunConfig().max_concurrent_row_groups == 3
+
+
+def test_run_config_accepts_custom_max_concurrent_row_groups() -> None:
+    assert RunConfig(max_concurrent_row_groups=8).max_concurrent_row_groups == 8
+
+
+def test_run_config_rejects_invalid_max_concurrent_row_groups() -> None:
+    with pytest.raises(ValidationError, match="max_concurrent_row_groups"):
+        RunConfig(max_concurrent_row_groups=0)
+
+
 def test_run_config_defaults_max_in_flight_tasks_to_1024() -> None:
     assert RunConfig().max_in_flight_tasks == 1024
 
