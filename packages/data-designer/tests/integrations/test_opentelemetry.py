@@ -318,7 +318,7 @@ def test_runtime_rejects_request_that_reaches_state_update_after_teardown(runtim
     resource = RequestResourceKey("provider", "model-1", RequestDomain.CHAT)
     with (
         patch(
-            "data_designer.integrations.opentelemetry._bounded_attribute",
+            "data_designer.integrations.opentelemetry._bounded_identity_attribute",
             side_effect=pause_delayed_provider,
         ),
         ThreadPoolExecutor(max_workers=1) as executor,
@@ -388,9 +388,9 @@ def test_runtime_deactivation_holds_lock_through_state_cleanup(
             assert executor.submit(lock_is_available_to_another_thread).result(timeout=5) is False
             original_finish_dataset(run_id)
 
-        def finish_requests(run_id: str) -> None:
+        def finish_requests(run_id: str) -> list[Exception]:
             assert executor.submit(lock_is_available_to_another_thread).result(timeout=5) is False
-            original_finish_requests(run_id)
+            return original_finish_requests(run_id)
 
         monkeypatch.setattr(runtime, "_finish_active_dataset", finish_dataset)
         monkeypatch.setattr(runtime, "_finish_active_requests", finish_requests)
@@ -565,33 +565,51 @@ def test_runtime_maps_genai_operations(
     assert 'gen_ai_request_model="model-1"' in line
 
 
-def test_runtime_bounds_model_attribute_and_preserves_slashes(runtime: OpenTelemetryRuntime) -> None:
-    model_id = "organization/" + ("m" * 200)
-    expected_model_id = model_id[:128]
+def test_runtime_preserves_distinct_bounded_identity_attributes(runtime: OpenTelemetryRuntime) -> None:
+    common_prefix = "organization/" + ("m" * 150)
+    resources = [
+        RequestResourceKey("provider:v1", "llama3:8b", RequestDomain.CHAT),
+        RequestResourceKey("providerv1", "llama38b", RequestDomain.CHAT),
+        RequestResourceKey("provider", common_prefix + "a", RequestDomain.CHAT),
+        RequestResourceKey("provider", common_prefix + "b", RequestDomain.CHAT),
+    ]
     with runtime.observe_create(_free_port()):
         correlation = _correlation()
-        resource = RequestResourceKey("provider", model_id, RequestDomain.CHAT)
-        runtime.emit_request_event(
-            RequestAdmissionEvent.capture(
-                "model_request_started",
-                sequence=1,
-                correlation=correlation,
-                request_resource_key=resource,
+        for index, resource in enumerate(resources):
+            attempt_id = f"attempt-{index}"
+            runtime.emit_request_event(
+                RequestAdmissionEvent.capture(
+                    "model_request_started",
+                    sequence=index * 2 + 1,
+                    correlation=correlation,
+                    request_resource_key=resource,
+                    request_attempt_id=attempt_id,
+                )
             )
-        )
-        runtime.emit_request_event(
-            RequestAdmissionEvent.capture(
-                "model_request_completed",
-                sequence=2,
-                correlation=correlation,
-                request_resource_key=resource,
-                diagnostics={"duration_seconds": 0.1, "outcome": "success"},
+            runtime.emit_request_event(
+                RequestAdmissionEvent.capture(
+                    "model_request_completed",
+                    sequence=index * 2 + 2,
+                    correlation=correlation,
+                    request_resource_key=resource,
+                    request_attempt_id=attempt_id,
+                    diagnostics={"duration_seconds": 0.1, "outcome": "success"},
+                )
             )
-        )
 
     metrics = _scrape(runtime)
-    assert f'gen_ai_request_model="{expected_model_id}"' in metrics
-    assert model_id not in metrics
+    count_lines = [
+        line for line in metrics.splitlines() if line.startswith("gen_ai_client_operation_duration_seconds_count{")
+    ]
+    model_labels = {re.search(r'gen_ai_request_model="([^"]+)"', line).group(1) for line in count_lines}
+    provider_labels = {re.search(r'gen_ai_provider_name="([^"]+)"', line).group(1) for line in count_lines}
+
+    assert {"llama3:8b", "llama38b"} <= model_labels
+    assert {"provider:v1", "providerv1"} <= provider_labels
+    long_labels = model_labels - {"llama3:8b", "llama38b"}
+    assert len(long_labels) == 2
+    assert all(len(label) == 128 for label in long_labels)
+    assert all(re.fullmatch(r"organization/m+-[0-9a-f]{16}", label) for label in long_labels)
 
 
 def test_runtime_collapses_unknown_genai_operation(runtime: OpenTelemetryRuntime) -> None:
@@ -638,6 +656,42 @@ def test_runtime_scopes_log_counts_to_active_data_designer_run(runtime: OpenTele
     )
     assert warning_line.endswith(" 2.0")
     assert 'log_severity="error"' not in metrics
+
+
+def test_runtime_logs_only_after_releasing_runtime_lock(runtime: OpenTelemetryRuntime) -> None:
+    lock_available_when_logged = []
+
+    def record_lock_availability(*_args: object, **_kwargs: object) -> None:
+        def lock_is_available() -> bool:
+            acquired = runtime._lock.acquire(blocking=False)
+            if acquired:
+                runtime._lock.release()
+            return acquired
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            lock_available_when_logged.append(executor.submit(lock_is_available).result(timeout=5))
+
+    with (
+        patch.object(opentelemetry.logger, "info", side_effect=record_lock_availability),
+        patch.object(opentelemetry.logger, "warning", side_effect=record_lock_availability),
+    ):
+        with runtime.observe_create(_free_port()):
+            correlation = _correlation()
+            runtime.emit_request_event(
+                RequestAdmissionEvent.capture(
+                    "model_request_started",
+                    sequence=1,
+                    correlation=correlation,
+                    request_resource_key=RequestResourceKey("provider", "model", RequestDomain.CHAT),
+                    request_attempt_id="orphan",
+                )
+            )
+            runtime._active_model_requests = MagicMock()
+            runtime._active_model_requests.add.side_effect = RuntimeError("reconciliation failed")
+            with runtime.observe_create(_free_port()):
+                pass
+
+    assert lock_available_when_logged == [True, True, True]
 
 
 def test_runtime_rebinds_idle_listener_and_preserves_metrics(runtime: OpenTelemetryRuntime) -> None:

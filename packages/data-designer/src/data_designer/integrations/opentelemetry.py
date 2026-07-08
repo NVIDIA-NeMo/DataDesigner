@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import hashlib
 import logging
 import threading
 import time
@@ -26,6 +27,7 @@ from data_designer.engine.observability import (
 logger = logging.getLogger(__name__)
 
 _HOST = "127.0.0.1"
+_MAX_ATTRIBUTE_LENGTH = 128
 _SCHEDULER_EVENT_NAMES: dict[SchedulerAdmissionEventKind, str | None] = {
     "scheduler_job_started": "job.started",
     "scheduler_job_completed": "job.completed",
@@ -130,12 +132,15 @@ class OpenTelemetryRuntime:
                 if enabled:
                     self._record_create_duration(time.perf_counter() - started_at)
         finally:
+            reconciliation_failures: list[Exception] = []
             if enabled:
                 with self._lock:
                     self._active_run_ids.discard(run_id)
                     self._finish_active_dataset(run_id)
-                    self._finish_active_requests(run_id)
+                    reconciliation_failures = self._finish_active_requests(run_id)
             runtime_correlation_provider.reset(token)
+            for failure in reconciliation_failures:
+                logger.warning("Failed to reconcile an active OpenTelemetry model request.", exc_info=failure)
 
     def accepts_scheduler_event(self, event_kind: SchedulerAdmissionEventKind) -> bool:
         with self._lock:
@@ -201,10 +206,10 @@ class OpenTelemetryRuntime:
         }
         provider_name = resource.get("provider_name")
         if provider_name:
-            attributes["gen_ai.provider.name"] = _bounded_attribute(provider_name)
+            attributes["gen_ai.provider.name"] = _bounded_identity_attribute(provider_name)
         model_id = resource.get("model_id")
         if model_id:
-            attributes["gen_ai.request.model"] = _bounded_model_attribute(model_id)
+            attributes["gen_ai.request.model"] = _bounded_identity_attribute(model_id)
         attempt_id = event.request_attempt_id or event.request_lease_id
         attempt_key = (run_id, attempt_id) if isinstance(attempt_id, str) and attempt_id else None
         with self._lock:
@@ -277,28 +282,37 @@ class OpenTelemetryRuntime:
     def _activate_run(self, run_id: str, port: int) -> bool:
         old_server: Any = None
         old_thread: threading.Thread | None = None
+        bound_url: str | None = None
+        reused_url: str | None = None
         try:
             with self._lock:
                 if not self._initialized:
                     self._initialize()
                 if self._server is None:
                     old_server, old_thread = self._rebind(port)
+                    bound_url = f"http://{_HOST}:{port}/metrics"
                 elif self._port != port and not self._active_run_ids:
                     old_server, old_thread = self._rebind(port)
+                    bound_url = f"http://{_HOST}:{port}/metrics"
                 elif self._port != port:
-                    logger.warning(
-                        "OpenTelemetry metrics already active at %s; reusing it instead of requested port %d.",
-                        self.metrics_url,
-                        port,
-                    )
+                    reused_url = f"http://{_HOST}:{self._port}/metrics"
                 if self._server is None:
                     return False
                 self._active_run_ids.add(run_id)
-            _stop_server(old_server, old_thread)
-            return True
         except Exception:
             logger.warning("OpenTelemetry metrics are unavailable; continuing without them.", exc_info=True)
             return False
+
+        _stop_server(old_server, old_thread)
+        if bound_url is not None:
+            logger.info("OpenTelemetry metrics available at %s", bound_url)
+        if reused_url is not None:
+            logger.warning(
+                "OpenTelemetry metrics already active at %s; reusing it instead of requested port %d.",
+                reused_url,
+                port,
+            )
+        return True
 
     def _initialize(self) -> None:
         from opentelemetry.exporter.prometheus import PrometheusMetricReader
@@ -398,7 +412,6 @@ class OpenTelemetryRuntime:
         server, thread = self._start_http_server(port=port, addr=_HOST, registry=self._registry)
         old_server, old_thread = self._server, self._server_thread
         self._server, self._server_thread, self._port = server, thread, port
-        logger.info("OpenTelemetry metrics available at %s", self.metrics_url)
         return old_server, old_thread
 
     @staticmethod
@@ -439,7 +452,8 @@ class OpenTelemetryRuntime:
         processed = sum(state[1] for state in self._active_dataset_runs.values())
         return processed / scheduled if scheduled else 1.0
 
-    def _finish_active_requests(self, run_id: str) -> None:
+    def _finish_active_requests(self, run_id: str) -> list[Exception]:
+        failures = []
         with self._lock:
             active = [
                 (key, attributes) for key, attributes in self._active_request_attempts.items() if key[0] == run_id
@@ -447,10 +461,11 @@ class OpenTelemetryRuntime:
             for key, attributes in active:
                 try:
                     self._active_model_requests.add(-1, attributes)
-                except Exception:
-                    logger.warning("Failed to reconcile an active OpenTelemetry model request.", exc_info=True)
+                except Exception as exc:
+                    failures.append(exc)
                 finally:
                     self._active_request_attempts.pop(key, None)
+        return failures
 
     def _record_create_duration(self, duration: float, error_type: str | None = None) -> None:
         attributes = {"error.type": _bounded_attribute(error_type)} if error_type is not None else None
@@ -478,12 +493,16 @@ def _non_negative_int(value: object) -> int:
 
 def _bounded_attribute(value: object) -> str:
     normalized = "".join(character for character in str(value) if character.isalnum() or character in "._-")
-    return normalized[:128] or "_OTHER"
+    return normalized[:_MAX_ATTRIBUTE_LENGTH] or "_OTHER"
 
 
-def _bounded_model_attribute(value: object) -> str:
-    normalized = "".join(character for character in str(value) if character.isalnum() or character in "._-/")
-    return normalized[:128] or "_OTHER"
+def _bounded_identity_attribute(value: object) -> str:
+    identity = str(value)
+    if len(identity) <= _MAX_ATTRIBUTE_LENGTH:
+        return identity or "_OTHER"
+    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
+    prefix = identity[: _MAX_ATTRIBUTE_LENGTH - len(digest) - 1]
+    return f"{prefix}-{digest}"
 
 
 def _log_severity(level: int) -> str:
