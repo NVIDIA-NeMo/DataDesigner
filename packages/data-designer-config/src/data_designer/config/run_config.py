@@ -159,6 +159,10 @@ class RunConfig(ConfigBase):
             non-TTY environments. Default is False.
         progress_interval: How often (in seconds) the async progress reporter emits a
             consolidated log block. Must be > 0. Default is 5.0.
+        otel_metrics_port: Loopback port for the pull-based OpenTelemetry metrics endpoint.
+            Set to None to disable instrumentation for this create invocation. An endpoint
+            already opened by the process may remain available for metrics from prior runs.
+            The endpoint exposes metrics, not raw log records. Default is 9464.
         preserve_dropped_columns: If True, write columns removed by drop processors to
             separate dropped-column parquet files. Set to False to omit those artifacts
             while still removing dropped columns from the final dataset. Default is True.
@@ -200,6 +204,16 @@ class RunConfig(ConfigBase):
     write_scheduler_events: bool = False
     display_tui: bool = False
     progress_interval: float = Field(default=5.0, gt=0.0)
+    otel_metrics_port: int | None = Field(
+        default=9464,
+        ge=1,
+        le=65535,
+        description=(
+            "Loopback port for the pull-based OpenTelemetry metrics endpoint. "
+            "None disables instrumentation for this create invocation; an existing process endpoint may remain "
+            "available for prior metrics. Raw log records are not exposed."
+        ),
+    )
     preserve_dropped_columns: bool = Field(
         default=True,
         description=(

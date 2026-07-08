@@ -15,9 +15,14 @@ import pytest
 from data_designer.engine.observability import (
     JsonlSchedulerEventSink,
     RequestAdmissionEvent,
+    RequestAdmissionEventKind,
     RuntimeCorrelation,
     RuntimeCorrelationProvider,
     SchedulerAdmissionEvent,
+    SchedulerAdmissionEventKind,
+    fanout_scheduler_event_sinks,
+    request_event_sink_accepts,
+    scheduler_event_sink_accepts,
 )
 from data_designer.engine.testing import CorrelatedRuntimeView, InMemoryAdmissionEventSink
 
@@ -185,6 +190,76 @@ def test_jsonl_scheduler_event_sink_disables_after_write_failure(monkeypatch: py
 
     file.write.assert_called_once()
     file.close.assert_called_once_with()
+
+
+def test_scheduler_event_sink_interest_defaults_to_all_and_honors_filter() -> None:
+    sink = InMemoryAdmissionEventSink()
+
+    assert scheduler_event_sink_accepts(sink, "selected")
+
+    class SelectiveSink(InMemoryAdmissionEventSink):
+        def accepts_scheduler_event(self, event_kind: SchedulerAdmissionEventKind) -> bool:
+            return event_kind == "scheduler_job_completed"
+
+    selective_sink = SelectiveSink()
+    assert scheduler_event_sink_accepts(selective_sink, "scheduler_job_completed")
+    assert not scheduler_event_sink_accepts(selective_sink, "selected")
+
+    class BrokenInterestSink(InMemoryAdmissionEventSink):
+        def accepts_scheduler_event(self, event_kind: SchedulerAdmissionEventKind) -> bool:
+            raise RuntimeError(event_kind)
+
+    assert not scheduler_event_sink_accepts(BrokenInterestSink(), "selected")
+
+
+def test_scheduler_event_sink_fanout_filters_and_isolates_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    all_events = InMemoryAdmissionEventSink()
+
+    class CompletedEvents(InMemoryAdmissionEventSink):
+        def accepts_scheduler_event(self, event_kind: SchedulerAdmissionEventKind) -> bool:
+            return event_kind == "scheduler_job_completed"
+
+    class BrokenSink(InMemoryAdmissionEventSink):
+        def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None:
+            raise RuntimeError(event.event_kind)
+
+    completed_events = CompletedEvents()
+    sink = fanout_scheduler_event_sinks(all_events, BrokenSink(), completed_events)
+    assert sink is not None
+    selected = SchedulerAdmissionEvent.capture("selected", sequence=1)
+    completed = SchedulerAdmissionEvent.capture("scheduler_job_completed", sequence=2)
+
+    with caplog.at_level(logging.WARNING):
+        sink.emit_scheduler_event(selected)
+        sink.emit_scheduler_event(completed)
+
+    assert all_events.scheduler_events == [selected, completed]
+    assert completed_events.scheduler_events == [completed]
+    assert "Scheduler admission event sink raised; dropping event." in caplog.text
+    assert fanout_scheduler_event_sinks() is None
+    assert fanout_scheduler_event_sinks(None, all_events) is all_events
+
+
+def test_request_event_sink_interest_defaults_to_all_and_honors_filter() -> None:
+    sink = InMemoryAdmissionEventSink()
+
+    assert request_event_sink_accepts(sink, "model_request_started")
+
+    class SelectiveSink(InMemoryAdmissionEventSink):
+        def accepts_request_event(self, event_kind: RequestAdmissionEventKind) -> bool:
+            return event_kind == "model_request_completed"
+
+    selective_sink = SelectiveSink()
+    assert request_event_sink_accepts(selective_sink, "model_request_completed")
+    assert not request_event_sink_accepts(selective_sink, "model_request_started")
+
+    class BrokenInterestSink(InMemoryAdmissionEventSink):
+        def accepts_request_event(self, event_kind: RequestAdmissionEventKind) -> bool:
+            raise RuntimeError(event_kind)
+
+    assert not request_event_sink_accepts(BrokenInterestSink(), "model_request_started")
 
 
 def test_correlated_runtime_view_timeline_sorts_events() -> None:

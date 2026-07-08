@@ -77,8 +77,10 @@ from data_designer.engine.models.resources import ProviderModelKey, ProviderMode
 from data_designer.engine.observability import (
     RuntimeCorrelation,
     SchedulerAdmissionEvent,
+    SchedulerAdmissionEventKind,
     SchedulerAdmissionEventSink,
     runtime_correlation_provider,
+    scheduler_event_sink_accepts,
 )
 from data_designer.engine.processing.ginja.exceptions import UserTemplateError
 from data_designer.engine.progress.reporter import (
@@ -235,7 +237,14 @@ class AsyncTaskScheduler:
         self._in_flight: set[Task] = set()
         self._worker_tasks: set[asyncio.Task] = set()
         self._wake_event = asyncio.Event()
-        self._run_id = run_id or f"run-{uuid.uuid4().hex}"
+        ambient_correlation = runtime_correlation_provider.current()
+        self._run_id = (
+            run_id
+            if run_id is not None
+            else ambient_correlation.run_id
+            if ambient_correlation is not None
+            else f"run-{uuid.uuid4().hex}"
+        )
         self._scheduler_event_sink = scheduler_event_sink
         self._scheduler_event_sequence = 0
         if salvage_max_rounds < 1:
@@ -448,7 +457,7 @@ class AsyncTaskScheduler:
 
     def _emit_scheduler_event(
         self,
-        event_kind: str,
+        event_kind: SchedulerAdmissionEventKind,
         *,
         task: Task | None = None,
         lease: TaskAdmissionLease | None = None,
@@ -457,10 +466,18 @@ class AsyncTaskScheduler:
         reason_or_result: str | None = None,
         diagnostics: dict[str, object] | None = None,
     ) -> None:
-        if self._scheduler_event_sink is None:
+        if not scheduler_event_sink_accepts(self._scheduler_event_sink, event_kind):
             return
         self._scheduler_event_sequence += 1
-        correlation = None
+        correlation = RuntimeCorrelation(
+            run_id=self._run_id,
+            row_group=None,
+            task_column=None,
+            task_type=None,
+            scheduling_group_kind=None,
+            scheduling_group_identity_hash=None,
+            task_execution_id=None,
+        )
         event_diagnostics = dict(diagnostics or {})
         if task is not None:
             schedulable = lease.item if lease is not None else self._schedulable_task(task)
@@ -480,7 +497,7 @@ class AsyncTaskScheduler:
         try:
             self._scheduler_event_sink.emit_scheduler_event(
                 SchedulerAdmissionEvent.capture(
-                    event_kind,  # type: ignore[arg-type]
+                    event_kind,
                     sequence=self._scheduler_event_sequence,
                     correlation=correlation,
                     task_id=stable_task_id(task) if task is not None else None,
@@ -530,7 +547,7 @@ class AsyncTaskScheduler:
             )
 
     def _emit_scheduler_health_snapshot(self, reason: str) -> None:
-        if self._scheduler_event_sink is None:
+        if not scheduler_event_sink_accepts(self._scheduler_event_sink, "scheduler_health_snapshot"):
             return
         self._emit_scheduler_event(
             "scheduler_health_snapshot",
@@ -1244,9 +1261,11 @@ class AsyncTaskScheduler:
 
         num_rgs = len(self._row_groups)
         self._run_loop = asyncio.get_running_loop()
+        outcome = "success"
+        error_type: str | None = None
 
-        with self._progress_bar or contextlib.nullcontext():
-            try:
+        try:
+            with self._progress_bar or contextlib.nullcontext():
                 if self._reporter:
                     self._reporter.log_start(num_row_groups=num_rgs, scheduled_records=self._scheduled_records)
 
@@ -1284,9 +1303,6 @@ class AsyncTaskScheduler:
                     self._reporter.log_final()
 
                 self._emit_scheduler_health_snapshot("completed")
-                self._emit_scheduler_event(
-                    "scheduler_job_completed", diagnostics=self._scheduler_health_diagnostics(reason="completed")
-                )
 
                 if self._rg_states:
                     incomplete = list(self._rg_states)
@@ -1294,10 +1310,31 @@ class AsyncTaskScheduler:
                         f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
                         "These row groups were not checkpointed."
                     )
-            finally:
-                if self._reporter:
-                    self._reporter.close()
-                self._run_loop = None
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        except BaseException as exc:
+            outcome = "error"
+            error_type = type(exc).__name__
+            raise
+        finally:
+            self._run_loop = None
+            if outcome == "success" and self._early_shutdown:
+                outcome = "early_shutdown"
+            terminal_diagnostics: dict[str, object] = {"outcome": outcome}
+            if outcome in {"success", "early_shutdown"} and scheduler_event_sink_accepts(
+                self._scheduler_event_sink, "scheduler_job_completed"
+            ):
+                terminal_diagnostics = self._scheduler_health_diagnostics(reason="completed") | terminal_diagnostics
+            if error_type is not None:
+                terminal_diagnostics["error_type"] = error_type
+            self._emit_scheduler_event(
+                "scheduler_job_completed",
+                reason_or_result=outcome,
+                diagnostics=terminal_diagnostics,
+            )
+            if self._reporter:
+                self._reporter.close()
 
     async def _main_dispatch_loop(
         self,

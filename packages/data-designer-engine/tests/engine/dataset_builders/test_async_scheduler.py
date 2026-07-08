@@ -66,6 +66,11 @@ from data_designer.engine.models.request_admission.resources import (
     RequestResourceKey,
 )
 from data_designer.engine.models.resources import ProviderModelKey
+from data_designer.engine.observability import (
+    RuntimeCorrelation,
+    SchedulerAdmissionEventKind,
+    runtime_correlation_provider,
+)
 from data_designer.engine.progress.reporter import AsyncProgressReporter
 from data_designer.engine.progress.tracker import ProgressTracker
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -362,6 +367,15 @@ class MockRetryableErrorGenerator(ColumnGenerator[ExpressionColumnConfig]):
 class _BrokenSchedulerSink:
     def emit_scheduler_event(self, _event: object) -> None:
         raise RuntimeError("sink boom")
+
+
+class _FilteringSchedulerSink(InMemoryAdmissionEventSink):
+    def __init__(self, accepted: set[SchedulerAdmissionEventKind]) -> None:
+        super().__init__()
+        self._accepted = accepted
+
+    def accepts_scheduler_event(self, event_kind: SchedulerAdmissionEventKind) -> bool:
+        return event_kind in self._accepted
 
 
 # -- Helper to build graph + scheduler ----------------------------------------
@@ -1421,6 +1435,7 @@ async def test_zero_survivor_shutdown_does_not_raise() -> None:
     )
     generators, graph, row_groups, tracker, buffer_mgr, storage = _seed_plus_cell_setup(cell, num_records=5)
     finalized: list[int] = []
+    sink = _FilteringSchedulerSink({"scheduler_job_completed"})
 
     def on_finalize(rg_id: int) -> None:
         buffer_mgr.checkpoint_row_group(rg_id)
@@ -1435,6 +1450,7 @@ async def test_zero_survivor_shutdown_does_not_raise() -> None:
         on_finalize_row_group=on_finalize,
         shutdown_error_rate=0.5,
         shutdown_error_window=2,
+        scheduler_event_sink=sink,
     )
     # Must not raise (no FileNotFoundError, no DataDesignerGenerationError).
     await scheduler.run()
@@ -1446,6 +1462,10 @@ async def test_zero_survivor_shutdown_does_not_raise() -> None:
     assert finalized == []
     assert scheduler.partial_row_groups == ()
     storage.write_batch_to_parquet_file.assert_not_called()
+    [completed] = sink.scheduler_events
+    assert completed.reason_or_result == "early_shutdown"
+    assert completed.diagnostics["outcome"] == "early_shutdown"
+    assert completed.diagnostics["reason"] == "completed"
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -3715,6 +3735,91 @@ async def test_scheduler_emits_job_health_and_row_group_telemetry() -> None:
     assert checkpointed.diagnostics["row_group"] == 0
     assert checkpointed.diagnostics["row_group_size"] == 2
     assert checkpointed.diagnostics["surviving_rows"] == 2
+
+    completed = [event for event in sink.scheduler_events if event.event_kind == "scheduler_job_completed"]
+    assert len(completed) == 1
+    assert completed[0].reason_or_result == "success"
+    assert completed[0].diagnostics["outcome"] == "success"
+    assert completed[0].diagnostics["reason"] == "completed"
+    assert "queued_total" in completed[0].diagnostics
+    assert "request_pressure" in completed[0].diagnostics
+    assert "error_type" not in completed[0].diagnostics
+
+
+def test_scheduler_filter_skips_snapshot_and_health_diagnostics() -> None:
+    sink = _FilteringSchedulerSink({"row_group_checkpointed"})
+    scheduler, _tracker = _build_simple_pipeline(scheduler_event_sink=sink)
+    scheduler.task_admission_snapshot = MagicMock(wraps=scheduler.task_admission_snapshot)
+    scheduler._scheduler_health_diagnostics = MagicMock(wraps=scheduler._scheduler_health_diagnostics)
+
+    scheduler._emit_scheduler_event("selected")
+    scheduler._emit_scheduler_health_snapshot("test")
+
+    scheduler.task_admission_snapshot.assert_not_called()
+    scheduler._scheduler_health_diagnostics.assert_not_called()
+    assert sink.scheduler_events == []
+
+    scheduler._emit_scheduler_event("row_group_checkpointed")
+    scheduler.task_admission_snapshot.assert_called_once_with()
+    assert [event.event_kind for event in sink.scheduler_events] == ["row_group_checkpointed"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_inherits_ambient_run_correlation_for_taskless_events() -> None:
+    sink = _FilteringSchedulerSink({"scheduler_job_completed"})
+    ambient = RuntimeCorrelation(
+        run_id="ambient-run",
+        row_group=None,
+        task_column=None,
+        task_type=None,
+        scheduling_group_kind=None,
+        scheduling_group_identity_hash=None,
+        task_execution_id=None,
+    )
+    token = runtime_correlation_provider.set(ambient)
+    try:
+        scheduler, _tracker = _build_simple_pipeline(num_records=1, scheduler_event_sink=sink)
+    finally:
+        runtime_correlation_provider.reset(token)
+
+    await scheduler.run()
+
+    [completed] = sink.scheduler_events
+    assert completed.task_id is None
+    assert completed.captured_correlation["run_id"] == "ambient-run"
+    assert completed.captured_correlation["row_group"] is None
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize(
+    ("raised", "expected_outcome", "expected_error_type"),
+    [
+        (RuntimeError("scheduler failed"), "error", "RuntimeError"),
+        (asyncio.CancelledError(), "cancelled", None),
+    ],
+)
+async def test_scheduler_emits_one_terminal_event_without_replacing_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    raised: BaseException,
+    expected_outcome: str,
+    expected_error_type: str | None,
+) -> None:
+    sink = _FilteringSchedulerSink({"scheduler_job_completed"})
+    scheduler, _tracker = _build_simple_pipeline(num_records=1, scheduler_event_sink=sink)
+
+    async def fail(*_args: object) -> None:
+        raise raised
+
+    monkeypatch.setattr(scheduler, "_main_dispatch_loop", fail)
+
+    with pytest.raises(type(raised)) as exc_info:
+        await scheduler.run()
+
+    assert exc_info.value is raised
+    [completed] = sink.scheduler_events
+    assert completed.reason_or_result == expected_outcome
+    assert completed.diagnostics["outcome"] == expected_outcome
+    assert completed.diagnostics.get("error_type") == expected_error_type
 
 
 @pytest.mark.asyncio(loop_scope="session")
