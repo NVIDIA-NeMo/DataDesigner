@@ -6,11 +6,12 @@ from __future__ import annotations
 import importlib.metadata
 from unittest.mock import Mock, call, patch
 
+import click
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app, main
 from data_designer.cli.version_notice import UpdateNotice
-from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH, DEFAULT_NUM_RECORDS
 from data_designer.engine.storage.artifact_storage import ResumeMode
 
 runner = CliRunner()
@@ -60,6 +61,16 @@ def test_main_skips_bootstrap_when_version_follows_another_flag(mock_bootstrap: 
         main()
 
     mock_bootstrap.assert_not_called()
+    mock_app.assert_called_once_with()
+
+
+@patch("data_designer.cli.main.app")
+@patch("data_designer.cli.main.ensure_cli_default_model_settings")
+def test_main_bootstraps_when_version_is_forwarded(mock_bootstrap: Mock, mock_app: Mock) -> None:
+    with patch("sys.argv", ["data-designer", "create", "workflow.py", "--", "--version"]):
+        main()
+
+    mock_bootstrap.assert_called_once_with()
     mock_app.assert_called_once_with()
 
 
@@ -172,12 +183,14 @@ def test_app_dispatches_lazy_create_command(mock_controller_cls: Mock) -> None:
     assert result.exit_code == 0
     mock_controller.run_create.assert_called_once_with(
         config_source="config.yaml",
+        run_config_source=None,
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=None,
+        script_args=None,
     )
 
 
@@ -192,12 +205,14 @@ def test_app_dispatches_create_tui_flags(mock_controller_cls: Mock) -> None:
     assert result.exit_code == 0
     mock_controller.run_create.assert_called_once_with(
         config_source="config.yaml",
+        run_config_source=None,
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=False,
+        script_args=None,
     )
 
     mock_controller.reset_mock()
@@ -207,13 +222,134 @@ def test_app_dispatches_create_tui_flags(mock_controller_cls: Mock) -> None:
     assert result.exit_code == 0
     mock_controller.run_create.assert_called_once_with(
         config_source="config.yaml",
+        run_config_source=None,
         num_records=DEFAULT_NUM_RECORDS,
         dataset_name="dataset",
         artifact_path=None,
         resume=ResumeMode.NEVER,
         output_format=None,
         tui=True,
+        script_args=None,
     )
+
+
+@patch("data_designer.cli.commands.validate.GenerationController")
+@patch("data_designer.cli.commands.preview.GenerationController")
+@patch("data_designer.cli.commands.create.GenerationController")
+def test_app_dispatches_script_args_for_generation_commands(
+    mock_create_cls: Mock,
+    mock_preview_cls: Mock,
+    mock_validate_cls: Mock,
+) -> None:
+    create_result = runner.invoke(
+        app,
+        [
+            "create",
+            "workflow.py",
+            "--num-records",
+            "32",
+            "--dataset-name",
+            "run_a",
+            "--run-config",
+            "run-config.yaml",
+            "--",
+            "--seed-path",
+            "seeds.parquet",
+        ],
+    )
+    preview_result = runner.invoke(
+        app,
+        ["preview", "workflow.py", "-n", "3", "--", "--seed-path", "sample.parquet"],
+    )
+    validate_result = runner.invoke(
+        app,
+        ["validate", "workflow.py", "--", "--seed-path", "seeds.parquet"],
+    )
+
+    assert create_result.exit_code == preview_result.exit_code == validate_result.exit_code == 0
+    mock_create_cls.return_value.run_create.assert_called_once_with(
+        config_source="workflow.py",
+        run_config_source="run-config.yaml",
+        num_records=32,
+        dataset_name="run_a",
+        artifact_path=None,
+        resume=ResumeMode.NEVER,
+        output_format=None,
+        tui=None,
+        script_args=["--seed-path", "seeds.parquet"],
+    )
+    mock_preview_cls.return_value.run_preview.assert_called_once_with(
+        config_source="workflow.py",
+        num_records=3,
+        non_interactive=False,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=DEFAULT_DISPLAY_WIDTH,
+        script_args=["--seed-path", "sample.parquet"],
+    )
+    mock_validate_cls.return_value.run_validate.assert_called_once_with(
+        config_source="workflow.py",
+        script_args=["--seed-path", "seeds.parquet"],
+    )
+
+
+@patch("data_designer.cli.commands.create.GenerationController")
+def test_app_rejects_unknown_options_before_script_separator(mock_controller_cls: Mock) -> None:
+    result = runner.invoke(
+        app,
+        ["create", "workflow.py", "--num-recrods", "32", "--", "--custom", "value"],
+    )
+
+    assert result.exit_code == 2
+    assert "No such option: --num-recrods" in click.unstyle(result.output)
+    mock_controller_cls.assert_not_called()
+
+
+@patch("data_designer.cli.commands.create.GenerationController")
+def test_app_dispatches_create_run_config_aliases(mock_controller_cls: Mock) -> None:
+    """The create command parses both runtime-config option names lazily."""
+    mock_controller = Mock()
+    mock_controller_cls.return_value = mock_controller
+
+    for option in ("--run-config", "-c"):
+        result = runner.invoke(app, ["create", "config.yaml", option, "run-config.yaml"])
+
+        assert result.exit_code == 0
+        mock_controller.run_create.assert_called_once_with(
+            config_source="config.yaml",
+            run_config_source="run-config.yaml",
+            num_records=DEFAULT_NUM_RECORDS,
+            dataset_name="dataset",
+            artifact_path=None,
+            resume=ResumeMode.NEVER,
+            output_format=None,
+            tui=None,
+            script_args=None,
+        )
+        mock_controller.reset_mock()
+
+
+def test_create_run_config_does_not_replace_required_dataset_config() -> None:
+    result = runner.invoke(app, ["create", "-c", "run-config.yaml"])
+
+    assert result.exit_code != 0
+    assert "CONFIG_SOURCE" in result.output
+    assert "Missing argument" in result.output
+
+
+def test_create_help_documents_run_config_contract() -> None:
+    result = runner.invoke(app, ["create", "--help"], terminal_width=160)
+    help_text = " ".join(click.unstyle(result.output).replace("│", " ").split())
+
+    assert result.exit_code == 0
+    assert "Required dataset configuration" in help_text
+    assert "--run-config" in help_text
+    assert "-c" in help_text
+    assert "Optional local .yaml/.yml file" in help_text
+    assert "direct mapping of RunConfig fields" in help_text
+    assert "active RunConfig baseline, then YAML fields, then explicit --tui/--no-tui" in help_text
+    assert "data-designer create dataset.yaml --run-config run-config.yaml" in help_text
 
 
 @patch("data_designer.cli.commands.check_models.GenerationController")
@@ -222,10 +358,16 @@ def test_app_dispatches_lazy_check_models_command(mock_controller_cls: Mock) -> 
     mock_controller = Mock()
     mock_controller_cls.return_value = mock_controller
 
-    result = runner.invoke(app, ["check-models", "config.yaml"])
+    result = runner.invoke(
+        app,
+        ["check-models", "workflow.py", "--", "--seed-path", "seeds.parquet"],
+    )
 
     assert result.exit_code == 0
-    mock_controller.run_check_models.assert_called_once_with(config_source="config.yaml")
+    mock_controller.run_check_models.assert_called_once_with(
+        config_source="workflow.py",
+        script_args=["--seed-path", "seeds.parquet"],
+    )
 
 
 @patch("data_designer.cli.commands.plugin.PluginCatalogController")

@@ -196,6 +196,7 @@ def test_calculate_input_token_stats(mock_prompt_renderer_render, stub_column_co
         ("Joined: {{ messages | join('-') }}", ["Hello", "World"], 4),
         ("Trajectory: {{ messages }}", "x" * 512_001, 10),
     ],
+    ids=["joined-list", "long-trajectory"],
 )
 def test_calculate_input_token_stats_respects_native_jinja_engine(
     prompt: str,

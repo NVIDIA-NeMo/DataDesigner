@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+from pydantic import ValidationError
+
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url
+from data_designer.config.run_config import RunConfig
+from data_designer.config.script_params import DataDesignerScriptParams
+from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url, smart_load_yaml
 
 
 class ConfigLoadError(Exception):
@@ -18,11 +23,15 @@ class ConfigLoadError(Exception):
 
 PYTHON_EXTENSIONS = {".py"}
 ALL_SUPPORTED_EXTENSIONS = VALID_CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
+RUN_CONFIG_EXTENSIONS = {".yaml", ".yml"}
 
 USER_MODULE_FUNC_NAME = "load_config_builder"
 
 
-def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
+def load_config_builder(
+    config_source: str,
+    script_params: DataDesignerScriptParams | None = None,
+) -> DataDesignerConfigBuilder:
     """Load a DataDesignerConfigBuilder from a file path or URL.
 
     Auto-detects the file type by extension:
@@ -32,6 +41,7 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
 
     Args:
         config_source: Path or URL to the configuration file, or path to a Python module.
+        script_params: Runtime arguments for a local Python config module.
 
     Returns:
         A DataDesignerConfigBuilder instance.
@@ -39,7 +49,17 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
     Raises:
         ConfigLoadError: If the file cannot be loaded or is invalid.
     """
-    if is_http_url(config_source):
+    is_remote = is_http_url(config_source)
+    if (
+        script_params
+        and script_params.argv
+        and (is_remote or Path(config_source).suffix.lower() not in PYTHON_EXTENSIONS)
+    ):
+        raise ConfigLoadError(
+            f"Script arguments are only supported for local Python config modules, but '{config_source}' is not one."
+        )
+
+    if is_remote:
         return _load_from_config_url(config_source)
 
     path = Path(config_source)
@@ -59,7 +79,57 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
     if suffix in VALID_CONFIG_FILE_EXTENSIONS:
         return _load_from_config_file(path)
 
-    return _load_from_python_module(path)
+    return _load_from_python_module(path, script_params)
+
+
+def load_run_config(config_source: str) -> RunConfig:
+    """Load a partial RunConfig from a local YAML file.
+
+    Args:
+        config_source: Path to a local .yaml or .yml file whose root is a mapping
+            of RunConfig fields.
+
+    Returns:
+        A validated RunConfig that preserves which fields were explicitly set.
+
+    Raises:
+        ConfigLoadError: If the source is remote, missing, not a file, has an
+            unsupported extension, or cannot be parsed or validated.
+    """
+    error_source = config_source
+    try:
+        if config_source.lower().startswith(("http://", "https://")):
+            try:
+                parsed_url = urlparse(config_source)
+                error_source = f"{parsed_url.scheme}://{parsed_url.hostname or ''}{parsed_url.path}"
+            except ValueError:
+                error_source = "<invalid remote URL>"
+            raise ConfigLoadError(f"Failed to load run config from '{error_source}': remote URLs are not supported")
+
+        path = Path(config_source)
+        error_source = str(path)
+        if not path.exists():
+            raise ConfigLoadError(f"Failed to load run config from '{path}': file not found")
+        if not path.is_file():
+            raise ConfigLoadError(f"Failed to load run config from '{path}': path is not a file")
+        if path.suffix.lower() not in RUN_CONFIG_EXTENSIONS:
+            supported = ", ".join(sorted(RUN_CONFIG_EXTENSIONS))
+            raise ConfigLoadError(
+                f"Failed to load run config from '{path}': unsupported file extension "
+                f"'{path.suffix}'. Supported extensions: {supported}"
+            )
+
+        return RunConfig.model_validate(smart_load_yaml(path))
+    except ConfigLoadError:
+        raise
+    except ValidationError as e:
+        details = "\n".join(
+            f"{'.'.join(map(str, error['loc'])) or 'run_config'}: {error['msg']}"
+            for error in e.errors(include_url=False, include_context=False, include_input=False)
+        )
+        raise ConfigLoadError(f"Failed to load run config from '{error_source}':\n{details}") from e
+    except Exception as e:
+        raise ConfigLoadError(f"Failed to load run config from '{error_source}': {e}") from e
 
 
 def _load_from_config_url(config_source: str) -> DataDesignerConfigBuilder:
@@ -101,7 +171,10 @@ def _load_from_config_file(path: Path | str) -> DataDesignerConfigBuilder:
         raise ConfigLoadError(f"Failed to load config from '{path}': {e}") from e
 
 
-def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
+def _load_from_python_module(
+    path: Path,
+    script_params: DataDesignerScriptParams | None = None,
+) -> DataDesignerConfigBuilder:
     """Load a DataDesignerConfigBuilder from a Python module.
 
     The module must define a load_config_builder() function that returns
@@ -109,6 +182,7 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
 
     Args:
         path: Path to the Python module.
+        script_params: Runtime arguments for the Python config module.
 
     Returns:
         A DataDesignerConfigBuilder instance.
@@ -149,8 +223,41 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
         if not callable(func):
             raise ConfigLoadError(f"'{USER_MODULE_FUNC_NAME}' in '{path}' is not callable")
 
+        params = script_params or DataDesignerScriptParams()
         try:
-            config_builder = func()
+            parameters = tuple(inspect.signature(func).parameters.values())
+        except (TypeError, ValueError) as e:
+            raise ConfigLoadError(f"Could not inspect '{USER_MODULE_FUNC_NAME}()' in '{path}': {e}") from e
+
+        call_with_keyword = False
+        signature_error = (
+            f"Unsupported '{USER_MODULE_FUNC_NAME}()' signature in '{path}'. "
+            "Expected zero arguments or one DataDesignerScriptParams parameter."
+        )
+        if not parameters:
+            if params.argv:
+                raise ConfigLoadError(
+                    f"'{USER_MODULE_FUNC_NAME}()' in '{path}' does not accept script arguments. "
+                    "Update it to accept a DataDesignerScriptParams parameter."
+                )
+        elif len(parameters) != 1:
+            raise ConfigLoadError(signature_error)
+        else:
+            parameter = parameters[0]
+            if parameter.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                pass
+            elif parameter.kind == inspect.Parameter.KEYWORD_ONLY:
+                call_with_keyword = True
+            else:
+                raise ConfigLoadError(signature_error)
+
+        try:
+            if not parameters:
+                config_builder = func()
+            elif call_with_keyword:
+                config_builder = func(**{parameters[0].name: params})
+            else:
+                config_builder = func(params)
         except Exception as e:
             raise ConfigLoadError(f"Error calling '{USER_MODULE_FUNC_NAME}()' in '{path}': {e}") from e
 
