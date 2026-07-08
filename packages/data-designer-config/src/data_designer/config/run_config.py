@@ -20,6 +20,12 @@ class JinjaRenderingEngine(StrEnum):
     SECURE = "secure"
 
 
+class ResumeMode(StrEnum):
+    NEVER = "never"
+    ALWAYS = "always"
+    IF_POSSIBLE = "if_possible"
+
+
 _THROTTLE_DEPRECATION_MESSAGE = (
     "RunConfig.throttle and ThrottleConfig are deprecated. Use RunConfig.request_admission with "
     "RequestAdmissionTuningConfig for supported advanced request-admission tuning."

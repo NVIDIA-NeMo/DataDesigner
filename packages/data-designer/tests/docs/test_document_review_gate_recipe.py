@@ -57,6 +57,13 @@ def test_generate_sample_pages_labels_match_supported_set(generated_pages: pd.Da
         assert {box["label"] for box in boxes} <= supported
 
 
+def test_validate_metadata_rows_rejects_empty_ground_truth_boxes(generated_pages: pd.DataFrame) -> None:
+    generated_pages.loc[0, "ground_truth_boxes"] = "[]"
+
+    with pytest.raises(ValueError, match="Missing ground-truth boxes for page: synthetic-page-000"):
+        document_review_gate.validate_metadata_rows(generated_pages)
+
+
 def test_write_simulated_review_artifact_fills_selected_rows(tmp_path: Path) -> None:
     document_review_gate.run_to_review_stage(tmp_path, count=4, seed=3, review_pages=2)
 
@@ -81,3 +88,19 @@ def test_run_recipe_exports_final_dataset(tmp_path: Path) -> None:
     assert (final["source"] == "human_review").sum() == 2
     assert document_review_gate.review_candidates_path(tmp_path).exists()
     assert document_review_gate.reviewed_candidates_path(tmp_path).exists()
+
+
+def test_run_recipe_rejects_existing_artifacts_without_overwrite(tmp_path: Path) -> None:
+    base_dir = tmp_path / "existing"
+    document_review_gate.generate_sample_pages(base_dir, count=1, seed=3)
+
+    with pytest.raises(FileExistsError, match="Use --overwrite"):
+        document_review_gate.run_recipe(base_dir, count=2, seed=4, review_pages=1)
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_arg_parser_rejects_non_positive_num_records(value: str) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        document_review_gate.build_arg_parser().parse_args(["--num-records", value])
+
+    assert exc_info.value.code == 2

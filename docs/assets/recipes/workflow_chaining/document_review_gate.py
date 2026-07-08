@@ -17,8 +17,8 @@ Run a workflow to a named stage, export that intermediate dataset, simulate an
 external review process, and resume downstream from the reviewed artifact.
 
 Run:
-    uv run document_review_gate.py --artifact-path ./workflow-artifacts --num-records 12
-    uv run document_review_gate.py --artifact-path ./workflow-artifacts --num-records 12 --review-pages 4
+    uv run document_review_gate.py --artifact-path ./workflow-artifacts --num-records 12 --overwrite
+    uv run document_review_gate.py --artifact-path ./workflow-artifacts --num-records 12 --review-pages 4 --overwrite
     uv run document_review_gate.py --help
 """
 
@@ -39,7 +39,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from pydantic import BaseModel, Field
 
 import data_designer.config as dd
-from data_designer.interface import DataDesigner, ResumeMode
+from data_designer.interface import DataDesigner
 
 DEFAULT_ARTIFACT_DIR = Path("workflow-chaining-review-gate-artifacts")
 PAGE_WIDTH = 1000
@@ -183,7 +183,10 @@ def validate_metadata_rows(rows: pd.DataFrame) -> None:
             raise ValueError(f"Missing generated image: {image_path}")
         with Image.open(image_path) as image:
             width, height = image.size
-        for box in parse_boxes(record["ground_truth_boxes"]):
+        boxes = parse_boxes(record["ground_truth_boxes"])
+        if not boxes:
+            raise ValueError(f"Missing ground-truth boxes for page: {record['page_id']}")
+        for box in boxes:
             validate_box(box, width, height)
 
 
@@ -757,7 +760,7 @@ def resume_from_reviewed(base_dir: Path, *, count: int = 12, seed: int = 11, rev
         raise FileNotFoundError(f"Reviewed parquet not found: {reviewed_path}")
     workflow = build_workflow(base_dir, count=count, seed=seed, review_pages=review_pages)
     results = workflow.run(
-        resume=ResumeMode.ALWAYS,
+        resume=dd.ResumeMode.ALWAYS,
         stage_output_overrides={"review_candidates": reviewed_path},
     )
     output_path = final_dataset_path(base_dir)
@@ -766,8 +769,11 @@ def resume_from_reviewed(base_dir: Path, *, count: int = 12, seed: int = 11, rev
 
 
 def run_recipe(base_dir: Path, *, count: int, seed: int, review_pages: int, overwrite: bool = False) -> Path:
-    if overwrite and base_dir.exists():
-        shutil.rmtree(base_dir)
+    if base_dir.exists():
+        if overwrite:
+            shutil.rmtree(base_dir)
+        elif any(base_dir.iterdir()):
+            raise FileExistsError(f"Artifact directory already exists: {base_dir}. Use --overwrite to replace it.")
 
     review_path = run_to_review_stage(base_dir, count=count, seed=seed, review_pages=review_pages)
     reviewed_path = write_simulated_review_artifact(base_dir)
@@ -784,10 +790,17 @@ def run_recipe(base_dir: Path, *, count: int, seed: int, review_pages: int, over
     return final_path
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Headless workflow chaining review gate recipe.")
     parser.add_argument("--model-alias", default="unused", help="Accepted for recipe runner compatibility.")
-    parser.add_argument("--num-records", type=int, default=12)
+    parser.add_argument("--num-records", type=_positive_int, default=12)
     parser.add_argument("--artifact-path", type=Path, default=DEFAULT_ARTIFACT_DIR)
     parser.add_argument("--dataset-name", default="document_review_gate")
     parser.add_argument("--seed", type=int, default=11)

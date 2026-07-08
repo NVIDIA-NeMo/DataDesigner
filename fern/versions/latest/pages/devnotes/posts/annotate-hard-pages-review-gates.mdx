@@ -26,7 +26,7 @@ A workflow chain is a sequence of named stages. Each stage is still an ordinary 
 The new part is the boundary. Because the boundary has a name, you can stop there, inspect the selected output, replace it with an approved artifact, and resume downstream without rerunning the trusted upstream work.
 
 ```python
-from data_designer.interface import ResumeMode
+import data_designer.config as dd
 
 workflow = data_designer.compose_workflow(name="quality-gated-candidates")
 workflow.add_stage("draft_rows", draft_rows_builder, num_records=1_000)
@@ -37,7 +37,7 @@ checkpoint = workflow.run(targets="quality_gate")
 checkpoint.export_stage("quality_gate", "quality_gate.parquet")
 
 results = workflow.run(
-    resume=ResumeMode.ALWAYS,
+    resume=dd.ResumeMode.ALWAYS,
     stage_output_overrides={
         "quality_gate": "approved_output.parquet",
     },
@@ -90,6 +90,8 @@ Human-in-the-loop review is the easiest pattern to recognize, but it is not the 
 | Team handoff | One person exports a stage; another resumes from it |
 
 The value is not only that these things are possible. Two workflows and glue code can reproduce the happy path. Chaining gives Data Designer enough context to name the handoff, track it, and resume from it consistently.
+
+For fully automated, per-row routing, [conditional generation](/tutorials/structured-outputs-jinja-expressions-and-conditional-generation) is simpler: `skip=dd.SkipConfig(when="{{ not selected_for_review }}")` can run a downstream column only for rows chosen by an earlier score, all within one stage. It does not pause the workflow or expose a replaceable artifact. Use workflow chaining when a human or external system must inspect or change the data, or when the checkpoint needs to be resumed, reused, or audited.
 
 ## A Review Gate Example
 

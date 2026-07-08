@@ -25,7 +25,7 @@ The run writes generated images, exported stage parquet files, the simulated rev
 The important part is the boundary contract. The downstream workflow does not care whether `review_candidates` came from the original detector, a dashboard, a script, or another service. It only consumes the selected stage output.
 
 ```python
-from data_designer.interface import ResumeMode
+import data_designer.config as dd
 
 results = workflow.run(targets="review_candidates")
 results.export_stage("review_candidates", review_path)
@@ -33,7 +33,7 @@ results.export_stage("review_candidates", review_path)
 reviewed_path = write_simulated_review_artifact(base_dir)
 
 workflow.run(
-    resume=ResumeMode.ALWAYS,
+    resume=dd.ResumeMode.ALWAYS,
     stage_output_overrides={"review_candidates": reviewed_path},
 )
 ```
