@@ -45,30 +45,35 @@ Note: engine and interface packages use `uv-dynamic-versioning` to inject
 dependencies. Check both static declarations and the dynamic versioning
 config.
 
-### 2. Transitive dependency gaps
+### 2. Direct dependency declaration gaps
 
-This is the highest-value check. A package may import a library that it
-doesn't declare as a dependency, relying on another package to pull it in
-transitively. This works until the packages are installed separately.
+Read `/tmp/dependency-inventory.json`, generated deterministically before this
+recipe by `scripts/audit_package_dependencies.py`. It uses Python ASTs and
+installed distribution metadata to compare imports with static and dynamic
+package declarations.
 
-For each package, verify that every imported third-party library is declared
-in that package's own `[project.dependencies]`:
+For every entry in `packages[].missing`:
 
-```bash
-# Find all third-party imports in engine source
-grep -rhn "^import \|^from " packages/data-designer-engine/src/ --include='*.py' \
-  | grep -v "data_designer" | grep -v "^from __future__" \
-  | sort -u
+- Re-read the listed source files to confirm the import is runtime code rather
+  than a guarded optional import.
+- Use `declared_by` to find a sibling package's existing version specifier.
+- Treat `severity: low` entries as metadata hygiene: `guaranteed_by` names a
+  mandatory workspace dependency that already installs the library. Do not
+  claim these currently break standalone installation.
+- Treat high severity as a candidate classification. Keep it high only after
+  confirming the import is required runtime code; testing helpers and optional
+  integrations stay report-only unless their packaging contract requires the
+  dependency.
 
-# Compare against declared deps in engine's pyproject.toml
-```
+Review `unresolved_modules` manually. Report a gap only after mapping the
+module to a distribution with repository evidence. Never guess a package name.
 
-Known issue to check: `numpy` and `pandas` are used by the engine but may
-only be declared in the config package. Each package should declare what it
-directly imports.
+Only add a gap to `fix_backlog` when `declared_by` identifies a sibling
+specifier that can be copied mechanically. Gaps without a sibling declaration
+are report-only and must not consume the fix phase's top-five candidate limit.
 
-Also check lazy imports in `data_designer/lazy_heavy_imports.py` - these
-are intentionally deferred but still need to be declared as dependencies.
+Also check lazy imports in `data_designer/lazy_heavy_imports.py`; these are
+intentionally deferred but still need to be declared as dependencies.
 
 ### 3. Cross-package version consistency
 
@@ -87,12 +92,10 @@ they haven't been bypassed by a looser pin elsewhere.
 
 ### 4. Unused dependency detection
 
-For each declared dependency, check if it is actually imported anywhere in
-the corresponding package:
-```bash
-# Example: check if 'lxml' is imported in data-designer-engine
-grep -r "import lxml\|from lxml" packages/data-designer-engine/src/
-```
+Use each inventory entry's `declared` and `imported` lists to seed unused
+dependency candidates. The inventory is not proof of non-use: workspace
+package dependencies, lazy imports, plugins, command entry points, and
+runtime-only requirements may not appear as ordinary imports.
 
 A dependency is "unused" if:
 - Not imported directly anywhere in the package source
@@ -124,11 +127,11 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 <!-- agentic-ci-daily-{{suite}} -->
 ## Dependency Audit - {{date}}
 
-### Transitive dependency gaps
+### Direct dependency declaration gaps
 
-| Package | Import | Declared in | Should be declared in |
-|---------|--------|-------------|----------------------|
-| engine | numpy | config only | engine (direct import in ...) |
+| Package | Import | Guaranteed by | Severity | Should be declared in |
+|---------|--------|---------------|----------|-----------------------|
+| engine | numpy | config | low | engine (direct import in ...) |
 
 ### Cross-package inconsistencies
 
@@ -150,7 +153,7 @@ Write the report to `/tmp/audit-{{suite}}.md`:
 
 ### Summary
 
-- N transitive gaps (M new since last run)
+- N direct dependency declaration gaps (M new since last run)
 - N cross-package inconsistencies
 - N unused dependencies (M new)
 - N pinning concerns
@@ -164,21 +167,26 @@ Follow the standard fix procedure in `_fix-policy.md`. Suite-specific bits:
 
 ### Eligible categories
 
-| Category | Branch type | test_required | Eligibility note |
-|----------|-------------|---------------|------------------|
-| transitive-gap | `chore` | yes | Add the imported module to `[project.dependencies]` of the package that imports it, copying the version specifier from a sibling package that already declares it. Insert in alphabetical order; match existing quote/specifier style. **Ineligible** when no sibling package declares the dep — choosing a specifier from scratch is interpretive, not mechanical. Those findings stay report-only and surface for maintainer judgement. |
-| unused | `chore` | yes | Remove the declaration. Eligible only when grep across the package's `src/`, lazy-import system, plugin entry points, and tests turns up zero references. |
+| Category | Branch type | test_required | Batchable | Eligibility note |
+|----------|-------------|---------------|-----------|------------------|
+| transitive-gap | `chore` | yes | yes, by target package (max 3) | Add the imported distribution to the dependency list of the package that imports it, copying the version specifier from a sibling package that already declares it. Insert in alphabetical order; match existing quote/specifier style. **Ineligible** when no sibling package declares the dep — choosing a specifier from scratch is interpretive, not mechanical. Those findings stay report-only and surface for maintainer judgement. |
+| unused | `chore` | yes | no | Remove the declaration. Eligible only when checks across the package's `src/`, lazy-import system, plugin entry points, and tests turn up zero references. |
 
-`fix_backlog.data` should record: for transitive-gap, the importing source
-files and the sibling package whose specifier was copied (the recipe
-must record this *during the audit*; the fix phase rejects entries with
-no sibling source). For unused, which other packages also declare the
-dep.
+`fix_backlog.data` should record: for transitive-gap, the target package,
+dependency name, importing source files, sibling package whose specifier was
+copied, `guaranteed_by`, severity, and test target. The recipe must record this
+during the audit; the fix phase rejects entries with no sibling source. For
+unused, record which other packages also declare the dependency.
 
-Before running the per-package test target (see `_fix-policy.md` for the
-mapping), run `make install-dev` to confirm the lockfile resolves cleanly.
-`make install-dev` is the only sanctioned install command (no direct
-`pip install` or `uv pip install`).
+Batch transitive gaps only when they target the same package and test target.
+Apply at most three dependency declarations in one PR. Include one hidden
+finding marker and one `attempted_fixes` entry per dependency.
+
+After editing the package manifest, run `make install-dev`, commit the
+regenerated `uv.lock`, and run `uv lock --check`. The PR must include
+`uv.lock`; a manifest-only dependency PR is incomplete. Then run the
+per-package test target (see `_fix-policy.md`). `make install-dev` is the only
+sanctioned install command (no direct `pip install` or `uv pip install`).
 
 **Not eligible** — stays report-only:
 
@@ -189,8 +197,8 @@ mapping), run `make install-dev` to confirm the lockfile resolves cleanly.
 ## Constraints
 
 - Outside the fix phase, this recipe is read-only — do not modify files.
-- Within the fix phase, only modify `packages/*/pyproject.toml`. The
-  repo-root `pyproject.toml` is forbidden.
+- Within the fix phase, only modify `packages/*/pyproject.toml` and `uv.lock`.
+  The repo-root `pyproject.toml` is forbidden.
 - `make install-dev` is the only sanctioned install command. Do not
   invoke `pip install` or `uv pip install` directly.
 - Do not run `pip audit` (may not be available on the runner). Focus on

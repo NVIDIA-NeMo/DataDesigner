@@ -24,6 +24,64 @@ def test_run_config_accepts_native_renderer() -> None:
     assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.NATIVE
 
 
+def test_run_config_defaults_to_display_tui_disabled() -> None:
+    assert RunConfig().display_tui is False
+
+
+def test_run_config_accepts_display_tui() -> None:
+    assert RunConfig(display_tui=False).display_tui is False
+
+
+def test_run_config_does_not_write_scheduler_events_by_default() -> None:
+    assert RunConfig().write_scheduler_events is False
+
+
+def test_run_config_accepts_scheduler_event_writes() -> None:
+    assert RunConfig(write_scheduler_events=True).write_scheduler_events is True
+
+
+def test_run_config_progress_bar_shim_translates_to_display_tui() -> None:
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui") as caught:
+        run_config = RunConfig(progress_bar=False)
+
+    assert run_config.display_tui is False
+    assert caught[0].filename == __file__
+
+
+def test_run_config_progress_bar_property_getter_warns() -> None:
+    run_config = RunConfig(display_tui=False)
+
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        assert run_config.progress_bar is False
+
+
+def test_run_config_progress_bar_property_setter_warns() -> None:
+    run_config = RunConfig(display_tui=False)
+
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        run_config.progress_bar = True
+
+    assert run_config.display_tui is True
+
+
+def test_run_config_model_copy_progress_bar_shim_translates_to_display_tui() -> None:
+    run_config = RunConfig(display_tui=True)
+
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        copied = run_config.model_copy(update={"progress_bar": False})
+
+    assert copied.display_tui is False
+
+
+def test_run_config_model_copy_display_tui_wins_over_progress_bar_shim() -> None:
+    run_config = RunConfig(display_tui=True)
+
+    with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui"):
+        copied = run_config.model_copy(update={"progress_bar": False, "display_tui": True})
+
+    assert copied.display_tui is True
+
+
 def test_run_config_preserves_dropped_columns_by_default() -> None:
     assert RunConfig().preserve_dropped_columns is True
 
@@ -31,6 +89,19 @@ def test_run_config_preserves_dropped_columns_by_default() -> None:
 def test_run_config_accepts_disabled_dropped_column_preservation() -> None:
     run_config = RunConfig(preserve_dropped_columns=False)
     assert run_config.preserve_dropped_columns is False
+
+
+def test_run_config_defaults_max_concurrent_row_groups_to_three() -> None:
+    assert RunConfig().max_concurrent_row_groups == 3
+
+
+def test_run_config_accepts_custom_max_concurrent_row_groups() -> None:
+    assert RunConfig(max_concurrent_row_groups=8).max_concurrent_row_groups == 8
+
+
+def test_run_config_rejects_invalid_max_concurrent_row_groups() -> None:
+    with pytest.raises(ValidationError, match="max_concurrent_row_groups"):
+        RunConfig(max_concurrent_row_groups=0)
 
 
 def test_run_config_defaults_max_in_flight_tasks_to_1024() -> None:

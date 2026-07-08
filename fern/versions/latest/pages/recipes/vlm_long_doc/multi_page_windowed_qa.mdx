@@ -716,7 +716,7 @@ def create_dataset(
         artifact_path=artifact_path,
         model_providers=model_providers,
     )
-    data_designer.set_run_config(dd.RunConfig(progress_bar=True, disable_early_shutdown=True))
+    data_designer.set_run_config(dd.RunConfig(display_tui=True, disable_early_shutdown=True))
     results = data_designer.create(config_builder, num_records=num_records, dataset_name="multi_page_windowed_qa")
     return results
 

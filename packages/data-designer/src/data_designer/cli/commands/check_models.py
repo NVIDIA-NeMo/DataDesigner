@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
@@ -15,6 +17,10 @@ def check_models_command(
             " that defines a load_config_builder() function."
         ),
     ),
+    script_args: Annotated[
+        list[str] | None,
+        typer.Argument(help="Arguments forwarded to a local Python config module after '--'."),
+    ] = None,
 ) -> None:
     """Check that every model and MCP tool referenced by the configuration is reachable.
 
@@ -36,6 +42,9 @@ def check_models_command(
 
         # Check models referenced by a Python module
         data-designer check-models my_config.py
+
+        # Forward arguments to a Python config module
+        data-designer check-models workflow.py -- --seed-path seed.parquet
     """
     controller = GenerationController()
-    controller.run_check_models(config_source=config_source)
+    controller.run_check_models(config_source=config_source, script_args=script_args)

@@ -14,6 +14,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate-dispatch:
     name: Validate dispatched SHA
@@ -46,10 +50,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
           version: "latest"
           python-version: ${{ matrix.python-version }}
@@ -60,11 +64,8 @@ jobs:
 
       - name: Run config tests
         run: |
-          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-env \
-            pytest -v \
-            packages/data-designer-config/tests \
-            --cov=data_designer \
-            --cov-report=term-missing
+          uv run --with pytest --with pytest-asyncio --with pytest-env \
+            pytest packages/data-designer-config/tests
 
   test-engine:
     name: Test Engine (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -78,10 +79,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
           version: "latest"
           python-version: ${{ matrix.python-version }}
@@ -92,11 +93,8 @@ jobs:
 
       - name: Run engine tests
         run: |
-          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-httpx --with pytest-env \
-            pytest -v \
-            packages/data-designer-engine/tests \
-            --cov=data_designer \
-            --cov-report=term-missing
+          uv run --with pytest --with pytest-asyncio --with pytest-httpx --with pytest-env \
+            pytest packages/data-designer-engine/tests
 
   test-interface:
     name: Test Interface (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -110,10 +108,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
           version: "latest"
           python-version: ${{ matrix.python-version }}
@@ -128,11 +126,8 @@ jobs:
 
       - name: Run interface tests
         run: |
-          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-httpx --with pytest-env \
-            pytest -v \
-            packages/data-designer/tests \
-            --cov=data_designer \
-            --cov-report=term-missing
+          uv run --with pytest --with pytest-asyncio --with pytest-httpx --with pytest-env \
+            pytest packages/data-designer/tests
 
   # ===========================================================================
   # Combined Coverage Check
@@ -150,10 +145,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
           version: "latest"
           python-version: ${{ matrix.python-version }}
@@ -164,7 +159,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          uv run --group dev pytest -v \
+          uv run --group dev pytest \
             packages/data-designer-config/tests \
             packages/data-designer-engine/tests \
             packages/data-designer/tests \
@@ -189,10 +184,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
           version: "latest"
           python-version: ${{ matrix.python-version }}
@@ -212,10 +207,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
           version: "latest"
           python-version: "3.11"
@@ -237,12 +232,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0  # Full history needed for file creation dates
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
           version: "latest"
           python-version: "3.11"

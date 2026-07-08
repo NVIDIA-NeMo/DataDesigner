@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import tracemalloc
@@ -441,6 +442,28 @@ def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_f
     assert result.empty
     buffer_manager.get_dataframe.assert_not_called()
     buffer_manager.free_row_group.assert_not_called()
+
+
+def test_await_async_scheduler_result_waits_for_scheduler_cleanup_on_keyboard_interrupt() -> None:
+    class MockFuture:
+        def __init__(self) -> None:
+            self.result_calls = 0
+
+        def result(self) -> None:
+            self.result_calls += 1
+            if self.result_calls == 1:
+                raise KeyboardInterrupt
+            assert scheduler.request_cancel.called
+            raise concurrent.futures.CancelledError
+
+    scheduler = Mock()
+    future = MockFuture()
+
+    with pytest.raises(KeyboardInterrupt):
+        builder_mod._await_async_scheduler_result(future, scheduler)
+
+    scheduler.request_cancel.assert_called_once_with()
+    assert future.result_calls == 2
 
 
 def test_reset_run_state_clears_per_run_signals(stub_resource_provider, stub_test_config_builder) -> None:
@@ -1024,11 +1047,15 @@ def _make_sampler_only_builder(
     tmp_path: Path,
     *,
     resume: ResumeMode = ResumeMode.IF_POSSIBLE,
+    write_scheduler_events: bool = False,
 ) -> tuple[DatasetBuilder, ArtifactStorage]:
     """Create a builder that can run end-to-end without model or MCP stubs."""
     storage = ArtifactStorage(artifact_path=tmp_path, resume=resume)
     stub_resource_provider.artifact_storage = storage
-    stub_resource_provider.run_config = RunConfig(buffer_size=2)
+    stub_resource_provider.run_config = RunConfig(
+        buffer_size=2,
+        write_scheduler_events=write_scheduler_events,
+    )
 
     config_builder = DataDesignerConfigBuilder()
     config_builder.add_column(
@@ -1041,6 +1068,66 @@ def _make_sampler_only_builder(
         ),
         storage,
     )
+
+
+@pytest.mark.parametrize("write_scheduler_events", [False, True])
+def test_build_writes_scheduler_events_when_enabled(
+    stub_resource_provider: Mock,
+    tmp_path: Path,
+    write_scheduler_events: bool,
+) -> None:
+    builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+        write_scheduler_events=write_scheduler_events,
+    )
+
+    final_path = builder.build(num_records=2, resume=ResumeMode.NEVER)
+    event_path = final_path.parent / "scheduler_events.jsonl"
+
+    assert event_path.exists() is write_scheduler_events
+    if write_scheduler_events:
+        events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
+        assert events[0]["event_kind"] == "scheduler_job_started"
+        assert events[-1]["event_kind"] == "scheduler_job_completed"
+
+
+def test_preview_does_not_write_scheduler_events(stub_resource_provider: Mock, tmp_path: Path) -> None:
+    builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+        write_scheduler_events=True,
+    )
+
+    builder.build_preview(num_records=1)
+
+    assert list(tmp_path.rglob("scheduler_events.jsonl")) == []
+
+
+def test_resumed_build_appends_scheduler_event_segment(stub_resource_provider: Mock, tmp_path: Path) -> None:
+    builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+        write_scheduler_events=True,
+    )
+    final_path = builder.build(num_records=1, resume=ResumeMode.NEVER)
+    event_path = final_path.parent / "scheduler_events.jsonl"
+
+    resumed_builder, _storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.ALWAYS,
+        write_scheduler_events=True,
+    )
+    resumed_builder.build(num_records=3, resume=ResumeMode.ALWAYS)
+
+    events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
+    starts = [event for event in events if event["event_kind"] == "scheduler_job_started"]
+    assert len(starts) == 2
+    assert starts[0]["diagnostics"]["run_id"] != starts[1]["diagnostics"]["run_id"]
 
 
 def test_build_resume_ordered_seed_dataset_continues_from_next_planned_row(stub_resource_provider, tmp_path):

@@ -12,6 +12,8 @@ from typing import TextIO
 
 from pythonjsonlogger.json import JsonFormatter
 
+_logging_configured = False
+
 
 @dataclass
 class LoggerConfig:
@@ -115,6 +117,7 @@ class RandomEmoji:
 
 
 def configure_logging(config: LoggingConfig | None = None) -> None:
+    global _logging_configured
     config = config or LoggingConfig.default()
 
     root_logger = logging.getLogger()
@@ -136,6 +139,18 @@ def configure_logging(config: LoggingConfig | None = None) -> None:
     # Adjust noisy loggers
     for name in config.to_silence:
         quiet_noisy_logger(name)
+
+    _logging_configured = True
+
+
+def is_logging_configured() -> bool:
+    """Return whether ``configure_logging()`` has run in this process.
+
+    Only tracks Data Designer's own ``configure_logging()``. Logging configured
+    through stdlib APIs (e.g. ``logging.basicConfig()`` or manually attached
+    root handlers) is not detected.
+    """
+    return _logging_configured
 
 
 def quiet_noisy_logger(name: str) -> None:
