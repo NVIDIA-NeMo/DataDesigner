@@ -24,12 +24,20 @@ def test_run_config_accepts_native_renderer() -> None:
     assert JinjaRenderingEngine(run_config.jinja_rendering_engine) == JinjaRenderingEngine.NATIVE
 
 
-def test_run_config_defaults_to_display_tui_enabled() -> None:
-    assert RunConfig().display_tui is True
+def test_run_config_defaults_to_display_tui_disabled() -> None:
+    assert RunConfig().display_tui is False
 
 
 def test_run_config_accepts_display_tui() -> None:
     assert RunConfig(display_tui=False).display_tui is False
+
+
+def test_run_config_does_not_write_scheduler_events_by_default() -> None:
+    assert RunConfig().write_scheduler_events is False
+
+
+def test_run_config_accepts_scheduler_event_writes() -> None:
+    assert RunConfig(write_scheduler_events=True).write_scheduler_events is True
 
 
 def test_run_config_progress_bar_shim_translates_to_display_tui() -> None:
@@ -81,6 +89,19 @@ def test_run_config_preserves_dropped_columns_by_default() -> None:
 def test_run_config_accepts_disabled_dropped_column_preservation() -> None:
     run_config = RunConfig(preserve_dropped_columns=False)
     assert run_config.preserve_dropped_columns is False
+
+
+def test_run_config_defaults_max_concurrent_row_groups_to_three() -> None:
+    assert RunConfig().max_concurrent_row_groups == 3
+
+
+def test_run_config_accepts_custom_max_concurrent_row_groups() -> None:
+    assert RunConfig(max_concurrent_row_groups=8).max_concurrent_row_groups == 8
+
+
+def test_run_config_rejects_invalid_max_concurrent_row_groups() -> None:
+    with pytest.raises(ValidationError, match="max_concurrent_row_groups"):
+        RunConfig(max_concurrent_row_groups=0)
 
 
 def test_run_config_defaults_max_in_flight_tasks_to_1024() -> None:

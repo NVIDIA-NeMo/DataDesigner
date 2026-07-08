@@ -63,6 +63,7 @@ dependencies = [
     "sqlfluff>=4.1.0,<5",
     "starlette>=1.2.0,<2", # 1.2.0 fixes security advisory pulled in by mcp
     "tiktoken>=0.8.0,<1",
+    "wcwidth>=0.2.13,<1",
 ]
 
 [tool.hatch.build.targets.wheel]

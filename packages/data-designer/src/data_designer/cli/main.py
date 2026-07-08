@@ -49,6 +49,8 @@ def _version_callback(value: bool) -> None:
 
 
 def _is_version_request(args: list[str]) -> bool:
+    if "--" in args:
+        args = args[: args.index("--")]
     return "--version" in args
 
 

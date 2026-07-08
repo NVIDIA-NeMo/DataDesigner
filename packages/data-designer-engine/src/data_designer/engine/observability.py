@@ -5,14 +5,16 @@ from __future__ import annotations
 
 import contextvars
 import itertools
+import json
 import logging
 import math
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from enum import Enum
+from os import PathLike
 from threading import Lock
-from typing import Callable, Literal, Protocol
+from typing import Callable, Literal, Protocol, TextIO
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +216,53 @@ class RequestAdmissionEvent:
 
 class SchedulerAdmissionEventSink(Protocol):
     def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None: ...
+
+
+class JsonlSchedulerEventSink:
+    """Append scheduler events as newline-delimited JSON from a single writer.
+
+    A write or flush failure disables the sink and is re-raised once for the caller to handle.
+    """
+
+    def __init__(self, path: str | PathLike[str]) -> None:
+        self._path = path
+        self._file: TextIO | None = None
+
+    def __enter__(self) -> JsonlSchedulerEventSink | None:
+        try:
+            self._file = open(self._path, "a", encoding="utf-8")
+        except Exception:
+            logger.warning("Failed to open scheduler event file %s", self._path, exc_info=True)
+            return None
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def emit_scheduler_event(self, event: SchedulerAdmissionEvent) -> None:
+        file = self._file
+        if file is None:
+            return
+        try:
+            file.write(json.dumps(asdict(event), ensure_ascii=False) + "\n")
+            file.flush()
+        except Exception:
+            self._file = None
+            try:
+                file.close()
+            except Exception:
+                pass
+            raise
+
+    def close(self) -> None:
+        file = self._file
+        self._file = None
+        if file is None:
+            return
+        try:
+            file.close()
+        except Exception:
+            logger.warning("Failed to close scheduler event file %s", self._path, exc_info=True)
 
 
 class RequestAdmissionEventSink(Protocol):
