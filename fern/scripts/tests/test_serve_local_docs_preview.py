@@ -91,6 +91,22 @@ def test_sync_preview_root_updates_adds_and_removes_files(docs_root: Path, tmp_p
     assert not (preview_root / "styles/base.css").exists()
 
 
+def test_snapshot_source_skips_unreadable_file(docs_root: Path) -> None:
+    page = docs_root / "versions/latest/pages/index.mdx"
+    original_stat = Path.stat
+
+    def deny_page_stat(self: Path, **kwargs: object) -> object:
+        if self == page:
+            raise PermissionError
+        return original_stat(self, **kwargs)
+
+    with patch.object(Path, "stat", deny_page_stat):
+        state = serve_local_docs_preview.snapshot_source(docs_root)
+
+    assert page.relative_to(docs_root) not in state
+    assert Path("docs.yml") in state
+
+
 def test_sync_preview_root_retries_transient_copy_error(docs_root: Path, tmp_path: Path) -> None:
     preview_root = tmp_path / "preview"
     preview_root.mkdir()

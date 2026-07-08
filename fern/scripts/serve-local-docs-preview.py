@@ -96,7 +96,7 @@ def snapshot_source(root: Path) -> SourceState:
             if not source.is_file():
                 continue
             stat = source.stat()
-        except FileNotFoundError:
+        except OSError:
             continue
         state[source.relative_to(root)] = (stat.st_mtime_ns, stat.st_ino, stat.st_size)
     return state
@@ -114,7 +114,7 @@ def component_aliases(state: SourceState) -> dict[Path, Path]:
 
 
 def copy_preview_file(root: Path, preview_root: Path, source: Path, target: Path | None = None) -> None:
-    target = preview_root / (target or source)
+    target = preview_root / (source if target is None else target)
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / source, target)
 
