@@ -1572,10 +1572,13 @@ def test_init_preserves_preconfigured_logging(
     dd_logging.configure_logging(dd_logging.LoggingConfig.debug())
     configured_handlers = tuple(logging.getLogger().handlers)
 
-    DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    try:
+        DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
 
-    assert data_designer_logger.level == logging.DEBUG
-    assert tuple(logging.getLogger().handlers) == configured_handlers
+        assert data_designer_logger.level == logging.DEBUG
+        assert tuple(logging.getLogger().handlers) == configured_handlers
+    finally:
+        dd_logging.reset_logging()
 
 
 def test_init_auto_configure_logging_applies_per_instance(
@@ -2187,6 +2190,7 @@ def test_create_dataset_warns_for_unhandled_transform_files(
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
+        # Keep pytest's root capture handler attached so caplog sees the warning.
         auto_configure_logging=False,
     )
 

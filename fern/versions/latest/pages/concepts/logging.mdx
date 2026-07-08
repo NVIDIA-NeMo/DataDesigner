@@ -46,4 +46,4 @@ from data_designer.logging import reset_logging
 reset_logging()
 ```
 
-The reset is safe to call repeatedly and leaves handlers installed by other code attached. It does not restore handlers or levels that existed before `configure_logging()` ran, and it does not reset the levels of noisy third-party loggers that Data Designer quieted. To preserve an application's existing logging configuration, construct `DataDesigner` with `auto_configure_logging=False` instead.
+The reset is safe to call repeatedly and leaves handlers installed by other code attached. If no Data Designer-managed handler is attached, the reset is a no-op and leaves logger levels unchanged. It does not restore handlers or levels that existed before `configure_logging()` ran, and it does not reset the levels of noisy third-party loggers that Data Designer quieted. To preserve an application's existing logging configuration, construct `DataDesigner` with `auto_configure_logging=False` instead.

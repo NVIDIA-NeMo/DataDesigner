@@ -169,12 +169,16 @@ def reset_logging() -> None:
     and returns the root and ``data_designer`` loggers to their default levels.
     Handlers installed by other code are left untouched. This does not restore
     logging configuration that existed before ``configure_logging()`` was called.
+    If no Data Designer-managed handler is attached, this function does nothing.
     """
     root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        if isinstance(handler, DataDesignerManagedHandler):
-            root_logger.removeHandler(handler)
-            handler.close()
+    managed_handlers = [handler for handler in root_logger.handlers if isinstance(handler, DataDesignerManagedHandler)]
+    if not managed_handlers:
+        return
+
+    for handler in managed_handlers:
+        root_logger.removeHandler(handler)
+        handler.close()
     root_logger.setLevel(logging.WARNING)
     logging.getLogger("data_designer").setLevel(logging.NOTSET)
 

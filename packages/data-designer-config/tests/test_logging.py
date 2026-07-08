@@ -156,6 +156,29 @@ def test_reset_logging_preserves_foreign_handlers(stub_default_logging_config: L
         root_logger.removeHandler(foreign_handler)
 
 
+def test_reset_logging_preserves_foreign_levels_when_unconfigured() -> None:
+    reset_logging()
+    root_logger = logging.getLogger()
+    data_designer_logger = logging.getLogger("data_designer")
+    original_root_level = root_logger.level
+    original_data_designer_level = data_designer_logger.level
+    foreign_handler = logging.NullHandler()
+    root_logger.addHandler(foreign_handler)
+    root_logger.setLevel(logging.INFO)
+    data_designer_logger.setLevel(logging.DEBUG)
+
+    try:
+        reset_logging()
+
+        assert foreign_handler in root_logger.handlers
+        assert root_logger.level == logging.INFO
+        assert data_designer_logger.level == logging.DEBUG
+    finally:
+        root_logger.removeHandler(foreign_handler)
+        root_logger.setLevel(original_root_level)
+        data_designer_logger.setLevel(original_data_designer_level)
+
+
 def test_reset_logging_is_idempotent() -> None:
     reset_logging()
     reset_logging()
