@@ -1789,7 +1789,7 @@ async def test_scheduler_on_before_checkpoint_callback() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_on_finalize_row_group_callback_fires() -> None:
+async def test_scheduler_on_finalize_row_group_callback_fires(monkeypatch: pytest.MonkeyPatch) -> None:
     """on_finalize_row_group is called for each completed row group."""
     provider = _mock_provider()
     configs = [
@@ -1810,6 +1810,8 @@ async def test_scheduler_on_finalize_row_group_callback_fires() -> None:
 
     buffer_mgr = RowGroupBufferManager(storage)
     finalized: list[int] = []
+    compact_row_group = MagicMock(wraps=tracker.compact_row_group)
+    monkeypatch.setattr(tracker, "compact_row_group", compact_row_group)
 
     def finalize_row_group(rg_id: int) -> None:
         buffer_mgr.checkpoint_row_group(rg_id)
@@ -1827,6 +1829,22 @@ async def test_scheduler_on_finalize_row_group_callback_fires() -> None:
 
     assert finalized == [0]
     assert storage.write_batch_to_parquet_file.call_count == 1
+    compact_row_group.assert_called_once_with(0)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_does_not_compact_row_group_when_checkpoint_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scheduler, tracker = _build_simple_pipeline(num_records=1)
+    compact_row_group = MagicMock(wraps=tracker.compact_row_group)
+    monkeypatch.setattr(tracker, "compact_row_group", compact_row_group)
+    scheduler._on_finalize_row_group = MagicMock(side_effect=RuntimeError("checkpoint failed"))
+
+    await scheduler.run()
+
+    compact_row_group.assert_not_called()
+    assert tracker.is_row_group_complete(0, 1, ["seed", "cell_out"])
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -3171,6 +3189,41 @@ class SlowCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
     async def agenerate(self, data: dict) -> dict:
         await asyncio.sleep(self._delay)
         return self.generate(data)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_compacts_only_after_row_group_workers_finish() -> None:
+    """A dropped row must not checkpoint while a sibling worker is still running."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="failing", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="slow", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "failing": GenerationStrategy.CELL_BY_CELL,
+        "slow": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "failing": MockFailingGenerator(config=_expr_config("failing"), resource_provider=provider),
+        "slow": SlowCellGenerator(config=_expr_config("slow"), resource_provider=provider),
+    }
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=1,
+        configs=configs,
+        strategies=strategies,
+        generators=generators,
+    )
+
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, 1, ["seed", "failing", "slow"])
+    assert tracker.is_dropped(0, 0)
+    assert 0 not in tracker._completed
+    assert 0 not in tracker._dropped
+    assert 0 not in tracker._batch_complete
 
 
 class SlowLLMBoundCellGenerator(SlowCellGenerator):
