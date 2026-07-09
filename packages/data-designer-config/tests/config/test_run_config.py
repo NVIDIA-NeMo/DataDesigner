@@ -40,6 +40,36 @@ def test_run_config_accepts_scheduler_event_writes() -> None:
     assert RunConfig(write_scheduler_events=True).write_scheduler_events is True
 
 
+def test_run_config_defaults_otel_metrics_port_to_9464() -> None:
+    assert RunConfig().otel_metrics_port == 9464
+
+
+def test_run_config_accepts_custom_otel_metrics_port() -> None:
+    assert RunConfig(otel_metrics_port=4318).otel_metrics_port == 4318
+
+
+def test_run_config_accepts_disabled_otel_metrics() -> None:
+    assert RunConfig(otel_metrics_port=None).otel_metrics_port is None
+
+
+@pytest.mark.parametrize("otel_metrics_port", [1, 65535])
+def test_run_config_accepts_otel_metrics_port_bounds(otel_metrics_port: int) -> None:
+    assert RunConfig(otel_metrics_port=otel_metrics_port).otel_metrics_port == otel_metrics_port
+
+
+@pytest.mark.parametrize("otel_metrics_port", [0, 65536])
+def test_run_config_rejects_otel_metrics_port_outside_bounds(otel_metrics_port: int) -> None:
+    with pytest.raises(ValidationError, match="otel_metrics_port"):
+        RunConfig(otel_metrics_port=otel_metrics_port)
+
+
+def test_run_config_preserves_otel_metrics_port_when_serialized() -> None:
+    serialized = RunConfig(otel_metrics_port=4318).model_dump()
+
+    assert serialized["otel_metrics_port"] == 4318
+    assert RunConfig.model_validate(serialized).otel_metrics_port == 4318
+
+
 def test_run_config_progress_bar_shim_translates_to_display_tui() -> None:
     with pytest.warns(DeprecationWarning, match="RunConfig.progress_bar.*RunConfig.display_tui") as caught:
         run_config = RunConfig(progress_bar=False)

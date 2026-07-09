@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Concatenate, ParamSpec, TypeVar
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
@@ -66,6 +67,7 @@ from data_designer.engine.secret_resolver import (
     SecretResolver,
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
+from data_designer.integrations.opentelemetry import OpenTelemetryRuntime, get_open_telemetry_runtime
 from data_designer.interface.composite_workflow import CompositeWorkflow
 from data_designer.interface.errors import (
     DataDesignerEarlyShutdownError,
@@ -84,6 +86,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _CHECK_MODELS_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _observe_create(
+    method: Callable[Concatenate[DataDesigner, _P], _R],
+) -> Callable[Concatenate[DataDesigner, _P], _R]:
+    @functools.wraps(method)
+    def wrapper(self: DataDesigner, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with self._open_telemetry.observe_create(self._run_config.otel_metrics_port):
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
 
 DEFAULT_SECRET_RESOLVER = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
 
@@ -151,6 +168,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         if auto_configure_logging and not is_logging_configured():
             configure_logging()
         resolve_seed_default_model_settings()
+        self._open_telemetry: OpenTelemetryRuntime = get_open_telemetry_runtime()
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
@@ -195,6 +213,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         configured = [p.name for p in self._mcp_providers]
         raise ValueError(f"No MCP provider named {mcp_provider_name!r}. Configured providers: {configured}")
 
+    @_observe_create
     def create(
         self,
         config_builder: DataDesignerConfigBuilder,
@@ -721,12 +740,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             tool_configs=config_builder.tool_configs,
             client_concurrency_mode=client_concurrency_mode,
             request_admission=self._request_admission,
+            request_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
+            scheduler_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
         )
 
     def _create_request_admission_controller(self) -> AdaptiveRequestAdmissionController:
         from data_designer.engine.models.factory import create_request_admission_controller
 
-        return create_request_admission_controller(self._run_config)
+        return create_request_admission_controller(
+            self._run_config,
+            request_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
+        )
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:
         return InterfaceInfo(model_providers=model_providers)

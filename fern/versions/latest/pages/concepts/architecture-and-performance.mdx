@@ -399,6 +399,55 @@ except DataDesignerEarlyShutdownError:
     ...
 ```
 
+## Local OpenTelemetry Metrics
+
+`DataDesigner.create()` starts or reuses a process-wide OpenTelemetry Prometheus endpoint on `http://127.0.0.1:9464/metrics` by default. Use `RunConfig` to disable metrics for an invocation or choose another port:
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+designer = DataDesigner()
+designer.set_run_config(dd.RunConfig(otel_metrics_port=None))
+
+# Or keep metrics enabled on a different loopback port.
+designer.set_run_config(dd.RunConfig(otel_metrics_port=9465))
+```
+
+Configure a Prometheus server on the same host to scrape the endpoint:
+
+```yaml
+scrape_configs:
+  - job_name: data-designer
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:9464"]
+```
+
+The endpoint exposes seven instruments. Prometheus derives throughput and request-completion rates from their counters and histogram counts.
+
+| Instrument | Type | Meaning |
+|------------|------|---------|
+| `data_designer.create.duration` | Histogram | Create-job duration in seconds, with failure-only `error.type`. |
+| `data_designer.dataset.records` | Counter | Checkpointed generated and dropped records, distinguished by `record.result`; derive record throughput from this counter. |
+| `data_designer.dataset.progress` | Gauge | Fraction of scheduled records processed by the current create job, or across all active jobs when creates overlap. The most recently finished value remains visible until the next job starts. |
+| `data_designer.scheduler.events` | Counter | Job start/completion, non-retryable task errors, worker spawn failures, deferred retries, and task cancellations, identified by `event.name` with bounded `outcome` and failure-only `error.type` where applicable. |
+| `data_designer.model.request.active` | UpDownCounter | Model requests currently in progress, identified by `gen_ai.operation.name`, `gen_ai.provider.name`, and `gen_ai.request.model`. |
+| `gen_ai.client.operation.duration` | Histogram | Completed model-request duration in seconds, identified by `gen_ai.operation.name`, `gen_ai.provider.name`, and `gen_ai.request.model`, with failure-only `error.type`. |
+| `data_designer.log.records` | Counter | Data Designer log-record counts by normalized `log.severity`. |
+
+The listener and cumulative metrics remain available until process shutdown so a scrape can collect results after a job finishes. A later enabled job can rebind an idle listener to a different configured port without resetting those metrics. Concurrent jobs that request different ports share the active listener and emit a warning instead of replacing it.
+
+Generated and dropped record counts advance when a row group is durably checkpointed, so `data_designer.dataset.progress` moves in `buffer_size`-sized steps. Use `data_designer.model.request.active` and the `gen_ai.client.operation.duration` histogram count for live request activity between checkpoints.
+
+Setting `otel_metrics_port=None` records nothing for that invocation. If an earlier enabled job already started the process listener, disabling a later job does not stop the listener or remove the earlier cumulative metrics.
+
+<Warning>
+The endpoint binds only to loopback and has no authentication. It is intended for a Prometheus server running on the same host, not for remote exposure.
+</Warning>
+
+Prometheus pull is metrics-only: `data_designer.log.records` counts safe log metadata, not raw log bodies. Existing raw logs continue to use the configured stdout and file handlers and should be collected from those outputs. The Python Prometheus exporter does not support multiprocessing, so this endpoint is unsupported for multiprocessing-based collection.
+
 ## Common Problems
 
 | Problem | Symptom | Solution |

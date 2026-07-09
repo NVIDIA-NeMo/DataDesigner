@@ -480,7 +480,8 @@ def test_async_bridge_falls_back_to_agenerate_on_sync_client_error() -> None:
         engine_thread.join(timeout=5)
 
 
-def test_async_bridge_propagates_runtime_correlation() -> None:
+@pytest.mark.asyncio(loop_scope="session")
+async def test_async_bridge_propagates_runtime_correlation() -> None:
     facade = Mock()
     facade.generate.side_effect = SyncClientUnavailableError(
         "Sync methods are not available on an async-mode HttpModelClient."
@@ -512,7 +513,7 @@ def test_async_bridge_propagates_runtime_correlation() -> None:
             "data_designer.engine.dataset_builders.utils.async_concurrency.ensure_async_engine_loop",
             return_value=engine_loop,
         ):
-            result = proxy.generate("hello", parser=str)
+            result = await asyncio.to_thread(proxy.generate, "hello", parser=str)
     finally:
         runtime_correlation_provider.reset(correlation_token)
         engine_loop.call_soon_threadsafe(engine_loop.stop)

@@ -25,7 +25,7 @@ from data_designer.engine.models.request_admission.resources import (
     RequestGroupSpec,
     RequestResourceKey,
 )
-from data_designer.engine.observability import subscribe_request_admission_events
+from data_designer.engine.observability import RequestAdmissionEventKind, subscribe_request_admission_events
 from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
@@ -47,6 +47,11 @@ def _controller(cap: int = 2, config: RequestAdmissionConfig | None = None) -> A
 class _BrokenRequestSink:
     def emit_request_event(self, _event: object) -> None:
         raise RuntimeError("sink boom")
+
+
+class _RejectingRequestSink(InMemoryAdmissionEventSink):
+    def accepts_request_event(self, _event_kind: RequestAdmissionEventKind) -> bool:
+        return False
 
 
 def test_request_admission_acquires_and_releases_lease() -> None:
@@ -348,6 +353,15 @@ def test_request_admission_logs_sink_failures(caplog: pytest.LogCaptureFixture) 
     controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
 
     assert "Request admission event sink raised; dropping event." in caplog.text
+
+
+def test_request_admission_honors_sink_interest_filter() -> None:
+    sink = _RejectingRequestSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+
+    assert sink.request_events == []
 
 
 def test_request_lease_released_event_records_release_outcome() -> None:

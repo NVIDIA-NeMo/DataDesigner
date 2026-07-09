@@ -409,6 +409,7 @@ def test_prepare_async_run_enables_request_pressure_advisory(monkeypatch: pytest
             progress_interval=5.0,
             display_tui=False,
         ),
+        scheduler_event_sink=None,
     )
     processor_runner = MagicMock()
     processor_runner.has_processors_for.return_value = False
@@ -448,6 +449,7 @@ def test_prepare_async_run_uses_compact_plan_for_large_fresh_runs(monkeypatch: p
             progress_interval=5.0,
             display_tui=False,
         ),
+        scheduler_event_sink=None,
     )
     processor_runner = MagicMock()
     processor_runner.has_processors_for.return_value = False
