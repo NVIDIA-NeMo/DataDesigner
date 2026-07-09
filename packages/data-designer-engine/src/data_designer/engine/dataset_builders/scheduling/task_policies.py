@@ -29,7 +29,8 @@ TaskAdmissionDenyReason = Literal[
     "shutdown",
     "policy_denial",
 ]
-DEFAULT_DYNAMIC_BORROW_RESERVE_FRACTION = 0.125
+# ponytail: a future peer can take the next released slot; do not reserve idle capacity.
+DEFAULT_DYNAMIC_BORROW_RESERVE_FRACTION = 0.0
 DEFAULT_DYNAMIC_BORROW_MAX_RESERVED_SLOTS = 8
 
 
@@ -40,9 +41,8 @@ class BoundedBorrowTaskAdmissionPolicyConfig:
     Borrow debt is tracked by task group and scheduler resource. Any completed
     lease in the same group repays debt for the released resources; repayment is
     not tied to the specific lease that originally borrowed. When no explicit
-    borrow ceiling is configured, the policy reserves one slot per eight
-    resource slots, capped at eight reserved slots, and lets solo groups borrow
-    up to the remaining capacity.
+    borrow ceiling is configured, a solo group may use the full resource;
+    borrow debt gives a newly queued peer priority as leases complete.
     """
 
     borrow_ceiling_by_group_resource: Mapping[tuple[TaskGroupKey, SchedulerResourceKey], int] = field(
@@ -320,7 +320,7 @@ def _strict_share(
 
 
 def _dynamic_reserved_slots(resource_limit: int, *, reserve_fraction: float, max_reserved_slots: int) -> int:
-    return min(max_reserved_slots, max(1, math.ceil(resource_limit * reserve_fraction)))
+    return min(max_reserved_slots, math.ceil(resource_limit * reserve_fraction))
 
 
 def _competing_group_specs(
