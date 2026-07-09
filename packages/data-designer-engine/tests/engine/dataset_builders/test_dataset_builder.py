@@ -1135,6 +1135,37 @@ def test_preview_does_not_write_scheduler_events(stub_resource_provider: Mock, t
     assert list(tmp_path.rglob("scheduler_events.jsonl")) == []
 
 
+def test_build_writes_metadata_after_first_checkpoint_and_at_end(
+    stub_resource_provider: Mock,
+    tmp_path: Path,
+) -> None:
+    builder, storage = _make_sampler_only_builder(
+        stub_resource_provider,
+        tmp_path,
+        resume=ResumeMode.NEVER,
+    )
+    payloads: list[dict[str, object]] = []
+    original_write_metadata = ArtifactStorage.write_metadata
+
+    def record_write_metadata(instance: ArtifactStorage, metadata: dict[str, object]) -> Path:
+        if instance is storage:
+            payloads.append(metadata)
+        return original_write_metadata(instance, metadata)
+
+    with patch.object(ArtifactStorage, "write_metadata", autospec=True, side_effect=record_write_metadata):
+        builder.build(num_records=6, resume=ResumeMode.NEVER)
+
+    assert [(payload["actual_num_records"], payload["num_completed_batches"]) for payload in payloads] == [
+        (2, 1),
+        (6, 3),
+    ]
+    file_paths = [payload["file_paths"] for payload in payloads]
+    assert all(isinstance(paths, dict) for paths in file_paths)
+    assert [len(paths["parquet-files"]) for paths in file_paths if isinstance(paths, dict)] == [1, 3]
+    persisted = storage.read_metadata()
+    assert {key: persisted[key] for key in payloads[-1]} == payloads[-1]
+
+
 def test_resumed_build_appends_scheduler_event_segment(stub_resource_provider: Mock, tmp_path: Path) -> None:
     builder, _storage = _make_sampler_only_builder(
         stub_resource_provider,

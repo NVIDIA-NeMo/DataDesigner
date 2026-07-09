@@ -801,18 +801,24 @@ class DatasetBuilder:
 
             precomputed_row_groups = resume_plan.remaining_row_groups
 
+        incremental_metadata_written = False
+
         def finalize_row_group(rg_id: int) -> None:
+            nonlocal incremental_metadata_written
+
             def on_complete(final_path: Path | str | None) -> None:
                 if final_path is not None and on_batch_complete:
                     on_batch_complete(final_path)
 
             buffer_manager.checkpoint_row_group(rg_id, on_complete=on_complete)
-            # Write incremental metadata after each row group so interrupted runs can be resumed.
-            buffer_manager.write_metadata(
-                target_num_records=num_records,
-                original_target_num_records=original_target,
-                buffer_size=buffer_size,
-            )
+            # Persist the first durable checkpoint; resume scans parquet files for later progress.
+            if not incremental_metadata_written:
+                buffer_manager.write_metadata(
+                    target_num_records=num_records,
+                    original_target_num_records=original_target,
+                    buffer_size=buffer_size,
+                )
+                incremental_metadata_written = True
 
         # Telemetry snapshot
         group_id = uuid.uuid4().hex
@@ -861,7 +867,7 @@ class DatasetBuilder:
         except Exception:
             logger.debug("Failed to emit batch telemetry for async run", exc_info=True)
 
-        # Write final metadata (overwrites the last incremental write with identical content).
+        # Refresh metadata with the final checkpoint state.
         buffer_manager.write_metadata(
             target_num_records=num_records,
             original_target_num_records=original_target,
