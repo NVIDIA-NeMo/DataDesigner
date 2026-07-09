@@ -7,12 +7,13 @@ import pytest
 
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.run_config import RequestAdmissionTuningConfig, RunConfig
+from data_designer.engine.models.clients.model_request_executor import ModelRequestExecutor
 from data_designer.engine.models.errors import ModelAuthenticationError, ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
-from data_designer.engine.models.factory import create_model_registry
+from data_designer.engine.models.factory import create_model_registry, create_request_admission_controller
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenCountSource, TokenUsageStats
-from data_designer.engine.testing import make_stub_completion_response
+from data_designer.engine.testing import InMemoryAdmissionEventSink, make_stub_completion_response
 from data_designer.logging import LOG_INDENT
 
 
@@ -83,6 +84,33 @@ def test_create_model_registry_maps_request_admission_tuning_config(
     assert request_config.successes_until_increase == 7
     assert request_config.cooldown_seconds == 1.5
     assert request_config.startup_ramp_seconds == 30.0
+
+
+def test_create_model_registry_shares_request_sink_and_controller(
+    stub_model_configs: list[ModelConfig],
+    stub_secrets_resolver: object,
+    stub_model_provider_registry: object,
+) -> None:
+    sink = InMemoryAdmissionEventSink()
+    controller = create_request_admission_controller(request_event_sink=sink)
+    model_registry = create_model_registry(
+        model_configs=stub_model_configs,
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        request_admission=controller,
+        request_event_sink=sink,
+    )
+
+    model = model_registry.get_model(model_alias=stub_model_configs[0].alias)
+
+    assert model_registry.request_admission is controller
+    assert isinstance(model._client, ModelRequestExecutor)
+    assert model._client._request_admission is controller
+    assert model._client._event_sink is sink
+    kinds = [event.event_kind for event in sink.request_events]
+    assert kinds.count("request_resource_registered") == 1
+    assert kinds.count("request_effective_cap_changed") == 1
+    assert len({id(event) for event in sink.request_events}) == len(sink.request_events)
 
 
 def test_public_props(stub_model_configs, stub_model_registry):

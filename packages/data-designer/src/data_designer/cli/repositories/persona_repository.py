@@ -68,23 +68,3 @@ class PersonaRepository:
             PersonaLocale if found, None otherwise
         """
         return next((locale for locale in self._registry.locales if locale.code == code), None)
-
-    def get_dataset_name(self, code: str) -> str | None:
-        """Get the NGC dataset name for a locale.
-
-        Args:
-            code: Locale code (e.g., 'en_US', 'ja_JP')
-
-        Returns:
-            Dataset name if locale exists, None otherwise
-        """
-        locale = self.get_by_code(code)
-        return locale.dataset_name if locale else None
-
-    def get_dataset_prefix(self) -> str:
-        """Get the dataset prefix for all persona datasets.
-
-        Returns:
-            Dataset prefix string
-        """
-        return self._registry.dataset_prefix

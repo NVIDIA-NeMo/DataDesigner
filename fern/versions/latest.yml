@@ -81,6 +81,26 @@ navigation:
     contents:
       - page: Recipe Cards
         path: ./latest/pages/recipes/cards.mdx
+      - section: Image Generation
+        contents:
+          - page: Rich Document Image Generation
+            path: ./latest/pages/recipes/image_generation/rich_document_images.mdx
+          - page: Product Image Variations
+            path: ./latest/pages/recipes/image_generation/product_image_variations.mdx
+          - page: Funny Pet Image Edits
+            path: ./latest/pages/recipes/image_generation/funny_pet_image_edits.mdx
+          - page: Autonomous Vehicle Traffic Scenarios
+            path: ./latest/pages/recipes/image_generation/traffic_scenarios.mdx
+          - page: Synthetic Extremity X-rays
+            path: ./latest/pages/recipes/image_generation/medical_extremity_xrays.mdx
+          - page: Airport Baggage Screening Scans
+            path: ./latest/pages/recipes/image_generation/airport_security_scans.mdx
+          - page: Humanoid Robot Scene Understanding
+            path: ./latest/pages/recipes/image_generation/humanoid_robot_scene_understanding.mdx
+          - page: Crop Disease Detection Images
+            path: ./latest/pages/recipes/image_generation/agriculture_crop_imagery.mdx
+          - page: Drone Aerial Inspection
+            path: ./latest/pages/recipes/image_generation/drone_aerial_inspection.mdx
       - section: Code Generation
         contents:
           - page: Text to Python
@@ -149,6 +169,8 @@ navigation:
     contents:
       - page: Overview
         path: ./latest/pages/devnotes/index.mdx
+      - page: Image Generation for Multimodal Data Pipelines
+        path: ./latest/pages/devnotes/posts/image-generation-for-multimodal-data-pipelines.mdx
       - page: Pause, Inspect, Resume
         path: ./latest/pages/devnotes/posts/annotate-hard-pages-review-gates.mdx
       - page: Designing Nemotron-Personas

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import contextlib
 import functools
 import json
 import logging
@@ -47,8 +49,12 @@ from data_designer.engine.dataset_builders.utils.config_compiler import compile_
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
-from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
+from data_designer.engine.observability import (
+    JsonlSchedulerEventSink,
+    SchedulerAdmissionEventSink,
+    fanout_scheduler_event_sinks,
+)
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.readiness import run_readiness_check
@@ -78,6 +84,20 @@ PRESERVE_DROPPED_COLUMNS_METADATA_KEY = "preserve_dropped_columns"
 
 def _is_async_trace_enabled(settings: RunConfig) -> bool:
     return settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+
+def _await_async_scheduler_result(future: concurrent.futures.Future[Any], scheduler: AsyncTaskScheduler) -> None:
+    try:
+        future.result()
+    except KeyboardInterrupt:
+        scheduler.request_cancel()
+        try:
+            future.result()
+        except concurrent.futures.CancelledError:
+            pass
+        except Exception:
+            logger.debug("Async scheduler raised while cancelling after KeyboardInterrupt", exc_info=True)
+        raise
 
 
 class _ConfigCompatibility(StrEnum):
@@ -219,13 +239,6 @@ class DatasetBuilder:
         """First non-retryable error captured by the scheduler in the most recent run."""
         return self._first_non_retryable_error
 
-    def set_processor_runner(self, processors: list[Processor]) -> None:
-        """Replace the processor runner with a new one using the given processors."""
-        self._processor_runner = ProcessorRunner(
-            processors=processors,
-            artifact_storage=self.artifact_storage,
-        )
-
     @functools.cached_property
     def single_column_configs(self) -> list[ColumnConfigT]:
         configs = []
@@ -235,10 +248,6 @@ class DatasetBuilder:
             else:
                 configs.append(config)
         return configs
-
-    @functools.cached_property
-    def single_column_config_by_name(self) -> dict[str, ColumnConfigT]:
-        return {config.name: config for config in self.single_column_configs}
 
     def build(
         self,
@@ -279,7 +288,6 @@ class DatasetBuilder:
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
         )
 
         # For IF_POSSIBLE and ALWAYS: check config compatibility before touching the artifact
@@ -534,7 +542,6 @@ class DatasetBuilder:
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
         )
 
         # Set media storage to DATAFRAME mode for preview - base64 stored directly in DataFrame
@@ -576,7 +583,7 @@ class DatasetBuilder:
         loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         try:
-            future.result()
+            _await_async_scheduler_result(future, scheduler)
         finally:
             self._task_traces = scheduler.traces
             self._early_shutdown = scheduler.early_shutdown
@@ -807,38 +814,45 @@ class DatasetBuilder:
                 buffer_size=buffer_size,
             )
 
-        scheduler, buffer_manager = self._prepare_async_run(
-            generators,
-            num_records,
-            buffer_size,
-            on_finalize_row_group=finalize_row_group,
-            shutdown_error_rate=settings.shutdown_error_rate,
-            shutdown_error_window=settings.shutdown_error_window,
-            disable_early_shutdown=settings.disable_early_shutdown,
-            trace=trace_enabled,
-            precomputed_row_groups=precomputed_row_groups,
-            initial_actual_num_records=initial_actual_num_records,
-            initial_total_num_batches=initial_total_num_batches,
-        )
-
         # Telemetry snapshot
         group_id = uuid.uuid4().hex
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
 
-        # Run on background event loop. Capture scheduler state in `finally`
-        # so the structured signal is preserved even if `scheduler.run()`
-        # raises during the salvage path - otherwise callers see a generic
-        # error and lose the early-shutdown context.
-        loop = ensure_async_engine_loop()
-        future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
-        try:
-            future.result()
-        finally:
-            self._task_traces = scheduler.traces
-            self._early_shutdown = scheduler.early_shutdown
-            self._partial_row_groups = scheduler.partial_row_groups
-            self._actual_num_records = buffer_manager.actual_num_records
-            self._first_non_retryable_error = scheduler.first_non_retryable_error
+        event_sink_context = (
+            JsonlSchedulerEventSink(self.artifact_storage.base_dataset_path / "scheduler_events.jsonl")
+            if settings.write_scheduler_events
+            else contextlib.nullcontext()
+        )
+        with event_sink_context as scheduler_event_sink:
+            scheduler, buffer_manager = self._prepare_async_run(
+                generators,
+                num_records,
+                buffer_size,
+                on_finalize_row_group=finalize_row_group,
+                shutdown_error_rate=settings.shutdown_error_rate,
+                shutdown_error_window=settings.shutdown_error_window,
+                disable_early_shutdown=settings.disable_early_shutdown,
+                trace=trace_enabled,
+                precomputed_row_groups=precomputed_row_groups,
+                initial_actual_num_records=initial_actual_num_records,
+                initial_total_num_batches=initial_total_num_batches,
+                scheduler_event_sink=scheduler_event_sink,
+            )
+
+            # Run on background event loop. Capture scheduler state in `finally`
+            # so the structured signal is preserved even if `scheduler.run()`
+            # raises during the salvage path - otherwise callers see a generic
+            # error and lose the early-shutdown context.
+            loop = ensure_async_engine_loop()
+            future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
+            try:
+                _await_async_scheduler_result(future, scheduler)
+            finally:
+                self._task_traces = scheduler.traces
+                self._early_shutdown = scheduler.early_shutdown
+                self._partial_row_groups = scheduler.partial_row_groups
+                self._actual_num_records = buffer_manager.actual_num_records
+                self._first_non_retryable_error = scheduler.first_non_retryable_error
 
         # Emit telemetry
         try:
@@ -888,6 +902,7 @@ class DatasetBuilder:
         precomputed_row_groups: RowGroupInput | None = None,
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
+        scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
         """Build a fully-wired scheduler and buffer manager for async generation.
 
@@ -952,6 +967,7 @@ class DatasetBuilder:
             tracker=tracker,
             row_groups=row_groups,
             buffer_manager=buffer_manager,
+            max_concurrent_row_groups=self._resource_provider.run_config.max_concurrent_row_groups,
             max_in_flight_tasks=max_in_flight_tasks,
             max_model_task_admission=max_model_task_admission,
             on_finalize_row_group=on_finalize_row_group,
@@ -971,7 +987,11 @@ class DatasetBuilder:
             buffer_size=buffer_size,
             initial_completed_records=initial_actual_num_records,
             progress_interval=self._resource_provider.run_config.progress_interval,
-            progress_bar=self._resource_provider.run_config.progress_bar,
+            display_tui=self._resource_provider.run_config.display_tui,
+            scheduler_event_sink=fanout_scheduler_event_sinks(
+                scheduler_event_sink,
+                self._resource_provider.scheduler_event_sink,
+            ),
             request_pressure_provider=self._resource_provider.model_registry.request_admission,
             request_pressure_advisory=True,
         )

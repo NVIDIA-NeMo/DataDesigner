@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Concatenate, ParamSpec, TypeVar
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
@@ -41,6 +43,7 @@ from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
+from data_designer.engine.models.errors import RETRYABLE_MODEL_ERRORS
 from data_designer.engine.readiness import run_readiness_check
 from data_designer.engine.resources.person_reader import (
     PersonReader,
@@ -64,6 +67,7 @@ from data_designer.engine.secret_resolver import (
     SecretResolver,
 )
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, ResumeMode
+from data_designer.integrations.opentelemetry import OpenTelemetryRuntime, get_open_telemetry_runtime
 from data_designer.interface.composite_workflow import CompositeWorkflow
 from data_designer.interface.errors import (
     DataDesignerEarlyShutdownError,
@@ -71,7 +75,7 @@ from data_designer.interface.errors import (
     DataDesignerProfilingError,
 )
 from data_designer.interface.results import DatasetCreationResults
-from data_designer.logging import LOG_INDENT, RandomEmoji, configure_logging
+from data_designer.logging import LOG_INDENT, RandomEmoji, configure_logging, is_logging_configured
 from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
 
@@ -81,18 +85,33 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_CHECK_MODELS_RETRYABLE_ERRORS = RETRYABLE_MODEL_ERRORS + (TimeoutError,)
 
 _interface_runtime_initialized = False
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 
 
-def _initialize_interface_runtime() -> None:
+def _initialize_interface_runtime(*, auto_configure_logging: bool = True) -> None:
     """Run one-time runtime initialization for the interface package."""
     global _interface_runtime_initialized
     if _interface_runtime_initialized:
         return
-    configure_logging()
+    if auto_configure_logging and not is_logging_configured():
+        configure_logging()
     resolve_seed_default_model_settings()
     _interface_runtime_initialized = True
+
+
+def _observe_create(
+    method: Callable[Concatenate[DataDesigner, _P], _R],
+) -> Callable[Concatenate[DataDesigner, _P], _R]:
+    @functools.wraps(method)
+    def wrapper(self: DataDesigner, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with self._open_telemetry.observe_create(self._run_config.otel_metrics_port):
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 DEFAULT_SECRET_RESOLVER = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
@@ -138,6 +157,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         mcp_providers: Optional list of MCP provider configurations to enable tool-calling for
             LLM generation columns. Supports both MCPProvider (remote SSE or Streamable HTTP) and
             LocalStdioMCPProvider (local subprocess).
+        auto_configure_logging: Whether to apply Data Designer's default logging
+            configuration during construction. Set to False when embedding Data
+            Designer in an application that manages its own logging — Data Designer
+            will then leave existing root handlers and log levels untouched.
+            Automatic configuration is also skipped when
+            `data_designer.logging.configure_logging()` was already called.
     """
 
     def __init__(
@@ -150,8 +175,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         managed_assets_path: Path | str | None = None,
         person_reader: PersonReader | None = None,
         mcp_providers: list[MCPProviderT] | None = None,
+        auto_configure_logging: bool = True,
     ):
-        _initialize_interface_runtime()
+        _initialize_interface_runtime(auto_configure_logging=auto_configure_logging)
+        self._open_telemetry: OpenTelemetryRuntime = get_open_telemetry_runtime()
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
@@ -196,6 +223,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         configured = [p.name for p in self._mcp_providers]
         raise ValueError(f"No MCP provider named {mcp_provider_name!r}. Configured providers: {configured}")
 
+    @_observe_create
     def create(
         self,
         config_builder: DataDesignerConfigBuilder,
@@ -499,7 +527,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
         compile_data_designer_config(config_builder.build(), resource_provider)
 
-    def check_models(self, config_builder: DataDesignerConfigBuilder) -> None:
+    def check_models(
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        *,
+        max_attempts: int = 1,
+        retry_backoff_seconds: float = 0,
+    ) -> None:
         """Probe every model and MCP tool referenced by the configuration.
 
         Runs the same readiness checks performed at the start of ``preview`` and
@@ -515,6 +549,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Args:
             config_builder: The DataDesignerConfigBuilder whose column configs
                 determine which model aliases and tool aliases are probed.
+            max_attempts: Total readiness attempts for retryable failures.
+            retry_backoff_seconds: Base delay between attempts. The delay is
+                multiplied by the completed attempt number.
 
         Returns:
             None if every (non-skipped) probe succeeded.
@@ -526,13 +563,32 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             DatasetGenerationError: If a tool alias is referenced but no
                 ``MCPRegistry`` is configured.
             TimeoutError: If async health-check execution exceeds 180 seconds.
+            ValueError: If ``max_attempts`` is less than one or
+                ``retry_backoff_seconds`` is negative.
         """
-        resource_provider = self._create_resource_provider("check-models", config_builder)
-        run_readiness_check(
-            config_builder.build().columns,
-            resource_provider,
-            client_concurrency_mode=ClientConcurrencyMode.ASYNC,
-        )
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        if retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must be non-negative")
+
+        columns = config_builder.build().columns
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resource_provider = self._create_resource_provider("check-models", config_builder)
+                run_readiness_check(
+                    columns,
+                    resource_provider,
+                )
+                return
+            except _CHECK_MODELS_RETRYABLE_ERRORS as exc:
+                if attempt == max_attempts:
+                    raise
+                delay = attempt * retry_backoff_seconds
+                logger.warning(
+                    f"Retrying model readiness check after {type(exc).__name__}: {exc} "
+                    f"(attempt {attempt + 1}/{max_attempts}, sleeping {delay:g}s)"
+                )
+                time.sleep(delay)
 
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.
@@ -694,12 +750,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             tool_configs=config_builder.tool_configs,
             client_concurrency_mode=client_concurrency_mode,
             request_admission=self._request_admission,
+            request_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
+            scheduler_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
         )
 
     def _create_request_admission_controller(self) -> AdaptiveRequestAdmissionController:
         from data_designer.engine.models.factory import create_request_admission_controller
 
-        return create_request_admission_controller(self._run_config)
+        return create_request_admission_controller(
+            self._run_config,
+            request_event_sink=self._open_telemetry if self._run_config.otel_metrics_port is not None else None,
+        )
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:
         return InterfaceInfo(model_providers=model_providers)

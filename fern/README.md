@@ -149,7 +149,9 @@ supports React's `<style precedence>` hoisting.
 
 The only checked-in standalone CSS is `styles/local-preview.css`, used by
 `make serve-fern-docs-locally` only when the Fern global theme is inaccessible.
-It is not referenced from `docs.yml`.
+It is not referenced from `docs.yml`. The fallback applies a deterministic
+NVIDIA-style local theme and mirrors source changes into Fern's temporary
+preview tree so live reload continues to work without theme access.
 
 ## Common commands
 
@@ -184,4 +186,4 @@ Raw Fern CLI commands, normally wrapped by Make:
 
 | Symptom | Fix |
 |---------|-----|
-| Local preview uses the local fallback theme | Sign in to https://dashboard.buildwithfern.com, run `cd fern && npx -y fern-api@$(jq -r .version fern.config.json) login`, then retry. If it still falls back, export a privileged `DOCS_FERN_TOKEN` as `FERN_TOKEN`. |
+| Local preview uses the deterministic local fallback theme | The fallback supports live reload without authentication. To use the canonical global theme, sign in to https://dashboard.buildwithfern.com, run `cd fern && npx -y fern-api@$(jq -r .version fern.config.json) login`, then retry. If it still falls back, export a privileged `DOCS_FERN_TOKEN` as `FERN_TOKEN`. |

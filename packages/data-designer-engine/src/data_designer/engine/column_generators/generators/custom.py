@@ -9,6 +9,7 @@ import asyncio
 import concurrent.futures
 import inspect
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 # derivation in ``_compute_bridge_timeout`` exceeds this floor.
 # Module-level so tests can patch it for fast feedback.
 _BRIDGE_TIMEOUT_FLOOR_S: float = 60.0
+_BRIDGE_CANCEL_POLL_S: float = 0.1
 
 
 def _compute_bridge_timeout(
@@ -86,6 +88,7 @@ class _AsyncBridgedModelFacade:
                 "Use 'await model.agenerate()' in async custom columns."
             )
 
+        from data_designer.engine.context import is_run_cancellation_requested
         from data_designer.engine.dataset_builders.utils.async_concurrency import ensure_async_engine_loop
 
         # Honor a per-call ``timeout=`` override (passed straight through to the
@@ -99,19 +102,46 @@ class _AsyncBridgedModelFacade:
         conversation_restarts = int(kwargs.get("max_conversation_restarts", 0) or 0)
         bridge_timeout = _compute_bridge_timeout(per_request_timeout, correction_steps, conversation_restarts)
 
+        if is_run_cancellation_requested():
+            raise asyncio.CancelledError
+
+        async def agenerate_with_cancellation_check() -> tuple[Any, list]:
+            if is_run_cancellation_requested():
+                raise asyncio.CancelledError
+            return await facade.agenerate(*args, **kwargs)
+
         loop = ensure_async_engine_loop()
-        future = asyncio.run_coroutine_threadsafe(facade.agenerate(*args, **kwargs), loop)
+        coro = agenerate_with_cancellation_check()
         try:
-            return future.result(timeout=bridge_timeout)
-        except concurrent.futures.TimeoutError as exc:
-            future.cancel()
-            # Demoted to debug: the raised ModelTimeoutError already surfaces
-            # the timeout at the scheduler with full context, and the request-admission
-            # degraded-provider WARN is the user-facing signal under sustained
-            # bridge timeouts. Per-event WARN was noise on top of those.
-            logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
-            # Raise as ModelTimeoutError so the scheduler classifies it retryable.
-            raise ModelTimeoutError(f"model.generate() bridge timed out after {bridge_timeout:.0f}s") from exc
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError as exc:
+            coro.close()
+            if is_run_cancellation_requested() or "interpreter shutdown" in str(exc):
+                raise asyncio.CancelledError from exc
+            raise
+        deadline = time.monotonic() + bridge_timeout
+        while True:
+            if is_run_cancellation_requested():
+                future.cancel()
+                raise asyncio.CancelledError
+            try:
+                return future.result(timeout=max(0.0, min(_BRIDGE_CANCEL_POLL_S, deadline - time.monotonic())))
+            except concurrent.futures.CancelledError as exc:
+                raise asyncio.CancelledError from exc
+            except concurrent.futures.TimeoutError as exc:
+                if is_run_cancellation_requested():
+                    future.cancel()
+                    raise asyncio.CancelledError from exc
+                if time.monotonic() < deadline:
+                    continue
+                future.cancel()
+                # Demoted to debug: the raised ModelTimeoutError already surfaces
+                # the timeout at the scheduler with full context, and the request-admission
+                # degraded-provider WARN is the user-facing signal under sustained
+                # bridge timeouts. Per-event WARN was noise on top of those.
+                logger.debug("Async model bridge timed out after %.0fs; coroutine cancelled", bridge_timeout)
+                # Raise as ModelTimeoutError so the scheduler classifies it retryable.
+                raise ModelTimeoutError(f"model.generate() bridge timed out after {bridge_timeout:.0f}s") from exc
 
     def __getattr__(self, name: str) -> Any:
         return getattr(object.__getattribute__(self, "_facade"), name)
@@ -276,38 +306,6 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             )
 
         return self._validate_output(result, keys_before, is_dataframe)
-
-    def _validate_cell_output(self, row: dict, keys_before: set[str]) -> dict:
-        """Validate a single row output (dict) for cell_by_cell; strip undeclared columns."""
-        expected_new = {self.config.name} | set(self.config.side_effect_columns)
-        result_keys = set(row.keys())
-
-        if self.config.name not in result_keys:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generator_function must add a column named '{self.config.name}' to the row."
-            )
-        missing = set(self.config.side_effect_columns) - result_keys
-        if missing:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create declared side_effect_columns: "
-                f"{sorted(missing)}. Declared side_effect_columns must be added to the row."
-            )
-        removed = keys_before - result_keys
-        if removed:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
-                f"{sorted(removed)}. The generator_function must not remove any existing columns."
-            )
-        undeclared = (result_keys - keys_before) - expected_new
-        if undeclared:
-            logger.warning(
-                f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
-                f"{sorted(undeclared)}. These columns will be removed. "
-                f"To keep additional columns, declare them in @custom_column_generator(side_effect_columns=[...])."
-            )
-            row = {k: v for k, v in row.items() if k not in undeclared}
-        return row
 
     def _validate_output(
         self, result: dict | pd.DataFrame, keys_before: set[str], is_dataframe: bool

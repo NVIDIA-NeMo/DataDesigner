@@ -91,6 +91,7 @@ if TYPE_CHECKING:
         UUIDSamplerParams,
     )
     from data_designer.config.scheduling import SchedulingMetadata, SchedulingMetadataError  # noqa: F401
+    from data_designer.config.script_params import DataDesignerScriptParams  # noqa: F401
     from data_designer.config.seed import (  # noqa: F401
         IndexRange,
         PartitionBlock,
@@ -193,6 +194,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ResumeMode": (f"{_MOD_BASE}.run_config", "ResumeMode"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
+    # script_params
+    "DataDesignerScriptParams": (f"{_MOD_BASE}.script_params", "DataDesignerScriptParams"),
     # scheduling metadata
     "SchedulingMetadata": (f"{_MOD_BASE}.scheduling", "SchedulingMetadata"),
     "SchedulingMetadataError": (f"{_MOD_BASE}.scheduling", "SchedulingMetadataError"),
