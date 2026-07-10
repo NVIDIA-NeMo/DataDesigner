@@ -164,7 +164,7 @@ class RecordSelectionConfig(ConfigBase):
     """Select records until the requested accepted-row count is reached."""
 
     predicate_column: str
-    max_candidate_records: int = Field(gt=0)
+    max_candidate_records: int = Field(gt=0, strict=True)
     on_exhausted: RecordSelectionExhaustion = RecordSelectionExhaustion.RAISE
 ```
 
@@ -187,6 +187,10 @@ def with_record_selection(
 `RecordSelectionConfig` belongs in the config package because it changes the meaning and identity of the output
 dataset. It must be serialized and included in `DataDesignerConfig.fingerprint()`. Candidate concurrency and batch
 sizing remain operational concerns owned by `RunConfig`.
+
+`max_candidate_records` is a strict integer cost boundary. Boolean values (which are Python integer subclasses),
+integral floats, and numeric strings are rejected instead of coerced. This keeps JSON/YAML configuration mistakes
+from silently changing how much candidate generation the engine is authorized to perform.
 
 ### Public semantics
 
@@ -600,8 +604,9 @@ Resume must not infer candidate progress solely from accepted parquet row counts
 artifacts/<dataset>/
   parquet-files/
     batch_00000.parquet            # published only when post_generation_state=complete
-  processors-files/                # mutable terminal processor outputs
+  processors-files/                # accepted-only, batch-addressed post-batch processor outputs
   selection-accepted/
+    schema.parquet                  # zero-row output schema anchor; never a candidate partition
     batch_00000.parquet            # immutable accepted partition for candidate batch 0; optional
     batch_00001.parquet            # immutable accepted partition for candidate batch 1; optional
   selection-checkpoints/
@@ -641,6 +646,9 @@ Example batch marker:
 `accepted_records` is the **post-trim persisted count** and must equal the row count of `accepted_partition`.
 `trimmed_accepted_records` is diagnostic: it counts predicate-true rows discarded from the final overshooting batch
 and is never added to accepted progress. Resume sums `accepted_records` to decide whether the target is satisfied.
+`schema.parquet` is written from the first post-selection, post-batch DataFrame even if it has no rows. It preserves
+the published output schema across process restarts when every candidate batch accepts zero rows; it is not included
+in accepted counts and is not referenced by an individual batch marker.
 
 For every marker, the following mutually exclusive accounting invariant must hold:
 
@@ -742,8 +750,9 @@ Treat the batch marker as the commit point:
 2. Apply selection and processors.
 3. Promote accepted engine-managed media from candidate staging into deterministic committed paths.
 4. Write the post-trim rows to a deterministic immutable accepted-partition path when non-empty.
-5. Atomically write the batch marker.
-6. Update global metadata.
+5. Write accepted-only dropped-column and post-batch processor artifacts under the same candidate batch ID.
+6. Atomically write the batch marker.
+7. Update global metadata.
 
 On resume:
 
@@ -752,6 +761,8 @@ On resume:
   `accepted_records`.
 - Delete uncommitted accepted partitions and committed-media prefixes for the next candidate batch before rerunning
   that batch.
+- Delete uncommitted dropped-column and post-batch processor files for that candidate batch before rerunning it;
+  committed batch-addressed processor artifacts remain valid alongside their marker.
 - Sweep candidate staging for every committed batch as well as the next uncommitted batch. Accepted media is already
   promoted before marker commit, so leftover staging is always disposable, including after a crash between marker
   commit and normal staging cleanup.
@@ -760,8 +771,8 @@ On resume:
 - Require the persisted `target_num_records` to equal the requested target before reusing any checkpoint.
 - Rebuild missing or incomplete published output from immutable accepted partitions without regenerating candidates.
 - When `post_generation_state` is `pending`, `started`, or missing for a terminal marker set, remove incomplete
-  `selection-publication-staging/`, `parquet-files/`, and selection-owned terminal processor-output prefixes before
-  rebuilding. Never delete immutable accepted partitions or committed accepted media during publication recovery.
+  `selection-publication-staging/` and `parquet-files/` before rebuilding. Never delete immutable accepted partitions,
+  committed accepted media, or marker-committed post-batch processor artifacts during publication recovery.
 
 ### Resume state machine
 
@@ -876,9 +887,11 @@ Accepted images must be promoted into the existing published `images/` directory
 uploads that directory explicitly. If V1 supports file-backed audio or video output, their published directories
 must be added explicitly to the Hub uploader; a generic committed-media directory must not be silently omitted.
 
-When rebuilding terminal output locally, replace mutable `parquet-files/` and configured terminal processor-output
-prefixes from a clean publication staging area. A processor prefix that is no longer produced must be deleted rather
-than left from a prior failed or differently configured publication attempt.
+When rebuilding terminal output locally, replace mutable `parquet-files/` from a clean publication staging area.
+Post-batch processor outputs are accepted-only, batch-addressed artifacts committed with each candidate marker, so
+publication recovery retains them and uncommitted-batch cleanup removes only the next incomplete batch. A plugin
+that creates additional untracked side effects during `process_after_generation` is outside the V1 recovery contract;
+after-generation processors may transform the published DataFrame but must not depend on untracked terminal files.
 
 When updating an existing Hub repository after resume or re-publication, submit deletion and upload operations for
 every managed `data/`, media, and configured processor-output prefix. Delete a managed remote prefix even when the
@@ -886,11 +899,12 @@ current local artifact has no corresponding files, so obsolete shards and proces
 published layout. The Hub update should apply these deletes and uploads in one commit where the API supports it.
 
 Persist a publication manifest in `metadata.json` that lists the managed local and Hub prefixes for the completed
-artifact. Local recovery deletes the union of prefixes in the previous manifest and the current expected manifest
-before rebuilding. Hub re-publication reads the previous remote metadata manifest and deletes the union of previous
-and current managed prefixes before uploading the current allowlist; a compatibility path may list known managed
-prefixes when publishing over an older repository with no manifest. This scoped manifest prevents stale processor
-outputs without deleting unrelated user-managed files in the Hub repository.
+artifact. Local publication recovery replaces the mutable published parquet prefix, while an incompatible
+`IF_POSSIBLE` restart clears all engine-managed selection, processor, media, and published prefixes before starting
+from candidate offset zero. Hub re-publication reads the previous remote metadata manifest and deletes stale files
+from the union of previous and current managed prefixes before uploading the current allowlist in one commit; a
+compatibility path may list known managed prefixes when publishing over an older repository with no manifest. This
+scoped manifest prevents stale processor outputs without deleting unrelated user-managed files in the Hub repository.
 
 ## Failure and exhaustion behavior
 
@@ -922,6 +936,7 @@ If `return_partial` reaches the candidate cap with zero accepted rows and no aut
 generation error, zero rows are a successful selection result:
 
 - Materialize a deterministic schema-bearing empty parquet file in `parquet-files/` from the compiled output schema.
+- Use the durable `selection-accepted/schema.parquet` anchor when terminal publication happens in a later process.
 - Bypass the interface's ordinary zero-row generation-failure guard only when terminal selection metadata records
   `selection_exhausted=true` and `on_exhausted=return_partial`.
 - Skip dataset profiling, persist `column_statistics=[]`, and return `analysis=None`. Formalize the existing runtime
@@ -1006,7 +1021,7 @@ Deliverables:
 
 - Serializable public model.
 - Builder API.
-- Unit validation for bounds and enum coercion.
+- Unit validation for strict integer bounds and enum coercion.
 - Fingerprint changes when any selection field changes.
 
 ### Phase 2: Interface contract and run-boundary validation
@@ -1063,6 +1078,7 @@ Deliverables:
 
 - Candidate progress reconstructed independently from accepted parquet row count.
 - Zero-acceptance candidate batches remain durably complete.
+- A durable zero-row schema anchor makes all-false partial output reconstructible after restart.
 - Immutable accepted partitions remain valid when published output is re-chunked by after-generation processors.
 - Marker counters satisfy the complete candidate-accounting invariant.
 - Crash-window cleanup for uncommitted candidate-batch artifacts.
@@ -1184,7 +1200,8 @@ commitment to implement a v2; benchmark evidence should justify it first.
 - Row-count-changing after-generation processor is rejected or detected.
 - Accepted media is promoted, rejected media is deleted, and an interrupted uncommitted media batch is cleaned on
   resume.
-- Stale local terminal processor-output prefixes are removed before publication recovery or re-execution.
+- Uncommitted batch-addressed processor outputs are removed before that candidate batch is re-executed, while
+  marker-committed outputs survive publication recovery.
 
 ### Hugging Face Hub tests
 
@@ -1253,7 +1270,8 @@ commitment to implement a v2; benchmark evidence should justify it first.
 - Keep `push_to_hub()` API-compatible while publishing only terminal accepted output and sanitized aggregate metadata.
 - Reuse `post_generation_state` so selection completion and publication completion are distinct; only `complete` is
   publishable, and interrupted mutable output is rebuilt from immutable accepted partitions.
-- Replace or delete stale local and Hub data, media, and processor-output prefixes during recovery/re-publication.
+- Replace stale local published data during recovery, clear all engine-managed prefixes on incompatible
+  `IF_POSSIBLE` restart, and delete stale managed Hub files during re-publication.
 - Defer early predicate task cancellation and concurrent candidate batches.
 
 ## Definition of done
