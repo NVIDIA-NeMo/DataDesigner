@@ -8,7 +8,7 @@ import logging
 import tempfile
 from pathlib import Path
 
-from huggingface_hub import HfApi
+from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi
 from huggingface_hub.errors import HFValidationError
 from huggingface_hub.utils import HfHubHTTPError, validate_repo_id
 
@@ -127,6 +127,19 @@ class HuggingFaceHubClient:
         self._validate_dataset_path(base_dataset_path=base_dataset_path)
         self._create_or_get_repo(repo_id=repo_id, private=private)
 
+        metadata = json.loads((base_dataset_path / METADATA_FILENAME).read_text(encoding="utf-8"))
+        if isinstance(metadata.get("record_selection"), dict):
+            self._upload_record_selection_dataset(
+                repo_id=repo_id,
+                base_dataset_path=base_dataset_path,
+                metadata=metadata,
+                description=description,
+                tags=tags,
+            )
+            url = f"{HUGGINGFACE_HUB_DATASET_URL_PREFIX}{repo_id}"
+            logger.info(f"{LOG_INDENT}{RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
+            return url
+
         logger.info(f"{LOG_INDENT}{RandomEmoji.data()} Uploading dataset card...")
         try:
             self._upload_dataset_card(
@@ -153,6 +166,105 @@ class HuggingFaceHubClient:
         url = f"{HUGGINGFACE_HUB_DATASET_URL_PREFIX}{repo_id}"
         logger.info(f"{LOG_INDENT}{RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
         return url
+
+    def _upload_record_selection_dataset(
+        self,
+        *,
+        repo_id: str,
+        base_dataset_path: Path,
+        metadata: dict,
+        description: str,
+        tags: list[str] | None,
+    ) -> None:
+        """Atomically replace the managed terminal view for a record-selection artifact."""
+        add_files: dict[str, Path | bytes] = {}
+        for path in sorted((base_dataset_path / FINAL_DATASET_FOLDER_NAME).glob("*.parquet")):
+            add_files[f"data/{path.name}"] = path
+
+        images_path = base_dataset_path / "images"
+        if images_path.exists():
+            for path in sorted(images_path.rglob("*")):
+                if path.is_file():
+                    add_files[(Path("images") / path.relative_to(images_path)).as_posix()] = path
+
+        processors_path = base_dataset_path / PROCESSORS_OUTPUTS_FOLDER_NAME
+        if processors_path.exists():
+            for processor_path in sorted(path for path in processors_path.iterdir() if path.is_dir()):
+                for path in sorted(processor_path.rglob("*")):
+                    if path.is_file():
+                        add_files[(Path(processor_path.name) / path.relative_to(processor_path)).as_posix()] = path
+
+        builder_config_path = base_dataset_path / SDG_CONFIG_FILENAME
+        builder_config: dict | None = None
+        if builder_config_path.exists():
+            builder_config = json.loads(builder_config_path.read_text(encoding="utf-8"))
+            add_files[SDG_CONFIG_FILENAME] = builder_config_path
+
+        hub_metadata = self._update_metadata_paths(base_dataset_path / METADATA_FILENAME)
+        add_files[METADATA_FILENAME] = json.dumps(hub_metadata, indent=2).encode("utf-8")
+        card = DataDesignerDatasetCard.from_metadata(
+            metadata=metadata,
+            builder_config=builder_config,
+            repo_id=repo_id,
+            description=description,
+            tags=tags,
+        )
+        add_files["README.md"] = str(card).encode("utf-8")
+
+        current_prefixes = self._managed_hub_prefixes(metadata)
+        previous_prefixes = self._load_remote_managed_prefixes(repo_id)
+        managed_prefixes = current_prefixes | previous_prefixes
+        try:
+            remote_files = set(self._api.list_repo_files(repo_id=repo_id, repo_type="dataset"))
+        except Exception as exc:
+            raise HuggingFaceHubClientUploadError(f"Failed to list existing Hub dataset files: {exc}") from exc
+
+        stale_files = sorted(
+            path
+            for path in remote_files - set(add_files)
+            if any(path == prefix or path.startswith(f"{prefix}/") for prefix in managed_prefixes)
+        )
+        operations = [CommitOperationDelete(path_in_repo=path) for path in stale_files]
+        operations.extend(
+            CommitOperationAdd(path_in_repo=path, path_or_fileobj=source) for path, source in sorted(add_files.items())
+        )
+        try:
+            self._api.create_commit(
+                repo_id=repo_id,
+                repo_type="dataset",
+                operations=operations,
+                commit_message="Publish Data Designer record-selection dataset",
+            )
+        except Exception as exc:
+            raise HuggingFaceHubClientUploadError(f"Failed to publish record-selection dataset: {exc}") from exc
+
+    def _load_remote_managed_prefixes(self, repo_id: str) -> set[str]:
+        """Read the previous publication allowlist, tolerating a new or legacy repository."""
+        try:
+            metadata_path = self._api.hf_hub_download(
+                repo_id=repo_id,
+                filename=METADATA_FILENAME,
+                repo_type="dataset",
+            )
+            metadata = json.loads(Path(metadata_path).read_text(encoding="utf-8"))
+        except Exception:
+            return set()
+        prefixes = self._managed_hub_prefixes(metadata)
+        if prefixes:
+            return prefixes
+        file_paths = metadata.get("file_paths", {})
+        processor_names = file_paths.get("processor-files", {}) if isinstance(file_paths, dict) else {}
+        return {"data", "images", *processor_names}
+
+    @staticmethod
+    def _managed_hub_prefixes(metadata: dict) -> set[str]:
+        publication = metadata.get("publication", {})
+        if not isinstance(publication, dict):
+            return set()
+        prefixes = publication.get("managed_hub_prefixes", [])
+        if not isinstance(prefixes, list) or not all(isinstance(prefix, str) for prefix in prefixes):
+            return set()
+        return set(prefixes)
 
     def _create_or_get_repo(self, repo_id: str, *, private: bool = False) -> None:
         """Create or get existing repository on Hugging Face Hub.
@@ -487,9 +599,20 @@ class HuggingFaceHubClient:
 
         try:
             with open(metadata_path) as f:
-                json.load(f)
+                metadata = json.load(f)
         except json.JSONDecodeError as e:
             raise HuggingFaceHubClientUploadError(f"Invalid JSON in {METADATA_FILENAME}: {e}")
+
+        selection = metadata.get("record_selection")
+        if isinstance(selection, dict):
+            terminal_selection = selection.get("selection_satisfied") is True or (
+                selection.get("selection_exhausted") is True and selection.get("on_exhausted") == "return_partial"
+            )
+            if not terminal_selection or metadata.get("post_generation_state") != "complete":
+                raise HuggingFaceHubClientUploadError(
+                    "Record-selection artifacts can be uploaded only after selection and publication are complete. "
+                    "Resume the dataset locally before pushing it to the Hub."
+                )
 
         builder_config_path = base_dataset_path / SDG_CONFIG_FILENAME
         if builder_config_path.exists():

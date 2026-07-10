@@ -265,3 +265,33 @@ def test_from_metadata_tags_in_yaml_frontmatter(stub_metadata: dict) -> None:
     assert tags_section != -1  # Make sure tags section exists
     # Verify tags appear before the closing of YAML frontmatter
     assert tags_section < card_str.find("---", tags_section)
+
+
+def test_from_metadata_uses_authoritative_empty_partial_count_and_selection_summary() -> None:
+    metadata = {
+        "target_num_records": 10,
+        "actual_num_records": 0,
+        "schema": {"value": "string"},
+        "column_statistics": [],
+        "record_selection": {
+            "candidate_records_generated": 20,
+            "max_candidate_records": 20,
+            "accepted_records": 0,
+            "acceptance_rate": 0.0,
+            "selection_satisfied": False,
+            "selection_exhausted": True,
+            "on_exhausted": "return_partial",
+        },
+    }
+
+    card = DataDesignerDatasetCard.from_metadata(
+        metadata=metadata,
+        builder_config=None,
+        repo_id="test/empty-partial",
+        description="Empty partial selection output.",
+    )
+
+    card_text = str(card)
+    assert "**📈 Records**: 0" in card_text
+    assert "candidate budget exhausted" in card_text
+    assert "20 / 20" in card_text

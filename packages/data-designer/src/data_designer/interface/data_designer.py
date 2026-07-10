@@ -40,6 +40,7 @@ from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
+from data_designer.engine.dataset_builders.errors import RecordSelectionExhaustedError
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import ModelProviderRegistry, resolve_model_provider_registry
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
@@ -73,6 +74,7 @@ from data_designer.interface.errors import (
     DataDesignerEarlyShutdownError,
     DataDesignerGenerationError,
     DataDesignerProfilingError,
+    DataDesignerRecordSelectionExhaustedError,
 )
 from data_designer.interface.results import DatasetCreationResults
 from data_designer.logging import LOG_INDENT, RandomEmoji, configure_logging, is_logging_configured
@@ -243,7 +245,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Args:
             config_builder: The DataDesignerConfigBuilder containing the dataset
                 configuration (columns, constraints, seed data, etc.).
-            num_records: Number of records to generate.
+            num_records: Number of output records to generate. When record selection is configured,
+                this is the desired number of accepted rows; candidate attempts remain bounded by
+                ``RecordSelectionConfig.max_candidate_records``.
             dataset_name: Name of the dataset. This name will be used as the dataset
                 folder name in the artifact path directory. If a non-empty directory with the
                 same name already exists, dataset will be saved to a new directory with
@@ -264,6 +268,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
                 In all resume modes, in-flight partial results from the interrupted run are
                 discarded before generation continues.
+
+                Record-selection runs additionally require the same ``num_records`` and
+                ``buffer_size`` used by the original run. ``IF_POSSIBLE`` starts a fresh
+                selection run when either runtime input changes.
             artifact_path: Optional artifact root for this create call. Defaults
                 to the path configured on this DataDesigner instance.
             on_batch_complete: Optional callback called with the completed batch artifact path after
@@ -273,6 +281,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 path, so it is recommended to keep it lightweight or delegate slow work to a queue, e.g.
                 ``on_batch_complete=lambda path: queue_upload(path)``. Callback exceptions abort the run
                 and are wrapped as ``DataDesignerGenerationError``.
+                With record selection, the callback is called only for non-empty immutable accepted
+                partitions; zero-acceptance candidate batches still commit resume progress without a callback.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -309,7 +319,19 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             builder.build(num_records=num_records, on_batch_complete=on_batch_complete, resume=resume)
         except DeprecationWarning:
             raise
+        except RecordSelectionExhaustedError as e:
+            raise DataDesignerRecordSelectionExhaustedError(
+                target_records=e.target_records,
+                accepted_records=e.accepted_records,
+                candidate_records=e.candidate_records,
+                max_candidate_records=e.max_candidate_records,
+            ) from e
         except Exception as e:
+            if builder.early_shutdown is True:
+                raise DataDesignerEarlyShutdownError(
+                    "🛑 Record selection stopped after the scheduler triggered early shutdown. "
+                    "Committed accepted batches can be continued with resume=ResumeMode.ALWAYS."
+                ) from e
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
         task_traces = builder.task_traces
@@ -345,7 +367,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         # Defensive: the batch manager skips writing when the buffer is empty, so in
         # practice load_dataset_with_dropped_columns() would raise before returning a
         # zero-row DataFrame. This guard protects against future changes to that contract.
-        if len(dataset_for_profiler) == 0:
+        valid_empty_selection = self._is_valid_empty_selection_result(builder)
+        if len(dataset_for_profiler) == 0 and not valid_empty_selection:
             # Mirror the load-failure guard above: only raise the typed error when
             # the run actually produced zero records. A partial-salvage run that
             # somehow returns an empty DF for unrelated reasons should surface the
@@ -363,16 +386,23 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 "Check the warnings above for details on which columns failed."
             )
 
-        try:
-            profiler_column_configs = config_builder.get_column_configs() or builder.data_designer_config.columns
-            profiler = self._create_dataset_profiler(
-                config_builder,
-                resource_provider,
-                column_configs=profiler_column_configs,
-            )
-            analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
-        except Exception as e:
-            raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
+        analysis: DatasetProfilerResults | None = None
+        if not valid_empty_selection:
+            try:
+                profiler_column_configs = config_builder.get_column_configs() or builder.data_designer_config.columns
+                profiler = self._create_dataset_profiler(
+                    config_builder,
+                    resource_provider,
+                    column_configs=profiler_column_configs,
+                )
+                profile_num_records = (
+                    len(dataset_for_profiler)
+                    if builder.data_designer_config.record_selection is not None
+                    else num_records
+                )
+                analysis = profiler.profile_dataset(profile_num_records, dataset_for_profiler)
+            except Exception as e:
+                raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
 
         dataset_metadata = resource_provider.get_dataset_metadata()
 
@@ -381,6 +411,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             builder.artifact_storage.update_metadata(
                 {"column_statistics": [stat.model_dump(mode="json") for stat in analysis.column_statistics]}
             )
+        elif valid_empty_selection:
+            builder.artifact_storage.update_metadata({"column_statistics": []})
 
         return DatasetCreationResults(
             artifact_storage=builder.artifact_storage,
@@ -388,6 +420,23 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
             task_traces=task_traces,
+        )
+
+    @staticmethod
+    def _is_valid_empty_selection_result(builder: DatasetBuilder) -> bool:
+        if builder.early_shutdown or builder.first_non_retryable_error is not None:
+            return False
+        try:
+            metadata = builder.artifact_storage.read_metadata()
+        except (OSError, ValueError):
+            return False
+        selection = metadata.get("record_selection")
+        return bool(
+            isinstance(selection, dict)
+            and selection.get("selection_exhausted") is True
+            and selection.get("on_exhausted") == "return_partial"
+            and metadata.get("post_generation_state") == "complete"
+            and metadata.get("actual_num_records") == 0
         )
 
     async def acreate(

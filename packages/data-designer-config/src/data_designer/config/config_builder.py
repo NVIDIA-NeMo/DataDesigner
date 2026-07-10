@@ -30,6 +30,7 @@ from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig, load_model_configs
 from data_designer.config.processor_types import ProcessorConfigT
 from data_designer.config.processors import ProcessorType, get_processor_config_from_kwargs
+from data_designer.config.record_selection import RecordSelectionConfig
 from data_designer.config.sampler_constraints import (
     ColumnConstraintT,
     ColumnInequalityConstraint,
@@ -146,6 +147,9 @@ class DataDesignerConfigBuilder:
         for profiler in data_designer_config.profilers or []:
             builder.add_profiler(profiler)
 
+        if (record_selection := data_designer_config.record_selection) is not None:
+            builder.with_record_selection(record_selection)
+
         return builder
 
     def __init__(
@@ -169,6 +173,7 @@ class DataDesignerConfigBuilder:
         self._tool_configs: list[ToolConfig] = tool_configs or []
         self._processor_configs: list[ProcessorConfigT] = []
         self._seed_config: SeedConfig | None = None
+        self._record_selection_config: RecordSelectionConfig | None = None
         self._constraints: list[ColumnConstraintT] = []
         self._profilers: list[ColumnProfilerConfigT] = []
 
@@ -484,6 +489,7 @@ class DataDesignerConfigBuilder:
             constraints=self._constraints or None,
             profilers=self._profilers or None,
             processors=self._processor_configs or None,
+            record_selection=self._record_selection_config,
         )
 
     def _validate_tool_configs_no_duplicates(self) -> None:
@@ -668,6 +674,18 @@ class DataDesignerConfigBuilder:
             sampling_strategy=sampling_strategy,
             selection_strategy=selection_strategy,
         )
+        return self
+
+    def with_record_selection(self, config: RecordSelectionConfig) -> Self:
+        """Select generated records using a declared boolean predicate column.
+
+        Args:
+            config: Record-selection policy for the generated dataset.
+
+        Returns:
+            The current Data Designer config builder instance.
+        """
+        self._record_selection_config = config
         return self
 
     def write_config(self, path: str | Path, indent: int | None = 2, **kwargs) -> None:

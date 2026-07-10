@@ -10,7 +10,7 @@ import shutil
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
@@ -30,6 +30,11 @@ SDG_CONFIG_FILENAME = "builder_config.json"
 METADATA_FILENAME = "metadata.json"
 FINAL_DATASET_FOLDER_NAME = "parquet-files"
 PROCESSORS_OUTPUTS_FOLDER_NAME = "processors-files"
+SELECTION_ACCEPTED_FOLDER_NAME = "selection-accepted"
+SELECTION_CHECKPOINTS_FOLDER_NAME = "selection-checkpoints"
+SELECTION_MEDIA_STAGING_FOLDER_NAME = "selection-media-staging"
+SELECTION_PUBLICATION_STAGING_FOLDER_NAME = "selection-publication-staging"
+SELECTION_SCHEMA_FILENAME = "schema.parquet"
 
 
 class BatchStage(StrEnum):
@@ -115,6 +120,26 @@ class ArtifactStorage(BaseModel):
     def processors_outputs_path(self) -> Path:
         return self.base_dataset_path / self.processors_outputs_folder_name
 
+    @property
+    def selection_accepted_path(self) -> Path:
+        return self.base_dataset_path / SELECTION_ACCEPTED_FOLDER_NAME
+
+    @property
+    def selection_checkpoints_path(self) -> Path:
+        return self.base_dataset_path / SELECTION_CHECKPOINTS_FOLDER_NAME
+
+    @property
+    def selection_media_staging_path(self) -> Path:
+        return self.base_dataset_path / SELECTION_MEDIA_STAGING_FOLDER_NAME
+
+    @property
+    def selection_publication_staging_path(self) -> Path:
+        return self.base_dataset_path / SELECTION_PUBLICATION_STAGING_FOLDER_NAME
+
+    @property
+    def selection_schema_path(self) -> Path:
+        return self.selection_accepted_path / SELECTION_SCHEMA_FILENAME
+
     @field_validator("artifact_path")
     def validate_artifact_path(cls, v: Path | str) -> Path:
         v = Path(v)
@@ -130,6 +155,10 @@ class ArtifactStorage(BaseModel):
             self.partial_results_folder_name,
             self.dropped_columns_folder_name,
             self.processors_outputs_folder_name,
+            SELECTION_ACCEPTED_FOLDER_NAME,
+            SELECTION_CHECKPOINTS_FOLDER_NAME,
+            SELECTION_MEDIA_STAGING_FOLDER_NAME,
+            SELECTION_PUBLICATION_STAGING_FOLDER_NAME,
         ]
 
         for name in folder_names:
@@ -234,6 +263,164 @@ class ArtifactStorage(BaseModel):
         """Remove any in-flight partial results left over from an interrupted run."""
         if self.partial_results_path.exists():
             shutil.rmtree(self.partial_results_path)
+
+    def selection_partition_path(self, candidate_batch_id: int) -> Path:
+        if candidate_batch_id < 0:
+            raise ArtifactStorageError("🛑 Candidate batch number must be non-negative.")
+        return self.selection_accepted_path / BATCH_FILE_NAME_FORMAT.format(batch_number=candidate_batch_id)
+
+    def selection_checkpoint_path(self, candidate_batch_id: int) -> Path:
+        if candidate_batch_id < 0:
+            raise ArtifactStorageError("🛑 Candidate batch number must be non-negative.")
+        return self.selection_checkpoints_path / f"batch_{candidate_batch_id:05d}.json"
+
+    def write_selection_partition(self, candidate_batch_id: int, dataframe: pd.DataFrame) -> Path:
+        """Atomically write one immutable accepted-row partition."""
+        self.mkdir_if_needed(self.selection_accepted_path)
+        path = self.selection_partition_path(candidate_batch_id)
+        tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+        try:
+            dataframe.to_parquet(tmp_path, index=False)
+            os.replace(tmp_path, path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        return path
+
+    def write_selection_schema(self, dataframe: pd.DataFrame) -> Path:
+        """Persist a zero-row schema anchor used to publish an empty partial result."""
+        self.mkdir_if_needed(self.selection_accepted_path)
+        tmp_path = self.selection_schema_path.with_name(f"{SELECTION_SCHEMA_FILENAME}.tmp.{os.getpid()}")
+        try:
+            dataframe.iloc[0:0].to_parquet(tmp_path, index=False)
+            os.replace(tmp_path, self.selection_schema_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        return self.selection_schema_path
+
+    def write_selection_checkpoint(self, candidate_batch_id: int, marker: dict) -> Path:
+        """Atomically commit a candidate batch marker."""
+        self.mkdir_if_needed(self.selection_checkpoints_path)
+        path = self.selection_checkpoint_path(candidate_batch_id)
+        tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+        try:
+            with tmp_path.open("w", encoding="utf-8") as file:
+                json.dump(marker, file, indent=2, sort_keys=True)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        return path
+
+    def read_selection_checkpoints(self) -> list[dict]:
+        if not self.selection_checkpoints_path.exists():
+            return []
+        markers: list[dict] = []
+        for path in sorted(self.selection_checkpoints_path.glob("batch_*.json")):
+            try:
+                markers.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ArtifactStorageError(f"🛑 Selection checkpoint {path.name!r} is corrupt: {exc}") from exc
+        return markers
+
+    def clear_selection_transient_artifacts(self) -> None:
+        """Discard in-flight selection and publication staging without touching committed work."""
+        self.clear_partial_results()
+        for path in (self.selection_media_staging_path, self.selection_publication_staging_path):
+            if path.exists():
+                shutil.rmtree(path)
+
+    def clean_uncommitted_selection_batch(self, candidate_batch_id: int) -> None:
+        """Remove deterministic artifacts for a candidate batch that has no committed marker."""
+        self.selection_partition_path(candidate_batch_id).unlink(missing_ok=True)
+        self.selection_checkpoint_path(candidate_batch_id).unlink(missing_ok=True)
+        self._remove_candidate_batch_side_artifacts(candidate_batch_id)
+        media_prefix = self.base_dataset_path / "images" / f"selection_batch_{candidate_batch_id:05d}"
+        if media_prefix.exists():
+            shutil.rmtree(media_prefix)
+        staging = self.selection_media_staging_path / f"batch_{candidate_batch_id:05d}"
+        if staging.exists():
+            shutil.rmtree(staging)
+
+    def begin_selection_media_batch(self, candidate_batch_id: int) -> None:
+        """Route engine-managed media writes into candidate-scoped staging."""
+        staging = self.selection_media_staging_path / f"batch_{candidate_batch_id:05d}"
+        self.mkdir_if_needed(staging)
+        self._media_storage.base_path = staging
+        self._media_storage.images_dir = staging / self._media_storage.images_subdir
+
+    def promote_selection_media(self, dataframe: pd.DataFrame, candidate_batch_id: int) -> pd.DataFrame:
+        """Promote media referenced by accepted rows and rewrite their relative paths."""
+        staging = self.selection_media_staging_path / f"batch_{candidate_batch_id:05d}"
+        committed_relative_prefix = Path("images") / f"selection_batch_{candidate_batch_id:05d}"
+        committed_prefix = self.base_dataset_path / committed_relative_prefix
+
+        def promote(value: Any) -> Any:
+            if isinstance(value, str) and value.startswith(f"{self._media_storage.images_subdir}/"):
+                source = staging / value
+                try:
+                    source.resolve().relative_to(staging.resolve())
+                except ValueError:
+                    return value
+                if not source.is_file():
+                    return value
+                relative_tail = Path(value).relative_to(self._media_storage.images_subdir)
+                destination = committed_prefix / relative_tail
+                try:
+                    destination.resolve().relative_to(committed_prefix.resolve())
+                except ValueError:
+                    return value
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(source, destination)
+                return (committed_relative_prefix / relative_tail).as_posix()
+            if isinstance(value, list):
+                return [promote(item) for item in value]
+            if isinstance(value, tuple):
+                return tuple(promote(item) for item in value)
+            if isinstance(value, dict):
+                return {key: promote(item) for key, item in value.items()}
+            return value
+
+        promoted = dataframe.map(promote)
+        self.finish_selection_media_batch(candidate_batch_id)
+        return promoted
+
+    def finish_selection_media_batch(self, candidate_batch_id: int) -> None:
+        """Restore normal media storage and remove disposable candidate staging."""
+        self._media_storage.base_path = self.base_dataset_path
+        self._media_storage.images_dir = self.base_dataset_path / self._media_storage.images_subdir
+        staging = self.selection_media_staging_path / f"batch_{candidate_batch_id:05d}"
+        if staging.exists():
+            shutil.rmtree(staging)
+
+    def materialize_selection_dataset(self) -> Path:
+        """Rebuild the published dataset from immutable accepted partitions."""
+        if self.selection_publication_staging_path.exists():
+            shutil.rmtree(self.selection_publication_staging_path)
+        self.mkdir_if_needed(self.selection_publication_staging_path)
+        partitions = sorted(self.selection_accepted_path.glob("batch_*.parquet"))
+        if partitions:
+            for partition in partitions:
+                shutil.copy2(partition, self.selection_publication_staging_path / partition.name)
+        elif self.selection_schema_path.is_file():
+            shutil.copy2(
+                self.selection_schema_path,
+                self.selection_publication_staging_path / BATCH_FILE_NAME_FORMAT.format(batch_number=0),
+            )
+        else:
+            raise ArtifactStorageError("🛑 Cannot publish record selection: no accepted partitions or schema found.")
+
+        if self.final_dataset_path.exists():
+            shutil.rmtree(self.final_dataset_path)
+        os.replace(self.selection_publication_staging_path, self.final_dataset_path)
+        return self.final_dataset_path
+
+    def _remove_candidate_batch_side_artifacts(self, candidate_batch_id: int) -> None:
+        filename = BATCH_FILE_NAME_FORMAT.format(batch_number=candidate_batch_id)
+        (self.dropped_columns_dataset_path / filename).unlink(missing_ok=True)
+        if self.processors_outputs_path.exists():
+            for path in self.processors_outputs_path.rglob(filename):
+                path.unlink(missing_ok=True)
 
     def move_partial_result_to_final_file_path(self, batch_number: int) -> Path:
         partial_result_path = self.create_batch_file_path(batch_number, batch_stage=BatchStage.PARTIAL_RESULT)

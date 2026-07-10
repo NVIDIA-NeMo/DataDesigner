@@ -13,9 +13,9 @@ The hash is computed over a canonical JSON dump of the config (Pydantic
 `model_dump(mode="json")`) with non-identity fields removed. Column order is
 part of identity (DAG ordering); alias-keyed lookup tables (`model_configs`,
 `tool_configs`) are sorted by alias so their internal order is irrelevant.
-Empty/`None` optional collections are canonicalized to a single representation
-so that builder-API and YAML-loaded configs producing identical datasets
-fingerprint identically.
+Empty optional collections and absent optional identity fields are canonicalized
+to a single representation so that builder-API and YAML-loaded configs producing
+identical datasets fingerprint identically.
 
 The normalization scheme is versioned via `CONFIG_HASH_VERSION`. Persist the
 version alongside the hash so future scheme changes can be detected as
@@ -56,11 +56,10 @@ _EXCLUDED_INFERENCE_KEYS: frozenset[str] = frozenset({"max_parallel_requests", "
 _EXCLUDED_TOOL_CONFIG_KEYS: frozenset[str] = frozenset({"timeout_sec"})
 _EXCLUDED_HF_SEED_KEYS: frozenset[str] = frozenset({"token", "endpoint"})
 
-# Optional collections whose `None` and `[]` representations must collapse so
-# that builder-API and YAML-loaded configs producing identical datasets
-# fingerprint identically.
-_TOP_LEVEL_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset(
-    {"model_configs", "tool_configs", "constraints", "processors"}
+# Optional fields whose empty representations must collapse so that builder-API
+# and YAML-loaded configs producing identical datasets fingerprint identically.
+_TOP_LEVEL_OPTIONAL_FIELDS: frozenset[str] = frozenset(
+    {"model_configs", "tool_configs", "constraints", "processors", "record_selection"}
 )
 _TOOL_CONFIG_OPTIONAL_COLLECTIONS: frozenset[str] = frozenset({"allow_tools"})
 
@@ -87,6 +86,7 @@ def fingerprint_config(config: DataDesignerConfig) -> dict[str, str | int]:
         (the set of MCP tools shapes generation). Sorted by tool_alias.
       * `seed_config` - source path, sampling strategy, selection strategy.
       * `constraints`, top-level `processors`.
+      * `record_selection` - predicate, candidate bound, exhaustion behavior.
 
     See module-level constants for the canonical excluded-fields table.
 
@@ -132,8 +132,8 @@ def _drop_keys(source: dict[str, Any], keys: Iterable[str]) -> dict[str, Any]:
 def _drop_empty_optional(source: dict[str, Any], keys: Iterable[str]) -> dict[str, Any]:
     """Drop keys whose value is `None` or an empty list.
 
-    `None` and `[]` are user-equivalent for optional collection fields; this
-    collapses both to "absent" before hashing.
+    `None` represents an absent optional field and `[]` represents an empty
+    optional collection; both collapse to "absent" before hashing.
     """
     keyset = set(keys)
     return {k: v for k, v in source.items() if not (k in keyset and (v is None or v == []))}
@@ -188,7 +188,7 @@ def _enrich_custom_columns(config: DataDesignerConfig, columns_dump: list[dict[s
 
 def _normalize_config_dict(config_dict: dict[str, Any], config: DataDesignerConfig) -> dict[str, Any]:
     normalized = _drop_keys(config_dict, _EXCLUDED_TOP_LEVEL_KEYS)
-    normalized = _drop_empty_optional(normalized, _TOP_LEVEL_OPTIONAL_COLLECTIONS)
+    normalized = _drop_empty_optional(normalized, _TOP_LEVEL_OPTIONAL_FIELDS)
 
     columns = normalized.get("columns")
     if columns:

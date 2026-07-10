@@ -185,6 +185,7 @@ class AsyncTaskScheduler:
         salvage_max_rounds: int = 2,
         on_finalize_row_group: Callable[[int], None] | None = None,
         on_seeds_complete: Callable[[int, int], FrontierDelta | None] | None = None,
+        on_select_before_checkpoint: Callable[[int, int], None] | None = None,
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
@@ -252,6 +253,7 @@ class AsyncTaskScheduler:
         self._salvage_max_rounds = salvage_max_rounds
         self._on_finalize_row_group = on_finalize_row_group
         self._on_seeds_complete = on_seeds_complete
+        self._on_select_before_checkpoint = on_select_before_checkpoint
         self._on_before_checkpoint = on_before_checkpoint
 
         # Error rate shutdown (caller passes pre-normalized values via RunConfig)
@@ -1596,10 +1598,19 @@ class AsyncTaskScheduler:
             if self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
         ]
         for rg_id, rg_size in completed:
-            dropped_rows = sum(1 for ri in range(rg_size) if self._tracker.is_dropped(rg_id, ri))
             checkpointed = False
             checkpoint_result = "unknown"
             try:
+                if self._on_select_before_checkpoint:
+                    try:
+                        self._on_select_before_checkpoint(rg_id, rg_size)
+                    except DatasetGenerationError:
+                        raise
+                    except Exception as exc:
+                        raise DatasetGenerationError(f"Record selection failed for row group {rg_id}: {exc}") from exc
+                # Selection may have dropped additional rows, so diagnostics and
+                # the all-rows-dropped branch must use the post-selection state.
+                dropped_rows = sum(1 for ri in range(rg_size) if self._tracker.is_dropped(rg_id, ri))
                 if self._on_before_checkpoint:
                     try:
                         self._on_before_checkpoint(rg_id, rg_size)
@@ -1611,8 +1622,12 @@ class AsyncTaskScheduler:
                         ) from exc
                 # Remove from tracking only after the callback succeeds.
                 del self._rg_states[rg_id]
-                # If all rows were dropped (e.g. seed failure), free instead of finalizing
-                if dropped_rows == rg_size:
+                # Selection finalizers must run even for a zero-survivor batch so
+                # candidate progress can commit independently of parquet output.
+                if self._on_select_before_checkpoint is not None and self._on_finalize_row_group is not None:
+                    self._on_finalize_row_group(rg_id)
+                    checkpoint_result = "selection_finalized"
+                elif dropped_rows == rg_size:
                     if self._buffer_manager:
                         self._buffer_manager.free_row_group(rg_id)
                     checkpoint_result = "all_rows_dropped"

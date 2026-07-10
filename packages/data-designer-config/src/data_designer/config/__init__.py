@@ -60,6 +60,10 @@ if TYPE_CHECKING:
         ProcessorType,
         SchemaTransformProcessorConfig,
     )
+    from data_designer.config.record_selection import (  # noqa: F401
+        RecordSelectionConfig,
+        RecordSelectionExhaustion,
+    )
     from data_designer.config.run_config import (  # noqa: F401
         JinjaRenderingEngine,
         RequestAdmissionTuningConfig,
@@ -124,6 +128,7 @@ _MOD_COLUMN_CONFIGS = f"{_MOD_BASE}.column_configs"
 _MOD_MCP = f"{_MOD_BASE}.mcp"
 _MOD_MODELS = f"{_MOD_BASE}.models"
 _MOD_PROCESSORS = f"{_MOD_BASE}.processors"
+_MOD_RECORD_SELECTION = f"{_MOD_BASE}.record_selection"
 _MOD_SAMPLER_CONSTRAINTS = f"{_MOD_BASE}.sampler_constraints"
 _MOD_SAMPLER_PARAMS = f"{_MOD_BASE}.sampler_params"
 _MOD_SEED = f"{_MOD_BASE}.seed"
@@ -187,6 +192,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DropColumnsProcessorConfig": (_MOD_PROCESSORS, "DropColumnsProcessorConfig"),
     "ProcessorType": (_MOD_PROCESSORS, "ProcessorType"),
     "SchemaTransformProcessorConfig": (_MOD_PROCESSORS, "SchemaTransformProcessorConfig"),
+    # record selection
+    "RecordSelectionConfig": (_MOD_RECORD_SELECTION, "RecordSelectionConfig"),
+    "RecordSelectionExhaustion": (_MOD_RECORD_SELECTION, "RecordSelectionExhaustion"),
     # run_config
     "JinjaRenderingEngine": (f"{_MOD_BASE}.run_config", "JinjaRenderingEngine"),
     "RequestAdmissionTuningConfig": (f"{_MOD_BASE}.run_config", "RequestAdmissionTuningConfig"),

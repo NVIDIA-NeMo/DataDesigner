@@ -44,6 +44,11 @@ def test_artifact_storage_custom_names(stub_custom_artifact_storage):
     assert "dropped-files" in str(stub_custom_artifact_storage.dropped_columns_dataset_path)
 
 
+def test_artifact_storage_rejects_collision_with_selection_directories(tmp_path) -> None:
+    with pytest.raises(ArtifactStorageError, match="unique"):
+        ArtifactStorage(artifact_path=tmp_path, final_dataset_folder_name="selection-accepted")
+
+
 @pytest.mark.parametrize(
     "batch_number,stage,expected_name,expected_parent_attr",
     [
@@ -502,3 +507,82 @@ def test_clear_partial_results_is_noop_when_no_partial_folder(tmp_path):
     storage = ArtifactStorage(artifact_path=tmp_path)
     assert not storage.partial_results_path.exists()
     storage.clear_partial_results()  # must not raise
+
+
+def test_selection_checkpoint_and_partition_round_trip(stub_artifact_storage, stub_sample_dataframe) -> None:
+    partition = stub_artifact_storage.write_selection_partition(0, stub_sample_dataframe.iloc[:2])
+    marker = {
+        "candidate_batch_id": 0,
+        "row_group_id": 0,
+        "candidate_start_offset": 0,
+        "candidate_records": 4,
+        "accepted_records": 2,
+        "rejected_records": 2,
+        "null_predicate_records": 0,
+        "failed_generation_records": 0,
+        "trimmed_accepted_records": 0,
+        "accepted_partition": str(partition.relative_to(stub_artifact_storage.base_dataset_path)),
+    }
+    stub_artifact_storage.write_selection_checkpoint(0, marker)
+
+    assert lazy.pq.read_metadata(partition).num_rows == 2
+    assert stub_artifact_storage.read_selection_checkpoints() == [marker]
+
+
+def test_materialize_selection_dataset_from_partitions(stub_artifact_storage, stub_sample_dataframe) -> None:
+    stub_artifact_storage.write_selection_partition(0, stub_sample_dataframe.iloc[:2])
+    stub_artifact_storage.write_selection_partition(2, stub_sample_dataframe.iloc[2:])
+
+    published = stub_artifact_storage.materialize_selection_dataset()
+
+    assert sorted(path.name for path in published.glob("*.parquet")) == [
+        "batch_00000.parquet",
+        "batch_00002.parquet",
+    ]
+    assert len(stub_artifact_storage.load_dataset()) == 4
+
+
+def test_materialize_empty_selection_uses_schema_anchor(stub_artifact_storage, stub_sample_dataframe) -> None:
+    stub_artifact_storage.write_selection_schema(stub_sample_dataframe.iloc[0:0])
+
+    published = stub_artifact_storage.materialize_selection_dataset()
+    dataset = lazy.pd.read_parquet(published / "batch_00000.parquet")
+
+    assert dataset.empty
+    assert dataset.columns.tolist() == stub_sample_dataframe.columns.tolist()
+
+
+def test_selection_media_staging_promotes_only_referenced_files(stub_artifact_storage) -> None:
+    stub_artifact_storage.begin_selection_media_batch(3)
+    staging = stub_artifact_storage.selection_media_staging_path / "batch_00003" / "images" / "picture"
+    staging.mkdir(parents=True)
+    (staging / "accepted.png").write_bytes(b"accepted")
+    (staging / "rejected.png").write_bytes(b"rejected")
+
+    promoted = stub_artifact_storage.promote_selection_media(
+        lazy.pd.DataFrame({"image": ["images/picture/accepted.png"]}),
+        3,
+    )
+
+    relative = promoted.loc[0, "image"]
+    assert relative == "images/selection_batch_00003/picture/accepted.png"
+    assert (stub_artifact_storage.base_dataset_path / relative).read_bytes() == b"accepted"
+    assert not stub_artifact_storage.selection_media_staging_path.joinpath("batch_00003").exists()
+    assert not stub_artifact_storage.base_dataset_path.joinpath(
+        "images/selection_batch_00003/picture/rejected.png"
+    ).exists()
+
+
+def test_selection_media_promotion_does_not_follow_path_traversal(stub_artifact_storage) -> None:
+    stub_artifact_storage.begin_selection_media_batch(4)
+    outside = stub_artifact_storage.selection_media_staging_path / "sensitive.png"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_bytes(b"sensitive")
+
+    promoted = stub_artifact_storage.promote_selection_media(
+        lazy.pd.DataFrame({"image": ["images/../../sensitive.png"]}),
+        4,
+    )
+
+    assert promoted.loc[0, "image"] == "images/../../sensitive.png"
+    assert outside.read_bytes() == b"sensitive"

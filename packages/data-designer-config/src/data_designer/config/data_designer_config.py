@@ -15,6 +15,7 @@ from data_designer.config.fingerprint import fingerprint_config
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig
 from data_designer.config.processor_types import ProcessorConfigT
+from data_designer.config.record_selection import RecordSelectionConfig
 from data_designer.config.sampler_constraints import ColumnConstraintInputT
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.seed import SeedConfig
@@ -37,6 +38,7 @@ class DataDesignerConfig(ExportableConfigBase):
         constraints: Optional list of column constraints.
         profilers: Optional list of column profilers for analyzing generated data characteristics.
         processors: Optional list of processor configurations for post-generation transformations.
+        record_selection: Optional policy for selecting an exact target of accepted records.
     """
 
     columns: list[Annotated[ColumnConfigT, Field(discriminator="column_type")]]
@@ -46,6 +48,7 @@ class DataDesignerConfig(ExportableConfigBase):
     constraints: list[ColumnConstraintInputT] | None = None
     profilers: list[ColumnProfilerConfigT] | None = None
     processors: list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]] | None = None
+    record_selection: RecordSelectionConfig | None = None
 
     @model_validator(mode="after")
     def _validate_subcategory_parents(self) -> Self:

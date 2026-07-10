@@ -10,6 +10,7 @@ import functools
 import json
 import logging
 import os
+import shutil
 import time
 import uuid
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.record_selection import RecordSelectionExhaustion
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
@@ -34,11 +36,18 @@ from data_designer.engine.column_generators.generators.base import (
     GenerationStrategy,
 )
 from data_designer.engine.compiler import compile_data_designer_config
+from data_designer.engine.dataset_builders.acceptance import (
+    AcceptanceController,
+    CandidateBatch,
+    SelectionBatchMarker,
+    SelectionDecision,
+)
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
-from data_designer.engine.dataset_builders.errors import DatasetGenerationError
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError, RecordSelectionExhaustedError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.row_group_plan import (
     CompactRowGroupPlan,
+    ExplicitRowGroupPlan,
     RowGroupInput,
     RowGroupPlanLike,
     normalize_row_group_plan,
@@ -202,6 +211,7 @@ class DatasetBuilder:
             artifact_storage=resource_provider.artifact_storage,
         )
         self._validate_column_configs()
+        self._validate_record_selection_config()
 
     @property
     def artifact_storage(self) -> ArtifactStorage:
@@ -260,7 +270,8 @@ class DatasetBuilder:
         """Build the dataset.
 
         Args:
-            num_records: Number of records to generate.
+            num_records: Number of output records to generate. When record selection is configured,
+                this is the exact accepted-row target rather than the number of candidate attempts.
             on_batch_complete: Optional callback function called when each batch completes.
             save_multimedia_to_disk: Whether to save generated multimedia (images, audio, video) to disk.
                 If False, multimedia is stored directly in the DataFrame (e.g., images as base64).
@@ -280,10 +291,16 @@ class DatasetBuilder:
                 In all resume modes, in-flight partial results from the interrupted run are
                 discarded before generation continues.
 
+                Record-selection runs additionally require the same ``num_records`` and
+                ``buffer_size`` used by the original run. ``IF_POSSIBLE`` clears engine-managed
+                selection artifacts and starts fresh when either runtime input changes.
+
         Returns:
             Path to the generated dataset directory.
         """
         self._reset_run_state()
+        self._validate_record_selection_request(num_records)
+        requested_resume = resume
 
         run_readiness_check(
             self.single_column_configs,
@@ -314,6 +331,7 @@ class DatasetBuilder:
                         logger.info(
                             "▶️ Config has changed since the last run — starting a fresh generation (resume=IF_POSSIBLE)."
                         )
+                    self._clear_incompatible_selection_artifacts()
                     resume = ResumeMode.NEVER
                     self.artifact_storage.resume = ResumeMode.NEVER
                     self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
@@ -323,9 +341,34 @@ class DatasetBuilder:
                     self.artifact_storage.resume = ResumeMode.ALWAYS
                     self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
 
+        buffer_size = self._resource_provider.run_config.buffer_size
+        if self._data_designer_config.record_selection is not None and resume in (
+            ResumeMode.IF_POSSIBLE,
+            ResumeMode.ALWAYS,
+        ):
+            runtime_compatible = self._selection_runtime_inputs_are_compatible(num_records, buffer_size)
+            if not runtime_compatible:
+                if requested_resume == ResumeMode.ALWAYS:
+                    raise DatasetGenerationError(
+                        "🛑 Cannot resume record selection: num_records and buffer_size must exactly match "
+                        "the interrupted run. Use resume=ResumeMode.IF_POSSIBLE to start fresh automatically, "
+                        "or resume=ResumeMode.NEVER to force a new run."
+                    )
+                logger.info(
+                    "▶️ Record-selection runtime inputs changed — starting a fresh generation (resume=IF_POSSIBLE)."
+                )
+                self._clear_incompatible_selection_artifacts()
+                resume = ResumeMode.NEVER
+                self.artifact_storage.resume = ResumeMode.NEVER
+                self.artifact_storage.__dict__.pop("resolved_dataset_name", None)
+                self.artifact_storage.refresh_media_storage_path()
+
         self._set_metadata_defaults()
 
-        if self._post_generation_processed_resume_result(resume, num_records) is not None:
+        if (
+            self._data_designer_config.record_selection is None
+            and self._post_generation_processed_resume_result(resume, num_records) is not None
+        ):
             return self.artifact_storage.final_dataset_path
 
         self._write_builder_config()
@@ -337,9 +380,12 @@ class DatasetBuilder:
 
         generators, self._graph = self._initialize_generators_and_graph()
         start_time = time.perf_counter()
-        buffer_size = self._resource_provider.run_config.buffer_size
 
-        if resume == ResumeMode.ALWAYS and not self.artifact_storage.metadata_file_path.exists():
+        if (
+            self._data_designer_config.record_selection is None
+            and resume == ResumeMode.ALWAYS
+            and not self.artifact_storage.metadata_file_path.exists()
+        ):
             # No metadata.json means the previous run was interrupted before any
             # row group completed. Nothing to resume, so discard leftover
             # partial results and start fresh.
@@ -350,6 +396,21 @@ class DatasetBuilder:
             self.artifact_storage.clear_partial_results()
             resume = ResumeMode.NEVER
             self.artifact_storage.resume = ResumeMode.NEVER
+
+        if self._data_designer_config.record_selection is not None:
+            for generator in generators:
+                generator.log_pre_generation()
+            try:
+                self._build_with_record_selection(
+                    generators,
+                    target_num_records=num_records,
+                    buffer_size=buffer_size,
+                    on_batch_complete=on_batch_complete,
+                    resume=resume,
+                )
+            finally:
+                self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
+            return self.artifact_storage.final_dataset_path
 
         self._build_async(generators, num_records, buffer_size, on_batch_complete, resume=resume)
 
@@ -539,6 +600,11 @@ class DatasetBuilder:
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._reset_run_state()
+        if self._data_designer_config.record_selection is not None:
+            raise DatasetGenerationError(
+                "🛑 preview() does not support record selection because preview has no accepted-row retry or "
+                "checkpoint contract. Use create(), or preview the same config with record selection disabled."
+            )
         run_readiness_check(
             self.single_column_configs,
             self._resource_provider,
@@ -738,6 +804,376 @@ class DatasetBuilder:
             return False
         return True
 
+    def _selection_runtime_inputs_are_compatible(self, target_num_records: int, buffer_size: int) -> bool:
+        """Check selection-only resume inputs without resolving a new dataset path."""
+        dataset_dir = Path(self.artifact_storage.artifact_path) / self.artifact_storage.dataset_name
+        metadata_path = dataset_dir / METADATA_FILENAME
+        checkpoints_path = dataset_dir / "selection-checkpoints"
+        if not metadata_path.exists():
+            return not checkpoints_path.exists() or not any(checkpoints_path.glob("batch_*.json"))
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        selection = metadata.get("record_selection")
+        if not isinstance(selection, dict):
+            return False
+        return (
+            metadata.get("target_num_records") == target_num_records and selection.get("run_buffer_size") == buffer_size
+        )
+
+    def _clear_incompatible_selection_artifacts(self) -> None:
+        """Clear engine-managed artifacts when IF_POSSIBLE restarts an existing selection run."""
+        if self._data_designer_config.record_selection is None:
+            return
+        dataset_dir = Path(self.artifact_storage.artifact_path) / self.artifact_storage.dataset_name
+        metadata_path = dataset_dir / METADATA_FILENAME
+        checkpoints_path = dataset_dir / "selection-checkpoints"
+        is_selection_run = checkpoints_path.exists()
+        if metadata_path.exists():
+            try:
+                is_selection_run = is_selection_run or isinstance(
+                    json.loads(metadata_path.read_text(encoding="utf-8")).get("record_selection"),
+                    dict,
+                )
+            except (OSError, json.JSONDecodeError):
+                is_selection_run = is_selection_run or checkpoints_path.exists()
+        if not is_selection_run:
+            return
+
+        managed_directories = {
+            self.artifact_storage.final_dataset_folder_name,
+            self.artifact_storage.partial_results_folder_name,
+            self.artifact_storage.dropped_columns_folder_name,
+            self.artifact_storage.processors_outputs_folder_name,
+            "images",
+            "selection-accepted",
+            "selection-checkpoints",
+            "selection-media-staging",
+            "selection-publication-staging",
+        }
+        for name in managed_directories:
+            path = dataset_dir / name
+            if path.exists():
+                shutil.rmtree(path)
+        for name in (METADATA_FILENAME, SDG_CONFIG_FILENAME, "scheduler_events.jsonl"):
+            (dataset_dir / name).unlink(missing_ok=True)
+
+    def _build_with_record_selection(
+        self,
+        generators: list[ColumnGenerator],
+        *,
+        target_num_records: int,
+        buffer_size: int,
+        on_batch_complete: Callable[[Path], None] | None,
+        resume: ResumeMode,
+    ) -> None:
+        """Generate immutable candidate batches until the accepted-row target or cap is reached."""
+        config = self._data_designer_config.record_selection
+        if config is None:
+            raise RuntimeError("Record-selection build path requires a record-selection config.")
+
+        markers = self._load_selection_markers() if resume == ResumeMode.ALWAYS else ()
+        try:
+            controller = AcceptanceController(
+                config=config,
+                target_records=target_num_records,
+                buffer_size=buffer_size,
+                markers=markers,
+            )
+        except ValueError as exc:
+            raise DatasetGenerationError(f"🛑 Cannot resume record selection: {exc}") from exc
+
+        existing_metadata: dict[str, Any] = {}
+        if self.artifact_storage.metadata_file_path.exists():
+            try:
+                existing_metadata = self.artifact_storage.read_metadata()
+            except (OSError, json.JSONDecodeError):
+                existing_metadata = {}
+        stored_selection = existing_metadata.get("record_selection")
+        if isinstance(stored_selection, dict):
+            stored_batches = stored_selection.get("candidate_batches_completed", 0)
+            if isinstance(stored_batches, int) and stored_batches > controller.candidate_batches_completed:
+                raise DatasetGenerationError(
+                    "🛑 Cannot resume record selection: metadata reports more completed candidate batches "
+                    "than the durable checkpoint directory. Restore the missing checkpoints or start fresh."
+                )
+
+        self.artifact_storage.clear_selection_transient_artifacts()
+        self.artifact_storage.clean_uncommitted_selection_batch(controller.candidate_batches_completed)
+        self._validate_selection_partitions(controller.markers)
+        self._actual_num_records = controller.accepted_records
+
+        if (
+            resume == ResumeMode.ALWAYS
+            and existing_metadata.get("post_generation_state") == "complete"
+            and (controller.has_reached_target or controller.is_exhausted)
+        ):
+            published_files = list(self.artifact_storage.final_dataset_path.glob("batch_*.parquet"))
+            final_count = sum(lazy.pq.read_metadata(path).num_rows for path in published_files)
+            if published_files and final_count == controller.accepted_records:
+                logger.warning("▶️ Record-selection dataset is already complete; nothing to resume.")
+                return
+            logger.warning(
+                "⚠️ Completed record-selection publication contains %d rows, but committed markers contain %d; "
+                "rebuilding the published view from immutable accepted partitions.",
+                final_count,
+                controller.accepted_records,
+            )
+
+        self._write_selection_metadata(controller)
+        while not controller.has_reached_target and controller.has_candidate_budget:
+            batch = controller.next_candidate_batch()
+            self._run_candidate_batch(
+                generators,
+                controller=controller,
+                batch=batch,
+                on_batch_complete=on_batch_complete,
+            )
+            if self._early_shutdown and not controller.has_reached_target:
+                raise DatasetGenerationError(
+                    "🛑 Record selection stopped after the scheduler triggered early shutdown. "
+                    "Committed accepted batches can be continued with resume=ResumeMode.ALWAYS."
+                )
+
+        self._actual_num_records = controller.accepted_records
+        if controller.is_exhausted and config.on_exhausted == RecordSelectionExhaustion.RAISE:
+            self._write_selection_metadata(controller)
+            raise RecordSelectionExhaustedError(
+                target_records=target_num_records,
+                accepted_records=controller.accepted_records,
+                candidate_records=controller.candidate_records,
+                max_candidate_records=config.max_candidate_records,
+            )
+
+        self._publish_selection_result(controller, buffer_size)
+
+    def _run_candidate_batch(
+        self,
+        generators: list[ColumnGenerator],
+        *,
+        controller: AcceptanceController,
+        batch: CandidateBatch,
+        on_batch_complete: Callable[[Path], None] | None,
+    ) -> None:
+        """Run and durably commit one candidate batch."""
+        settings = self._resource_provider.run_config
+        trace_enabled = _is_async_trace_enabled(settings)
+        decision: SelectionDecision | None = None
+        buffer_manager: RowGroupBufferManager | None = None
+        media_staged = self._has_image_columns() and self.artifact_storage.media_storage.mode == StorageMode.DISK
+
+        if media_staged:
+            self.artifact_storage.begin_selection_media_batch(batch.candidate_batch_id)
+
+        def select_dataframe(_rg_id: int, rg_size: int, dataframe: pd.DataFrame) -> pd.DataFrame:
+            nonlocal decision
+            decision = controller.select(
+                dataframe,
+                batch=batch,
+                failed_generation_records=rg_size - len(dataframe),
+            )
+            return dataframe.iloc[list(decision.accepted_indices)].reset_index(drop=True)
+
+        def finalize_row_group(rg_id: int) -> None:
+            if buffer_manager is None or decision is None:
+                raise DatasetGenerationError("🛑 Record selection reached finalization without a selection decision.")
+            try:
+                dataframe = buffer_manager.get_dataframe(rg_id)
+                if len(dataframe) != decision.accepted_records:
+                    raise DatasetGenerationError(
+                        "🛑 Post-batch processing changed the selected row count from "
+                        f"{decision.accepted_records} to {len(dataframe)}."
+                    )
+                if media_staged:
+                    dataframe = self.artifact_storage.promote_selection_media(
+                        dataframe,
+                        batch.candidate_batch_id,
+                    )
+                if not self.artifact_storage.selection_schema_path.exists():
+                    self.artifact_storage.write_selection_schema(dataframe)
+
+                partition_path: Path | None = None
+                partition_relative: str | None = None
+                if len(dataframe) > 0:
+                    partition_path = self.artifact_storage.write_selection_partition(
+                        batch.candidate_batch_id,
+                        dataframe,
+                    )
+                    partition_relative = str(partition_path.relative_to(self.artifact_storage.base_dataset_path))
+                marker = controller.record_checkpoint(
+                    batch=batch,
+                    decision=decision,
+                    accepted_partition=partition_relative,
+                )
+                self.artifact_storage.write_selection_checkpoint(
+                    batch.candidate_batch_id,
+                    marker.to_dict(),
+                )
+                buffer_manager.free_row_group(rg_id)
+                self._actual_num_records = controller.accepted_records
+                self._write_selection_metadata(controller)
+                rate = controller.accepted_records / controller.candidate_records
+                logger.info(
+                    "🎯 Record selection: accepted %d / %d; candidates generated %d / %d; acceptance rate %.1f%%.",
+                    controller.accepted_records,
+                    controller.target_records,
+                    controller.candidate_records,
+                    controller.config.max_candidate_records,
+                    rate * 100,
+                )
+                if partition_path is not None and on_batch_complete is not None:
+                    on_batch_complete(partition_path)
+            except DatasetGenerationError:
+                raise
+            except Exception as exc:
+                raise DatasetGenerationError(
+                    f"🛑 Failed to commit record-selection candidate batch {batch.candidate_batch_id}: {exc}"
+                ) from exc
+
+        pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
+        group_id = uuid.uuid4().hex
+        event_sink_context = (
+            JsonlSchedulerEventSink(self.artifact_storage.base_dataset_path / "scheduler_events.jsonl")
+            if settings.write_scheduler_events
+            else contextlib.nullcontext()
+        )
+        scheduler: AsyncTaskScheduler | None = None
+        try:
+            with event_sink_context as scheduler_event_sink:
+                scheduler, buffer_manager = self._prepare_async_run(
+                    generators,
+                    batch.size,
+                    batch.size,
+                    on_finalize_row_group=finalize_row_group,
+                    shutdown_error_rate=settings.shutdown_error_rate,
+                    shutdown_error_window=settings.shutdown_error_window,
+                    disable_early_shutdown=settings.disable_early_shutdown,
+                    trace=trace_enabled,
+                    precomputed_row_groups=ExplicitRowGroupPlan(
+                        ((batch.row_group_id, batch.size),),
+                        base_offset=batch.start_offset,
+                    ),
+                    scheduler_event_sink=scheduler_event_sink,
+                    select_dataframe=select_dataframe,
+                    log_pre_generation=False,
+                )
+                loop = ensure_async_engine_loop()
+                future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
+                _await_async_scheduler_result(future, scheduler)
+        finally:
+            if media_staged:
+                self.artifact_storage.finish_selection_media_batch(batch.candidate_batch_id)
+            if scheduler is not None:
+                self._task_traces.extend(scheduler.traces)
+                self._early_shutdown = self._early_shutdown or scheduler.early_shutdown
+                self._partial_row_groups = tuple(
+                    sorted(set(self._partial_row_groups).union(scheduler.partial_row_groups))
+                )
+                if self._first_non_retryable_error is None:
+                    self._first_non_retryable_error = scheduler.first_non_retryable_error
+
+        try:
+            usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
+            self._emit_batch_inference_events("selection_batch", usage_deltas, group_id)
+        except Exception:
+            logger.debug("Failed to emit batch telemetry for record selection", exc_info=True)
+
+    def _load_selection_markers(self) -> tuple[SelectionBatchMarker, ...]:
+        try:
+            raw_markers = self.artifact_storage.read_selection_checkpoints()
+            return tuple(SelectionBatchMarker.from_dict(value) for value in raw_markers)
+        except (ValueError, TypeError) as exc:
+            raise DatasetGenerationError(f"🛑 Cannot resume record selection: {exc}") from exc
+
+    def _validate_selection_partitions(self, markers: tuple[SelectionBatchMarker, ...]) -> None:
+        referenced: set[Path] = set()
+        for marker in markers:
+            if marker.accepted_partition is None:
+                continue
+            expected = self.artifact_storage.selection_partition_path(marker.candidate_batch_id)
+            actual = self.artifact_storage.base_dataset_path / marker.accepted_partition
+            if actual != expected:
+                raise DatasetGenerationError(
+                    f"🛑 Selection checkpoint {marker.candidate_batch_id} references unexpected partition "
+                    f"{marker.accepted_partition!r}."
+                )
+            try:
+                rows = lazy.pq.read_metadata(actual).num_rows
+            except (OSError, FileNotFoundError) as exc:
+                raise DatasetGenerationError(
+                    f"🛑 Selection checkpoint {marker.candidate_batch_id} references a missing or unreadable "
+                    f"accepted partition: {actual}."
+                ) from exc
+            if rows != marker.accepted_records:
+                raise DatasetGenerationError(
+                    f"🛑 Selection checkpoint {marker.candidate_batch_id} records {marker.accepted_records} "
+                    f"accepted rows, but its partition contains {rows}."
+                )
+            referenced.add(actual)
+
+        if self.artifact_storage.selection_accepted_path.exists():
+            for partition in self.artifact_storage.selection_accepted_path.glob("batch_*.parquet"):
+                if partition not in referenced:
+                    partition.unlink()
+
+    def _write_selection_metadata(
+        self,
+        controller: AcceptanceController,
+        *,
+        post_generation_state: str | None = None,
+    ) -> None:
+        nonempty_partitions = sum(1 for marker in controller.markers if marker.accepted_partition is not None)
+        updates: dict[str, Any] = {
+            "target_num_records": controller.target_records,
+            "original_target_num_records": controller.target_records,
+            "actual_num_records": controller.accepted_records,
+            "total_num_batches": nonempty_partitions,
+            "buffer_size": controller.buffer_size,
+            "dataset_name": self.artifact_storage.dataset_name,
+            "file_paths": self.artifact_storage.get_file_paths(),
+            "num_completed_batches": controller.candidate_batches_completed,
+            "record_selection": controller.summary(),
+        }
+        if post_generation_state is not None:
+            updates["post_generation_state"] = post_generation_state
+            updates["post_generation_processed"] = post_generation_state == "complete"
+        self.artifact_storage.update_metadata(updates)
+
+    def _publish_selection_result(self, controller: AcceptanceController, buffer_size: int) -> None:
+        self._write_selection_metadata(controller, post_generation_state="pending")
+        self._write_selection_metadata(controller, post_generation_state="started")
+        self.artifact_storage.materialize_selection_dataset()
+        self._processor_runner.run_after_generation(buffer_size)
+        actual_records = self._count_published_selection_records()
+        if actual_records != controller.accepted_records:
+            raise DatasetGenerationError(
+                "🛑 After-generation processing changed the record-selection output count from "
+                f"{controller.accepted_records} to {actual_records}. Row-count-changing after-generation "
+                "processors are not supported with record selection."
+            )
+        self.artifact_storage.clear_selection_transient_artifacts()
+        processor_names = self.artifact_storage.list_processor_names()
+        self.artifact_storage.update_metadata(
+            {
+                "publication": {
+                    "managed_local_prefixes": [
+                        "parquet-files",
+                        "images",
+                        *(f"processors-files/{name}" for name in processor_names),
+                    ],
+                    "managed_hub_prefixes": ["data", "images", *processor_names],
+                }
+            }
+        )
+        self._write_selection_metadata(controller, post_generation_state="complete")
+
+    def _count_published_selection_records(self) -> int:
+        return sum(
+            lazy.pq.read_metadata(path).num_rows
+            for path in self.artifact_storage.final_dataset_path.glob("batch_*.parquet")
+        )
+
     def _build_async(
         self,
         generators: list[ColumnGenerator],
@@ -903,6 +1339,8 @@ class DatasetBuilder:
         initial_actual_num_records: int = 0,
         initial_total_num_batches: int = 0,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
+        select_dataframe: Callable[[int, int, pd.DataFrame], pd.DataFrame] | None = None,
+        log_pre_generation: bool = True,
     ) -> tuple[AsyncTaskScheduler, RowGroupBufferManager]:
         """Build a fully-wired scheduler and buffer manager for async generation.
 
@@ -922,8 +1360,9 @@ class DatasetBuilder:
 
         graph = ExecutionGraph.create(self._column_configs, strategies)
 
-        for gen in generators:
-            gen.log_pre_generation()
+        if log_pre_generation:
+            for generator in generators:
+                generator.log_pre_generation()
 
         if precomputed_row_groups is not None:
             row_groups: RowGroupPlanLike = normalize_row_group_plan(precomputed_row_groups)
@@ -958,6 +1397,16 @@ class DatasetBuilder:
             df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id, strict_row_count=True)
             buffer_manager.replace_dataframe(rg_id, df)
 
+        def on_select_before_checkpoint(rg_id: int, rg_size: int) -> None:
+            if select_dataframe is None:
+                return
+            dataframe = buffer_manager.get_dataframe(rg_id)
+            dataframe = select_dataframe(rg_id, rg_size, dataframe)
+            buffer_manager.replace_dataframe(rg_id, dataframe)
+            for row_index in range(rg_size):
+                if buffer_manager.is_dropped(rg_id, row_index) and not tracker.is_dropped(rg_id, row_index):
+                    tracker.drop_row(rg_id, row_index)
+
         max_in_flight_tasks = self._resource_provider.run_config.max_in_flight_tasks
         max_model_task_admission = max_in_flight_tasks
 
@@ -971,6 +1420,7 @@ class DatasetBuilder:
             max_in_flight_tasks=max_in_flight_tasks,
             max_model_task_admission=max_model_task_admission,
             on_finalize_row_group=on_finalize_row_group,
+            on_select_before_checkpoint=on_select_before_checkpoint if select_dataframe is not None else None,
             on_seeds_complete=(
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
             ),
@@ -1037,6 +1487,43 @@ class DatasetBuilder:
             type(self._column_configs[0])
         ).can_generate_from_scratch:
             raise DatasetGenerationError("🛑 The first column config must be a from-scratch column generator.")
+
+    def _validate_record_selection_config(self) -> None:
+        config = self._data_designer_config.record_selection
+        if config is None:
+            return
+        predicate_config: ColumnConfigT | None = None
+        available_columns: set[str] = set()
+        for column_config in self.single_column_configs:
+            available_columns.add(column_config.name)
+            available_columns.update(column_config.side_effect_columns)
+            if column_config.name == config.predicate_column:
+                predicate_config = column_config
+        if config.predicate_column not in available_columns:
+            raise DatasetGenerationError(
+                f"🛑 Record-selection predicate column {config.predicate_column!r} does not exist in the "
+                "compiled dataset columns."
+            )
+        if (
+            predicate_config is not None
+            and predicate_config.column_type == DataDesignerColumnType.EXPRESSION
+            and getattr(predicate_config, "dtype", None) != "bool"
+        ):
+            raise DatasetGenerationError(
+                f"🛑 Record-selection predicate expression {config.predicate_column!r} must use dtype='bool'."
+            )
+
+    def _validate_record_selection_request(self, num_records: int) -> None:
+        config = self._data_designer_config.record_selection
+        if config is None:
+            return
+        if num_records <= 0:
+            raise DatasetGenerationError("🛑 num_records must be positive when record selection is configured.")
+        if config.max_candidate_records < num_records:
+            raise DatasetGenerationError(
+                "🛑 record_selection.max_candidate_records must be greater than or equal to "
+                f"num_records ({config.max_candidate_records} < {num_records})."
+            )
 
     def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> list[Processor]:
         # Check columns marked for drop

@@ -140,7 +140,7 @@ class CompositeWorkflowResults:
         self._require_final_result()
         return self.load_stage_output(self.final_stage_name)
 
-    def load_analysis(self) -> DatasetProfilerResults:
+    def load_analysis(self) -> DatasetProfilerResults | None:
         """Load analysis from the final stage result."""
         return self.final_result.load_analysis()
 

@@ -46,7 +46,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         self,
         *,
         artifact_storage: ArtifactStorage,
-        analysis: DatasetProfilerResults,
+        analysis: DatasetProfilerResults | None,
         config_builder: DataDesignerConfigBuilder,
         dataset_metadata: DatasetMetadata,
         task_traces: list[TaskTrace] | None = None,
@@ -55,7 +55,8 @@ class DatasetCreationResults(WithRecordSamplerMixin):
 
         Args:
             artifact_storage: Storage manager for accessing generated artifacts.
-            analysis: Profiling results for the generated dataset.
+            analysis: Profiling results for the generated dataset, or None when profiling
+                was skipped for a schema-bearing empty partial result.
             config_builder: Configuration builder used to create the dataset.
             dataset_metadata: Metadata about the generated dataset (e.g., seed column names).
             task_traces: Optional list of TaskTrace objects from the async scheduler.
@@ -69,12 +70,12 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         self.dataset_metadata = dataset_metadata
         self.task_traces: list[TaskTrace] = task_traces or []
 
-    def load_analysis(self) -> DatasetProfilerResults:
+    def load_analysis(self) -> DatasetProfilerResults | None:
         """Load the profiling analysis results for the generated dataset.
 
         Returns:
-            DatasetProfilerResults containing statistical analysis and quality metrics
-                for configured columns in the generated dataset.
+            DatasetProfilerResults containing statistical analysis and quality metrics,
+                or None when profiling was intentionally skipped for an empty partial result.
         """
         return self._analysis
 
