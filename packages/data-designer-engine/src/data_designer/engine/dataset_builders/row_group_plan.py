@@ -245,22 +245,29 @@ class ExplicitRowGroupPlan:
     """Adapter for already-materialized row-group tuples used by tests and small callers."""
 
     row_groups: tuple[tuple[int, int], ...]
+    base_offset: int = 0
 
     _sizes: dict[int, int] = field(init=False, repr=False)
     _start_offsets: dict[int, int] = field(init=False, repr=False)
     _scheduled_total_rows: int = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if self.base_offset < 0:
+            raise ValueError("base_offset must be non-negative.")
         sizes: dict[int, int] = {}
         start_offsets: dict[int, int] = {}
-        next_offset = 0
+        next_offset = self.base_offset
         for rg_id, rg_size in self.row_groups:
+            if rg_id in sizes:
+                raise ValueError(f"Duplicate row group ID: {rg_id}.")
+            if rg_size <= 0:
+                raise ValueError("Explicit row group sizes must be positive.")
             sizes[rg_id] = rg_size
             start_offsets[rg_id] = next_offset
             next_offset += rg_size
         object.__setattr__(self, "_sizes", sizes)
         object.__setattr__(self, "_start_offsets", start_offsets)
-        object.__setattr__(self, "_scheduled_total_rows", next_offset)
+        object.__setattr__(self, "_scheduled_total_rows", next_offset - self.base_offset)
 
     def __iter__(self) -> Iterator[tuple[int, int]]:
         return iter(self.row_groups)

@@ -49,6 +49,11 @@ df_{{ processor_name }} = processor_{{ processor_name }}.to_pandas()
 {% if target_num_records != num_records %}
 - **✅ Completion**: {{ "%.1f" | format(percent_complete) }}% ({{ "{:,}".format(target_num_records) }} requested)
 {% endif %}
+{% if record_selection %}
+- **🎯 Record selection**: {% if record_selection.selection_satisfied %}target satisfied{% else %}candidate budget exhausted; partial output returned{% endif %}
+- **🧪 Candidate attempts**: {{ "{:,}".format(record_selection.candidate_records_generated) }} / {{ "{:,}".format(record_selection.max_candidate_records) }}
+- **📈 Acceptance rate**: {{ "%.1f" | format(100 * record_selection.acceptance_rate) }}%
+{% endif %}
 
 ---
 

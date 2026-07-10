@@ -462,6 +462,104 @@ def test_validate_dataset_path_invalid_builder_config_json(tmp_path: Path) -> No
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {
+            "post_generation_state": "pending",
+            "record_selection": {
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+            },
+        },
+        {
+            "post_generation_state": "complete",
+            "record_selection": {
+                "selection_satisfied": False,
+                "selection_exhausted": True,
+                "on_exhausted": "raise",
+            },
+        },
+    ],
+)
+def test_validate_dataset_path_rejects_unpublishable_record_selection(tmp_path: Path, metadata: dict) -> None:
+    base_path = tmp_path / "dataset"
+    parquet_path = base_path / "parquet-files" / "batch_00000.parquet"
+    parquet_path.parent.mkdir(parents=True)
+    parquet_path.write_text("placeholder")
+    (base_path / "metadata.json").write_text(json.dumps(metadata))
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match="selection and publication are complete"):
+        HuggingFaceHubClient._validate_dataset_path(base_path)
+
+
+def test_record_selection_upload_atomically_replaces_managed_hub_files(
+    mock_hf_api: MagicMock,
+    sample_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    metadata_path = sample_dataset_path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.update(
+        {
+            "actual_num_records": 100,
+            "post_generation_state": "complete",
+            "record_selection": {
+                "selection_satisfied": True,
+                "selection_exhausted": False,
+                "on_exhausted": "raise",
+                "candidate_records_generated": 120,
+                "max_candidate_records": 200,
+                "acceptance_rate": 100 / 120,
+            },
+            "publication": {
+                "managed_hub_prefixes": ["data", "images", "processor1", "processor2"],
+            },
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata))
+
+    remote_metadata = tmp_path / "remote-metadata.json"
+    remote_metadata.write_text(
+        json.dumps({"publication": {"managed_hub_prefixes": ["data", "images", "legacy_processor"]}})
+    )
+    mock_hf_api.hf_hub_download.return_value = str(remote_metadata)
+    mock_hf_api.list_repo_files.return_value = [
+        "data/batch_00000.parquet",
+        "data/obsolete.parquet",
+        "images/obsolete.png",
+        "legacy_processor/batch_00000.parquet",
+        "notes/user-managed.txt",
+    ]
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset("test/selection", sample_dataset_path, "Selection dataset")
+
+    mock_hf_api.create_commit.assert_called_once()
+    operations = mock_hf_api.create_commit.call_args.kwargs["operations"]
+    deleted = {
+        operation.path_in_repo for operation in operations if type(operation).__name__ == "CommitOperationDelete"
+    }
+    added = {operation.path_in_repo for operation in operations if type(operation).__name__ == "CommitOperationAdd"}
+    assert deleted == {
+        "data/obsolete.parquet",
+        "images/obsolete.png",
+        "legacy_processor/batch_00000.parquet",
+    }
+    assert "notes/user-managed.txt" not in deleted
+    assert {
+        "data/batch_00000.parquet",
+        "data/batch_00001.parquet",
+        "processor1/batch_00000.parquet",
+        "processor2/batch_00000.parquet",
+        "metadata.json",
+        "builder_config.json",
+        "README.md",
+    } <= added
+    mock_hf_api.upload_folder.assert_not_called()
+
+
 def test_upload_dataset_uploads_images_folder(
     mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
 ) -> None:

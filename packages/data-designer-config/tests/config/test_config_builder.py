@@ -36,6 +36,7 @@ from data_designer.config.errors import (
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTransformProcessorConfig
+from data_designer.config.record_selection import RecordSelectionConfig, RecordSelectionExhaustion
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed import IndexRange, SamplingStrategy
@@ -169,6 +170,13 @@ def test_from_config_round_trips_all_data_designer_config_fields(stub_model_conf
     builder.add_processor(SchemaTransformProcessorConfig(name="records", template={"age": "{{ age }}"}))
     builder.add_processor(DropColumnsProcessorConfig(name="cleanup", column_names=["internal_*"]))
     builder.add_profiler(JudgeScoreProfilerConfig(model_alias="stub-model", summary_score_sample_size=5))
+    builder.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="age",
+            max_candidate_records=100,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
 
     original_config = builder.build()
     loaded_config = DataDesignerConfigBuilder.from_config(BuilderConfig(data_designer=original_config)).build()
@@ -851,6 +859,28 @@ def test_with_seed_dataset_sampling_strategy(stub_empty_builder):
 
     seed_config = stub_empty_builder.get_seed_config()
     assert seed_config.sampling_strategy == SamplingStrategy.SHUFFLE
+
+
+def test_with_record_selection(stub_empty_builder: DataDesignerConfigBuilder) -> None:
+    config = RecordSelectionConfig(predicate_column="accepted", max_candidate_records=100)
+
+    result = stub_empty_builder.with_record_selection(config)
+
+    assert result is stub_empty_builder
+    assert stub_empty_builder.build().record_selection == config
+
+
+def test_from_config_round_trips_record_selection_yaml(stub_empty_builder: DataDesignerConfigBuilder) -> None:
+    config = RecordSelectionConfig(
+        predicate_column="accepted",
+        max_candidate_records=100,
+        on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+    )
+    stub_empty_builder.with_record_selection(config)
+
+    loaded_builder = DataDesignerConfigBuilder.from_config(stub_empty_builder.get_builder_config().to_yaml())
+
+    assert loaded_builder.build().record_selection == config
 
 
 def test_repr_includes_seed_dataset_when_no_columns(stub_empty_builder) -> None:

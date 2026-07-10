@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         DataDesignerEarlyShutdownError,
         DataDesignerGenerationError,
         DataDesignerProfilingError,
+        DataDesignerRecordSelectionExhaustedError,
         DataDesignerWorkflowError,
     )
     from data_designer.interface.results import DatasetCreationResults  # noqa: F401
@@ -30,6 +31,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataDesignerEarlyShutdownError": ("data_designer.interface.errors", "DataDesignerEarlyShutdownError"),
     "DataDesignerGenerationError": ("data_designer.interface.errors", "DataDesignerGenerationError"),
     "DataDesignerProfilingError": ("data_designer.interface.errors", "DataDesignerProfilingError"),
+    "DataDesignerRecordSelectionExhaustedError": (
+        "data_designer.interface.errors",
+        "DataDesignerRecordSelectionExhaustedError",
+    ),
     "DataDesignerWorkflowError": ("data_designer.interface.errors", "DataDesignerWorkflowError"),
     "DatasetCreationResults": ("data_designer.interface.results", "DatasetCreationResults"),
     "ResumeMode": ("data_designer.config.run_config", "ResumeMode"),
