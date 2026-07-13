@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from data_designer.config.run_config import (  # noqa: F401
         JinjaRenderingEngine,
         RequestAdmissionTuningConfig,
+        ResumeMode,
         RunConfig,
         ThrottleConfig,
     )
@@ -190,6 +191,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     # run_config
     "JinjaRenderingEngine": (f"{_MOD_BASE}.run_config", "JinjaRenderingEngine"),
     "RequestAdmissionTuningConfig": (f"{_MOD_BASE}.run_config", "RequestAdmissionTuningConfig"),
+    "ResumeMode": (f"{_MOD_BASE}.run_config", "ResumeMode"),
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     "ThrottleConfig": (f"{_MOD_BASE}.run_config", "ThrottleConfig"),
     # script_params
