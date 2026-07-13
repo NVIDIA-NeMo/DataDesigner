@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from unittest.mock import patch
 
 import pytest
 
@@ -28,7 +29,8 @@ from data_designer.engine.models.request_admission.controller import (
     RequestAdmissionError,
 )
 from data_designer.engine.models.request_admission.resources import RequestAdmissionItem, RequestDomain
-from data_designer.engine.observability import InMemoryAdmissionEventSink
+from data_designer.engine.observability import RequestAdmissionEvent, RequestAdmissionEventKind
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
 class _Client:
@@ -78,6 +80,21 @@ class _Client:
 class _BrokenSink:
     def emit_request_event(self, _event: object) -> None:
         raise RuntimeError("sink boom")
+
+
+class _RejectingSink:
+    def accepts_request_event(self, _event_kind: RequestAdmissionEventKind) -> bool:
+        return False
+
+    def emit_request_event(self, _event: RequestAdmissionEvent) -> None:
+        raise AssertionError("rejected request event was emitted")
+
+
+class _InterruptingStartedSink(InMemoryAdmissionEventSink):
+    def emit_request_event(self, event: RequestAdmissionEvent) -> None:
+        if event.event_kind == "model_request_started":
+            raise KeyboardInterrupt
+        super().emit_request_event(event)
 
 
 class _GatedAsyncClient(_Client):
@@ -169,6 +186,34 @@ def test_model_request_executor_releases_successful_request() -> None:
     assert snapshot.last_outcome == "success"
 
 
+def test_model_request_executor_skips_unaccepted_attempt_events() -> None:
+    controller = AdaptiveRequestAdmissionController()
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    executor = ModelRequestExecutor(_Client(), controller, "nvidia", "nemotron", event_sink=_RejectingSink())
+
+    with patch.object(controller, "snapshot", side_effect=AssertionError("pressure snapshot should not be captured")):
+        response = executor.completion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    assert response.message.content == "ok"
+
+
+def test_model_request_executor_releases_when_started_event_is_interrupted() -> None:
+    sink = _InterruptingStartedSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    executor = ModelRequestExecutor(_Client(), controller, "nvidia", "nemotron", event_sink=sink)
+
+    with pytest.raises(KeyboardInterrupt):
+        executor.completion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    snapshot = controller.pressure.snapshot(next(iter(controller.pressure.snapshots())))
+    assert snapshot is not None
+    assert snapshot.active_lease_count == 0
+    assert snapshot.last_outcome == "local_cancelled"
+    completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
+    assert completed[-1].diagnostics == {"outcome": "local_cancelled", "duration_seconds": 0.0}
+
+
 def test_model_request_executor_classifies_rate_limit() -> None:
     executor, controller, client = _executor()
     client.error = ProviderError(
@@ -211,6 +256,9 @@ def test_model_request_executor_retries_provider_503_with_fresh_leases() -> None
     assert len(acquired) == 2
     assert len(released) == 2
     assert {event.request_lease_id for event in acquired} == {event.request_lease_id for event in released}
+    completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
+    assert len(completed) == 2
+    assert all(event.diagnostics["duration_seconds"] >= 0 for event in completed)
 
 
 def test_model_request_executor_does_not_retry_provider_timeout_without_status() -> None:
@@ -284,6 +332,9 @@ async def test_model_request_executor_retries_async_provider_503_with_fresh_leas
     assert len(acquired) == 2
     assert len(released) == 2
     assert {event.request_lease_id for event in acquired} == {event.request_lease_id for event in released}
+    completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
+    assert len(completed) == 2
+    assert all(event.diagnostics["duration_seconds"] >= 0 for event in completed)
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -341,6 +392,25 @@ async def test_model_request_executor_classifies_async_keyboard_interrupt_as_can
     assert snapshot.last_outcome == "local_cancelled"
     completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
     assert completed[-1].diagnostics["outcome"] == "local_cancelled"
+    assert completed[-1].diagnostics["duration_seconds"] >= 0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_model_request_executor_releases_async_when_started_event_is_interrupted() -> None:
+    sink = _InterruptingStartedSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+    executor = ModelRequestExecutor(_Client(), controller, "nvidia", "nemotron", event_sink=sink)
+
+    with pytest.raises(KeyboardInterrupt):
+        await executor.acompletion(ChatCompletionRequest(model="nemotron", messages=[]))
+
+    snapshot = controller.pressure.snapshot(next(iter(controller.pressure.snapshots())))
+    assert snapshot is not None
+    assert snapshot.active_lease_count == 0
+    assert snapshot.last_outcome == "local_cancelled"
+    completed = [event for event in sink.request_events if event.event_kind == "model_request_completed"]
+    assert completed[-1].diagnostics == {"outcome": "local_cancelled", "duration_seconds": 0.0}
 
 
 def test_model_request_executor_maps_image_chat_domain() -> None:
@@ -423,6 +493,10 @@ def test_model_request_executor_emits_attempt_events_with_correlation_fields() -
     for event in attempt_events:
         assert isinstance(event.pressure_snapshot, dict)
         assert event.pressure_snapshot["resource"] == event.request_resource_key
+    completed = [event for event in attempt_events if event.event_kind == "model_request_completed"]
+    assert len(completed) == 1
+    assert completed[0].diagnostics["outcome"] == "success"
+    assert completed[0].diagnostics["duration_seconds"] >= 0
 
 
 def test_model_request_executor_logs_sink_failures(caplog: pytest.LogCaptureFixture) -> None:

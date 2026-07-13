@@ -51,6 +51,7 @@ class NemoSourceEnum(str, Enum):
 class DeploymentTypeEnum(str, Enum):
     LIBRARY = "library"
     API = "api"
+    NVIDIA_INTERNAL = "nvidia-internal"
     UNDEFINED = "undefined"
 
 
@@ -72,7 +73,7 @@ class TaskStatusEnum(str, Enum):
 
 class TelemetryEvent(BaseModel):
     _event_name: ClassVar[str]  # Subclasses must define this
-    _schema_version: ClassVar[str] = "1.3"
+    _schema_version: ClassVar[str] = "1.9"
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)

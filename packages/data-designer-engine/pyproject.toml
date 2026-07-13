@@ -34,6 +34,7 @@ bump = true
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
     "anyascii>=0.3.3,<1",
+    "asciichartpy>=1.5.25,<2",
     "chardet>=3.0.2,<6",  # Pulled in by sqlfluff
     "cryptography>=46.0.7,<47", # 46.0.7 fixes CVE-2026-39892 pulled in by mcp
     "data-designer-config=={{ version }}",
@@ -53,14 +54,16 @@ dependencies = [
     "networkx>=3.0,<4",
     "numpy>=1.23.5,<3",
     "pandas>=2.3.3,<3",
+    "pyarrow>=22,<23", # Required for parquet I/O operations; 22 is the first release with Python 3.14 wheels
     "pydantic>=2.9.2,<3",
     "pyjwt[crypto]>=2.13.0,<3", # 2.13.0 fixes PyJWT security advisories pulled in by mcp
-    "python-multipart>=0.0.29,<1", # 0.0.29 addresses multipart security advisories pulled in by mcp
+    "python-multipart>=0.0.32,<1", # 0.0.32 addresses multipart security advisories pulled in by mcp
     "ruff>=0.14.10,<1",
     "scipy>=1.11.0,<2",
     "sqlfluff>=4.1.0,<5",
     "starlette>=1.2.0,<2", # 1.2.0 fixes security advisory pulled in by mcp
     "tiktoken>=0.8.0,<1",
+    "wcwidth>=0.2.13,<1",
 ]
 
 [tool.hatch.build.targets.wheel]

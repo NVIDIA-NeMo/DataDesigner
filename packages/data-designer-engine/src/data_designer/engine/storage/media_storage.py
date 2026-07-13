@@ -143,10 +143,6 @@ class MediaStorage:
             image_path.unlink(missing_ok=True)
             raise
 
-    def _ensure_images_directory(self) -> None:
-        """Create images directory if it doesn't exist (lazy initialization)."""
-        self.images_dir.mkdir(parents=True, exist_ok=True)
-
     def _sanitize_subfolder_name(self, name: str) -> str:
         """Sanitize subfolder name to prevent path traversal and filesystem issues."""
         # Replace path separators and parent directory references with underscores

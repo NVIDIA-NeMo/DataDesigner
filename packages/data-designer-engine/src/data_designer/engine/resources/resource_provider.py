@@ -21,6 +21,7 @@ from data_designer.engine.model_provider import (
 from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
+from data_designer.engine.observability import RequestAdmissionEventSink, SchedulerAdmissionEventSink
 from data_designer.engine.resources.person_reader import PersonReader
 from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
@@ -43,6 +44,7 @@ class ResourceProvider(ConfigBase):
     mcp_registry: MCPRegistry | None = None
     run_config: RunConfig = RunConfig()
     seed_reader: SeedReader | None = None
+    scheduler_event_sink: SchedulerAdmissionEventSink | None = None
 
     def get_dataset_metadata(self) -> DatasetMetadata:
         """Get metadata about the dataset being generated.
@@ -54,31 +56,6 @@ class ResourceProvider(ConfigBase):
         if self.seed_reader is not None:
             seed_column_names = self.seed_reader.get_column_names()
         return DatasetMetadata(seed_column_names=seed_column_names)
-
-
-def _validate_tool_configs_against_providers(
-    tool_configs: list[ToolConfig],
-    mcp_providers: list[MCPProviderT],
-) -> None:
-    """Validate that all providers referenced in tool configs exist.
-
-    Args:
-        tool_configs: List of tool configurations to validate.
-        mcp_providers: List of available MCP provider configurations.
-
-    Raises:
-        ValueError: If a tool config references a provider that doesn't exist.
-    """
-    available_providers = {p.name for p in mcp_providers}
-
-    for tc in tool_configs:
-        missing_providers = [p for p in tc.providers if p not in available_providers]
-        if missing_providers:
-            available_list = sorted(available_providers) if available_providers else ["(none configured)"]
-            raise ValueError(
-                f"ToolConfig '{tc.tool_alias}' references provider(s) {missing_providers!r} "
-                f"which are not registered. Available providers: {available_list}"
-            )
 
 
 def create_resource_provider(
@@ -95,6 +72,8 @@ def create_resource_provider(
     tool_configs: list[ToolConfig] | None = None,
     client_concurrency_mode: ClientConcurrencyMode | None = None,
     request_admission: AdaptiveRequestAdmissionController | None = None,
+    scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
+    request_event_sink: RequestAdmissionEventSink | None = None,
 ) -> ResourceProvider:
     """Factory function for creating a ResourceProvider instance.
 
@@ -116,6 +95,8 @@ def create_resource_provider(
         mcp_providers: Optional list of MCP provider configurations.
         tool_configs: Optional list of tool configurations.
         request_admission: Optional shared request-admission controller for model clients.
+        scheduler_event_sink: Optional direct sink for scheduler events.
+        request_event_sink: Optional direct sink for request-admission and model-request events.
 
     Returns:
         A configured ResourceProvider instance.
@@ -155,9 +136,11 @@ def create_resource_provider(
             client_concurrency_mode=client_concurrency_mode,
             run_config=effective_run_config,
             request_admission=request_admission,
+            request_event_sink=request_event_sink,
         ),
         person_reader=person_reader,
         mcp_registry=mcp_registry,
         seed_reader=seed_reader,
         run_config=effective_run_config,
+        scheduler_event_sink=scheduler_event_sink,
     )

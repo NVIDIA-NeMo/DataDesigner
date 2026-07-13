@@ -1007,7 +1007,7 @@ def test_uninstall_runs_every_project_uninstall_command(mock_which: Mock, tmp_pa
 
 @patch("data_designer.cli.services.plugin_install_service.importlib.metadata.entry_points")
 @patch("data_designer.cli.services.plugin_install_service.importlib.invalidate_caches")
-def test_verify_entry_point_invalidates_caches_and_checks_declared_entry_point(
+def test_verify_entry_points_invalidates_caches_and_checks_declared_entry_point(
     mock_invalidate_caches: Mock,
     mock_entry_points: Mock,
 ) -> None:
@@ -1023,7 +1023,7 @@ def test_verify_entry_point_invalidates_caches_and_checks_declared_entry_point(
     ]
     service = PluginInstallService()
 
-    assert service.verify_entry_point(entry) is True
+    assert service.verify_entry_points([entry]) is True
     mock_invalidate_caches.assert_called_once_with()
     mock_entry_points.assert_called_once_with(group="data_designer.plugins")
 

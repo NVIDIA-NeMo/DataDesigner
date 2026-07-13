@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
@@ -15,6 +17,10 @@ def validate_command(
             " that defines a load_config_builder() function."
         ),
     ),
+    script_args: Annotated[
+        list[str] | None,
+        typer.Argument(help="Arguments forwarded to a local Python config module after '--'."),
+    ] = None,
 ) -> None:
     """Validate a Data Designer configuration.
 
@@ -30,6 +36,9 @@ def validate_command(
 
         # Validate a Python module
         data-designer validate my_config.py
+
+        # Forward arguments to a Python config module
+        data-designer validate workflow.py -- --seed-path seed.parquet
     """
     controller = GenerationController()
-    controller.run_validate(config_source=config_source)
+    controller.run_validate(config_source=config_source, script_args=script_args)

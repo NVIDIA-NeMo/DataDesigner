@@ -179,13 +179,22 @@ The performance numbers are satisfying, but raw throughput is only part of the p
 
 ### **Progress you can see**
 
-Because rows complete out of order and row groups checkpoint independently, results start appearing on disk within seconds. The new progress bars — sticky ANSI bars that redraw in-place at the bottom of the terminal — update on every task completion rather than waiting for a full column to finish. Log messages from the scheduler and throttle layer render above the bars, so you see both the high-level progress and the per-event detail. A 10-minute generation run no longer means staring at nothing until the end.
+Because rows complete out of order and row groups checkpoint independently, results start appearing on disk within seconds. The terminal throughput panel stays bounded to the viewport and redraws at a throttled interval instead of on every task completion. Its chart tracks records per second for active cell-by-cell generation columns, the column table shows current and average rates plus completion, and the model table reports request and token traffic by model alias. Seed and batch-level columns finish as whole tasks, so they do not appear as per-record curves. Scheduler and request-admission logs render above the panel, preserving both high-level progress and per-event detail.
 
 ```
-  column 'topic'    ████████████████████████████████████░░░░  89% | 890/1000 |  148.3 rec/s | eta 1s  | 0 failed
-  column 'summary'  ██████████████████████████░░░░░░░░░░░░░░  65% | 650/1000 |  108.3 rec/s | eta 3s  | 2 failed
-  column 'trivia'   █████████████████████████████░░░░░░░░░░░  72% | 720/1000 |  120.0 rec/s | eta 2s  | 0 failed
-  column 'analysis' ██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  35% | 350/1000 |   87.5 rec/s | eta 7s  | 1 failed
+╭─────────────────────────────────────────────────────────────────────────────╮
+│Throughput rec/s |  12.4s | 154/200 | now   18.2 | 0 failed                 │
+│  20.0 ┤                         ╭────                                       │
+│  10.0 ┤              ╭──────────╯                                           │
+│   0.0 ┼──────────────╯                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  column             now rec/s  avg rec/s       done                         │
+│● column 'summary'         10.1        8.4    82/100 82%  ━━━━━━━━━━━━━━━     │
+│● column 'analysis'         8.1        6.7    72/100 72%  ━━━━━━━━━━━━━       │
+│                                                                             │
+│  model alias  model name                 rpm  in tok/s  out tok/s            │
+│  writer       nvidia/nemotron            6.0      42.1       11.3            │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
 When tracing is enabled (`DATA_DESIGNER_ASYNC_TRACE=1` or `RunConfig(async_trace=True)`), the scheduler also records a `TaskTrace` for every task: when it was dispatched, when it acquired a semaphore slot, when it completed, and its status. These traces are available on the result object after the run, so you can reconstruct the scheduler's timeline and understand where time was spent.
@@ -214,7 +223,7 @@ The async engine is now Data Designer's execution engine. Your existing pipeline
 
 This was a ground-up rebuild of the execution layer, delivered across six PRs over four weeks.
 
-It started with the data structures: `ExecutionGraph`, `CompletionTracker`, and task models ([#356](https://github.com/NVIDIA-NeMo/DataDesigner/pull/356)). Next came the generator migration ([#378](https://github.com/NVIDIA-NeMo/DataDesigner/pull/378)), where we added symmetric `generate()`/`agenerate()` bridging so every generator works in both modes without rewriting. The core scheduler and buffer manager followed in [#404](https://github.com/NVIDIA-NeMo/DataDesigner/pull/404), then integration into `DatasetBuilder` with callbacks and trace export ([#429](https://github.com/NVIDIA-NeMo/DataDesigner/pull/429)). The `ThrottledModelClient` and dual-semaphore scheduler landed in [#449](https://github.com/NVIDIA-NeMo/DataDesigner/pull/449), wiring AIMD concurrency control into every outbound model request. A final polish pass ([#456](https://github.com/NVIDIA-NeMo/DataDesigner/pull/456)) added async preview, unified lifecycle callbacks, and sticky ANSI progress bars.
+It started with the data structures: `ExecutionGraph`, `CompletionTracker`, and task models ([#356](https://github.com/NVIDIA-NeMo/DataDesigner/pull/356)). Next came the generator migration ([#378](https://github.com/NVIDIA-NeMo/DataDesigner/pull/378)), where we added symmetric `generate()`/`agenerate()` bridging so every generator works in both modes without rewriting. The core scheduler and buffer manager followed in [#404](https://github.com/NVIDIA-NeMo/DataDesigner/pull/404), then integration into `DatasetBuilder` with callbacks and trace export ([#429](https://github.com/NVIDIA-NeMo/DataDesigner/pull/429)). The `ThrottledModelClient` and dual-semaphore scheduler landed in [#449](https://github.com/NVIDIA-NeMo/DataDesigner/pull/449), wiring AIMD concurrency control into every outbound model request. A final polish pass ([#456](https://github.com/NVIDIA-NeMo/DataDesigner/pull/456)) added async preview and unified lifecycle callbacks. Its original sticky progress bars have since been replaced by the bounded throughput panel shown above.
 
 The symmetric bridging was critical for adoption. Every `ColumnGenerator` has both a `generate()` and an `agenerate()` method. Implement one, and the base class synthesizes the other:
 
@@ -239,7 +248,7 @@ Generator authors implement whichever method is natural — sync for CPU-bound w
 
 ## **Try It**
 
-Use the progress bars for real-time feedback:
+Use the throughput panel for real-time feedback:
 
 ```py
 from data_designer.config.run_config import RunConfig
@@ -247,7 +256,7 @@ from data_designer.interface import DataDesigner
 
 dd = DataDesigner()
 dd.set_run_config(RunConfig(
-    progress_bar=True,
+    display_tui=True,
 ))
 result = dd.create(
     config_builder=config,

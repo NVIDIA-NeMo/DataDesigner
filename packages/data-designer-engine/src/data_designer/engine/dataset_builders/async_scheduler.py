@@ -12,6 +12,7 @@ import uuid
 from collections import Counter, defaultdict, deque
 from collections.abc import Coroutine, Mapping
 from dataclasses import dataclass
+from threading import Event
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
@@ -25,7 +26,11 @@ from data_designer.engine.capacity import (
     RequestAdmissionConfigSnapshot,
     RowGroupAdmission,
 )
-from data_designer.engine.context import current_row_group, current_row_group_start_offset
+from data_designer.engine.context import (
+    current_row_group,
+    current_row_group_start_offset,
+    current_run_cancel_event,
+)
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.row_group_plan import (
@@ -41,6 +46,7 @@ from data_designer.engine.dataset_builders.scheduling.queue import (
 from data_designer.engine.dataset_builders.scheduling.resolver import TaskSchedulingResolver
 from data_designer.engine.dataset_builders.scheduling.resources import (
     SchedulableTask,
+    request_scheduler_resource_key,
     stable_task_id,
 )
 from data_designer.engine.dataset_builders.scheduling.task_admission import (
@@ -52,17 +58,11 @@ from data_designer.engine.dataset_builders.scheduling.task_admission import (
 )
 from data_designer.engine.dataset_builders.scheduling.task_model import SliceRef, Task, TaskTrace
 from data_designer.engine.dataset_builders.scheduling.task_policies import BoundedBorrowTaskAdmissionPolicyConfig
-from data_designer.engine.dataset_builders.utils.async_progress_reporter import (
-    DEFAULT_REPORT_INTERVAL,
-    AsyncProgressReporter,
-)
-from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.skip_evaluator import should_skip_column_for_record
 from data_designer.engine.dataset_builders.utils.skip_tracker import (
     apply_skip_to_record,
     strip_skip_metadata_from_records,
 )
-from data_designer.engine.dataset_builders.utils.sticky_progress_bar import StickyProgressBar
 from data_designer.engine.errors import DataDesignerError
 from data_designer.engine.models.clients.errors import ProviderError
 from data_designer.engine.models.errors import (
@@ -77,10 +77,18 @@ from data_designer.engine.models.resources import ProviderModelKey, ProviderMode
 from data_designer.engine.observability import (
     RuntimeCorrelation,
     SchedulerAdmissionEvent,
+    SchedulerAdmissionEventKind,
     SchedulerAdmissionEventSink,
     runtime_correlation_provider,
+    scheduler_event_sink_accepts,
 )
 from data_designer.engine.processing.ginja.exceptions import UserTemplateError
+from data_designer.engine.progress.reporter import (
+    DEFAULT_REPORT_INTERVAL,
+    AsyncProgressReporter,
+)
+from data_designer.engine.progress.terminal.throughput_panel import TerminalThroughputPanel
+from data_designer.engine.progress.tracker import ProgressTracker
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGenerator
@@ -146,6 +154,15 @@ class _DispatchOutcome:
     admission_blocked: bool = False
 
 
+@dataclass(frozen=True)
+class _DeferredAdmissionAnalysis:
+    """Deferred retry pressure as seen by adaptive row-group admission."""
+
+    blocks: bool
+    candidate_columns: tuple[str, ...]
+    independent_candidate_columns: tuple[str, ...]
+
+
 class AsyncTaskScheduler:
     """Dependency-aware async task scheduler for the dataset builder.
 
@@ -179,7 +196,7 @@ class AsyncTaskScheduler:
         num_records: int = 0,
         buffer_size: int = 0,
         progress_interval: float | None = None,
-        progress_bar: bool = False,
+        display_tui: bool = False,
         scheduler_event_sink: SchedulerAdmissionEventSink | None = None,
         run_id: str | None = None,
         initial_completed_records: int = 0,
@@ -220,7 +237,14 @@ class AsyncTaskScheduler:
         self._in_flight: set[Task] = set()
         self._worker_tasks: set[asyncio.Task] = set()
         self._wake_event = asyncio.Event()
-        self._run_id = run_id or f"run-{uuid.uuid4().hex}"
+        ambient_correlation = runtime_correlation_provider.current()
+        self._run_id = (
+            run_id
+            if run_id is not None
+            else ambient_correlation.run_id
+            if ambient_correlation is not None
+            else f"run-{uuid.uuid4().hex}"
+        )
         self._scheduler_event_sink = scheduler_event_sink
         self._scheduler_event_sequence = 0
         if salvage_max_rounds < 1:
@@ -302,10 +326,11 @@ class AsyncTaskScheduler:
         # engine drops rows and continues, losing the cause unless we capture it.
         self._first_non_retryable_error: Exception | None = None
         self._fatal_worker_error: BaseException | None = None
+        self._cancel_requested = Event()
+        self._run_loop: asyncio.AbstractEventLoop | None = None
 
         self._max_concurrent_row_groups = max_concurrent_row_groups
         self._max_in_flight_tasks = max_in_flight_tasks
-        self._max_model_task_admission = max_model_task_admission
         self._num_records = num_records
         self._buffer_size = buffer_size
         self._scheduled_records = self._row_groups.scheduled_total_rows
@@ -330,6 +355,12 @@ class AsyncTaskScheduler:
         self._row_group_admission_pressure_ticks = 0
         self._row_group_admission_blocked_reasons: Counter[str] = Counter()
         self._adaptive_max_admitted_rows = self._max_admitted_rows_guardrail()
+        self._row_group_admission_pending: tuple[int, int] | None = None
+        self._deferred_admission_cache: tuple[tuple[Task, ...], tuple[int, int], _DeferredAdmissionAnalysis] | None = (
+            None
+        )
+        self._transitive_upstream_cache: dict[str, frozenset[str]] = {}
+        self._transitive_downstream_cache: dict[str, frozenset[str]] = {}
         self._request_pressure_provider = request_pressure_provider
         self._request_pressure_advisory = request_pressure_advisory and request_pressure_provider is not None
         self._request_pressure_advisory_skips = 0
@@ -338,7 +369,7 @@ class AsyncTaskScheduler:
         self._seed_cols: tuple[str, ...] = tuple(c for c in graph.columns if not graph.get_upstream_columns(c))
 
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
-        self._progress_bar = StickyProgressBar() if progress_bar else None
+        self._progress_bar = TerminalThroughputPanel() if display_tui else None
         self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
 
     def _setup_async_progress_reporter(
@@ -370,6 +401,7 @@ class AsyncTaskScheduler:
             trackers,
             report_interval=interval,
             progress_bar=self._progress_bar,
+            run_id=self._run_id,
         )
 
     @property
@@ -400,6 +432,13 @@ class AsyncTaskScheduler:
         """
         return self._first_non_retryable_error
 
+    def request_cancel(self) -> None:
+        """Signal cancellation to scheduler tasks and bridged sync generator work."""
+        self._cancel_requested.set()
+        if self._run_loop is not None:
+            with contextlib.suppress(RuntimeError):
+                self._run_loop.call_soon_threadsafe(self._wake_event.set)
+
     def _raise_if_fatal_worker_error(self) -> None:
         if self._fatal_worker_error is None:
             return
@@ -418,7 +457,7 @@ class AsyncTaskScheduler:
 
     def _emit_scheduler_event(
         self,
-        event_kind: str,
+        event_kind: SchedulerAdmissionEventKind,
         *,
         task: Task | None = None,
         lease: TaskAdmissionLease | None = None,
@@ -427,10 +466,18 @@ class AsyncTaskScheduler:
         reason_or_result: str | None = None,
         diagnostics: dict[str, object] | None = None,
     ) -> None:
-        if self._scheduler_event_sink is None:
+        if not scheduler_event_sink_accepts(self._scheduler_event_sink, event_kind):
             return
         self._scheduler_event_sequence += 1
-        correlation = None
+        correlation = RuntimeCorrelation(
+            run_id=self._run_id,
+            row_group=None,
+            task_column=None,
+            task_type=None,
+            scheduling_group_kind=None,
+            scheduling_group_identity_hash=None,
+            task_execution_id=None,
+        )
         event_diagnostics = dict(diagnostics or {})
         if task is not None:
             schedulable = lease.item if lease is not None else self._schedulable_task(task)
@@ -450,7 +497,7 @@ class AsyncTaskScheduler:
         try:
             self._scheduler_event_sink.emit_scheduler_event(
                 SchedulerAdmissionEvent.capture(
-                    event_kind,  # type: ignore[arg-type]
+                    event_kind,
                     sequence=self._scheduler_event_sequence,
                     correlation=correlation,
                     task_id=stable_task_id(task) if task is not None else None,
@@ -500,7 +547,7 @@ class AsyncTaskScheduler:
             )
 
     def _emit_scheduler_health_snapshot(self, reason: str) -> None:
-        if self._scheduler_event_sink is None:
+        if not scheduler_event_sink_accepts(self._scheduler_event_sink, "scheduler_health_snapshot"):
             return
         self._emit_scheduler_event(
             "scheduler_health_snapshot",
@@ -659,9 +706,6 @@ class AsyncTaskScheduler:
         for task in delta.removed:
             self._discard_ready_task(task)
         self._enqueue_ready_tasks(delta.added)
-
-    def _enqueue_ready_task(self, task: Task) -> None:
-        self._enqueue_ready_tasks((task,))
 
     def _enqueue_ready_tasks(self, tasks: tuple[Task, ...]) -> None:
         schedulables: list[SchedulableTask] = []
@@ -947,13 +991,14 @@ class AsyncTaskScheduler:
             self._row_group_admission_event.set()
 
     def _adaptive_row_group_block_reason(self) -> str | None:
-        if self._deferred:
-            return "deferred_tasks"
-        next_size = self._next_unadmitted_row_group_size()
-        if next_size is None:
+        next_row_group = self._next_unadmitted_row_group()
+        if next_row_group is None:
             return "no_pending_row_groups"
+        next_rg_id, next_size = next_row_group
         if not self._row_group_row_guard_allows(next_size):
             return "max_admitted_rows"
+        if self._deferred and self._deferred_admission_analysis(next_rg_id, next_size).blocks:
+            return "deferred_tasks"
         queue_view = self._fair_queue.view()
         queue_guard = self._max_in_flight_tasks * 4
         if queue_view.queued_total >= queue_guard:
@@ -971,13 +1016,169 @@ class AsyncTaskScheduler:
             return "queued_llm_demand"
         return None
 
-    def _next_unadmitted_row_group_size(self) -> int | None:
-        for rg_id, rg_size in self._row_groups:
-            if rg_id not in self._rg_states and not self._tracker.is_row_group_complete(
-                rg_id, rg_size, self._graph.columns
-            ):
-                return rg_size
-        return None
+    def _next_unadmitted_row_group(self) -> tuple[int, int] | None:
+        pending = self._row_group_admission_pending
+        if pending is None:
+            return None
+        rg_id, rg_size = pending
+        if rg_id in self._rg_states or self._tracker.is_row_group_complete(rg_id, rg_size, self._graph.columns):
+            return None
+        return pending
+
+    def _deferred_admission_analysis(self, row_group: int, row_group_size: int) -> _DeferredAdmissionAnalysis:
+        cache_key = (tuple(self._deferred), (row_group, row_group_size))
+        if self._deferred_admission_cache is not None and self._deferred_admission_cache[:2] == cache_key:
+            return self._deferred_admission_cache[2]
+        deferred_items = tuple(self._schedulable_task(task) for task in self._deferred)
+        deferred_keys = {key for item in deferred_items for key in self._localized_deferred_admission_keys(item)}
+        candidates = tuple(
+            (item, self._localized_deferred_admission_keys(item))
+            for item in self._row_group_admission_candidate_tasks(row_group, row_group_size)
+        )
+        blocked_columns: set[str] = set()
+        for item in deferred_items:
+            blocked_columns.update(self._task_output_columns(item.payload))
+        for item, keys in candidates:
+            if keys & deferred_keys:
+                blocked_columns.update(self._task_output_columns(item.payload))
+        independent_candidates = tuple(
+            item.payload.column
+            for item, keys in candidates
+            if not (keys & deferred_keys)
+            and not self._task_depends_on_any(item.payload, blocked_columns)
+            and (
+                self._is_resource_scoped_admission_candidate(item)
+                or not self._task_reaches_any(item.payload, blocked_columns)
+            )
+        )
+        blocks = bool(deferred_items) and not independent_candidates
+        analysis = _DeferredAdmissionAnalysis(
+            blocks=blocks,
+            candidate_columns=tuple(item.payload.column for item, _keys in candidates),
+            independent_candidate_columns=independent_candidates,
+        )
+        self._deferred_admission_cache = (*cache_key, analysis)
+        return analysis
+
+    def _row_group_admission_candidate_tasks(
+        self,
+        row_group: int,
+        row_group_size: int,
+    ) -> tuple[SchedulableTask, ...]:
+        tasks: list[SchedulableTask] = []
+        seen_generators: set[int] = set()
+        for column in self._graph.get_topological_order():
+            generator_id = id(self._generators[column])
+            if generator_id in seen_generators:
+                continue
+            seen_generators.add(generator_id)
+            strategy = self._graph.get_strategy(column)
+            if strategy == GenerationStrategy.CELL_BY_CELL:
+                if row_group_size <= 0:
+                    continue
+                task = Task(column=column, row_group=row_group, row_index=0, task_type="cell")
+            elif column in self._seed_cols:
+                task = Task(column=column, row_group=row_group, row_index=None, task_type="from_scratch")
+            else:
+                task = Task(column=column, row_group=row_group, row_index=None, task_type="batch")
+            tasks.append(self._schedulable_task(task))
+        return tuple(tasks)
+
+    def _localized_deferred_admission_keys(self, item: SchedulableTask) -> set[str]:
+        if item.request_resource_key is not None:
+            resource = item.request_resource_key
+            return {
+                f"request_resource:{_request_resource_label(resource)}",
+                f"scheduler_resource:{request_scheduler_resource_key(resource)}",
+            }
+        identity = "/".join(item.group.key.identity)
+        return {f"group:{item.group.key.kind}:{identity}"}
+
+    @staticmethod
+    def _is_localized_admission_resource(resource: str) -> bool:
+        return resource.startswith("request:")
+
+    def _is_resource_scoped_admission_candidate(self, item: SchedulableTask) -> bool:
+        return item.request_resource_key is not None or item.group.key.kind != "local"
+
+    def _task_output_columns(self, task: Task) -> tuple[str, ...]:
+        return self._task_flow_identity(task) or (task.column,)
+
+    def _task_depends_on_any(self, task: Task, blocked_columns: set[str]) -> bool:
+        return any(self._column_depends_on_any(column, blocked_columns) for column in self._task_output_columns(task))
+
+    def _task_reaches_any(self, task: Task, blocked_columns: set[str]) -> bool:
+        return any(self._column_reaches_any(column, blocked_columns) for column in self._task_output_columns(task))
+
+    def _column_depends_on_any(self, column: str, blocked_columns: set[str]) -> bool:
+        return bool(self._transitive_upstream_columns(column) & blocked_columns)
+
+    def _column_reaches_any(self, column: str, blocked_columns: set[str]) -> bool:
+        return bool(self._transitive_downstream_columns(column) & blocked_columns)
+
+    def _transitive_upstream_columns(self, column: str) -> frozenset[str]:
+        cached = self._transitive_upstream_cache.get(column)
+        if cached is not None:
+            return cached
+        result = self._walk_graph(column, upstream=True)
+        self._transitive_upstream_cache[column] = result
+        return result
+
+    def _transitive_downstream_columns(self, column: str) -> frozenset[str]:
+        cached = self._transitive_downstream_cache.get(column)
+        if cached is not None:
+            return cached
+        result = self._walk_graph(column, upstream=False)
+        self._transitive_downstream_cache[column] = result
+        return result
+
+    def _walk_graph(self, column: str, *, upstream: bool) -> frozenset[str]:
+        next_columns = self._graph.get_upstream_columns if upstream else self._graph.get_downstream_columns
+        to_visit = list(next_columns(column))
+        seen: set[str] = set()
+        while to_visit:
+            next_column = to_visit.pop()
+            if next_column in seen:
+                continue
+            seen.add(next_column)
+            to_visit.extend(next_columns(next_column))
+        return frozenset(seen)
+
+    def _deferred_admission_diagnostics(self) -> dict[str, object]:
+        deferred_items = tuple(self._schedulable_task(task) for task in self._deferred)
+        diagnostics: dict[str, object] = {
+            "count": len(self._deferred),
+            "scope": "localized" if self._deferred else "none",
+            "blocks_next_row_group": False,
+            "columns": dict(Counter(task.column for task in self._deferred)),
+            "request_resources": {},
+            "scheduler_resources": {},
+            "candidate_columns": (),
+            "independent_candidate_columns": (),
+        }
+        if not self._deferred:
+            return diagnostics
+        request_resource_counts = Counter(
+            label
+            for item in deferred_items
+            if (label := _request_resource_label(item.request_resource_key)) is not None
+        )
+        scheduler_resource_counts = Counter(
+            resource
+            for item in deferred_items
+            for resource in item.resource_request.amounts
+            if self._is_localized_admission_resource(resource)
+        )
+        diagnostics["request_resources"] = dict(request_resource_counts)
+        diagnostics["scheduler_resources"] = dict(scheduler_resource_counts)
+        next_row_group = self._next_unadmitted_row_group()
+        if next_row_group is None:
+            return diagnostics
+        analysis = self._deferred_admission_analysis(*next_row_group)
+        diagnostics["blocks_next_row_group"] = analysis.blocks
+        diagnostics["candidate_columns"] = analysis.candidate_columns
+        diagnostics["independent_candidate_columns"] = analysis.independent_candidate_columns
+        return diagnostics
 
     def _row_group_admission_diagnostics(self, *, reason: str) -> dict[str, object]:
         queue_view = self._fair_queue.view()
@@ -1002,42 +1203,48 @@ class AsyncTaskScheduler:
             "llm_wait_leased": task_view.leased_resources.get("llm_wait", 0),
             "llm_wait_available": task_view.resources_available.get("llm_wait", 0),
             "blocked_reasons": dict(self._row_group_admission_blocked_reasons),
+            "deferred_admission": self._deferred_admission_diagnostics(),
         }
 
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
         all_admitted = True
-        for rg_id, rg_size in self._row_groups:
-            await self._wait_for_row_group_admission_capacity(rg_size)
-            if self._early_shutdown or self._fatal_worker_error is not None:
-                all_admitted = False
-                break
-            await self._rg_semaphore.acquire()
-            if self._early_shutdown or self._fatal_worker_error is not None:
-                self._rg_semaphore.release()
-                all_admitted = False
-                break
-            if not self._row_group_row_guard_allows(rg_size):
-                self._rg_semaphore.release()
+        try:
+            for rg_id, rg_size in self._row_groups:
+                self._row_group_admission_pending = (rg_id, rg_size)
                 await self._wait_for_row_group_admission_capacity(rg_size)
+                if self._early_shutdown or self._fatal_worker_error is not None:
+                    all_admitted = False
+                    break
                 await self._rg_semaphore.acquire()
                 if self._early_shutdown or self._fatal_worker_error is not None:
                     self._rg_semaphore.release()
                     all_admitted = False
                     break
-            self._rg_states[rg_id] = _RowGroupState(size=rg_size)
+                if not self._row_group_row_guard_allows(rg_size):
+                    self._rg_semaphore.release()
+                    await self._wait_for_row_group_admission_capacity(rg_size)
+                    await self._rg_semaphore.acquire()
+                    if self._early_shutdown or self._fatal_worker_error is not None:
+                        self._rg_semaphore.release()
+                        all_admitted = False
+                        break
+                self._row_group_admission_pending = None
+                self._rg_states[rg_id] = _RowGroupState(size=rg_size)
 
-            if self._buffer_manager is not None:
-                self._buffer_manager.init_row_group(rg_id, rg_size)
+                if self._buffer_manager is not None:
+                    self._buffer_manager.init_row_group(rg_id, rg_size)
 
-            await self._dispatch_seeds(rg_id, rg_size)
-            self._emit_scheduler_event(
-                "row_group_admitted",
-                diagnostics=self._row_group_admission_diagnostics(reason="admitted")
-                | {"row_group": rg_id, "row_group_size": rg_size},
-            )
-            self._emit_scheduler_health_snapshot("row_group_admitted")
-            self._wake_event.set()
+                await self._dispatch_seeds(rg_id, rg_size)
+                self._emit_scheduler_event(
+                    "row_group_admitted",
+                    diagnostics=self._row_group_admission_diagnostics(reason="admitted")
+                    | {"row_group": rg_id, "row_group_size": rg_size},
+                )
+                self._emit_scheduler_health_snapshot("row_group_admitted")
+                self._wake_event.set()
+        finally:
+            self._row_group_admission_pending = None
         self._all_rgs_admitted = all_admitted
         self._wake_event.set()
 
@@ -1053,51 +1260,81 @@ class AsyncTaskScheduler:
         has_pre_batch = self._on_seeds_complete is not None
 
         num_rgs = len(self._row_groups)
+        self._run_loop = asyncio.get_running_loop()
+        outcome = "success"
+        error_type: str | None = None
 
-        with self._progress_bar or contextlib.nullcontext():
-            if self._reporter:
-                self._reporter.log_start(num_row_groups=num_rgs, scheduled_records=self._scheduled_records)
+        try:
+            with self._progress_bar or contextlib.nullcontext():
+                if self._reporter:
+                    self._reporter.log_start(num_row_groups=num_rgs, scheduled_records=self._scheduled_records)
 
-            self._emit_scheduler_event("scheduler_job_started", diagnostics=self._scheduler_job_diagnostics())
-            self._emit_scheduler_health_snapshot("start")
+                self._emit_scheduler_event("scheduler_job_started", diagnostics=self._scheduler_job_diagnostics())
+                self._emit_scheduler_health_snapshot("start")
 
-            # Launch admission as a background task so it interleaves with dispatch.
-            admission_task = asyncio.create_task(self._admit_row_groups())
+                # Launch admission as a background task so it interleaves with dispatch.
+                admission_task = asyncio.create_task(self._admit_row_groups())
 
-            try:
-                # Main dispatch loop
-                await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
-            finally:
-                # Always cancel admission + drain in-flight workers, regardless
-                # of how the dispatch loop exited (normal, early shutdown,
-                # CancelledError, or processor failure).
-                if not admission_task.done():
-                    admission_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await admission_task
-                await asyncio.shield(self._cancel_workers())
-                # Salvage partially-complete row groups left over from early
-                # shutdown. Must run AFTER _cancel_workers - in-flight tasks
-                # could otherwise write into a buffer that's being finalized.
-                if self._early_shutdown and self._rg_states:
-                    self._finalize_after_shutdown(all_columns)
+                try:
+                    # Main dispatch loop
+                    try:
+                        await self._main_dispatch_loop(seed_cols, has_pre_batch, all_columns)
+                    except asyncio.CancelledError:
+                        self.request_cancel()
+                        raise
+                finally:
+                    # Always cancel admission + drain in-flight workers, regardless
+                    # of how the dispatch loop exited (normal, early shutdown,
+                    # CancelledError, or processor failure).
+                    if not admission_task.done():
+                        admission_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await admission_task
+                    await asyncio.shield(self._cancel_workers())
+                    # Salvage partially-complete row groups left over from early
+                    # shutdown. Must run AFTER _cancel_workers - in-flight tasks
+                    # could otherwise write into a buffer that's being finalized.
+                    if self._early_shutdown and self._rg_states:
+                        self._finalize_after_shutdown(all_columns)
 
-            # Reached only on the clean-exit path; an exception in the
-            # dispatch loop or the finally block propagates and skips this.
-            if self._reporter:
-                self._reporter.log_final()
+                # Reached only on the clean-exit path; an exception in the
+                # dispatch loop or the finally block propagates and skips this.
+                if self._reporter:
+                    self._reporter.log_final()
 
-            self._emit_scheduler_health_snapshot("completed")
+                self._emit_scheduler_health_snapshot("completed")
+
+                if self._rg_states:
+                    incomplete = list(self._rg_states)
+                    logger.error(
+                        f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
+                        "These row groups were not checkpointed."
+                    )
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        except BaseException as exc:
+            outcome = "error"
+            error_type = type(exc).__name__
+            raise
+        finally:
+            self._run_loop = None
+            if outcome == "success" and self._early_shutdown:
+                outcome = "early_shutdown"
+            terminal_diagnostics: dict[str, object] = {"outcome": outcome}
+            if outcome in {"success", "early_shutdown"} and scheduler_event_sink_accepts(
+                self._scheduler_event_sink, "scheduler_job_completed"
+            ):
+                terminal_diagnostics = self._scheduler_health_diagnostics(reason="completed") | terminal_diagnostics
+            if error_type is not None:
+                terminal_diagnostics["error_type"] = error_type
             self._emit_scheduler_event(
-                "scheduler_job_completed", diagnostics=self._scheduler_health_diagnostics(reason="completed")
+                "scheduler_job_completed",
+                reason_or_result=outcome,
+                diagnostics=terminal_diagnostics,
             )
-
-            if self._rg_states:
-                incomplete = list(self._rg_states)
-                logger.error(
-                    f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
-                    "These row groups were not checkpointed."
-                )
+            if self._reporter:
+                self._reporter.close()
 
     async def _main_dispatch_loop(
         self,
@@ -1107,6 +1344,8 @@ class AsyncTaskScheduler:
     ) -> None:
         """Core dispatch loop extracted from ``run()``."""
         while True:
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
             if self._early_shutdown:
                 logger.warning("Early shutdown triggered - non-retryable error rate exceeded threshold")
@@ -1119,6 +1358,8 @@ class AsyncTaskScheduler:
                 break
 
             self._wake_event.clear()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
 
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
@@ -1205,6 +1446,8 @@ class AsyncTaskScheduler:
     async def _drain_frontier(self, seed_cols: tuple[str, ...], has_pre_batch: bool) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
             if has_pre_batch:
                 self._run_seeds_complete_check(seed_cols)
@@ -1221,7 +1464,11 @@ class AsyncTaskScheduler:
             if not self._in_flight:
                 continue
             self._wake_event.clear()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             await self._wake_event.wait()
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
             self._raise_if_fatal_worker_error()
 
     async def _salvage_stalled_row_groups(
@@ -1590,6 +1837,7 @@ class AsyncTaskScheduler:
         """Core task execution logic."""
         num_rgs = len(self._row_groups)
         token = current_row_group.set((task.row_group, num_rgs))
+        cancel_token = current_run_cancel_event.set(self._cancel_requested)
         start_offset_token = current_row_group_start_offset.set(self._get_rg_start_offset(task.row_group))
         group = lease.item.group
         identity_hash = hashlib.sha1("\0".join(group.key.identity).encode()).hexdigest()[:16]
@@ -1608,6 +1856,7 @@ class AsyncTaskScheduler:
             await self._execute_task_inner_impl(task, lease, task_execution_id)
         finally:
             runtime_correlation_provider.reset(correlation_token)
+            current_run_cancel_event.reset(cancel_token)
             current_row_group_start_offset.reset(start_offset_token)
             current_row_group.reset(token)
 

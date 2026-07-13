@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 DEVNOTES_SECTION_RE = re.compile(r"^  - section:\s+Dev Notes\s*$")
+RECIPES_SECTION_RE = re.compile(r"^  - section:\s+Recipes\s*$")
 RETIRED_REFERENCE_SECTION_RE = re.compile(r"^  - section:\s+" + re.escape("Code " + "Reference") + r"\s*$")
 RETIRED_REFERENCE_DIR = "code" + "_reference"
 NAV_PATH_RE = re.compile(r"^(\s*path:\s+)\./([^#\s]+)(.*)$")
@@ -46,9 +47,12 @@ FERN_DEVNOTE_SUPPORT_PATHS = [
     "fern/components/Authors.tsx",
     "fern/components/BlogCard.tsx",
     "fern/components/Figure.tsx",
+    "fern/components/ImageExample.tsx",
+    "fern/components/ImageExampleGallery.tsx",
     "fern/components/MetricsTable.tsx",
     "fern/components/TrajectoryViewer.tsx",
     "fern/components/devnotes",
+    "fern/versions/latest/pages/recipes",
 ]
 RETIRED_REFERENCE_CLEAN_PAGE_PATHS = [
     "concepts/columns.mdx",
@@ -408,6 +412,8 @@ def patch_devnotes(args: argparse.Namespace) -> int:
 
     source_block = extract_devnotes_block(source_nav)
     replace_devnotes_block(target_nav, rewrite_devnotes_block(source_root, published_root, source_block))
+    recipes_block = extract_navigation_section(source_nav, RECIPES_SECTION_RE)
+    replace_navigation_section(target_nav, RECIPES_SECTION_RE, recipes_block)
     write_publish_metadata(published_root, args, "devnotes-patch")
     return 0
 

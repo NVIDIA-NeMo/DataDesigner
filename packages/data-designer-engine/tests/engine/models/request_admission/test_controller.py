@@ -25,7 +25,8 @@ from data_designer.engine.models.request_admission.resources import (
     RequestGroupSpec,
     RequestResourceKey,
 )
-from data_designer.engine.observability import InMemoryAdmissionEventSink
+from data_designer.engine.observability import RequestAdmissionEventKind, subscribe_request_admission_events
+from data_designer.engine.testing import InMemoryAdmissionEventSink
 
 
 def _item(domain: RequestDomain = RequestDomain.CHAT, timeout: float | None = None) -> RequestAdmissionItem:
@@ -46,6 +47,11 @@ def _controller(cap: int = 2, config: RequestAdmissionConfig | None = None) -> A
 class _BrokenRequestSink:
     def emit_request_event(self, _event: object) -> None:
         raise RuntimeError("sink boom")
+
+
+class _RejectingRequestSink(InMemoryAdmissionEventSink):
+    def accepts_request_event(self, _event_kind: RequestAdmissionEventKind) -> bool:
+        return False
 
 
 def test_request_admission_acquires_and_releases_lease() -> None:
@@ -139,6 +145,30 @@ def test_request_admission_rate_limit_decreases_and_sets_cooldown() -> None:
     assert snapshot is not None
     assert snapshot.current_limit == 2
     assert snapshot.cooldown_remaining_seconds > 0
+
+
+def test_request_admission_broadcasts_global_feedback_events() -> None:
+    events = []
+    unsubscribe = subscribe_request_admission_events(events.append)
+    try:
+        controller = _controller(
+            cap=4,
+            config=RequestAdmissionConfig(
+                multiplicative_decrease_factor=0.5,
+                cooldown_seconds=10,
+            ),
+        )
+        item = _item()
+        lease = controller.try_acquire(item)
+        assert isinstance(lease, RequestAdmissionLease)
+
+        controller.release(lease, RequestReleaseOutcome(kind="rate_limited"))
+    finally:
+        unsubscribe()
+
+    event_kinds = {event.event_kind for event in events}
+    assert "request_rate_limited" in event_kinds
+    assert "request_limit_decreased" in event_kinds
 
 
 def test_request_admission_rate_limit_burst_decreases_once_per_cascade() -> None:
@@ -323,6 +353,15 @@ def test_request_admission_logs_sink_failures(caplog: pytest.LogCaptureFixture) 
     controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
 
     assert "Request admission event sink raised; dropping event." in caplog.text
+
+
+def test_request_admission_honors_sink_interest_filter() -> None:
+    sink = _RejectingRequestSink()
+    controller = AdaptiveRequestAdmissionController(event_sink=sink)
+
+    controller.register(provider_name="nvidia", model_id="nemotron", alias="default", max_parallel_requests=1)
+
+    assert sink.request_events == []
 
 
 def test_request_lease_released_event_records_release_outcome() -> None:

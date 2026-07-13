@@ -88,6 +88,8 @@ Metadata writes are atomic (`tmp` file + `fsync` + `os.replace`) because `metada
 
 `DatasetCreationResults` from a resume invocation reflects the full on-disk dataset for anything that reads the artifact directory (`load_dataset`, `count_records`, `load_analysis`, `export`, `push_to_hub`), but per-run observability (`task_traces`, model-usage logs, telemetry events) is scoped to the current invocation — the original run's in-memory state is not persisted across process boundaries.
 
+When `RunConfig.write_scheduler_events` is enabled, each invocation also appends its scheduler event segment to `scheduler_events.jsonl` in the dataset directory.
+
 ## Data Flow
 
 ```
@@ -105,7 +107,7 @@ DatasetBuilder.build()
   → collect TaskTraces, emit telemetry
 ```
 
-Row-group admission is fixed by default in the dataset-builder path: the configured row-group concurrency is the hard in-flight cap. The scheduler also has an internal adaptive row-group mode for direct use that only raises a soft target up to that cap; it is additive ramp-up, not AIMD shrink/recovery behavior.
+Dataset-builder row-group admission is fixed: `RunConfig.max_concurrent_row_groups` (default `3`) is the hard in-flight cap. `buffer_size` controls the records per group, so raising the cap can increase active memory. The scheduler's adaptive row-group mode remains internal and is not wired through the public interface.
 
 When request admission is available, async scheduling may use request-pressure snapshots as a read-only advisory during fair-queue selection. A request-pressured task can be skipped for an eligible peer without mutating request-admission state; provider/model/domain request limits remain owned by request admission.
 
