@@ -29,7 +29,7 @@ TaskAdmissionDenyReason = Literal[
     "shutdown",
     "policy_denial",
 ]
-# ponytail: a future peer can take the next released slot; do not reserve idle capacity.
+# A future peer can take the next released slot; do not reserve idle capacity.
 DEFAULT_DYNAMIC_BORROW_RESERVE_FRACTION = 0.0
 DEFAULT_DYNAMIC_BORROW_MAX_RESERVED_SLOTS = 8
 
