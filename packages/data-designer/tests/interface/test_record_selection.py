@@ -163,6 +163,37 @@ def test_create_returns_schema_bearing_empty_partial_and_skips_profiling(tmp_pat
     assert rebuilt.load_dataset().columns.tolist() == ["value"]
 
 
+def test_create_profiles_non_empty_partial_against_requested_target(tmp_path) -> None:
+    designer = _designer(tmp_path)
+    builder = DataDesignerConfigBuilder().with_seed_dataset(
+        DataFrameSeedSource(df=lazy.pd.DataFrame({"ordinal": [0, 1, 2]}))
+    )
+    builder.add_column(ExpressionColumnConfig(name="ordinal_copy", expr="{{ ordinal }}", dtype="int"))
+    builder.add_column(
+        ExpressionColumnConfig(
+            name="keep",
+            expr="{{ ordinal_copy == 0 }}",
+            dtype="bool",
+            drop=True,
+        )
+    )
+    builder.with_record_selection(
+        RecordSelectionConfig(
+            predicate_column="keep",
+            max_candidate_records=3,
+            on_exhausted=RecordSelectionExhaustion.RETURN_PARTIAL,
+        )
+    )
+
+    results = designer.create(builder, num_records=2)
+
+    analysis = results.load_analysis()
+    assert analysis is not None
+    assert analysis.num_records == 1
+    assert analysis.target_num_records == 2
+    assert analysis.percent_complete == pytest.approx(50.0)
+
+
 def test_create_raises_structured_exhaustion_error(tmp_path) -> None:
     designer = _designer(tmp_path)
     with pytest.raises(DataDesignerRecordSelectionExhaustedError) as exc_info:

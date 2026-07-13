@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi
-from huggingface_hub.errors import HFValidationError
+from huggingface_hub.errors import HFValidationError, RemoteEntryNotFoundError
 from huggingface_hub.utils import HfHubHTTPError, validate_repo_id
 
 from data_designer.config.utils.constants import HUGGINGFACE_HUB_DATASET_URL_PREFIX
@@ -246,9 +246,18 @@ class HuggingFaceHubClient:
                 filename=METADATA_FILENAME,
                 repo_type="dataset",
             )
-            metadata = json.loads(Path(metadata_path).read_text(encoding="utf-8"))
-        except Exception:
+        except RemoteEntryNotFoundError:
             return set()
+        except Exception as exc:
+            raise HuggingFaceHubClientUploadError(f"Failed to download existing Hub metadata: {exc}") from exc
+
+        try:
+            metadata = json.loads(Path(metadata_path).read_text(encoding="utf-8"))
+            if not isinstance(metadata, dict):
+                raise ValueError(f"{METADATA_FILENAME} must contain a JSON object")
+        except Exception as exc:
+            raise HuggingFaceHubClientUploadError(f"Failed to read existing Hub metadata: {exc}") from exc
+
         prefixes = self._managed_hub_prefixes(metadata)
         if prefixes:
             return prefixes

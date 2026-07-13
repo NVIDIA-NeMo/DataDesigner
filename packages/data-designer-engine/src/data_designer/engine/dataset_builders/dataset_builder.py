@@ -973,7 +973,16 @@ class DatasetBuilder:
                 batch=batch,
                 failed_generation_records=rg_size - len(dataframe),
             )
-            return dataframe.iloc[list(decision.accepted_indices)].reset_index(drop=True)
+            selected = dataframe.iloc[list(decision.accepted_indices)].reset_index(drop=True)
+            if media_staged:
+                # Commit accepted media before post-batch processors run. Processors may
+                # persist transformed or dropped-column side artifacts, and every such
+                # artifact must contain the same durable paths as the accepted partition.
+                selected = self.artifact_storage.promote_selection_media(
+                    selected,
+                    batch.candidate_batch_id,
+                )
+            return selected
 
         def finalize_row_group(rg_id: int) -> None:
             if buffer_manager is None or decision is None:
@@ -984,11 +993,6 @@ class DatasetBuilder:
                     raise DatasetGenerationError(
                         "🛑 Post-batch processing changed the selected row count from "
                         f"{decision.accepted_records} to {len(dataframe)}."
-                    )
-                if media_staged:
-                    dataframe = self.artifact_storage.promote_selection_media(
-                        dataframe,
-                        batch.candidate_batch_id,
                     )
                 if not self.artifact_storage.selection_schema_path.exists():
                     self.artifact_storage.write_selection_schema(dataframe)

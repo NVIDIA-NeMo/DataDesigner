@@ -3,11 +3,10 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
-
 from pydantic import Field, field_validator
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.utils.type_helpers import StrEnum
 
 
 class RecordSelectionExhaustion(StrEnum):

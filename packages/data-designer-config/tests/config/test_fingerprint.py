@@ -203,6 +203,14 @@ def test_adding_record_selection_changes_hash() -> None:
     assert _compute_hash(a) != _compute_hash(b)
 
 
+def test_absent_record_selection_preserves_legacy_v2_hash() -> None:
+    config = _make_minimal_config()
+
+    assert CONFIG_HASH_VERSION == 2
+    assert config.record_selection is None
+    assert _compute_hash(config) == "sha256:b21a98e06ea3c84c8fac9fe5231e68b0bfcffe03283952b03e807baba17139dc"
+
+
 @pytest.mark.parametrize(
     "record_selection",
     [
