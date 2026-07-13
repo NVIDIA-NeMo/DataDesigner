@@ -295,3 +295,47 @@ def test_from_metadata_uses_authoritative_empty_partial_count_and_selection_summ
     assert "**📈 Records**: 0" in card_text
     assert "candidate budget exhausted" in card_text
     assert "20 / 20" in card_text
+
+
+def test_from_metadata_uses_authoritative_nonempty_partial_selection_count(stub_metadata: dict) -> None:
+    stub_metadata.update(
+        {
+            "actual_num_records": 40,
+            "record_selection": {
+                "candidate_records_generated": 200,
+                "max_candidate_records": 200,
+                "accepted_records": 40,
+                "acceptance_rate": 0.2,
+                "selection_satisfied": False,
+                "selection_exhausted": True,
+                "on_exhausted": "return_partial",
+            },
+        }
+    )
+
+    card = DataDesignerDatasetCard.from_metadata(
+        metadata=stub_metadata,
+        builder_config=None,
+        repo_id="test/nonempty-partial",
+        description="Non-empty partial selection output.",
+    )
+
+    card_text = str(card)
+    assert "**📈 Records**: 40" in card_text
+    assert "40.0%" in card_text
+
+
+def test_from_metadata_uses_profiled_count_for_ordinary_processed_dataset(stub_metadata: dict) -> None:
+    stub_metadata["actual_num_records"] = 100
+    stub_metadata["column_statistics"][0]["num_records"] = 40
+
+    card = DataDesignerDatasetCard.from_metadata(
+        metadata=stub_metadata,
+        builder_config=None,
+        repo_id="test/ordinary-processed",
+        description="Ordinary processed output.",
+    )
+
+    card_text = str(card)
+    assert "**📈 Records**: 40" in card_text
+    assert "40.0%" in card_text

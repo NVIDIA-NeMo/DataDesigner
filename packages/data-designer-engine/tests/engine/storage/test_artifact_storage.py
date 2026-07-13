@@ -573,6 +573,58 @@ def test_selection_media_staging_promotes_only_referenced_files(stub_artifact_st
     ).exists()
 
 
+def test_selection_media_promotion_rewrites_duplicate_references(stub_artifact_storage) -> None:
+    stub_artifact_storage.begin_selection_media_batch(3)
+    staging = stub_artifact_storage.selection_media_staging_path / "batch_00003" / "images" / "picture"
+    staging.mkdir(parents=True)
+    (staging / "shared.png").write_bytes(b"shared")
+
+    promoted = stub_artifact_storage.promote_selection_media(
+        lazy.pd.DataFrame(
+            {
+                "primary": ["images/picture/shared.png"],
+                "references": [["images/picture/shared.png", {"copy": "images/picture/shared.png"}]],
+            }
+        ),
+        3,
+    )
+
+    expected = "images/selection_batch_00003/picture/shared.png"
+    assert promoted.loc[0, "primary"] == expected
+    assert promoted.loc[0, "references"] == [expected, {"copy": expected}]
+    assert (stub_artifact_storage.base_dataset_path / expected).read_bytes() == b"shared"
+
+
+def test_clean_uncommitted_selection_batch_removes_promoted_media_and_side_artifacts(
+    stub_artifact_storage, stub_sample_dataframe
+) -> None:
+    stub_artifact_storage.begin_selection_media_batch(5)
+    staging = stub_artifact_storage.selection_media_staging_path / "batch_00005" / "images" / "picture"
+    staging.mkdir(parents=True)
+    (staging / "accepted.png").write_bytes(b"accepted")
+    promoted = stub_artifact_storage.promote_selection_media(
+        lazy.pd.DataFrame({"image": ["images/picture/accepted.png"]}),
+        5,
+    )
+    stub_artifact_storage.write_batch_to_parquet_file(
+        5,
+        stub_sample_dataframe,
+        BatchStage.DROPPED_COLUMNS,
+    )
+    stub_artifact_storage.write_batch_to_parquet_file(
+        5,
+        stub_sample_dataframe,
+        BatchStage.PROCESSORS_OUTPUTS,
+        subfolder="schema",
+    )
+
+    stub_artifact_storage.clean_uncommitted_selection_batch(5)
+
+    assert not (stub_artifact_storage.base_dataset_path / promoted.loc[0, "image"]).exists()
+    assert not (stub_artifact_storage.dropped_columns_dataset_path / "batch_00005.parquet").exists()
+    assert not (stub_artifact_storage.processors_outputs_path / "schema" / "batch_00005.parquet").exists()
+
+
 def test_selection_media_promotion_does_not_follow_path_traversal(stub_artifact_storage) -> None:
     stub_artifact_storage.begin_selection_media_batch(4)
     outside = stub_artifact_storage.selection_media_staging_path / "sensitive.png"

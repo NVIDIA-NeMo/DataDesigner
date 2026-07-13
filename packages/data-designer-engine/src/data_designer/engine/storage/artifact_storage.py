@@ -354,9 +354,12 @@ class ArtifactStorage(BaseModel):
         staging = self.selection_media_staging_path / f"batch_{candidate_batch_id:05d}"
         committed_relative_prefix = Path("images") / f"selection_batch_{candidate_batch_id:05d}"
         committed_prefix = self.base_dataset_path / committed_relative_prefix
+        promoted_paths: dict[str, str] = {}
 
         def promote(value: Any) -> Any:
             if isinstance(value, str) and value.startswith(f"{self._media_storage.images_subdir}/"):
+                if value in promoted_paths:
+                    return promoted_paths[value]
                 source = staging / value
                 try:
                     source.resolve().relative_to(staging.resolve())
@@ -372,7 +375,9 @@ class ArtifactStorage(BaseModel):
                     return value
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(source, destination)
-                return (committed_relative_prefix / relative_tail).as_posix()
+                promoted_path = (committed_relative_prefix / relative_tail).as_posix()
+                promoted_paths[value] = promoted_path
+                return promoted_path
             if isinstance(value, list):
                 return [promote(item) for item in value]
             if isinstance(value, tuple):

@@ -327,7 +327,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 max_candidate_records=e.max_candidate_records,
             ) from e
         except Exception as e:
-            if builder.early_shutdown is True:
+            if builder.data_designer_config.record_selection is not None and builder.early_shutdown is True:
                 raise DataDesignerEarlyShutdownError(
                     "🛑 Record selection stopped after the scheduler triggered early shutdown. "
                     "Committed accepted batches can be continued with resume=ResumeMode.ALWAYS."
@@ -395,12 +395,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     resource_provider,
                     column_configs=profiler_column_configs,
                 )
-                profile_num_records = (
-                    len(dataset_for_profiler)
-                    if builder.data_designer_config.record_selection is not None
-                    else num_records
-                )
-                analysis = profiler.profile_dataset(profile_num_records, dataset_for_profiler)
+                analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
             except Exception as e:
                 raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
 

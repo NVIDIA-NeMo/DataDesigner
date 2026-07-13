@@ -54,8 +54,8 @@ if the final candidate batch contains more passing rows than needed, Data Design
 
 <Warning>
   Candidate generation can invoke models for rows that are later rejected. Set `max_candidate_records` to a strict
-  positive integer that reflects your cost limit. Booleans, floats, and numeric strings are rejected instead of
-  being coerced into a budget.
+  positive integer that is greater than or equal to `num_records` and reflects your cost limit. Booleans, floats,
+  and numeric strings are rejected instead of being coerced into a budget.
 </Warning>
 
 ## Predicate behavior

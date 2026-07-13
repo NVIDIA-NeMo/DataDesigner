@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from huggingface_hub.errors import RemoteEntryNotFoundError
 from huggingface_hub.utils import HfHubHTTPError
 
 from data_designer.integrations.huggingface.client import HuggingFaceHubClient, HuggingFaceHubClientUploadError
@@ -558,6 +559,43 @@ def test_record_selection_upload_atomically_replaces_managed_hub_files(
         "README.md",
     } <= added
     mock_hf_api.upload_folder.assert_not_called()
+
+
+def test_load_remote_managed_prefixes_tolerates_missing_metadata(mock_hf_api: MagicMock) -> None:
+    mock_hf_api.hf_hub_download.side_effect = RemoteEntryNotFoundError(
+        "metadata not found",
+        response=MagicMock(),
+    )
+
+    client = HuggingFaceHubClient(token="test-token")
+
+    assert client._load_remote_managed_prefixes("test/new-or-legacy") == set()
+
+
+def test_load_remote_managed_prefixes_surfaces_download_failure(mock_hf_api: MagicMock) -> None:
+    mock_hf_api.hf_hub_download.side_effect = RuntimeError("service unavailable")
+
+    client = HuggingFaceHubClient(token="test-token")
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Failed to download existing Hub metadata"):
+        client._load_remote_managed_prefixes("test/dataset")
+
+
+@pytest.mark.parametrize("remote_contents", ["not-json", "[]", None])
+def test_load_remote_managed_prefixes_surfaces_read_failure(
+    mock_hf_api: MagicMock,
+    tmp_path: Path,
+    remote_contents: str | None,
+) -> None:
+    remote_metadata = tmp_path / "remote-metadata.json"
+    if remote_contents is not None:
+        remote_metadata.write_text(remote_contents)
+    mock_hf_api.hf_hub_download.return_value = str(remote_metadata)
+
+    client = HuggingFaceHubClient(token="test-token")
+
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Failed to read existing Hub metadata"):
+        client._load_remote_managed_prefixes("test/dataset")
 
 
 def test_upload_dataset_uploads_images_folder(
