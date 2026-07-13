@@ -779,7 +779,9 @@ On resume:
 ```mermaid
 stateDiagram-v2
     [*] --> LoadConfig
-    LoadConfig --> Fresh: no checkpoints or resume=NEVER
+    LoadConfig --> AllocateFreshArtifact: resume=NEVER
+    AllocateFreshArtifact --> Fresh: choose empty requested path or new timestamped sibling
+    LoadConfig --> Fresh: no checkpoints
     LoadConfig --> Reconstruct: checkpoints exist and config, buffer, target match
     LoadConfig --> Incompatible: config, buffer, or target mismatch with resume=ALWAYS
     LoadConfig --> ResetForFresh: config, buffer, or target mismatch with resume=IF_POSSIBLE
@@ -807,6 +809,11 @@ stateDiagram-v2
 
 Selection resume inputs include the data-config fingerprint, persisted `run_buffer_size`, and persisted
 `target_num_records`. The target must remain unchanged in v1; both smaller and larger values are incompatible.
+`ResumeMode.NEVER` follows the existing `ArtifactStorage` contract: it never overwrites a non-empty requested dataset
+directory. It resolves a new timestamped sibling and scopes all checkpoint discovery to that new artifact directory;
+an empty requested directory contains no stale markers to reconstruct. Therefore a fresh `NEVER` run cannot combine
+its markers with markers from an earlier run.
+
 `IF_POSSIBLE` fallback must be visible in logs and must clear checkpoints, immutable accepted partitions, published
 output, processor outputs, and staged or committed candidate media before fresh generation starts; it must never
 silently combine incompatible runs.
