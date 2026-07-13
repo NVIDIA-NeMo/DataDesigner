@@ -1853,15 +1853,14 @@ def test_build_async_resume_already_complete_does_not_run_after_generation_proce
     mock_after.assert_not_called()
 
 
-def test_find_completed_row_groups_used_for_initial_total_batches(
+def test_resume_already_complete_refreshes_metadata_from_filesystem(
     stub_resource_provider, stub_test_config_builder, tmp_path
 ):
-    """initial_total_num_batches uses filesystem count, not metadata count.
+    """An already-complete resume refreshes progress metadata from disk.
 
     Simulates the crash window: 2 parquet files exist on disk but metadata still
     records num_completed_batches=1 (write_metadata crashed after the second
     row group was moved to parquet-files/ but before metadata was updated).
-    Verifies that _find_completed_row_groups() (= 2) is used, not metadata (= 1).
     """
     dataset_dir = tmp_path / "dataset"
     # Metadata lags — says only 1 batch completed
@@ -1875,8 +1874,14 @@ def test_find_completed_row_groups_used_for_initial_total_batches(
         with patch.object(builder._processor_runner, "run_after_generation") as mock_after:
             builder.build(num_records=4, resume=ResumeMode.ALWAYS)
 
-    # Already complete based on filesystem count (2 files ≥ 2 row groups) — no generation needed
     mock_after.assert_not_called()
+    metadata = builder.artifact_storage.read_metadata()
+    assert metadata["actual_num_records"] == 4
+    assert metadata["num_completed_batches"] == metadata["total_num_batches"] == 2
+    assert metadata["file_paths"]["parquet-files"] == [
+        "parquet-files/batch_00000.parquet",
+        "parquet-files/batch_00001.parquet",
+    ]
 
 
 def test_initial_actual_num_records_from_filesystem_in_crash_window(

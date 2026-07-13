@@ -456,7 +456,7 @@ class DatasetBuilder:
         the source of truth for run *progress* (``num_completed_batches``,
         ``actual_num_records``). Splitting the two sources is what lets resume
         survive a crash between writing a batch and updating metadata: the
-        filesystem reflects the durable state even when metadata lags by a step.
+        filesystem reflects the durable state even when metadata lags behind.
 
         ``num_records`` must be >= the number of records already on disk (you may
         extend a dataset, but cannot shrink it below what has been written).
@@ -767,7 +767,7 @@ class DatasetBuilder:
             state = self._load_resume_state(num_records, buffer_size)
             # _load_resume_state already scans the filesystem for completed row groups
             # and exposes them via state.completed_row_groups. The filesystem is the
-            # source of truth for progress (metadata may lag by one row group between
+            # source of truth for progress (metadata may lag between
             # move_partial_result_to_final_file_path and write_metadata).
             completed_row_groups = state.completed_row_groups
             completed_ids = set(completed_row_groups)
@@ -788,6 +788,14 @@ class DatasetBuilder:
             remaining_row_group_count = len(resume_plan.remaining_row_groups)
             completed_row_group_count = resume_plan.total_row_groups - remaining_row_group_count
             if remaining_row_group_count == 0:
+                self.artifact_storage.update_metadata(
+                    {
+                        "actual_num_records": state.actual_num_records,
+                        "total_num_batches": state.num_completed_batches,
+                        "file_paths": self.artifact_storage.get_file_paths(),
+                        "num_completed_batches": state.num_completed_batches,
+                    }
+                )
                 logger.warning(
                     "⚠️ Dataset is already complete — all row groups were found in the existing artifact "
                     "directory. Nothing to resume. Use resume=ResumeMode.NEVER if you want to generate a new dataset."
