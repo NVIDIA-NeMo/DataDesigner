@@ -13,7 +13,7 @@ Call `configure_logging()` before constructing `DataDesigner` to select a built-
 
 ```python
 from data_designer.interface import DataDesigner
-from data_designer.logging import LoggingConfig, configure_logging
+from data_designer.logging import LoggingConfig, configure_logging, is_logging_configured
 
 configure_logging(LoggingConfig.debug())
 data_designer = DataDesigner()
