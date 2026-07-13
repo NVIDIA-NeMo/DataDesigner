@@ -48,7 +48,7 @@ docs = [
 ]
 notebooks = [
     "aiohttp>=3.14.1,<4", # 3.14.1 fixes aiohttp security advisories
-    "bleach>=6.4.0,<7", # 6.4.0 security fix; EOL, track removal at jupyter/nbconvert#2289
+    "bleach>=6.4.0,<7", # EOL with no patched release; nbconvert removal tracked at jupyter/nbconvert#2289
     "datasets>=4.0.0,<5",
     "ipykernel>=6.29.0,<7",
     "jupyter>=1.0.0,<2",
