@@ -22,12 +22,17 @@ The run writes generated images, exported stage parquet files, the simulated rev
 
 ## Workflow Pattern
 
-The important part is the boundary contract. The downstream workflow does not care whether `review_candidates` came from the original detector, a dashboard, a script, or another service. It only consumes the selected stage output.
+The important part is the boundary contract. The downstream workflow does not care whether `review_candidates` came from the original detector, a dashboard, a script, or another service. It only consumes the selected stage output. This excerpt uses the setup and path helpers defined in the complete recipe.
 
 ```python
+from pathlib import Path
+
 import data_designer.config as dd
 
+base_dir = Path("./workflow-artifacts")
+workflow = build_workflow(base_dir)
 results = workflow.run(targets="review_candidates")
+review_path = review_candidates_path(base_dir)
 results.export_stage("review_candidates", review_path)
 
 reviewed_path = write_simulated_review_artifact(base_dir)

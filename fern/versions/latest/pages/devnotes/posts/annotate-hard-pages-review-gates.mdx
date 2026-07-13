@@ -27,6 +27,10 @@ The new part is the boundary. Because the boundary has a name, you can stop ther
 
 ```python
 import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+data_designer = DataDesigner()
+# Each stage builder is an ordinary dd.DataDesignerConfigBuilder configured for its task.
 
 workflow = data_designer.compose_workflow(name="quality-gated-candidates")
 workflow.add_stage("draft_rows", draft_rows_builder, num_records=1_000)
