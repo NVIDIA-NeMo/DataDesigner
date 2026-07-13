@@ -41,6 +41,8 @@ navigation:
         path: ./latest/pages/concepts/person_sampling.mdx
       - page: Traces
         path: ./latest/pages/concepts/traces.mdx
+      - page: Logging
+        path: ./latest/pages/concepts/logging.mdx
       - section: Tool Use & MCP
         contents:
           - page: Overview
